@@ -3,8 +3,11 @@ import whisperx
 import torch
 import json
 import os
+import re
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from difflib import SequenceMatcher
+from typing import List, Dict, Set, Tuple, Optional, Any
 
 # Streamlitの設定
 st.set_page_config(
@@ -126,6 +129,155 @@ def transcribe_audio(video_path, model_size, device):
         st.error(f"文字起こし中にエラーが発生しました: {str(e)}")
         return None
 
+def normalize_text(text: str) -> str:
+    """テキストを正規化（空白の統一など）"""
+    # 全角スペースを半角に変換
+    text = text.replace('　', ' ')
+    # 連続する空白を1つに
+    text = re.sub(r'\s+', ' ', text)
+    # 前後の空白を削除
+    return text.strip()
+
+def remove_spaces(text: str) -> str:
+    """テキストから空白を除去"""
+    return re.sub(r'\s+', '', text)
+
+def get_word_positions(text: str) -> List[Tuple[int, int, str]]:
+    """テキスト内の各単語の位置を取得"""
+    positions = []
+    current_pos = 0
+    words = text.split()
+    
+    for word in words:
+        pos = text.find(word, current_pos)
+        if pos != -1:
+            positions.append((pos, pos + len(word), word))
+            current_pos = pos + len(word)
+    
+    return positions
+
+def find_text_positions(original_text: str, edited_text: str) -> List[tuple[int, int, str]]:
+    """
+    編集後のテキストが元のテキストのどの部分から来ているかを特定
+    
+    Returns:
+        List[tuple[int, int, str]]: [(開始位置, 終了位置, テキスト), ...]
+    """
+    positions = []
+    
+    # テキストを正規化
+    original_text = normalize_text(original_text)
+    edited_text = normalize_text(edited_text)
+    
+    # 空白を除去したテキストを準備
+    original_no_spaces = remove_spaces(original_text)
+    edited_no_spaces = remove_spaces(edited_text)
+    
+    # 編集後のテキストを文字単位で分割
+    edited_chars = list(edited_no_spaces)
+    
+    # 連続した文字のグループを作成
+    char_groups = []
+    current_group = []
+    
+    for char in edited_chars:
+        current_group.append(char)
+        # 区切り文字で終わる文字の場合、グループを確定
+        if any(char in ['。', '、', '！', '？', '．', '，']):
+            char_groups.append(''.join(current_group))
+            current_group = []
+    
+    # 残りの文字をグループに追加
+    if current_group:
+        char_groups.append(''.join(current_group))
+    
+    # 各グループを検索
+    current_pos = 0
+    for group in char_groups:
+        # グループ全体を検索
+        group_pos = original_no_spaces.find(group, current_pos)
+        if group_pos != -1:
+            # 元のテキストでの位置を計算
+            original_pos = 0
+            no_spaces_pos = 0
+            while no_spaces_pos < group_pos:
+                if not original_text[original_pos].isspace():
+                    no_spaces_pos += 1
+                original_pos += 1
+            
+            # グループの長さを計算（空白を考慮）
+            group_length = 0
+            for char in group:
+                while original_pos + group_length < len(original_text) and original_text[original_pos + group_length].isspace():
+                    group_length += 1
+                group_length += 1
+            
+            positions.append((original_pos, original_pos + group_length, group))
+            current_pos = group_pos + len(group)
+    
+    # 位置でソート
+    positions.sort(key=lambda x: x[0])
+    
+    # 重複を除去（同じ位置の場合は長い方を残す）
+    unique_positions = []
+    for pos in positions:
+        if not unique_positions or pos[0] > unique_positions[-1][1]:
+            unique_positions.append(pos)
+        elif pos[1] - pos[0] > unique_positions[-1][1] - unique_positions[-1][0]:
+            unique_positions[-1] = pos
+    
+    return unique_positions
+
+def highlight_differences(original_text: str, edited_text: str) -> tuple[str, List[tuple[int, int, str]], Set[str]]:
+    """difffのような差分表示を生成"""
+    # テキストを正規化
+    original_text = normalize_text(original_text)
+    edited_text = normalize_text(edited_text)
+    
+    # 空白を除去したテキストで差分を計算
+    original_no_spaces = remove_spaces(original_text)
+    edited_no_spaces = remove_spaces(edited_text)
+    
+    # 差分を計算
+    matcher = SequenceMatcher(None, original_no_spaces, edited_no_spaces)
+    highlighted_text = ""
+    common_positions = []
+    new_words = set()
+    
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag == 'equal':
+            # 元のテキストでの位置を計算
+            original_pos = 0
+            no_spaces_pos = 0
+            while no_spaces_pos < i1:
+                if not original_text[original_pos].isspace():
+                    no_spaces_pos += 1
+                original_pos += 1
+            
+            # 長さを計算（空白を考慮）
+            length = 0
+            no_spaces_count = 0
+            while no_spaces_count < (i2 - i1):
+                if not original_text[original_pos + length].isspace():
+                    no_spaces_count += 1
+                length += 1
+            
+            highlighted_text += f"<span style='background-color: #fff9c4;'>{original_text[original_pos:original_pos+length]}</span>"
+            common_positions.append((original_pos, original_pos + length, original_text[original_pos:original_pos+length]))
+        elif tag == 'delete':
+            highlighted_text += original_text[i1:i2]
+        elif tag == 'insert':
+            highlighted_text += f"<span style='background-color: #ffcdd2;'>{edited_text[j1:j2]}</span>"
+            # 追加された部分の文字を収集（スペースを除く）
+            new_words.update(c for c in edited_text[j1:j2] if not c.isspace())
+        elif tag == 'replace':
+            highlighted_text += original_text[i1:i2]
+            highlighted_text += f"<span style='background-color: #ffcdd2;'>{edited_text[j1:j2]}</span>"
+            # 置換された部分の文字を収集（スペースを除く）
+            new_words.update(c for c in edited_text[j1:j2] if not c.isspace())
+    
+    return highlighted_text, common_positions, new_words
+
 def main():
     st.title("🎙️ Buzz Clip - 文字起こし")
     
@@ -202,44 +354,69 @@ def main():
         st.header("📄 文字起こし結果")
         
         # タブで表示形式を切り替え
-        tab1, tab2 = st.tabs(["📝 テキスト表示", "⏱️ 時間付き表示"])
+        tab1 = st.tabs(["✏️ テキスト編集"])[0]
+        
+        # 純粋なテキストを取得
+        full_text = ""
+        for seg in st.session_state.transcription_result["segments"]:
+            if 'words' in seg:
+                text = "".join(word['word'] for word in seg['words'])
+            else:
+                text = seg['text']
+            full_text += text
+        full_text = full_text.strip()
         
         with tab1:
-            # 純粋なテキスト表示
-            full_text = ""
-            for seg in st.session_state.transcription_result["segments"]:
-                if 'words' in seg:
-                    # 単語レベルのアライメントがある場合
-                    text = " ".join(word['word'] for word in seg['words'])
-                else:
-                    # 通常のセグメントの場合
-                    text = seg['text']
-                full_text += text + " "
+            # テキスト編集機能
+            st.subheader("テキスト編集")
             
-            # テキストエリアに表示
-            st.text_area(
-                "文字起こしテキスト",
-                value=full_text.strip(),
-                height=400,
-                help="時間情報を除いた純粋な文字起こし結果です。コピーしてご利用いただけます。"
-            )
-        
-        with tab2:
-            # 既存の時間付き表示
-            for seg in st.session_state.transcription_result["segments"]:
-                with st.container():
-                    st.write(f"**{seg['start']:.1f}s - {seg['end']:.1f}s**")
+            # 2カラムレイアウト
+            col1, col2 = st.columns(2)
+            
+            # 変数の初期化
+            common_positions = []
+            new_words = set()
+            
+            with col1:
+                st.markdown("#### 元のテキスト（差分表示）")
+                # 編集用テキストエリアの値を取得
+                edited_text = st.session_state.get('edited_text', '')
+                
+                # 差分表示を生成
+                if edited_text:
+                    highlighted_diff, common_positions, new_words = highlight_differences(full_text, edited_text)
+                    st.markdown(highlighted_diff, unsafe_allow_html=True)
                     
-                    # 単語レベルのアライメント情報がある場合は表示
-                    if 'words' in seg:
-                        text_with_times = ""
-                        for word in seg['words']:
-                            text_with_times += f"<span title='{word['start']:.1f}s'>{word['word']}</span> "
-                        st.markdown(text_with_times, unsafe_allow_html=True)
-                    else:
-                        st.write(seg['text'])
-                    
-                    st.divider()
+                    # 新しい単語のエラー表示
+                    if new_words:
+                        st.error(f"以下の単語は元のテキストに存在しません（タイムスタンプと紐づけられません）：\n{', '.join(new_words)}")
+                else:
+                    st.markdown(full_text)
+            
+            with col2:
+                st.markdown("#### 編集後のテキスト")
+                
+                # 編集用テキストエリア
+                edited_text = st.text_area(
+                    "テキストを編集してください",
+                    value=st.session_state.get('edited_text', ''),
+                    height=400,
+                    help="元のテキストを編集してください。追加した部分は赤、共通部分は黄色で表示されます。"
+                )
+                
+                # 更新ボタン
+                if st.button("更新", type="primary"):
+                    st.session_state.edited_text = edited_text
+                    st.rerun()
+            
+            # 共通部分の位置情報を表示
+            if edited_text and common_positions:
+                with st.expander("共通部分の位置情報"):
+                    for start, end, text in common_positions:
+                        st.write(f"テキスト: {text}")
+                        st.write(f"位置: {start}文字目から{end}文字目")
+                        st.write(f"前後の文脈: ...{full_text[max(0, start-10):end+10]}...")
+                        st.divider()
 
 if __name__ == "__main__":
     main()
