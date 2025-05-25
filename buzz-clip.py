@@ -3,6 +3,8 @@ import whisperx
 import torch
 import json
 import os
+import re
+from pathlib import Path
 
 # Streamlitの設定
 st.set_page_config(page_title="Buzz Clip - 動画自動切り抜き", page_icon="🎙️")
@@ -12,9 +14,102 @@ st.title("Buzz Clip - 動画自動切り抜き")
 # セッション状態の初期化
 if 'keep_segments' not in st.session_state:
     st.session_state.keep_segments = []
+if 'transcription_result' not in st.session_state:
+    st.session_state.transcription_result = None
+if 'selected_text' not in st.session_state:
+    st.session_state.selected_text = ""
 
-# ファイルパス入力
-video_path = st.text_input("動画ファイルのパスを入力", placeholder="/path/to/your/video.mp4")
+def get_video_files():
+    """videosフォルダ内の動画ファイルを取得"""
+    video_dir = Path("videos")
+    if not video_dir.exists():
+        video_dir.mkdir(exist_ok=True)
+    
+    video_extensions = ['.mp4', '.mov', '.avi', '.mkv', '.wmv']
+    video_files = []
+    
+    for ext in video_extensions:
+        video_files.extend(list(video_dir.glob(f"*{ext}")))
+    
+    return sorted(video_files)
+
+def split_text_into_chars(text, start_time, end_time):
+    """テキストを文字単位に分割し、各文字の時間を計算"""
+    chars = list(text)
+    total_chars = len(chars)
+    if total_chars == 0:
+        return []
+    
+    time_per_char = (end_time - start_time) / total_chars
+    char_segments = []
+    
+    for i, char in enumerate(chars):
+        char_start = start_time + (i * time_per_char)
+        char_end = char_start + time_per_char
+        char_segments.append({
+            'text': char,
+            'start': char_start,
+            'end': char_end
+        })
+    
+    return char_segments
+
+def add_to_keep_segments(char_seg):
+    """KEEPセグメントに追加"""
+    if char_seg not in st.session_state.keep_segments:
+        st.session_state.keep_segments.append(char_seg)
+
+def remove_from_keep_segments(index):
+    """KEEPセグメントから削除"""
+    st.session_state.keep_segments.pop(index)
+
+def find_matching_segments(selected_text, transcription_result):
+    """選択されたテキストに一致するセグメントを探す"""
+    if not selected_text or not transcription_result:
+        return []
+    
+    matching_segments = []
+    for seg in transcription_result["segments"]:
+        if selected_text in seg['text']:
+            char_segments = split_text_into_chars(seg['text'], seg['start'], seg['end'])
+            start_idx = seg['text'].find(selected_text)
+            end_idx = start_idx + len(selected_text)
+            
+            # 選択されたテキストに対応する文字セグメントを抽出
+            selected_segments = char_segments[start_idx:end_idx]
+            matching_segments.extend(selected_segments)
+    
+    return matching_segments
+
+# JavaScript for clipboard detection
+clipboard_js = """
+<script>
+document.addEventListener('copy', function(e) {
+    const selectedText = window.getSelection().toString();
+    if (selectedText) {
+        // Send the selected text to Streamlit
+        window.parent.postMessage({
+            type: 'streamlit:setComponentValue',
+            value: selectedText
+        }, '*');
+    }
+});
+</script>
+"""
+
+# 動画ファイル選択
+video_files = get_video_files()
+if video_files:
+    video_path = st.selectbox(
+        "動画ファイルを選択",
+        options=video_files,
+        format_func=lambda x: x.name,
+        help="videosフォルダ内の動画ファイルから選択してください"
+    )
+    video_path = str(video_path)
+else:
+    st.warning("videosフォルダに動画ファイルがありません。動画ファイルを追加してください。")
+    video_path = None
 
 if video_path:
     try:
@@ -43,27 +138,74 @@ if video_path:
                     
                     # 結果をセッション状態に保存
                     st.session_state.transcription_result = result
-                    
                     st.success("文字起こし完了！")
+
+            # 文字起こし結果が存在する場合のみ表示
+            if st.session_state.transcription_result:
+                # 2カラムレイアウト
+                col1, col2 = st.columns([2, 1])
+                
+                with col1:
+                    st.subheader("文字起こし結果")
+                    # 全テキストを表示
+                    full_text = ""
+                    for seg in st.session_state.transcription_result["segments"]:
+                        full_text += f"[{seg['start']:.1f}s] {seg['text']}\n"
                     
-                    # 2カラムレイアウト
-                    col1, col2 = st.columns([2, 1])
+                    # テキストエリアで表示（選択可能）
+                    st.text_area(
+                        "テキストを選択してKEEPに追加",
+                        value=full_text,
+                        height=400,
+                        help="テキストをドラッグして選択し、コピーしてください。自動的に選択テキストに反映されます。"
+                    )
                     
-                    with col1:
-                        st.subheader("文字起こし結果")
-                        for seg in result["segments"]:
-                            if st.button(f"KEEP: {seg['start']:.1f} - {seg['end']:.1f} : {seg['text']}", key=f"seg_{seg['start']}"):
-                                if seg not in st.session_state.keep_segments:
-                                    st.session_state.keep_segments.append(seg)
-                                    st.rerun()
+                    # JavaScriptを挿入
+                    st.components.v1.html(clipboard_js, height=0)
                     
-                    with col2:
-                        st.subheader("KEEPリスト")
-                        for i, seg in enumerate(st.session_state.keep_segments):
-                            st.write(f"{seg['start']:.1f} - {seg['end']:.1f} : {seg['text']}")
+                    # 選択テキスト表示（自動更新）
+                    st.text_input(
+                        "選択されたテキスト",
+                        value=st.session_state.selected_text,
+                        disabled=True,
+                        help="コピーしたテキストが自動的に表示されます"
+                    )
+                    
+                    if st.button("選択テキストをKEEPに追加"):
+                        if st.session_state.selected_text:
+                            matching_segments = find_matching_segments(
+                                st.session_state.selected_text,
+                                st.session_state.transcription_result
+                            )
+                            if matching_segments:
+                                for seg in matching_segments:
+                                    add_to_keep_segments(seg)
+                                st.success(f"選択されたテキストをKEEPリストに追加しました")
+                            else:
+                                st.error("選択されたテキストに一致するセグメントが見つかりませんでした")
+                        else:
+                            st.warning("テキストを選択してコピーしてください")
+                
+                with col2:
+                    st.subheader("KEEPリスト")
+                    # 開始時間でソート
+                    sorted_segments = sorted(st.session_state.keep_segments, key=lambda x: x['start'])
+                    
+                    for i, seg in enumerate(sorted_segments):
+                        col = st.columns([3, 1])
+                        with col[0]:
+                            st.write(f"{seg['start']:.1f}s: {seg['text']}")
+                        with col[1]:
                             if st.button("削除", key=f"del_{i}"):
-                                st.session_state.keep_segments.pop(i)
-                                st.rerun()
+                                remove_from_keep_segments(i)
+                    
+                    # 連続した文字を結合して表示
+                    if sorted_segments:
+                        st.subheader("結合テキスト")
+                        combined_text = ""
+                        for seg in sorted_segments:
+                            combined_text += seg['text']
+                        st.write(combined_text)
         else:
             st.error(f"ファイルが見つかりません: {video_path}")
     except Exception as e:
