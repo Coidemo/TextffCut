@@ -177,3 +177,6 @@ cython_debug/
 
 # Videos folder
 videos/
+
+# Archive folder
+archive/

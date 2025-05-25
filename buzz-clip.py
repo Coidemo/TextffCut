@@ -3,19 +3,15 @@ import whisperx
 import torch
 import json
 import os
-import re
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Streamlitの設定
-st.set_page_config(page_title="Buzz Clip - 動画自動切り抜き", page_icon="🎙️")
-
-st.title("Buzz Clip - 動画自動切り抜き")
-
-# セッション状態の初期化
-if 'keep_segments' not in st.session_state:
-    st.session_state.keep_segments = []
-if 'transcription_result' not in st.session_state:
-    st.session_state.transcription_result = None
+st.set_page_config(
+    page_title="Buzz Clip - 文字起こし", 
+    page_icon="🎙️",
+    layout="wide"
+)
 
 def get_video_files():
     """videosフォルダ内の動画ファイルを取得"""
@@ -31,159 +27,219 @@ def get_video_files():
     
     return sorted(video_files)
 
-def split_text_into_chars(text, start_time, end_time):
-    """テキストを文字単位に分割し、各文字の時間を計算"""
-    chars = list(text)
-    total_chars = len(chars)
-    if total_chars == 0:
-        return []
-    
-    time_per_char = (end_time - start_time) / total_chars
-    char_segments = []
-    
-    for i, char in enumerate(chars):
-        char_start = start_time + (i * time_per_char)
-        char_end = char_start + time_per_char
-        char_segments.append({
-            'text': char,
-            'start': char_start,
-            'end': char_end
-        })
-    
-    return char_segments
+def get_transcription_path(video_path, model_size):
+    """文字起こし結果の保存パスを取得"""
+    video_name = Path(video_path).stem
+    return f"transcriptions/{video_name}_{model_size}.json"
 
-def add_to_keep_segments(char_seg):
-    """KEEPセグメントに追加"""
-    if char_seg not in st.session_state.keep_segments:
-        st.session_state.keep_segments.append(char_seg)
+def save_transcription(result, save_path):
+    """文字起こし結果を保存"""
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    with open(save_path, 'w', encoding='utf-8') as f:
+        json.dump(result, f, ensure_ascii=False, indent=2)
 
-def remove_from_keep_segments(index):
-    """KEEPセグメントから削除"""
-    st.session_state.keep_segments.pop(index)
+def load_transcription(save_path):
+    """文字起こし結果を読み込み"""
+    if os.path.exists(save_path):
+        with open(save_path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    return None
 
-def find_matching_segments(selected_text, transcription_result):
-    """選択されたテキストに一致するセグメントを探す"""
-    if not selected_text or not transcription_result:
-        return []
-    
-    matching_segments = []
-    for seg in transcription_result["segments"]:
-        if selected_text in seg['text']:
-            char_segments = split_text_into_chars(seg['text'], seg['start'], seg['end'])
-            start_idx = seg['text'].find(selected_text)
-            end_idx = start_idx + len(selected_text)
-            
-            # 選択されたテキストに対応する文字セグメントを抽出
-            selected_segments = char_segments[start_idx:end_idx]
-            matching_segments.extend(selected_segments)
-    
-    return matching_segments
-
-# 動画ファイル選択
-video_files = get_video_files()
-if video_files:
-    video_path = st.selectbox(
-        "動画ファイルを選択",
-        options=video_files,
-        format_func=lambda x: x.name,
-        help="videosフォルダ内の動画ファイルから選択してください"
+def transcribe_chunk(chunk, asr_model):
+    """チャンク単位の文字起こし"""
+    res = asr_model.transcribe(
+        chunk["array"],
+        batch_size=16,
+        language="ja"
     )
-    video_path = str(video_path)
-else:
-    st.warning("videosフォルダに動画ファイルがありません。動画ファイルを追加してください。")
-    video_path = None
+    for seg in res["segments"]:
+        seg["start"] += chunk["start"]
+        seg["end"] += chunk["start"]
+    return res["segments"], chunk["duration"]
 
-if video_path:
+def transcribe_audio(video_path, model_size, device):
+    """音声の文字起こしとアライメント処理"""
     try:
-        # パスを正規化
-        video_path = os.path.abspath(os.path.expanduser(video_path))
+        # 音声の読み込み
+        audio = whisperx.load_audio(video_path)
         
-        if os.path.exists(video_path):
-            # モデル選択
-            model_size = st.selectbox(
-                "Whisperモデルサイズ",
-                ["large-v3", "medium", "small", "base"],
-                index=0,
-                help="大きいモデルほど精度が高いですが、処理時間が長くなります"
+        # 文字起こしモデルの読み込み
+        asr_model = whisperx.load_model(
+            model_size,
+            device,
+            compute_type="int8",
+            language="ja"
+        )
+        
+        # チャンク分割の設定
+        CHUNK_SEC = 30
+        SR = 16000
+        NUM_WORKERS = os.cpu_count() // 2 or 4
+        
+        # チャンクの作成
+        step = CHUNK_SEC * SR
+        chunks = [
+            {
+                "array": audio[i:i+step],
+                "start": i / SR,
+                "duration": min(step, len(audio)-i) / SR
+            }
+            for i in range(0, len(audio), step)
+        ]
+        
+        # 並列処理で文字起こし
+        segments_all = []
+        with ThreadPoolExecutor(max_workers=NUM_WORKERS) as exe:
+            futures = [exe.submit(transcribe_chunk, ch, asr_model) for ch in chunks]
+            for fut in as_completed(futures):
+                segs, _ = fut.result()
+                segments_all.extend(segs)
+        
+        # 結果を整形
+        asr_result = {
+            "language": "ja",
+            "segments": sorted(segments_all, key=lambda x: x["start"])
+        }
+        
+        # アライメント処理
+        try:
+            align_model, meta = whisperx.load_align_model("ja", device=device)
+            aligned_result = whisperx.align(
+                asr_result["segments"],
+                align_model,
+                meta,
+                audio,
+                device,
+                return_char_alignments=True
             )
             
-            # デバイス表示
-            device = "cuda" if torch.cuda.is_available() else "cpu"
-            st.info(f"使用デバイス: {device}")
+            return {
+                "language": "ja",
+                "segments": aligned_result["segments"]
+            }
             
-            if st.button("文字起こし実行"):
-                with st.spinner("文字起こし中...（数分かかる場合があります）"):
-                    # 文字起こし本体
-                    audio = whisperx.load_audio(video_path)
-                    asr_model = whisperx.load_model(model_size, device, compute_type="float32")
-                    result = asr_model.transcribe(audio, batch_size=16, language="ja")
-                    
-                    # 結果をセッション状態に保存
-                    st.session_state.transcription_result = result
-                    st.success("文字起こし完了！")
-
-            # 文字起こし結果が存在する場合のみ表示
-            if st.session_state.transcription_result:
-                # 2カラムレイアウト
-                col1, col2 = st.columns([2, 1])
-                
-                with col1:
-                    st.subheader("文字起こし結果")
-                    # 全テキストを表示
-                    full_text = ""
-                    for seg in st.session_state.transcription_result["segments"]:
-                        full_text += f"[{seg['start']:.1f}s] {seg['text']}\n"
-                    
-                    # テキストエリアで表示（選択可能）
-                    st.text_area(
-                        "文字起こしテキスト",
-                        value=full_text,
-                        height=400,
-                        help="テキストをコピーして下の入力欄に貼り付けてください"
-                    )
-                    
-                    # テキスト入力欄
-                    selected_text = st.text_input(
-                        "KEEPに追加するテキスト",
-                        help="文字起こしテキストからコピーしたテキストを貼り付けてください"
-                    )
-                    
-                    if st.button("選択テキストをKEEPに追加"):
-                        if selected_text:
-                            matching_segments = find_matching_segments(
-                                selected_text,
-                                st.session_state.transcription_result
-                            )
-                            if matching_segments:
-                                for seg in matching_segments:
-                                    add_to_keep_segments(seg)
-                                st.success(f"選択されたテキストをKEEPリストに追加しました")
-                            else:
-                                st.error("選択されたテキストに一致するセグメントが見つかりませんでした")
-                        else:
-                            st.warning("テキストを入力してください")
-                
-                with col2:
-                    st.subheader("KEEPリスト")
-                    # 開始時間でソート
-                    sorted_segments = sorted(st.session_state.keep_segments, key=lambda x: x['start'])
-                    
-                    for i, seg in enumerate(sorted_segments):
-                        col = st.columns([3, 1])
-                        with col[0]:
-                            st.write(f"{seg['start']:.1f}s: {seg['text']}")
-                        with col[1]:
-                            if st.button("削除", key=f"del_{i}"):
-                                remove_from_keep_segments(i)
-                    
-                    # 連続した文字を結合して表示
-                    if sorted_segments:
-                        st.subheader("結合テキスト")
-                        combined_text = ""
-                        for seg in sorted_segments:
-                            combined_text += seg['text']
-                        st.write(combined_text)
-        else:
-            st.error(f"ファイルが見つかりません: {video_path}")
+        except Exception as align_error:
+            st.warning(f"アライメント処理に失敗しましたが、文字起こしは完了しています: {str(align_error)}")
+            return asr_result
+        
     except Exception as e:
-        st.error(f"エラー: {str(e)}")
+        st.error(f"文字起こし中にエラーが発生しました: {str(e)}")
+        return None
+
+def main():
+    st.title("🎙️ Buzz Clip - 文字起こし")
+    
+    # サイドバー
+    with st.sidebar:
+        st.header("⚙️ 設定")
+        
+        # モデル選択
+        model_size = st.selectbox(
+            "Whisperモデル",
+            ["large-v3", "medium", "small", "base"],
+            index=1,  # mediumをデフォルトに
+            help="large-v3: 最高精度（メモリ使用量大）\nmedium: バランスが良い\nsmall/base: 軽量"
+        )
+        
+        # デバイス情報
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        st.info(f"🖥️ デバイス: {device}")
+        
+        # メモリ使用量の警告
+        if model_size == "large-v3" and device == "cpu":
+            st.warning("⚠️ large-v3モデルはCPUで実行すると非常に時間がかかります")
+
+    # 動画ファイル選択
+    video_files = get_video_files()
+    
+    if not video_files:
+        st.warning("📁 videosフォルダに動画ファイルがありません。")
+        st.info("動画ファイルを以下のフォルダに配置してください: `videos/`")
+        return
+    
+    selected_video = st.selectbox(
+        "🎬 動画ファイルを選択",
+        options=video_files,
+        format_func=lambda x: x.name
+    )
+    
+    video_path = str(selected_video.resolve())
+    
+    # 文字起こし処理
+    st.header("📝 文字起こし")
+    
+    transcription_path = get_transcription_path(video_path, model_size)
+    saved_result = load_transcription(transcription_path)
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if saved_result:
+            if st.button("💾 保存済み結果を使用", type="primary"):
+                st.session_state.transcription_result = saved_result
+                st.success("✅ 文字起こし結果を読み込みました！")
+                st.rerun()
+    
+    with col2:
+        if st.button("🚀 新しく文字起こし実行"):
+            with st.spinner("文字起こし中..."):
+                try:
+                    # 文字起こしとアライメント処理を実行
+                    result = transcribe_audio(video_path, model_size, device)
+                    
+                    if result:
+                        # 結果を保存
+                        save_transcription(result, transcription_path)
+                        st.session_state.transcription_result = result
+                        st.success("✅ 文字起こし完了！")
+                        st.rerun()
+                        
+                except Exception as e:
+                    st.error(f"❌ エラー: {str(e)}")
+    
+    # 文字起こし結果の表示
+    if 'transcription_result' in st.session_state and st.session_state.transcription_result:
+        st.header("📄 文字起こし結果")
+        
+        # タブで表示形式を切り替え
+        tab1, tab2 = st.tabs(["📝 テキスト表示", "⏱️ 時間付き表示"])
+        
+        with tab1:
+            # 純粋なテキスト表示
+            full_text = ""
+            for seg in st.session_state.transcription_result["segments"]:
+                if 'words' in seg:
+                    # 単語レベルのアライメントがある場合
+                    text = " ".join(word['word'] for word in seg['words'])
+                else:
+                    # 通常のセグメントの場合
+                    text = seg['text']
+                full_text += text + " "
+            
+            # テキストエリアに表示
+            st.text_area(
+                "文字起こしテキスト",
+                value=full_text.strip(),
+                height=400,
+                help="時間情報を除いた純粋な文字起こし結果です。コピーしてご利用いただけます。"
+            )
+        
+        with tab2:
+            # 既存の時間付き表示
+            for seg in st.session_state.transcription_result["segments"]:
+                with st.container():
+                    st.write(f"**{seg['start']:.1f}s - {seg['end']:.1f}s**")
+                    
+                    # 単語レベルのアライメント情報がある場合は表示
+                    if 'words' in seg:
+                        text_with_times = ""
+                        for word in seg['words']:
+                            text_with_times += f"<span title='{word['start']:.1f}s'>{word['word']}</span> "
+                        st.markdown(text_with_times, unsafe_allow_html=True)
+                    else:
+                        st.write(seg['text'])
+                    
+                    st.divider()
+
+if __name__ == "__main__":
+    main()
