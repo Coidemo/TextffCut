@@ -10,6 +10,7 @@ from difflib import SequenceMatcher
 from typing import List, Dict, Set, Tuple, Optional, Any
 import subprocess
 from datetime import datetime
+import time
 
 # Streamlitの設定
 st.set_page_config(
@@ -63,6 +64,19 @@ def transcribe_chunk(chunk, asr_model):
         seg["end"] += chunk["start"]
     return res["segments"], chunk["duration"]
 
+def format_time(seconds):
+    """秒数を時間:分:秒の形式に変換"""
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    seconds = int(seconds % 60)
+    
+    if hours > 0:
+        return f"{hours}時間{minutes}分{seconds}秒"
+    elif minutes > 0:
+        return f"{minutes}分{seconds}秒"
+    else:
+        return f"{seconds}秒"
+
 def transcribe_audio(video_path, model_size, device):
     """音声の文字起こしとアライメント処理"""
     try:
@@ -93,13 +107,36 @@ def transcribe_audio(video_path, model_size, device):
             for i in range(0, len(audio), step)
         ]
         
+        # 進捗状況の表示用
+        total_chunks = len(chunks)
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
         # 並列処理で文字起こし
         segments_all = []
+        completed_chunks = 0
+        start_time = time.time()  # 開始時間を記録
+        
         with ThreadPoolExecutor(max_workers=NUM_WORKERS) as exe:
             futures = [exe.submit(transcribe_chunk, ch, asr_model) for ch in chunks]
             for fut in as_completed(futures):
                 segs, _ = fut.result()
                 segments_all.extend(segs)
+                completed_chunks += 1
+                
+                # 進捗状況の更新
+                progress = completed_chunks / total_chunks
+                progress_bar.progress(progress)
+                
+                # 残り時間の計算と表示
+                if completed_chunks < total_chunks:
+                    elapsed_time = time.time() - start_time
+                    avg_time_per_chunk = elapsed_time / completed_chunks
+                    remaining_chunks = total_chunks - completed_chunks
+                    estimated_remaining_time = avg_time_per_chunk * remaining_chunks
+                    
+                    status_text.text(f"進捗: {completed_chunks}/{total_chunks} チャンク "
+                                   f"（残り約{format_time(estimated_remaining_time)}）")
         
         # 結果を整形
         asr_result = {
@@ -109,6 +146,7 @@ def transcribe_audio(video_path, model_size, device):
         
         # アライメント処理
         try:
+            status_text.text("アライメント処理を実行中...")
             align_model, meta = whisperx.load_align_model("ja", device=device)
             aligned_result = whisperx.align(
                 asr_result["segments"],
@@ -319,6 +357,45 @@ def get_timestamp_for_position(segments: List[Dict], start_pos: int, end_pos: in
     
     return start_time, end_time
 
+def get_video_info(video_path):
+    """動画の情報（長さとフレームレート）を取得"""
+    try:
+        # フレームレートの取得
+        fps_cmd = [
+            "ffprobe", "-v", "error",
+            "-select_streams", "v:0",
+            "-show_entries", "stream=r_frame_rate",
+            "-of", "json",
+            str(video_path)
+        ]
+        fps_result = subprocess.run(fps_cmd, capture_output=True, text=True)
+        fps = 30.0  # デフォルト値
+        if fps_result.returncode == 0:
+            fps_info = json.loads(fps_result.stdout)
+            if 'streams' in fps_info and len(fps_info['streams']) > 0:
+                fps_str = fps_info['streams'][0]['r_frame_rate']
+                num, den = map(int, fps_str.split('/'))
+                fps = num / den if den != 0 else 30.0
+
+        # 動画の長さの取得
+        duration_cmd = [
+            "ffprobe", "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "json",
+            str(video_path)
+        ]
+        duration_result = subprocess.run(duration_cmd, capture_output=True, text=True)
+        duration = None
+        if duration_result.returncode == 0:
+            duration_info = json.loads(duration_result.stdout)
+            if 'format' in duration_info and 'duration' in duration_info['format']:
+                duration = float(duration_info['format']['duration'])
+
+        return fps, duration
+    except Exception as e:
+        st.warning(f"動画情報の取得中にエラーが発生しました: {str(e)}")
+        return 30.0, None  # エラー時はデフォルト値を返す
+
 def extract_video_segments(video_path: str, segments: List[tuple[float, float]], output_dir: str):
     """動画から指定されたセグメントを切り出し"""
     try:
@@ -391,16 +468,9 @@ def remove_fillers_from_video(video_path: str, output_dir: str, segments: List[t
                         raise Exception(f"FFmpeg error: {result.stderr}")
                     
                     # 動画の長さを取得
-                    cmd = [
-                        "ffprobe", "-v", "error",
-                        "-show_entries", "format=duration",
-                        "-of", "default=noprint_wrappers=1:nokey=1",
-                        str(temp_file)
-                    ]
-                    result = subprocess.run(cmd, capture_output=True, text=True)
-                    if result.returncode != 0:
-                        raise Exception(f"FFprobe error: {result.stderr}")
-                    video_duration = float(result.stdout.strip())
+                    _, video_duration = get_video_info(temp_file)
+                    if video_duration is None:
+                        raise Exception("動画の長さを取得できませんでした")
                     
                     # 無音部分を検出
                     cmd = [
@@ -555,24 +625,238 @@ def remove_fillers_from_video(video_path: str, output_dir: str, segments: List[t
         st.error(f"動画の処理中にエラーが発生しました: {str(e)}")
         return None
 
-def remove_fillers(text: str) -> str:
-    """フィラーを削除"""
-    # セッション状態からフィラーリストを取得
-    fillers = st.session_state.get('fillers', [
-        "あの", "その", "えー", "えっと", "まあ", "なんか", "なんとなく",
-        "あのー", "そのー", "えーと", "まあまあ", "なんかね", "なんとなくね",
-        "あのね", "そのね", "えーね", "えっとね", "まあね"
-    ])
+def format_timestamp(seconds):
+    """秒数をSRT形式のタイムスタンプに変換"""
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    seconds = seconds % 60
+    milliseconds = int((seconds - int(seconds)) * 1000)
+    return f"{hours:02d}:{minutes:02d}:{int(seconds):02d},{milliseconds:03d}"
+
+def split_text_into_lines(text, chars_per_line, max_lines):
+    """テキストを行数と文字数制限に基づいて分割"""
+    # 文末で分割
+    sentences = re.split(r'([。．！？])', text)
+    sentences = [''.join(i) for i in zip(sentences[::2], sentences[1::2] + [''])]
     
-    # フィラーを削除
-    for filler in fillers:
-        if filler:  # 空のフィラーは無視
-            text = text.replace(filler, "")
+    lines = []
+    current_line = ""
     
-    # 連続する空白を1つに
-    text = re.sub(r'\s+', ' ', text)
+    for sentence in sentences:
+        # 現在の行に文を追加した場合の長さ
+        potential_line = current_line + sentence
+        
+        if len(potential_line) <= chars_per_line:
+            current_line = potential_line
+        else:
+            # 現在の行が空でない場合は保存
+            if current_line:
+                lines.append(current_line)
+                current_line = ""
+            
+            # 文が1行の文字数制限を超える場合は分割
+            if len(sentence) > chars_per_line:
+                # 単語の境界で分割
+                words = re.findall(r'[一-龯ぁ-んァ-ンa-zA-Z0-9]+|[^一-龯ぁ-んァ-ンa-zA-Z0-9]', sentence)
+                temp_line = ""
+                
+                for word in words:
+                    # 現在の行に単語を追加した場合の長さ
+                    if len(temp_line + word) <= chars_per_line:
+                        temp_line += word
+                    else:
+                        # 現在の行が空でない場合は保存
+                        if temp_line:
+                            lines.append(temp_line)
+                        # 単語が1行の文字数制限を超える場合は強制的に分割
+                        if len(word) > chars_per_line:
+                            # 文字単位で分割
+                            remaining = word
+                            while remaining:
+                                if len(remaining) <= chars_per_line:
+                                    temp_line = remaining
+                                    remaining = ""
+                                else:
+                                    lines.append(remaining[:chars_per_line])
+                                    remaining = remaining[chars_per_line:]
+                            temp_line = ""
+                        else:
+                            temp_line = word
+                
+                if temp_line:
+                    current_line = temp_line
+            else:
+                current_line = sentence
     
-    return text.strip()
+    # 最後の行を追加
+    if current_line:
+        lines.append(current_line)
+    
+    # 行数制限を適用
+    if len(lines) > max_lines:
+        # 最後の行を調整
+        last_line = ' '.join(lines[max_lines-1:])
+        lines = lines[:max_lines-1]
+        # 最後の行が文字数制限を超える場合は省略
+        if len(last_line) > chars_per_line:
+            last_line = last_line[:chars_per_line-3] + '...'
+        lines.append(last_line)
+    
+    return lines
+
+def generate_srt_for_trimmed_video(segments, timestamps, output_path, chars_per_line=20, max_lines=2, fps=30):
+    """切り抜き後の動画用の字幕ファイル（SRT）を生成"""
+    with open(output_path, 'w', encoding='utf-8') as f:
+        # 選択された部分のセグメントのみを抽出
+        selected_segments = []
+        
+        for start, end in timestamps:
+            # この切り抜き範囲内のセグメントを抽出
+            for seg in segments:
+                # セグメントが切り抜き範囲と重なる部分がある場合
+                if seg['end'] > start and seg['start'] < end:
+                    # セグメントの時間を相対的な時間に調整
+                    adjusted_seg = seg.copy()
+                    
+                    # 文字単位のタイムスタンプがある場合はそれを使用
+                    if 'chars' in seg:
+                        adjusted_chars = []
+                        for char in seg['chars']:
+                            if char['end'] > start and char['start'] < end:
+                                char_copy = char.copy()
+                                if char_copy['start'] < start:
+                                    char_copy['start'] = 0.0
+                                else:
+                                    char_copy['start'] = char_copy['start'] - start
+                                
+                                if char_copy['end'] > end:
+                                    char_copy['end'] = end - start
+                                else:
+                                    char_copy['end'] = char_copy['end'] - start
+                                
+                                adjusted_chars.append(char_copy)
+                        
+                        if adjusted_chars:
+                            adjusted_seg['chars'] = adjusted_chars
+                            adjusted_seg['start'] = adjusted_chars[0]['start']
+                            adjusted_seg['end'] = adjusted_chars[-1]['end']
+                            adjusted_seg['text'] = ''.join(char['char'] for char in adjusted_chars)
+                            selected_segments.append(adjusted_seg)
+                    
+                    # 単語単位のタイムスタンプがある場合
+                    elif 'words' in seg:
+                        adjusted_words = []
+                        for word in seg['words']:
+                            if word['end'] > start and word['start'] < end:
+                                word_copy = word.copy()
+                                if word_copy['start'] < start:
+                                    word_copy['start'] = 0.0
+                                else:
+                                    word_copy['start'] = word_copy['start'] - start
+                                
+                                if word_copy['end'] > end:
+                                    word_copy['end'] = end - start
+                                else:
+                                    word_copy['end'] = word_copy['end'] - start
+                                
+                                adjusted_words.append(word_copy)
+                        
+                        if adjusted_words:
+                            adjusted_seg['words'] = adjusted_words
+                            adjusted_seg['start'] = adjusted_words[0]['start']
+                            adjusted_seg['end'] = adjusted_words[-1]['end']
+                            adjusted_seg['text'] = ''.join(word['word'] for word in adjusted_words)
+                            selected_segments.append(adjusted_seg)
+        
+        # 字幕を生成
+        for i, segment in enumerate(selected_segments, 1):
+            # タイムスタンプの生成（ミリ秒まで正確に）
+            start_time = format_timestamp(segment['start'])
+            end_time = format_timestamp(segment['end'])
+            
+            # テキストを行に分割
+            text = segment['text'].strip()
+            lines = split_text_into_lines(text, chars_per_line, max_lines)
+            
+            # SRTフォーマットで書き込み
+            f.write(f"{i}\n")
+            f.write(f"{start_time} --> {end_time}\n")
+            f.write('\n'.join(lines) + '\n\n')
+
+def adjust_srt_for_no_fillers(srt_path, filler_segments, output_path):
+    """無音削除後の動画用に字幕のタイミングを調整"""
+    # 字幕ファイルを読み込み
+    with open(srt_path, 'r', encoding='utf-8') as f:
+        srt_content = f.read()
+    
+    # 字幕エントリを解析
+    entries = []
+    current_entry = None
+    for line in srt_content.split('\n'):
+        line = line.strip()
+        if not line:
+            if current_entry:
+                entries.append(current_entry)
+                current_entry = None
+            continue
+        
+        if current_entry is None:
+            current_entry = {'index': line}
+        elif '-->' in line:
+            start, end = line.split(' --> ')
+            current_entry['start'] = start
+            current_entry['end'] = end
+        else:
+            if 'text' not in current_entry:
+                current_entry['text'] = line
+            else:
+                current_entry['text'] += '\n' + line
+    
+    if current_entry:
+        entries.append(current_entry)
+    
+    # 無音削除後の時間に調整
+    adjusted_entries = []
+    current_offset = 0.0
+    
+    for start, end in filler_segments:
+        segment_duration = end - start
+        # このセグメント内の字幕を抽出
+        for entry in entries:
+            entry_start = time_to_seconds(entry['start'])
+            entry_end = time_to_seconds(entry['end'])
+            
+            # 字幕がこのセグメントと重なる場合
+            if entry_end > start and entry_start < end:
+                adjusted_entry = entry.copy()
+                
+                # 開始時間の調整
+                if entry_start < start:
+                    adjusted_entry['start'] = format_timestamp(current_offset)
+                else:
+                    adjusted_entry['start'] = format_timestamp(current_offset + (entry_start - start))
+                
+                # 終了時間の調整
+                if entry_end > end:
+                    adjusted_entry['end'] = format_timestamp(current_offset + segment_duration)
+                else:
+                    adjusted_entry['end'] = format_timestamp(current_offset + (entry_end - start))
+                
+                adjusted_entries.append(adjusted_entry)
+        
+        current_offset += segment_duration
+    
+    # 調整後の字幕を書き込み
+    with open(output_path, 'w', encoding='utf-8') as f:
+        for i, entry in enumerate(adjusted_entries, 1):
+            f.write(f"{i}\n")
+            f.write(f"{entry['start']} --> {entry['end']}\n")
+            f.write(f"{entry['text']}\n\n")
+
+def time_to_seconds(time_str):
+    """SRT形式のタイムスタンプを秒数に変換"""
+    hours, minutes, seconds = time_str.replace(',', '.').split(':')
+    return float(hours) * 3600 + float(minutes) * 60 + float(seconds)
 
 def main():
     st.title("🎙️ Buzz Clip - 文字起こし")
@@ -807,7 +1091,7 @@ def main():
                 )
                 total_duration += end_time - start_time
             
-            st.caption(f"文字数: {len(edited_text)}文字 / 時間: {total_duration:.1f}秒（フィラー削除前）")
+            st.caption(f"文字数: {len(edited_text)}文字 / 時間: {total_duration:.1f}秒（無音削除前）")
             
             # 更新ボタン
             if st.button("🔄 更新", type="primary"):
@@ -825,19 +1109,19 @@ def main():
             with col1:
                 process_type = st.radio(
                     "処理方法",
-                    ["切り抜きのみ", "フィラー削除付き"],
-                    index=1,  # デフォルトを「フィラー削除付き」に設定
-                    help="切り抜きのみ：指定した部分をそのまま切り出します\nフィラー削除付き：切り出した部分からフィラーを削除します"
+                    ["切り抜きのみ", "無音削除付き"],
+                    index=1,
+                    help="切り抜きのみ：指定した部分をそのまま切り出します\n無音削除付き：切り出した部分から無音を削除します"
                 )
             
             with col2:
-                if process_type == "フィラー削除付き":
-                    st.markdown("#### フィラー削除の設定")
+                if process_type == "無音削除付き":
+                    st.markdown("#### 無音削除の設定")
                     st.info("現在の設定：\n"
                            f"- 無音検出の閾値: {st.session_state.get('noise_threshold', -35)}dB\n"
                            f"- 最小無音時間: {st.session_state.get('min_silence_duration', 0.3)}秒\n"
                            f"- 最小セグメント時間: {st.session_state.get('min_segment_duration', 0.3)}秒\n\n"
-                           "設定を変更する場合は、左のサイドパネルの「フィラー設定」タブから変更してください。")
+                           "設定を変更する場合は、左のサイドパネルの「無音設定」タブから変更してください。")
             
             # 処理実行ボタン
             if st.button("🚀 処理を実行", type="primary", use_container_width=True):
@@ -907,7 +1191,7 @@ def main():
                     # 出力ディレクトリを作成
                     output_path.mkdir(parents=True, exist_ok=True)
                     
-                    with st.spinner("指定した箇所を切り出し、フィラーを削除中..."):
+                    with st.spinner("指定した箇所を切り出し、無音を削除中..."):
                         try:
                             output_files = remove_fillers_from_video(
                                 video_path,
@@ -958,7 +1242,7 @@ def main():
                                 st.error("動画の処理に失敗しました。")
                             
                         except Exception as e:
-                            st.error(f"フィラーの削除中にエラーが発生しました: {str(e)}")
+                            st.error(f"無音の削除中にエラーが発生しました: {str(e)}")
 
 if __name__ == "__main__":
     main()
