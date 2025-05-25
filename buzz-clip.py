@@ -16,8 +16,6 @@ if 'keep_segments' not in st.session_state:
     st.session_state.keep_segments = []
 if 'transcription_result' not in st.session_state:
     st.session_state.transcription_result = None
-if 'selected_text' not in st.session_state:
-    st.session_state.selected_text = ""
 
 def get_video_files():
     """videosフォルダ内の動画ファイルを取得"""
@@ -81,22 +79,6 @@ def find_matching_segments(selected_text, transcription_result):
     
     return matching_segments
 
-# JavaScript for clipboard detection
-clipboard_js = """
-<script>
-document.addEventListener('copy', function(e) {
-    const selectedText = window.getSelection().toString();
-    if (selectedText) {
-        // Send the selected text to Streamlit
-        window.parent.postMessage({
-            type: 'streamlit:setComponentValue',
-            value: selectedText
-        }, '*');
-    }
-});
-</script>
-"""
-
 # 動画ファイル選択
 video_files = get_video_files()
 if video_files:
@@ -154,27 +136,22 @@ if video_path:
                     
                     # テキストエリアで表示（選択可能）
                     st.text_area(
-                        "テキストを選択してKEEPに追加",
+                        "文字起こしテキスト",
                         value=full_text,
                         height=400,
-                        help="テキストをドラッグして選択し、コピーしてください。自動的に選択テキストに反映されます。"
+                        help="テキストをコピーして下の入力欄に貼り付けてください"
                     )
                     
-                    # JavaScriptを挿入
-                    st.components.v1.html(clipboard_js, height=0)
-                    
-                    # 選択テキスト表示（自動更新）
-                    st.text_input(
-                        "選択されたテキスト",
-                        value=st.session_state.selected_text,
-                        disabled=True,
-                        help="コピーしたテキストが自動的に表示されます"
+                    # テキスト入力欄
+                    selected_text = st.text_input(
+                        "KEEPに追加するテキスト",
+                        help="文字起こしテキストからコピーしたテキストを貼り付けてください"
                     )
                     
                     if st.button("選択テキストをKEEPに追加"):
-                        if st.session_state.selected_text:
+                        if selected_text:
                             matching_segments = find_matching_segments(
-                                st.session_state.selected_text,
+                                selected_text,
                                 st.session_state.transcription_result
                             )
                             if matching_segments:
@@ -184,7 +161,7 @@ if video_path:
                             else:
                                 st.error("選択されたテキストに一致するセグメントが見つかりませんでした")
                         else:
-                            st.warning("テキストを選択してコピーしてください")
+                            st.warning("テキストを入力してください")
                 
                 with col2:
                     st.subheader("KEEPリスト")
