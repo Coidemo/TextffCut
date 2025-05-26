@@ -14,7 +14,7 @@ import time
 
 # Streamlitの設定
 st.set_page_config(
-    page_title="Buzz Clip - 文字起こし", 
+    page_title="Buzz Clip", 
     page_icon="🎙️",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -1235,11 +1235,11 @@ def combine_videos(input_files: List[str], output_file: str):
 def create_fcpxml(video_files: List[str], output_path: Path, fps: int = 30, segment_time_info: Dict[str, tuple[float, float]] = None) -> bool:
     """FCPXMLファイルを生成"""
     try:
-        # デバッグ情報の表示
-        st.write("FCPXML生成のデバッグ情報:")
-        st.write(f"入力ファイル一覧: {video_files}")
-        st.write(f"出力パス: {output_path}")
-        st.write(f"セグメント時間情報: {segment_time_info}")
+        # デバッグ情報の表示（ターミナルに出力）
+        print("FCPXML生成のデバッグ情報:")
+        print(f"入力ファイル一覧: {video_files}")
+        print(f"出力パス: {output_path}")
+        print(f"セグメント時間情報: {segment_time_info}")
         
         # 動画ファイルの情報を取得
         video_info = []
@@ -1249,17 +1249,17 @@ def create_fcpxml(video_files: List[str], output_path: Path, fps: int = 30, segm
         original_video_path = None
         for file in video_files:
             file_path = Path(file)
-            st.write(f"ファイル確認: {file_path} (存在: {file_path.exists()})")
+            print(f"ファイル確認: {file_path} (存在: {file_path.exists()})")
             if file_path.exists():
                 original_video_path = str(file_path.resolve())
-                st.write(f"元の動画ファイルを発見: {original_video_path}")
+                print(f"元の動画ファイルを発見: {original_video_path}")
                 break
         
         if not original_video_path:
             st.error("元の動画ファイルが見つかりません")
-            st.write("確認したファイル:")
+            print("確認したファイル:")
             for file in video_files:
-                st.write(f"- {file} (存在: {Path(file).exists()})")
+                print(f"- {file} (存在: {Path(file).exists()})")
             raise Exception("元の動画ファイルが見つかりません")
         
         # 元の動画の情報を取得
@@ -1270,7 +1270,7 @@ def create_fcpxml(video_files: List[str], output_path: Path, fps: int = 30, segm
             "-of", "json",
             original_video_path
         ]
-        st.write(f"FFprobeコマンド: {' '.join(cmd)}")
+        print(f"FFprobeコマンド: {' '.join(cmd)}")
         
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode != 0:
@@ -1280,7 +1280,7 @@ def create_fcpxml(video_files: List[str], output_path: Path, fps: int = 30, segm
         info = json.loads(result.stdout)
         if 'streams' not in info or len(info['streams']) == 0:
             st.error("動画ストリームの情報を取得できませんでした")
-            st.write(f"FFprobe出力: {result.stdout}")
+            print(f"FFprobe出力: {result.stdout}")
             raise Exception("動画ストリームの情報を取得できませんでした")
         
         stream = info['streams'][0]
@@ -1291,46 +1291,52 @@ def create_fcpxml(video_files: List[str], output_path: Path, fps: int = 30, segm
         num, den = map(int, fps_str.split('/'))
         actual_fps = num / den if den != 0 else fps
         
-        st.write(f"動画情報: 幅={width}, 高さ={height}, FPS={actual_fps}, タイムベース={time_base}")
+        print(f"動画情報: 幅={width}, 高さ={height}, FPS={actual_fps}, タイムベース={time_base}")
         
         # 各セグメントの情報を処理
         if segment_time_info:
             # セグメント時間情報を時間順にソート
             sorted_segments = sorted(segment_time_info.items(), key=lambda x: x[1][0])
             
+            # 前のセグメントの終了時間を記録
+            prev_end_time = None
+            current_offset_frames = 0
+            
             for segment_file, (start_time, end_time) in sorted_segments:
-                duration = end_time - start_time
+                # 元の動画の時間をフレーム単位に変換（四捨五入）
+                start_frames = round(start_time * actual_fps)
+                end_frames = round(end_time * actual_fps)
+                duration_frames = end_frames - start_frames
                 
-                # フレーム単位に変換（タイムベースを考慮）
-                time_base_num, time_base_den = map(int, time_base.split('/'))
-                start_frames = int(round(start_time * actual_fps))
-                duration_frames = int(round(duration * actual_fps))
-                
-                # タイムラインのフレームレートに合わせて変換
-                timeline_start_frames = int(round(start_frames * (fps / actual_fps)))
-                timeline_duration_frames = int(round(duration_frames * (fps / actual_fps)))
+                # タイムラインのフレームレートに合わせて変換（四捨五入）
+                timeline_start_frames = round(start_frames * (fps / actual_fps))
+                timeline_duration_frames = round(duration_frames * (fps / actual_fps))
                 
                 video_info.append({
-                    'path': original_video_path,  # 元の動画ファイルのパスを使用
+                    'path': original_video_path,
                     'width': width,
                     'height': height,
                     'fps': actual_fps,
                     'time_base': time_base,
-                    'duration': duration,
-                    'original_start': start_time,  # 元の動画に対する絶対時間
-                    'original_end': end_time,      # 元の動画に対する絶対時間
+                    'duration': duration_frames / fps,
+                    'original_start': start_time,
+                    'original_end': end_time,
                     'start_frames': timeline_start_frames,
-                    'duration_frames': timeline_duration_frames
+                    'duration_frames': timeline_duration_frames,
+                    'offset_frames': current_offset_frames
                 })
                 
                 total_duration += timeline_duration_frames
-                st.write(f"セグメント情報: 開始={start_time}, 終了={end_time}, 長さ={duration}秒")
+                current_offset_frames += timeline_duration_frames
+                
+                print(f"セグメント情報: 開始={start_time:.3f}, 終了={end_time:.3f}, 長さ={duration_frames/fps:.3f}秒")
+                print(f"フレーム情報: 開始={timeline_start_frames}, 長さ={timeline_duration_frames}, オフセット={current_offset_frames}")
 
         if not video_info:
             st.error("動画ファイルの情報を取得できませんでした")
-            st.write("セグメント時間情報:")
+            print("セグメント時間情報:")
             for file, times in segment_time_info.items():
-                st.write(f"- {file}: {times}")
+                print(f"- {file}: {times}")
             raise Exception("動画ファイルの情報を取得できませんでした")
 
         # FCPXMLのヘッダー
@@ -1357,15 +1363,11 @@ def create_fcpxml(video_files: List[str], output_path: Path, fps: int = 30, segm
 '''
 
         # クリップの追加
-        current_frames = 0
         for i, info in enumerate(video_info, 1):
-            # 元の動画に対する絶対時間を使用
-            original_start_frames = int(round(info['original_start'] * fps))
-            xml_content += f'''                        <asset-clip tcFormat="NDF" offset="{current_frames}/{fps}s" format="r0" name="{Path(info['path']).stem}.mp4" duration="{info['duration_frames']}/{fps}s" ref="r{i}" enabled="1" start="{original_start_frames}/{fps}s">
+            xml_content += f'''                        <asset-clip tcFormat="NDF" offset="{info['offset_frames']}/{fps}s" format="r0" name="{Path(info['path']).stem}.mp4" duration="{info['duration_frames']}/{fps}s" ref="r{i}" enabled="1" start="{info['start_frames']}/{fps}s">
                             <adjust-transform scale="1 1" anchor="0 0" position="0 0"/>
                         </asset-clip>
 '''
-            current_frames += info['duration_frames']
 
         xml_content += '''                    </spine>
                 </sequence>
@@ -1385,7 +1387,7 @@ def create_fcpxml(video_files: List[str], output_path: Path, fps: int = 30, segm
         return False
 
 def main():
-    st.title("🎙️ Buzz Clip - 文字起こし")
+    st.title("🎙️ Buzz Clip")
     
     # サイドバー
     with st.sidebar:
