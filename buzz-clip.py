@@ -396,6 +396,44 @@ def get_video_info(video_path):
         st.warning(f"動画情報の取得中にエラーが発生しました: {str(e)}")
         return 30.0, None  # エラー時はデフォルト値を返す
 
+def get_ffmpeg_progress(process, total_duration, progress_bar, status_text, start_time, total_progress=0, segment_progress=1.0):
+    """FFmpegの進捗情報を取得"""
+    while process.poll() is None:
+        # FFmpegの出力から進捗情報を取得
+        output = process.stderr.readline()
+        if not output:
+            continue
+            
+        try:
+            output = output.decode('utf-8', errors='ignore')
+            if "time=" in output:
+                # 時間情報を抽出（HH:MM:SS.mmm形式）
+                time_str = output.split("time=")[1].split()[0]
+                hours, minutes, seconds = time_str.split(":")
+                current_time = float(hours) * 3600 + float(minutes) * 60 + float(seconds)
+                
+                # 進捗率を計算（セグメント内の進捗）
+                segment_current = min(current_time / total_duration, 1.0)
+                
+                # 全体の進捗を計算（0.0から1.0の範囲に収める）
+                total_current = min(total_progress + (segment_current * segment_progress), 1.0)
+                progress_bar.progress(total_current)
+                
+                # 残り時間を計算
+                elapsed_time = time.time() - start_time
+                if total_current > 0:
+                    estimated_total = elapsed_time / total_current
+                    remaining = estimated_total - elapsed_time
+                    status_text.text(f"全体の進捗: {total_current:.1%} (残り約{format_time(remaining)})")
+        except Exception as e:
+            # エラーを無視して処理を継続
+            pass
+    
+    # セグメント完了時の進捗更新（0.0から1.0の範囲に収める）
+    total_current = min(total_progress + segment_progress, 1.0)
+    progress_bar.progress(total_current)
+    return total_current
+
 def extract_video_segments(video_path: str, segments: List[tuple[float, float]], output_dir: str):
     """動画から指定されたセグメントを切り出し"""
     try:
@@ -405,6 +443,14 @@ def extract_video_segments(video_path: str, segments: List[tuple[float, float]],
         
         # 各セグメントを切り出し
         output_files = []
+        total_segments = len(segments)
+        
+        # 進捗表示の初期化
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        start_time = time.time()
+        total_progress = 0
+        
         for i, (start, end) in enumerate(segments):
             output_file = output_dir / f"segment_{i+1}.mp4"
             cmd = [
@@ -417,13 +463,39 @@ def extract_video_segments(video_path: str, segments: List[tuple[float, float]],
                 "-c:a", "aac",
                 "-b:a", "192k",
                 "-avoid_negative_ts", "1",
+                "-progress", "pipe:1",
                 str(output_file)
             ]
-            result = subprocess.run(cmd, capture_output=True, text=True)
-            if result.returncode != 0:
-                raise Exception(f"FFmpeg error: {result.stderr}")
+            
+            # 進捗表示用のステータス
+            status_text.text(f"セグメント {i+1}/{total_segments} を処理中...")
+            
+            # プロセスを開始
+            process = subprocess.Popen(
+                cmd,
+                stderr=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                universal_newlines=True
+            )
+            
+            # 進捗を表示（セグメントごとの進捗率を計算）
+            segment_progress = 1.0 / total_segments
+            total_progress = get_ffmpeg_progress(
+                process,
+                end - start,
+                progress_bar,
+                status_text,
+                start_time,
+                total_progress,
+                segment_progress
+            )
+            
+            if process.returncode != 0:
+                raise Exception(f"FFmpeg error: {process.stderr.read()}")
+            
             output_files.append(str(output_file))
         
+        status_text.text("完了！")
         return output_files
         
     except Exception as e:
@@ -444,7 +516,18 @@ def remove_fillers_from_video(video_path: str, output_dir: str, segments: List[t
         # 共通部分が指定されている場合は、その部分のみを処理
         if segments:
             processed_segments = []
+            total_segments = len(segments)
+            
+            # 進捗表示の初期化
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            start_time = time.time()
+            total_progress = 0
+            
             for i, (start, end) in enumerate(segments):
+                # 進捗表示用のステータス
+                status_text.text(f"セグメント {i+1}/{total_segments} を処理中...")
+                
                 # 一時ファイル名を生成
                 temp_file = output_dir / f"temp_{i+1}.mp4"
                 output_file = output_dir / f"segment_{i+1}.mp4"
@@ -461,11 +544,32 @@ def remove_fillers_from_video(video_path: str, output_dir: str, segments: List[t
                         "-c:a", "aac",
                         "-b:a", "192k",
                         "-avoid_negative_ts", "1",
+                        "-progress", "pipe:1",
                         str(temp_file)
                     ]
-                    result = subprocess.run(cmd, capture_output=True, text=True)
-                    if result.returncode != 0:
-                        raise Exception(f"FFmpeg error: {result.stderr}")
+                    
+                    # プロセスを開始
+                    process = subprocess.Popen(
+                        cmd,
+                        stderr=subprocess.PIPE,
+                        stdout=subprocess.PIPE,
+                        universal_newlines=True
+                    )
+                    
+                    # 進捗を表示（セグメントごとの進捗率を計算）
+                    segment_progress = 1.0 / total_segments
+                    total_progress = get_ffmpeg_progress(
+                        process,
+                        end - start,
+                        progress_bar,
+                        status_text,
+                        start_time,
+                        total_progress,
+                        segment_progress
+                    )
+                    
+                    if process.returncode != 0:
+                        raise Exception(f"FFmpeg error: {process.stderr.read()}")
                     
                     # 動画の長さを取得
                     _, video_duration = get_video_info(temp_file)
@@ -527,11 +631,15 @@ def remove_fillers_from_video(video_path: str, output_dir: str, segments: List[t
                     # セグメントを切り出し
                     if filler_segments:
                         segment_files = []
+                        total_filler_segments = len(filler_segments)
+                        
                         for j, (seg_start, seg_end) in enumerate(filler_segments):
                             # セグメントの長さをチェック
                             if seg_end - seg_start < 0.1:  # 0.1秒未満のセグメントは無視
                                 continue
-                                
+                            
+                            status_text.text(f"セグメント {i+1}/{total_segments} の部分 {j+1}/{total_filler_segments} を処理中...")
+                            
                             segment_file = output_dir / f"segment_{i+1}_part_{j+1}.mp4"
                             cmd = [
                                 "ffmpeg", "-y",
@@ -543,15 +651,39 @@ def remove_fillers_from_video(video_path: str, output_dir: str, segments: List[t
                                 "-c:a", "aac",
                                 "-b:a", "192k",
                                 "-avoid_negative_ts", "1",
+                                "-progress", "pipe:1",
                                 str(segment_file)
                             ]
-                            result = subprocess.run(cmd, capture_output=True, text=True)
-                            if result.returncode != 0:
-                                raise Exception(f"FFmpeg error: {result.stderr}")
+                            
+                            # プロセスを開始
+                            process = subprocess.Popen(
+                                cmd,
+                                stderr=subprocess.PIPE,
+                                stdout=subprocess.PIPE,
+                                universal_newlines=True
+                            )
+                            
+                            # 進捗を表示（セグメント内の部分ごとの進捗率を計算）
+                            part_progress = segment_progress / total_filler_segments
+                            total_progress = get_ffmpeg_progress(
+                                process,
+                                seg_end - seg_start,
+                                progress_bar,
+                                status_text,
+                                start_time,
+                                total_progress,
+                                part_progress
+                            )
+                            
+                            if process.returncode != 0:
+                                raise Exception(f"FFmpeg error: {process.stderr.read()}")
+                            
                             segment_files.append(str(segment_file))
                         
                         # セグメントを結合
                         if len(segment_files) > 1:
+                            status_text.text(f"セグメント {i+1}/{total_segments} の部分を結合中...")
+                            
                             list_file = output_dir / f"segments_list_{i+1}.txt"
                             with open(list_file, "w") as f:
                                 for file in segment_files:
@@ -563,11 +695,32 @@ def remove_fillers_from_video(video_path: str, output_dir: str, segments: List[t
                                 "-safe", "0",
                                 "-i", str(list_file),
                                 "-c", "copy",
+                                "-progress", "pipe:1",
                                 str(output_file)
                             ]
-                            result = subprocess.run(cmd, capture_output=True, text=True)
-                            if result.returncode != 0:
-                                raise Exception(f"FFmpeg error: {result.stderr}")
+                            
+                            # プロセスを開始
+                            process = subprocess.Popen(
+                                cmd,
+                                stderr=subprocess.PIPE,
+                                stdout=subprocess.PIPE,
+                                universal_newlines=True
+                            )
+                            
+                            # 進捗を表示（結合処理の進捗率を計算）
+                            combine_progress = segment_progress * 0.1  # 結合処理は全体の10%と仮定
+                            total_progress = get_ffmpeg_progress(
+                                process,
+                                video_duration,
+                                progress_bar,
+                                status_text,
+                                start_time,
+                                total_progress,
+                                combine_progress
+                            )
+                            
+                            if process.returncode != 0:
+                                raise Exception(f"FFmpeg error: {process.stderr.read()}")
                             
                             # 一時ファイルを削除
                             for file in segment_files:
@@ -578,11 +731,32 @@ def remove_fillers_from_video(video_path: str, output_dir: str, segments: List[t
                                 "ffmpeg", "-y",
                                 "-i", segment_files[0],
                                 "-c", "copy",
+                                "-progress", "pipe:1",
                                 str(output_file)
                             ]
-                            result = subprocess.run(cmd, capture_output=True, text=True)
-                            if result.returncode != 0:
-                                raise Exception(f"FFmpeg error: {result.stderr}")
+                            
+                            # プロセスを開始
+                            process = subprocess.Popen(
+                                cmd,
+                                stderr=subprocess.PIPE,
+                                stdout=subprocess.PIPE,
+                                universal_newlines=True
+                            )
+                            
+                            # 進捗を表示（コピー処理の進捗率を計算）
+                            copy_progress = segment_progress * 0.1  # コピー処理は全体の10%と仮定
+                            total_progress = get_ffmpeg_progress(
+                                process,
+                                video_duration,
+                                progress_bar,
+                                status_text,
+                                start_time,
+                                total_progress,
+                                copy_progress
+                            )
+                            
+                            if process.returncode != 0:
+                                raise Exception(f"FFmpeg error: {process.stderr.read()}")
                             
                             # 一時ファイルを削除
                             Path(segment_files[0]).unlink()
@@ -592,22 +766,64 @@ def remove_fillers_from_video(video_path: str, output_dir: str, segments: List[t
                                 "ffmpeg", "-y",
                                 "-i", str(temp_file),
                                 "-c", "copy",
+                                "-progress", "pipe:1",
                                 str(output_file)
                             ]
-                            result = subprocess.run(cmd, capture_output=True, text=True)
-                            if result.returncode != 0:
-                                raise Exception(f"FFmpeg error: {result.stderr}")
+                            
+                            # プロセスを開始
+                            process = subprocess.Popen(
+                                cmd,
+                                stderr=subprocess.PIPE,
+                                stdout=subprocess.PIPE,
+                                universal_newlines=True
+                            )
+                            
+                            # 進捗を表示（コピー処理の進捗率を計算）
+                            copy_progress = segment_progress * 0.1  # コピー処理は全体の10%と仮定
+                            total_progress = get_ffmpeg_progress(
+                                process,
+                                video_duration,
+                                progress_bar,
+                                status_text,
+                                start_time,
+                                total_progress,
+                                copy_progress
+                            )
+                            
+                            if process.returncode != 0:
+                                raise Exception(f"FFmpeg error: {process.stderr.read()}")
                     else:
                         # 無音部分が見つからない場合は元のセグメントをコピー
                         cmd = [
                             "ffmpeg", "-y",
                             "-i", str(temp_file),
                             "-c", "copy",
+                            "-progress", "pipe:1",
                             str(output_file)
                         ]
-                        result = subprocess.run(cmd, capture_output=True, text=True)
-                        if result.returncode != 0:
-                            raise Exception(f"FFmpeg error: {result.stderr}")
+                        
+                        # プロセスを開始
+                        process = subprocess.Popen(
+                            cmd,
+                            stderr=subprocess.PIPE,
+                            stdout=subprocess.PIPE,
+                            universal_newlines=True
+                        )
+                        
+                        # 進捗を表示（コピー処理の進捗率を計算）
+                        copy_progress = segment_progress * 0.1  # コピー処理は全体の10%と仮定
+                        total_progress = get_ffmpeg_progress(
+                            process,
+                            video_duration,
+                            progress_bar,
+                            status_text,
+                            start_time,
+                            total_progress,
+                            copy_progress
+                        )
+                        
+                        if process.returncode != 0:
+                            raise Exception(f"FFmpeg error: {process.stderr.read()}")
                     
                     processed_segments.append(str(output_file))
                 
@@ -619,6 +835,7 @@ def remove_fillers_from_video(video_path: str, output_dir: str, segments: List[t
                     for file in output_dir.glob(f"segment_{i+1}_part_*.mp4"):
                         file.unlink()
             
+            status_text.text("完了！")
             return processed_segments
             
     except Exception as e:
@@ -857,6 +1074,67 @@ def time_to_seconds(time_str):
     """SRT形式のタイムスタンプを秒数に変換"""
     hours, minutes, seconds = time_str.replace(',', '.').split(':')
     return float(hours) * 3600 + float(minutes) * 60 + float(seconds)
+
+def combine_videos(input_files: List[str], output_file: str):
+    """複数の動画ファイルを1つに結合"""
+    try:
+        # 結合用の一時ファイルリストを作成
+        list_file = Path(output_file).parent / "concat_list.txt"
+        with open(list_file, "w") as f:
+            for file in input_files:
+                f.write(f"file '{Path(file).resolve()}'\n")
+        
+        # 合計時間を計算
+        total_duration = 0
+        for file in input_files:
+            cmd = [
+                "ffprobe", "-v", "error",
+                "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                file
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode == 0:
+                total_duration += float(result.stdout.strip())
+        
+        # 進捗表示の初期化
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        start_time = time.time()
+        
+        # 動画を結合
+        cmd = [
+            "ffmpeg", "-y",
+            "-f", "concat",
+            "-safe", "0",
+            "-i", str(list_file),
+            "-c", "copy",
+            "-progress", "pipe:1",
+            str(output_file)
+        ]
+        
+        # プロセスを開始
+        process = subprocess.Popen(
+            cmd,
+            stderr=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            universal_newlines=True
+        )
+        
+        # 進捗を表示
+        get_ffmpeg_progress(process, total_duration, progress_bar, status_text, start_time)
+        
+        if process.returncode != 0:
+            raise Exception(f"FFmpeg error: {process.stderr.read()}")
+        
+        # 一時ファイルを削除
+        list_file.unlink()
+        
+        status_text.text("完了！")
+        return True
+    except Exception as e:
+        st.error(f"動画の結合中にエラーが発生しました: {str(e)}")
+        return False
 
 def main():
     st.title("🎙️ Buzz Clip - 文字起こし")
@@ -1219,6 +1497,12 @@ def main():
                                          f"出力先: {output_dir}\n"
                                          f"生成した動画: {len(actual_files)}個\n"
                                          f"合計時間: {total_duration:.1f}秒")
+                                
+                                # 結合した動画を生成
+                                combined_output = str(Path(output_dir) / "combined.mp4")
+                                if combine_videos(actual_files, combined_output):
+                                    st.success("結合した動画を生成しました！")
+                                    st.video(combined_output)
                                 
                                 # 抽出部分と動画を横並びで表示
                                 with st.expander("抽出部分と生成された動画", expanded=False):
