@@ -506,7 +506,7 @@ def extract_video_segments(video_path: str, segments: List[tuple[float, float]],
                     Path(file).unlink()
         raise e
 
-def remove_fillers_from_video(video_path: str, output_dir: str, segments: List[tuple[float, float]] = None, noise_threshold: float = -35, min_silence_duration: float = 0.3, min_segment_duration: float = 0.3):
+def remove_fillers_from_video(video_path: str, output_dir: str, segments: List[tuple[float, float]] = None, noise_threshold: float = -35, min_silence_duration: float = 0.3, min_segment_duration: float = 0.3, output_format: str = "動画ファイル"):
     """動画から無音部分を削除"""
     try:
         # 出力ディレクトリを作成
@@ -516,6 +516,7 @@ def remove_fillers_from_video(video_path: str, output_dir: str, segments: List[t
         # 共通部分が指定されている場合は、その部分のみを処理
         if segments:
             processed_segments = []
+            segment_time_info = {}  # セグメントファイルの元動画の時間情報を記録
             total_segments = len(segments)
             
             # 進捗表示の初期化
@@ -524,43 +525,60 @@ def remove_fillers_from_video(video_path: str, output_dir: str, segments: List[t
             start_time = time.time()
             total_progress = 0
             
-            for i, (start, end) in enumerate(segments):
+            for i, (original_start, original_end) in enumerate(segments):
+                # デバッグ情報：元のセグメント時間
+                st.info(f"セグメント {i+1} の元の時間範囲:\n開始: {original_start:.3f}秒\n終了: {original_end:.3f}秒")
+                
                 # 進捗表示用のステータス
                 status_text.text(f"セグメント {i+1}/{total_segments} を処理中...")
                 
                 # 一時ファイル名を生成
-                temp_file = output_dir / f"temp_{i+1}.mp4"
+                temp_file = output_dir / f"temp_{i+1}.wav"
                 output_file = output_dir / f"segment_{i+1}.mp4"
                 
                 try:
-                    # 共通部分を切り出し
-                    cmd = [
+                    # 音声のみを抽出
+                    temp_cmd = [
                         "ffmpeg", "-y",
+                        "-v", "error",
                         "-i", str(video_path),
-                        "-ss", str(start),
-                        "-to", str(end),
-                        "-c:v", "libx264",
-                        "-preset", "ultrafast",
-                        "-c:a", "aac",
-                        "-b:a", "192k",
-                        "-avoid_negative_ts", "1",
-                        "-progress", "pipe:1",
+                        "-ss", str(original_start),
+                        "-to", str(original_end),
+                        "-vn",
+                        "-acodec", "pcm_s16le",
+                        "-ar", "44100",
+                        "-ac", "1",
+                        "-f", "wav",
                         str(temp_file)
                     ]
                     
+                    # 一時ファイル生成コマンドをログに出力
+                    st.write(f"一時ファイル生成コマンド: {' '.join(temp_cmd)}")
+                    
+                    # 入力ファイルの存在確認
+                    if not Path(video_path).exists():
+                        raise Exception(f"入力ファイルが見つかりません: {video_path}")
+                    
+                    # 出力ディレクトリの存在確認
+                    output_dir.mkdir(parents=True, exist_ok=True)
+                    
+                    # 既存の一時ファイルを削除
+                    if temp_file.exists():
+                        temp_file.unlink()
+                    
                     # プロセスを開始
-                    process = subprocess.Popen(
-                        cmd,
+                    temp_process = subprocess.Popen(
+                        temp_cmd,
                         stderr=subprocess.PIPE,
                         stdout=subprocess.PIPE,
                         universal_newlines=True
                     )
                     
-                    # 進捗を表示（セグメントごとの進捗率を計算）
+                    # 進捗を表示
                     segment_progress = 1.0 / total_segments
                     total_progress = get_ffmpeg_progress(
-                        process,
-                        end - start,
+                        temp_process,
+                        original_end - original_start,
                         progress_bar,
                         status_text,
                         start_time,
@@ -568,65 +586,123 @@ def remove_fillers_from_video(video_path: str, output_dir: str, segments: List[t
                         segment_progress
                     )
                     
-                    if process.returncode != 0:
-                        raise Exception(f"FFmpeg error: {process.stderr.read()}")
-                    
-                    # 動画の長さを取得
-                    _, video_duration = get_video_info(temp_file)
-                    if video_duration is None:
-                        raise Exception("動画の長さを取得できませんでした")
+                    if temp_process.returncode != 0:
+                        error_output = temp_process.stderr.read()
+                        st.error(f"一時ファイル生成エラー: {error_output}")
+                        raise Exception(f"一時ファイル生成エラー: {error_output}")
                     
                     # 無音部分を検出
-                    cmd = [
+                    silence_cmd = [
                         "ffmpeg", "-y",
                         "-i", str(temp_file),
                         "-af", f"silencedetect=noise={noise_threshold}dB:d={min_silence_duration}",
                         "-f", "null",
                         "-"
                     ]
-                    result = subprocess.run(cmd, capture_output=True, text=True)
+                    
+                    # 無音検出コマンドをログに出力
+                    st.write(f"無音検出コマンド: {' '.join(silence_cmd)}")
+                    
+                    result = subprocess.run(silence_cmd, capture_output=True, text=True)
+                    if result.returncode != 0:
+                        st.error(f"無音検出エラー: {result.stderr}")
+                        raise Exception(f"無音検出エラー: {result.stderr}")
+                    
+                    # デバッグ情報：FFmpegの出力全体を表示
+                    st.write("FFmpegの出力:")
+                    st.code(result.stderr)
                     
                     # 無音部分の時間を抽出
                     silence_times = []
                     current_start = None
                     for line in result.stderr.split('\n'):
                         if 'silence_start' in line:
-                            start = float(line.split('silence_start: ')[1].split(' |')[0])
-                            current_start = start
+                            try:
+                                start = float(line.split('silence_start: ')[1].split(' |')[0])
+                                if current_start is None:
+                                    current_start = start
+                                    st.write(f"無音開始検出: {start:.3f}秒")
+                            except (ValueError, IndexError) as e:
+                                st.warning(f"無音開始時間の解析に失敗: {line}")
+                                continue
                         elif 'silence_end' in line and current_start is not None:
-                            end = float(line.split('silence_end: ')[1].split(' |')[0])
-                            silence_times.extend([current_start, end])
-                            current_start = None
+                            try:
+                                end = float(line.split('silence_end: ')[1].split(' |')[0])
+                                # 前の無音部分との間隔が0.1秒未満の場合は結合
+                                if silence_times and start - silence_times[-1] < 0.1:
+                                    silence_times[-1] = end
+                                    st.write(f"無音部分を結合: {current_start:.3f}秒 - {end:.3f}秒")
+                                else:
+                                    silence_times.extend([current_start, end])
+                                    st.write(f"無音終了検出: {end:.3f}秒")
+                                current_start = None
+                            except (ValueError, IndexError) as e:
+                                st.warning(f"無音終了時間の解析に失敗: {line}")
+                                continue
+                    
+                    # デバッグ情報：検出された無音部分
+                    if silence_times:
+                        st.info(f"セグメント {i+1} で検出された無音部分:")
+                        for j in range(0, len(silence_times), 2):
+                            if j + 1 < len(silence_times):
+                                st.write(f"無音 {j//2 + 1}: {silence_times[j]:.3f}秒 - {silence_times[j+1]:.3f}秒")
+                    else:
+                        st.info(f"セグメント {i+1} では無音部分は検出されませんでした")
                     
                     # 無音部分を除外したセグメントを作成
                     filler_segments = []
+                    current_pos = 0.0
                     
-                    # 無音部分を除外したセグメントを作成
-                    if silence_times:
-                        # 最初の無音部分より前のセグメント
-                        if silence_times[0] > 0:
-                            filler_segments.append((0, silence_times[0]))
-                        
-                        # 無音部分の間のセグメント
-                        for j in range(0, len(silence_times)-1, 2):
-                            if j + 1 < len(silence_times):
-                                silence_start, silence_end = silence_times[j], silence_times[j+1]
-                                # 無音部分が短すぎる場合は無視
-                                if silence_end - silence_start < min_silence_duration:
-                                    continue
-                                
-                                # 次の無音部分までのセグメント
-                                if j + 2 < len(silence_times):
-                                    next_silence = silence_times[j+2]
-                                    if next_silence - silence_end > 0:
-                                        filler_segments.append((silence_end, next_silence))
-                        
-                        # 最後の無音部分より後のセグメント
-                        if silence_times[-1] < video_duration:
-                            filler_segments.append((silence_times[-1], video_duration))
-                    else:
-                        # 無音部分が見つからない場合は全体を1つのセグメントとして扱う
-                        filler_segments.append((0, video_duration))
+                    # 無音部分の時間を取得
+                    for j in range(0, len(silence_times), 2):
+                        if j + 1 < len(silence_times):
+                            silence_start = silence_times[j]
+                            silence_end = silence_times[j + 1]
+                            
+                            # 無音部分が短すぎる場合は無視
+                            if silence_end - silence_start < min_silence_duration:
+                                continue
+                            
+                            # 無音部分の前のセグメントを追加
+                            if silence_start - current_pos >= min_segment_duration:
+                                # 元の動画の絶対時間に変換
+                                absolute_start = original_start + current_pos
+                                absolute_end = original_start + silence_start
+                                filler_segments.append((absolute_start, absolute_end))
+                            
+                            current_pos = silence_end
+                    
+                    # 最後のセグメントを追加
+                    if original_end - original_start - current_pos >= min_segment_duration:
+                        # 元の動画の絶対時間に変換
+                        absolute_start = original_start + current_pos
+                        absolute_end = original_end
+                        filler_segments.append((absolute_start, absolute_end))
+                    
+                    # 無音部分が見つからない場合は全体を1つのセグメントとして扱う
+                    if not filler_segments:
+                        filler_segments.append((original_start, original_end))
+                    
+                    # セグメント間の隙間をなくす
+                    if len(filler_segments) > 1:
+                        adjusted_segments = []
+                        for j in range(len(filler_segments)):
+                            if j == 0:
+                                adjusted_segments.append(filler_segments[j])
+                            else:
+                                # 前のセグメントの終了時間と現在のセグメントの開始時間の間の隙間をなくす
+                                prev_end = adjusted_segments[-1][1]
+                                curr_start = filler_segments[j][0]
+                                if curr_start > prev_end:
+                                    # 隙間がある場合、前のセグメントの終了時間を現在のセグメントの開始時間に合わせる
+                                    adjusted_segments[-1] = (adjusted_segments[-1][0], curr_start)
+                                adjusted_segments.append(filler_segments[j])
+                        filler_segments = adjusted_segments
+                    
+                    # デバッグ情報：最終的なセグメント
+                    st.info(f"セグメント {i+1} の最終的な時間範囲:")
+                    for j, (seg_start, seg_end) in enumerate(filler_segments):
+                        st.write(f"クリップ {j+1}: {seg_start:.3f}秒 - {seg_end:.3f}秒")
                     
                     # セグメントを切り出し
                     if filler_segments:
@@ -640,50 +716,84 @@ def remove_fillers_from_video(video_path: str, output_dir: str, segments: List[t
                             
                             status_text.text(f"セグメント {i+1}/{total_segments} の部分 {j+1}/{total_filler_segments} を処理中...")
                             
-                            segment_file = output_dir / f"segment_{i+1}_part_{j+1}.mp4"
-                            cmd = [
-                                "ffmpeg", "-y",
-                                "-i", str(temp_file),
-                                "-ss", str(seg_start),
-                                "-to", str(seg_end),
-                                "-c:v", "libx264",
-                                "-preset", "ultrafast",
-                                "-c:a", "aac",
-                                "-b:a", "192k",
-                                "-avoid_negative_ts", "1",
-                                "-progress", "pipe:1",
-                                str(segment_file)
-                            ]
-                            
-                            # プロセスを開始
-                            process = subprocess.Popen(
-                                cmd,
-                                stderr=subprocess.PIPE,
-                                stdout=subprocess.PIPE,
-                                universal_newlines=True
-                            )
-                            
-                            # 進捗を表示（セグメント内の部分ごとの進捗率を計算）
-                            part_progress = segment_progress / total_filler_segments
-                            total_progress = get_ffmpeg_progress(
-                                process,
-                                seg_end - seg_start,
-                                progress_bar,
-                                status_text,
-                                start_time,
-                                total_progress,
-                                part_progress
-                            )
-                            
-                            if process.returncode != 0:
-                                raise Exception(f"FFmpeg error: {process.stderr.read()}")
-                            
-                            segment_files.append(str(segment_file))
+                            if output_format == "FCPXMLファイル":
+                                # FCPXMLの場合は時間情報のみを記録
+                                segment_file = str(Path(output_dir) / f"segment_{i+1}_part_{j+1}.mp4")
+                                segment_time_info[segment_file] = (seg_start, seg_end)
+                                segment_files.append(segment_file)
+                            else:
+                                # 動画ファイルの場合は実際に切り出し
+                                segment_file = output_dir / f"segment_{i+1}_part_{j+1}.mp4"
+                                
+                                try:
+                                    cmd = [
+                                        "ffmpeg", "-y",
+                                        "-v", "error",
+                                        "-i", str(video_path),
+                                        "-ss", str(seg_start),
+                                        "-to", str(seg_end),
+                                        "-c:v", "libx264",
+                                        "-preset", "ultrafast",
+                                        "-c:a", "aac",
+                                        "-b:a", "192k",
+                                        "-avoid_negative_ts", "1",
+                                        "-progress", "pipe:1",
+                                        str(segment_file)
+                                    ]
+
+                                    # コマンドをログに出力
+                                    st.write(f"実行コマンド: {' '.join(cmd)}")
+
+                                    # プロセスを開始
+                                    process = subprocess.Popen(
+                                        cmd,
+                                        stderr=subprocess.PIPE,
+                                        stdout=subprocess.PIPE,
+                                        universal_newlines=True
+                                    )
+
+                                    # 進捗を表示
+                                    part_progress = segment_progress / total_filler_segments
+                                    total_progress = get_ffmpeg_progress(
+                                        process,
+                                        seg_end - seg_start,
+                                        progress_bar,
+                                        status_text,
+                                        start_time,
+                                        total_progress,
+                                        part_progress
+                                    )
+
+                                    if process.returncode != 0:
+                                        error_output = process.stderr.read()
+                                        st.error(f"FFmpeg error: {error_output}")
+                                        raise Exception(f"FFmpeg error: {error_output}")
+
+                                    # 出力ファイルの存在確認
+                                    if not Path(segment_file).exists():
+                                        raise Exception(f"出力ファイルが生成されませんでした: {segment_file}")
+
+                                    # 元動画の絶対時間を計算して記録
+                                    segment_time_info[str(segment_file)] = (seg_start, seg_end)
+                                    segment_files.append(str(segment_file))
+
+                                except Exception as e:
+                                    st.error(f"セグメント {i+1} の部分 {j+1} の処理中にエラーが発生しました: {str(e)}")
+                                    # エラーが発生した場合、既存の出力ファイルを削除
+                                    if Path(segment_file).exists():
+                                        Path(segment_file).unlink()
+                                    raise
+                    
+                    # セグメントを結合
+                    if len(segment_files) > 1:
+                        status_text.text(f"セグメント {i+1}/{total_segments} の部分を結合中...")
                         
-                        # セグメントを結合
-                        if len(segment_files) > 1:
-                            status_text.text(f"セグメント {i+1}/{total_segments} の部分を結合中...")
-                            
+                        if output_format == "FCPXMLファイル":
+                            # FCPXMLの場合は結合処理をスキップ
+                            output_file = str(Path(output_dir) / f"segment_{i+1}.mp4")
+                            processed_segments.append(output_file)
+                        else:
+                            # 動画ファイルの場合は結合処理を実行
                             list_file = output_dir / f"segments_list_{i+1}.txt"
                             with open(list_file, "w") as f:
                                 for file in segment_files:
@@ -711,7 +821,7 @@ def remove_fillers_from_video(video_path: str, output_dir: str, segments: List[t
                             combine_progress = segment_progress * 0.1  # 結合処理は全体の10%と仮定
                             total_progress = get_ffmpeg_progress(
                                 process,
-                                video_duration,
+                                original_end - original_start,
                                 progress_bar,
                                 status_text,
                                 start_time,
@@ -725,8 +835,17 @@ def remove_fillers_from_video(video_path: str, output_dir: str, segments: List[t
                             # 一時ファイルを削除
                             for file in segment_files:
                                 Path(file).unlink()
-                        elif segment_files:
-                            # セグメントが1つの場合はそのままコピー
+                            
+                            processed_segments.append(str(output_file))
+                    elif segment_files:
+                        # セグメントが1つの場合
+                        if output_format == "FCPXMLファイル":
+                            # FCPXMLの場合は単純にファイル名を記録
+                            output_file = str(Path(output_dir) / f"segment_{i+1}.mp4")
+                            processed_segments.append(output_file)
+                        else:
+                            # 動画ファイルの場合はコピー処理を実行
+                            output_file = output_dir / f"segment_{i+1}.mp4"
                             cmd = [
                                 "ffmpeg", "-y",
                                 "-i", segment_files[0],
@@ -747,7 +866,7 @@ def remove_fillers_from_video(video_path: str, output_dir: str, segments: List[t
                             copy_progress = segment_progress * 0.1  # コピー処理は全体の10%と仮定
                             total_progress = get_ffmpeg_progress(
                                 process,
-                                video_duration,
+                                original_end - original_start,
                                 progress_bar,
                                 status_text,
                                 start_time,
@@ -760,8 +879,17 @@ def remove_fillers_from_video(video_path: str, output_dir: str, segments: List[t
                             
                             # 一時ファイルを削除
                             Path(segment_files[0]).unlink()
+                            
+                            processed_segments.append(str(output_file))
+                    else:
+                        # 無音部分が見つからない場合
+                        if output_format == "FCPXMLファイル":
+                            # FCPXMLの場合は単純にファイル名を記録
+                            output_file = str(Path(output_dir) / f"segment_{i+1}.mp4")
+                            processed_segments.append(output_file)
                         else:
-                            # 無音部分が見つからない場合は元のセグメントをコピー
+                            # 動画ファイルの場合は元のセグメントをコピー
+                            output_file = output_dir / f"segment_{i+1}.mp4"
                             cmd = [
                                 "ffmpeg", "-y",
                                 "-i", str(temp_file),
@@ -782,7 +910,7 @@ def remove_fillers_from_video(video_path: str, output_dir: str, segments: List[t
                             copy_progress = segment_progress * 0.1  # コピー処理は全体の10%と仮定
                             total_progress = get_ffmpeg_progress(
                                 process,
-                                video_duration,
+                                original_end - original_start,
                                 progress_bar,
                                 status_text,
                                 start_time,
@@ -792,8 +920,8 @@ def remove_fillers_from_video(video_path: str, output_dir: str, segments: List[t
                             
                             if process.returncode != 0:
                                 raise Exception(f"FFmpeg error: {process.stderr.read()}")
-                    
-                    processed_segments.append(str(output_file))
+                            
+                            processed_segments.append(str(output_file))
                 
                 finally:
                     # 一時ファイルを削除
@@ -804,11 +932,11 @@ def remove_fillers_from_video(video_path: str, output_dir: str, segments: List[t
                         file.unlink()
             
             status_text.text("完了！")
-            return processed_segments
+            return processed_segments, segment_time_info
             
     except Exception as e:
         st.error(f"動画の処理中にエラーが発生しました: {str(e)}")
-        return None
+        return None, None
 
 def format_timestamp(seconds):
     """秒数をSRT形式のタイムスタンプに変換"""
@@ -1104,6 +1232,158 @@ def combine_videos(input_files: List[str], output_file: str):
         st.error(f"動画の結合中にエラーが発生しました: {str(e)}")
         return False
 
+def create_fcpxml(video_files: List[str], output_path: Path, fps: int = 30, segment_time_info: Dict[str, tuple[float, float]] = None) -> bool:
+    """FCPXMLファイルを生成"""
+    try:
+        # デバッグ情報の表示
+        st.write("FCPXML生成のデバッグ情報:")
+        st.write(f"入力ファイル一覧: {video_files}")
+        st.write(f"出力パス: {output_path}")
+        st.write(f"セグメント時間情報: {segment_time_info}")
+        
+        # 動画ファイルの情報を取得
+        video_info = []
+        total_duration = 0
+        
+        # 元の動画ファイルのパスを取得（最初のセグメントから）
+        original_video_path = None
+        for file in video_files:
+            file_path = Path(file)
+            st.write(f"ファイル確認: {file_path} (存在: {file_path.exists()})")
+            if file_path.exists():
+                original_video_path = str(file_path.resolve())
+                st.write(f"元の動画ファイルを発見: {original_video_path}")
+                break
+        
+        if not original_video_path:
+            st.error("元の動画ファイルが見つかりません")
+            st.write("確認したファイル:")
+            for file in video_files:
+                st.write(f"- {file} (存在: {Path(file).exists()})")
+            raise Exception("元の動画ファイルが見つかりません")
+        
+        # 元の動画の情報を取得
+        cmd = [
+            "ffprobe", "-v", "error",
+            "-select_streams", "v:0",
+            "-show_entries", "stream=width,height,r_frame_rate,time_base",
+            "-of", "json",
+            original_video_path
+        ]
+        st.write(f"FFprobeコマンド: {' '.join(cmd)}")
+        
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            st.error(f"FFprobeエラー: {result.stderr}")
+            raise Exception(f"動画情報の取得に失敗しました: {result.stderr}")
+        
+        info = json.loads(result.stdout)
+        if 'streams' not in info or len(info['streams']) == 0:
+            st.error("動画ストリームの情報を取得できませんでした")
+            st.write(f"FFprobe出力: {result.stdout}")
+            raise Exception("動画ストリームの情報を取得できませんでした")
+        
+        stream = info['streams'][0]
+        width = stream.get('width', 1920)
+        height = stream.get('height', 1080)
+        fps_str = stream.get('r_frame_rate', f"{fps}/1")
+        time_base = stream.get('time_base', "1/30")
+        num, den = map(int, fps_str.split('/'))
+        actual_fps = num / den if den != 0 else fps
+        
+        st.write(f"動画情報: 幅={width}, 高さ={height}, FPS={actual_fps}, タイムベース={time_base}")
+        
+        # 各セグメントの情報を処理
+        if segment_time_info:
+            # セグメント時間情報を時間順にソート
+            sorted_segments = sorted(segment_time_info.items(), key=lambda x: x[1][0])
+            
+            for segment_file, (start_time, end_time) in sorted_segments:
+                duration = end_time - start_time
+                
+                # フレーム単位に変換（タイムベースを考慮）
+                time_base_num, time_base_den = map(int, time_base.split('/'))
+                start_frames = int(round(start_time * actual_fps))
+                duration_frames = int(round(duration * actual_fps))
+                
+                # タイムラインのフレームレートに合わせて変換
+                timeline_start_frames = int(round(start_frames * (fps / actual_fps)))
+                timeline_duration_frames = int(round(duration_frames * (fps / actual_fps)))
+                
+                video_info.append({
+                    'path': original_video_path,  # 元の動画ファイルのパスを使用
+                    'width': width,
+                    'height': height,
+                    'fps': actual_fps,
+                    'time_base': time_base,
+                    'duration': duration,
+                    'original_start': start_time,  # 元の動画に対する絶対時間
+                    'original_end': end_time,      # 元の動画に対する絶対時間
+                    'start_frames': timeline_start_frames,
+                    'duration_frames': timeline_duration_frames
+                })
+                
+                total_duration += timeline_duration_frames
+                st.write(f"セグメント情報: 開始={start_time}, 終了={end_time}, 長さ={duration}秒")
+
+        if not video_info:
+            st.error("動画ファイルの情報を取得できませんでした")
+            st.write("セグメント時間情報:")
+            for file, times in segment_time_info.items():
+                st.write(f"- {file}: {times}")
+            raise Exception("動画ファイルの情報を取得できませんでした")
+
+        # FCPXMLのヘッダー
+        xml_content = f'''<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE fcpxml>
+<fcpxml version="1.9">
+    <resources>
+        <format width="1920" name="FFVideoFormat1080p{str(fps)}" id="r0" height="1080" frameDuration="1/{str(fps)}s"/>
+'''
+
+        # リソースの追加
+        for i, info in enumerate(video_info, 1):
+            xml_content += f'''        <asset format="r0" name="{Path(info['path']).stem}.mp4" audioChannels="2" duration="{info['duration_frames']}/{fps}s" audioSources="1" id="r{i}" hasVideo="1" hasAudio="1" start="{info['start_frames']}/{fps}s">
+            <media-rep src="file://{info['path']}" kind="original-media"/>
+        </asset>
+'''
+
+        xml_content += '''    </resources>
+    <library>
+        <event name="Buzz Clip Event">
+            <project name="Buzz Clip Project">
+                <sequence tcFormat="NDF" format="r0" duration="{total_duration}/{fps}s" tcStart="0/1s">
+                    <spine>
+'''
+
+        # クリップの追加
+        current_frames = 0
+        for i, info in enumerate(video_info, 1):
+            # 元の動画に対する絶対時間を使用
+            original_start_frames = int(round(info['original_start'] * fps))
+            xml_content += f'''                        <asset-clip tcFormat="NDF" offset="{current_frames}/{fps}s" format="r0" name="{Path(info['path']).stem}.mp4" duration="{info['duration_frames']}/{fps}s" ref="r{i}" enabled="1" start="{original_start_frames}/{fps}s">
+                            <adjust-transform scale="1 1" anchor="0 0" position="0 0"/>
+                        </asset-clip>
+'''
+            current_frames += info['duration_frames']
+
+        xml_content += '''                    </spine>
+                </sequence>
+            </project>
+        </event>
+    </library>
+</fcpxml>'''
+
+        # FCPXMLファイルを保存
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write(xml_content)
+
+        st.success(f"FCPXMLファイルを生成しました: {output_path}")
+        return True
+    except Exception as e:
+        st.error(f"FCPXMLファイルの生成中にエラーが発生しました: {str(e)}")
+        return False
+
 def main():
     st.title("🎙️ Buzz Clip - 文字起こし")
     
@@ -1119,7 +1399,7 @@ def main():
             model_size = st.selectbox(
                 "Whisperモデル",
                 ["large-v3", "medium", "small", "base"],
-                index=1,
+                index=0,
                 help="large-v3: 最高精度（メモリ使用量大）\nmedium: バランスが良い\nsmall/base: 軽量"
             )
             
@@ -1354,7 +1634,7 @@ def main():
             
             # 処理オプション
             st.markdown("### 処理オプション")
-            col1, col2 = st.columns(2)
+            col1, col2, col3 = st.columns(3)
             
             with col1:
                 process_type = st.radio(
@@ -1365,13 +1645,30 @@ def main():
                 )
             
             with col2:
-                if process_type == "無音削除付き":
-                    st.markdown("#### 無音削除の設定")
-                    st.info("現在の設定：\n"
-                           f"- 無音検出の閾値: {st.session_state.get('noise_threshold', -35)}dB\n"
-                           f"- 最小無音時間: {st.session_state.get('min_silence_duration', 0.3)}秒\n"
-                           f"- 最小セグメント時間: {st.session_state.get('min_segment_duration', 0.3)}秒\n\n"
-                           "設定を変更する場合は、左のサイドパネルの「無音設定」タブから変更してください。")
+                output_format = st.radio(
+                    "出力形式",
+                    ["動画ファイル", "FCPXMLファイル"],
+                    index=1,
+                    help="動画ファイル：MP4形式で出力\nFCPXMLファイル：Final Cut Pro用のXMLファイルを出力"
+                )
+            
+            with col3:
+                timeline_fps = st.number_input(
+                    "タイムラインのフレームレート",
+                    min_value=24,
+                    max_value=60,
+                    value=30,
+                    step=1,
+                    help="FCPXMLファイルを生成する際のフレームレート"
+                )
+            
+            if process_type == "無音削除付き":
+                st.markdown("#### 無音削除の設定")
+                st.info("現在の設定：\n"
+                       f"- 無音検出の閾値: {st.session_state.get('noise_threshold', -35)}dB\n"
+                       f"- 最小無音時間: {st.session_state.get('min_silence_duration', 0.3)}秒\n"
+                       f"- 最小セグメント時間: {st.session_state.get('min_segment_duration', 0.3)}秒\n\n"
+                       "設定を変更する場合は、左のサイドパネルの「無音設定」タブから変更してください。")
             
             # 処理実行ボタン
             if st.button("🚀 処理を実行", type="primary", use_container_width=True):
@@ -1403,7 +1700,7 @@ def main():
                     
                     with st.spinner("指定した箇所を切り出し中..."):
                         try:
-                            output_files = extract_video_segments(video_path, timestamps, output_dir)
+                            output_files, segment_time_info = extract_video_segments(video_path, timestamps, output_dir)
                             if output_files:
                                 st.success(f"切り出しが完了しました！ {len(output_files)}個の動画を生成しました。")
                                 
@@ -1443,57 +1740,68 @@ def main():
                     
                     with st.spinner("指定した箇所を切り出し、無音を削除中..."):
                         try:
-                            output_files = remove_fillers_from_video(
+                            output_files, segment_time_info = remove_fillers_from_video(
                                 video_path,
                                 output_dir,
                                 timestamps,
                                 noise_threshold=st.session_state.get('noise_threshold', -35),
                                 min_silence_duration=st.session_state.get('min_silence_duration', 0.3),
-                                min_segment_duration=st.session_state.get('min_segment_duration', 0.3)
+                                min_segment_duration=st.session_state.get('min_segment_duration', 0.3),
+                                output_format=output_format
                             )
                             if output_files:
                                 # 出力ファイルの数を正確にカウント
                                 actual_files = [f for f in output_files if Path(f).exists()]
                                 
-                                # 合計時間を計算
-                                total_duration = 0
-                                for file in actual_files:
-                                    cmd = [
-                                        "ffprobe", "-v", "error",
-                                        "-show_entries", "format=duration",
-                                        "-of", "default=noprint_wrappers=1:nokey=1",
-                                        file
-                                    ]
-                                    result = subprocess.run(cmd, capture_output=True, text=True)
-                                    if result.returncode == 0:
-                                        total_duration += float(result.stdout.strip())
-                                
-                                st.success(f"処理が完了しました！\n"
-                                         f"出力先: {output_dir}\n"
-                                         f"生成した動画: {len(actual_files)}個\n"
-                                         f"合計時間: {total_duration:.1f}秒")
-                                
-                                # 結合した動画を生成
-                                combined_output = str(Path(output_dir) / "combined.mp4")
-                                if combine_videos(actual_files, combined_output):
-                                    st.success("結合した動画を生成しました！")
-                                    st.video(combined_output)
-                                
-                                # 抽出部分と動画を横並びで表示
-                                with st.expander("抽出部分と生成された動画", expanded=False):
-                                    for i, ((start, end, text), file) in enumerate(zip(common_positions, actual_files)):
-                                        start_time, end_time = get_timestamp_for_position(
-                                            st.session_state.transcription_result["segments"],
-                                            start,
-                                            end
-                                        )
-                                        col1, col2 = st.columns(2)
-                                        with col1:
-                                            st.markdown(f"**{start_time:.1f}s - {end_time:.1f}s**")
-                                            st.markdown(text)
-                                        with col2:
-                                            st.video(file)
-                                        st.markdown("---")
+                                if output_format == "FCPXMLファイル":
+                                    # FCPXMLファイルを生成
+                                    fcpxml_path = Path(output_dir) / f"{Path(video_path).stem}.fcpxml"
+                                    # 元の動画ファイルのパスを含めたファイルリストを作成
+                                    video_files_for_fcpxml = [video_path]  # 元の動画ファイルのパスを追加
+                                    if create_fcpxml(video_files_for_fcpxml, fcpxml_path, timeline_fps, segment_time_info):
+                                        st.success(f"FCPXMLファイルを生成しました！\n出力先: {fcpxml_path}")
+                                    else:
+                                        st.error("FCPXMLファイルの生成に失敗しました。")
+                                else:
+                                    # 合計時間を計算
+                                    total_duration = 0
+                                    for file in actual_files:
+                                        cmd = [
+                                            "ffprobe", "-v", "error",
+                                            "-show_entries", "format=duration",
+                                            "-of", "default=noprint_wrappers=1:nokey=1",
+                                            file
+                                        ]
+                                        result = subprocess.run(cmd, capture_output=True, text=True)
+                                        if result.returncode == 0:
+                                            total_duration += float(result.stdout.strip())
+                                    
+                                    st.success(f"処理が完了しました！\n"
+                                             f"出力先: {output_dir}\n"
+                                             f"生成した動画: {len(actual_files)}個\n"
+                                             f"合計時間: {total_duration:.1f}秒")
+                                    
+                                    # 結合した動画を生成
+                                    combined_output = str(Path(output_dir) / "combined.mp4")
+                                    if combine_videos(actual_files, combined_output):
+                                        st.success("結合した動画を生成しました！")
+                                        st.video(combined_output)
+                                    
+                                    # 抽出部分と動画を横並びで表示
+                                    with st.expander("抽出部分と生成された動画", expanded=False):
+                                        for i, ((start, end, text), file) in enumerate(zip(common_positions, actual_files)):
+                                            start_time, end_time = get_timestamp_for_position(
+                                                st.session_state.transcription_result["segments"],
+                                                start,
+                                                end
+                                            )
+                                            col1, col2 = st.columns(2)
+                                            with col1:
+                                                st.markdown(f"**{start_time:.1f}s - {end_time:.1f}s**")
+                                                st.markdown(text)
+                                            with col2:
+                                                st.video(file)
+                                            st.markdown("---")
                             else:
                                 st.error("動画の処理に失敗しました。")
                             
