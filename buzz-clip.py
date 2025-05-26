@@ -20,9 +20,15 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-def get_video_files():
-    """videosフォルダ内の動画ファイルを取得"""
-    video_dir = Path("videos")
+def get_video_files(input_dir: str = None):
+    """指定されたフォルダ内の動画ファイルを取得"""
+    if input_dir is None:
+        input_dir = "videos"
+    
+    # パスから引用符を除去
+    input_dir = input_dir.strip('"\'')
+    
+    video_dir = Path(input_dir)
     if not video_dir.exists():
         video_dir.mkdir(exist_ok=True)
     
@@ -526,9 +532,6 @@ def remove_fillers_from_video(video_path: str, output_dir: str, segments: List[t
             total_progress = 0
             
             for i, (original_start, original_end) in enumerate(segments):
-                # デバッグ情報：元のセグメント時間
-                st.info(f"セグメント {i+1} の元の時間範囲:\n開始: {original_start:.3f}秒\n終了: {original_end:.3f}秒")
-                
                 # 進捗表示用のステータス
                 status_text.text(f"セグメント {i+1}/{total_segments} を処理中...")
                 
@@ -551,9 +554,6 @@ def remove_fillers_from_video(video_path: str, output_dir: str, segments: List[t
                         "-f", "wav",
                         str(temp_file)
                     ]
-                    
-                    # 一時ファイル生成コマンドをログに出力
-                    st.write(f"一時ファイル生成コマンド: {' '.join(temp_cmd)}")
                     
                     # 入力ファイルの存在確認
                     if not Path(video_path).exists():
@@ -600,17 +600,10 @@ def remove_fillers_from_video(video_path: str, output_dir: str, segments: List[t
                         "-"
                     ]
                     
-                    # 無音検出コマンドをログに出力
-                    st.write(f"無音検出コマンド: {' '.join(silence_cmd)}")
-                    
                     result = subprocess.run(silence_cmd, capture_output=True, text=True)
                     if result.returncode != 0:
                         st.error(f"無音検出エラー: {result.stderr}")
                         raise Exception(f"無音検出エラー: {result.stderr}")
-                    
-                    # デバッグ情報：FFmpegの出力全体を表示
-                    st.write("FFmpegの出力:")
-                    st.code(result.stderr)
                     
                     # 無音部分の時間を抽出
                     silence_times = []
@@ -621,9 +614,7 @@ def remove_fillers_from_video(video_path: str, output_dir: str, segments: List[t
                                 start = float(line.split('silence_start: ')[1].split(' |')[0])
                                 if current_start is None:
                                     current_start = start
-                                    st.write(f"無音開始検出: {start:.3f}秒")
                             except (ValueError, IndexError) as e:
-                                st.warning(f"無音開始時間の解析に失敗: {line}")
                                 continue
                         elif 'silence_end' in line and current_start is not None:
                             try:
@@ -631,23 +622,11 @@ def remove_fillers_from_video(video_path: str, output_dir: str, segments: List[t
                                 # 前の無音部分との間隔が0.1秒未満の場合は結合
                                 if silence_times and start - silence_times[-1] < 0.1:
                                     silence_times[-1] = end
-                                    st.write(f"無音部分を結合: {current_start:.3f}秒 - {end:.3f}秒")
                                 else:
                                     silence_times.extend([current_start, end])
-                                    st.write(f"無音終了検出: {end:.3f}秒")
                                 current_start = None
                             except (ValueError, IndexError) as e:
-                                st.warning(f"無音終了時間の解析に失敗: {line}")
                                 continue
-                    
-                    # デバッグ情報：検出された無音部分
-                    if silence_times:
-                        st.info(f"セグメント {i+1} で検出された無音部分:")
-                        for j in range(0, len(silence_times), 2):
-                            if j + 1 < len(silence_times):
-                                st.write(f"無音 {j//2 + 1}: {silence_times[j]:.3f}秒 - {silence_times[j+1]:.3f}秒")
-                    else:
-                        st.info(f"セグメント {i+1} では無音部分は検出されませんでした")
                     
                     # 無音部分を除外したセグメントを作成
                     filler_segments = []
@@ -699,11 +678,6 @@ def remove_fillers_from_video(video_path: str, output_dir: str, segments: List[t
                                 adjusted_segments.append(filler_segments[j])
                         filler_segments = adjusted_segments
                     
-                    # デバッグ情報：最終的なセグメント
-                    st.info(f"セグメント {i+1} の最終的な時間範囲:")
-                    for j, (seg_start, seg_end) in enumerate(filler_segments):
-                        st.write(f"クリップ {j+1}: {seg_start:.3f}秒 - {seg_end:.3f}秒")
-                    
                     # セグメントを切り出し
                     if filler_segments:
                         segment_files = []
@@ -740,9 +714,6 @@ def remove_fillers_from_video(video_path: str, output_dir: str, segments: List[t
                                         "-progress", "pipe:1",
                                         str(segment_file)
                                     ]
-
-                                    # コマンドをログに出力
-                                    st.write(f"実行コマンド: {' '.join(cmd)}")
 
                                     # プロセスを開始
                                     process = subprocess.Popen(
@@ -1235,12 +1206,6 @@ def combine_videos(input_files: List[str], output_file: str):
 def create_fcpxml(video_files: List[str], output_path: Path, fps: int = 30, segment_time_info: Dict[str, tuple[float, float]] = None, output_name: str = None) -> bool:
     """FCPXMLファイルを生成"""
     try:
-        # デバッグ情報の表示
-        st.write("FCPXML生成のデバッグ情報:")
-        st.write(f"入力ファイル一覧: {video_files}")
-        st.write(f"出力パス: {output_path}")
-        st.write(f"セグメント時間情報: {segment_time_info}")
-        
         # 動画ファイルの情報を取得
         video_info = []
         total_duration = 0
@@ -1249,17 +1214,12 @@ def create_fcpxml(video_files: List[str], output_path: Path, fps: int = 30, segm
         original_video_path = None
         for file in video_files:
             file_path = Path(file)
-            st.write(f"ファイル確認: {file_path} (存在: {file_path.exists()})")
             if file_path.exists():
                 original_video_path = str(file_path.resolve())
-                st.write(f"元の動画ファイルを発見: {original_video_path}")
                 break
         
         if not original_video_path:
             st.error("元の動画ファイルが見つかりません")
-            st.write("確認したファイル:")
-            for file in video_files:
-                st.write(f"- {file} (存在: {Path(file).exists()})")
             raise Exception("元の動画ファイルが見つかりません")
         
         # 元の動画の情報を取得
@@ -1270,7 +1230,6 @@ def create_fcpxml(video_files: List[str], output_path: Path, fps: int = 30, segm
             "-of", "json",
             original_video_path
         ]
-        st.write(f"FFprobeコマンド: {' '.join(cmd)}")
         
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode != 0:
@@ -1280,7 +1239,6 @@ def create_fcpxml(video_files: List[str], output_path: Path, fps: int = 30, segm
         info = json.loads(result.stdout)
         if 'streams' not in info or len(info['streams']) == 0:
             st.error("動画ストリームの情報を取得できませんでした")
-            st.write(f"FFprobe出力: {result.stdout}")
             raise Exception("動画ストリームの情報を取得できませんでした")
         
         stream = info['streams'][0]
@@ -1290,8 +1248,6 @@ def create_fcpxml(video_files: List[str], output_path: Path, fps: int = 30, segm
         time_base = stream.get('time_base', "1/30")
         num, den = map(int, fps_str.split('/'))
         actual_fps = num / den if den != 0 else fps
-        
-        st.write(f"動画情報: 幅={width}, 高さ={height}, FPS={actual_fps}, タイムベース={time_base}")
         
         # 各セグメントの情報を処理
         if segment_time_info:
@@ -1324,13 +1280,9 @@ def create_fcpxml(video_files: List[str], output_path: Path, fps: int = 30, segm
                 })
                 
                 total_duration += timeline_duration_frames
-                st.write(f"セグメント情報: 開始={start_time}, 終了={end_time}, 長さ={duration}秒")
 
         if not video_info:
             st.error("動画ファイルの情報を取得できませんでした")
-            st.write("セグメント時間情報:")
-            for file, times in segment_time_info.items():
-                st.write(f"- {file}: {times}")
             raise Exception("動画ファイルの情報を取得できませんでした")
 
         # イベント名とプロジェクト名の設定
@@ -1382,7 +1334,6 @@ def create_fcpxml(video_files: List[str], output_path: Path, fps: int = 30, segm
         with open(output_path, 'w', encoding='utf-8') as f:
             f.write(xml_content)
 
-        st.success(f"FCPXMLファイルを生成しました: {output_path}")
         return True
     except Exception as e:
         st.error(f"FCPXMLファイルの生成中にエラーが発生しました: {str(e)}")
@@ -1481,21 +1432,14 @@ def main():
             A: 指定した閾値以下の音量が一定時間続く部分を削除します。
             """)
 
-    # 動画ファイル選択
-    video_files = get_video_files()
-    
-    if not video_files:
-        st.warning("📁 videosフォルダに動画ファイルがありません。")
-        st.info("動画ファイルを以下のフォルダに配置してください: `videos/`")
-        return
-    
     # 入力と出力のパス設定
     col1, col2 = st.columns(2)
     with col1:
         input_dir = st.text_input(
             "📥 入力フォルダ",
             value=str(Path("videos").resolve()),
-            help="元の動画ファイルを格納するフォルダのフルパス"
+            help="元の動画ファイルを格納するフォルダのフルパス",
+            key="input_dir"
         )
     with col2:
         output_dir = st.text_input(
@@ -1505,14 +1449,27 @@ def main():
         )
     
     # 入力フォルダの存在確認
-    input_path = Path(input_dir)
+    input_path = Path(input_dir.strip('"\''))
     if not input_path.exists():
         st.error(f"入力フォルダが見つかりません: {input_dir}")
         return
     
     # 出力フォルダの作成
-    output_path = Path(output_dir)
+    output_path = Path(output_dir.strip('"\''))
     output_path.mkdir(parents=True, exist_ok=True)
+    
+    # 入力フォルダが変更された場合、動画ファイルリストを更新
+    if 'last_input_dir' not in st.session_state or st.session_state.last_input_dir != input_dir:
+        st.session_state.last_input_dir = input_dir
+        st.session_state.video_files = get_video_files(input_dir)
+    
+    # 動画ファイル選択
+    video_files = st.session_state.video_files
+    
+    if not video_files:
+        st.warning(f"📁 選択されたフォルダに動画ファイルがありません: {input_dir}")
+        st.info("動画ファイルを以下のフォルダに配置してください")
+        return
     
     selected_video = st.selectbox(
         "🎬 動画ファイルを選択",
