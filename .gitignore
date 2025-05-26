@@ -178,5 +178,8 @@ cython_debug/
 # Videos folder
 videos/
 
+# Transcriptions folder
+transcriptions/
+
 # Archive folder
 archive/
