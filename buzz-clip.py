@@ -792,38 +792,6 @@ def remove_fillers_from_video(video_path: str, output_dir: str, segments: List[t
                             
                             if process.returncode != 0:
                                 raise Exception(f"FFmpeg error: {process.stderr.read()}")
-                    else:
-                        # 無音部分が見つからない場合は元のセグメントをコピー
-                        cmd = [
-                            "ffmpeg", "-y",
-                            "-i", str(temp_file),
-                            "-c", "copy",
-                            "-progress", "pipe:1",
-                            str(output_file)
-                        ]
-                        
-                        # プロセスを開始
-                        process = subprocess.Popen(
-                            cmd,
-                            stderr=subprocess.PIPE,
-                            stdout=subprocess.PIPE,
-                            universal_newlines=True
-                        )
-                        
-                        # 進捗を表示（コピー処理の進捗率を計算）
-                        copy_progress = segment_progress * 0.1  # コピー処理は全体の10%と仮定
-                        total_progress = get_ffmpeg_progress(
-                            process,
-                            video_duration,
-                            progress_bar,
-                            status_text,
-                            start_time,
-                            total_progress,
-                            copy_progress
-                        )
-                        
-                        if process.returncode != 0:
-                            raise Exception(f"FFmpeg error: {process.stderr.read()}")
                     
                     processed_segments.append(str(output_file))
                 
@@ -1338,6 +1306,13 @@ def main():
                 # 新しい単語のエラー表示
                 if new_words:
                     st.error("元の動画に存在しない部分があります。赤いハイライトを確認してください")
+                    if st.button("❌ 赤ハイライト部分を削除", type="secondary"):
+                        # 赤ハイライト部分を除いたテキストを生成
+                        cleaned_text = ""
+                        for start, end, text in common_positions:
+                            cleaned_text += text
+                        st.session_state.edited_text = cleaned_text
+                        st.rerun()
             else:
                 st.markdown(
                     f'<div style="height: 400px; overflow-y: auto; padding: 10px; border: 1px solid #ddd; border-radius: 5px;">{full_text}</div>',
