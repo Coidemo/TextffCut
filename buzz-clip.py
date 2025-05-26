@@ -553,7 +553,7 @@ def remove_fillers_from_video(video_path: str, output_dir: str, segments: List[t
                     ]
                     
                     # 一時ファイル生成コマンドをログに出力
-                    st.write(f"一時ファイル生成コマンド: {' '.join(temp_cmd)}")
+                    print(f"一時ファイル生成コマンド: {' '.join(temp_cmd)}")
                     
                     # 入力ファイルの存在確認
                     if not Path(video_path).exists():
@@ -588,7 +588,7 @@ def remove_fillers_from_video(video_path: str, output_dir: str, segments: List[t
                     
                     if temp_process.returncode != 0:
                         error_output = temp_process.stderr.read()
-                        st.error(f"一時ファイル生成エラー: {error_output}")
+                        print(f"一時ファイル生成エラー: {error_output}")
                         raise Exception(f"一時ファイル生成エラー: {error_output}")
                     
                     # 無音部分を検出
@@ -601,16 +601,16 @@ def remove_fillers_from_video(video_path: str, output_dir: str, segments: List[t
                     ]
                     
                     # 無音検出コマンドをログに出力
-                    st.write(f"無音検出コマンド: {' '.join(silence_cmd)}")
+                    print(f"無音検出コマンド: {' '.join(silence_cmd)}")
                     
                     result = subprocess.run(silence_cmd, capture_output=True, text=True)
                     if result.returncode != 0:
-                        st.error(f"無音検出エラー: {result.stderr}")
+                        print(f"無音検出エラー: {result.stderr}")
                         raise Exception(f"無音検出エラー: {result.stderr}")
                     
                     # デバッグ情報：FFmpegの出力全体を表示
-                    st.write("FFmpegの出力:")
-                    st.code(result.stderr)
+                    print("FFmpegの出力:")
+                    print(result.stderr)
                     
                     # 無音部分の時間を抽出
                     silence_times = []
@@ -621,9 +621,9 @@ def remove_fillers_from_video(video_path: str, output_dir: str, segments: List[t
                                 start = float(line.split('silence_start: ')[1].split(' |')[0])
                                 if current_start is None:
                                     current_start = start
-                                    st.write(f"無音開始検出: {start:.3f}秒")
+                                    print(f"無音開始検出: {start:.3f}秒")
                             except (ValueError, IndexError) as e:
-                                st.warning(f"無音開始時間の解析に失敗: {line}")
+                                print(f"無音開始時間の解析に失敗: {line}")
                                 continue
                         elif 'silence_end' in line and current_start is not None:
                             try:
@@ -631,23 +631,23 @@ def remove_fillers_from_video(video_path: str, output_dir: str, segments: List[t
                                 # 前の無音部分との間隔が0.1秒未満の場合は結合
                                 if silence_times and start - silence_times[-1] < 0.1:
                                     silence_times[-1] = end
-                                    st.write(f"無音部分を結合: {current_start:.3f}秒 - {end:.3f}秒")
+                                    print(f"無音部分を結合: {current_start:.3f}秒 - {end:.3f}秒")
                                 else:
                                     silence_times.extend([current_start, end])
-                                    st.write(f"無音終了検出: {end:.3f}秒")
+                                    print(f"無音終了検出: {end:.3f}秒")
                                 current_start = None
                             except (ValueError, IndexError) as e:
-                                st.warning(f"無音終了時間の解析に失敗: {line}")
+                                print(f"無音終了時間の解析に失敗: {line}")
                                 continue
                     
                     # デバッグ情報：検出された無音部分
                     if silence_times:
-                        st.info(f"セグメント {i+1} で検出された無音部分:")
+                        print(f"セグメント {i+1} で検出された無音部分:")
                         for j in range(0, len(silence_times), 2):
                             if j + 1 < len(silence_times):
-                                st.write(f"無音 {j//2 + 1}: {silence_times[j]:.3f}秒 - {silence_times[j+1]:.3f}秒")
+                                print(f"無音 {j//2 + 1}: {silence_times[j]:.3f}秒 - {silence_times[j+1]:.3f}秒")
                     else:
-                        st.info(f"セグメント {i+1} では無音部分は検出されませんでした")
+                        print(f"セグメント {i+1} では無音部分は検出されませんでした")
                     
                     # 無音部分を除外したセグメントを作成
                     filler_segments = []
@@ -700,9 +700,9 @@ def remove_fillers_from_video(video_path: str, output_dir: str, segments: List[t
                         filler_segments = adjusted_segments
                     
                     # デバッグ情報：最終的なセグメント
-                    st.info(f"セグメント {i+1} の最終的な時間範囲:")
+                    print(f"セグメント {i+1} の最終的な時間範囲:")
                     for j, (seg_start, seg_end) in enumerate(filler_segments):
-                        st.write(f"クリップ {j+1}: {seg_start:.3f}秒 - {seg_end:.3f}秒")
+                        print(f"クリップ {j+1}: {seg_start:.3f}秒 - {seg_end:.3f}秒")
                     
                     # セグメントを切り出し
                     if filler_segments:
@@ -742,7 +742,7 @@ def remove_fillers_from_video(video_path: str, output_dir: str, segments: List[t
                                     ]
 
                                     # コマンドをログに出力
-                                    st.write(f"実行コマンド: {' '.join(cmd)}")
+                                    print(f"実行コマンド: {' '.join(cmd)}")
 
                                     # プロセスを開始
                                     process = subprocess.Popen(
@@ -766,7 +766,7 @@ def remove_fillers_from_video(video_path: str, output_dir: str, segments: List[t
 
                                     if process.returncode != 0:
                                         error_output = process.stderr.read()
-                                        st.error(f"FFmpeg error: {error_output}")
+                                        print(f"FFmpeg error: {error_output}")
                                         raise Exception(f"FFmpeg error: {error_output}")
 
                                     # 出力ファイルの存在確認
@@ -778,7 +778,7 @@ def remove_fillers_from_video(video_path: str, output_dir: str, segments: List[t
                                     segment_files.append(str(segment_file))
 
                                 except Exception as e:
-                                    st.error(f"セグメント {i+1} の部分 {j+1} の処理中にエラーが発生しました: {str(e)}")
+                                    print(f"セグメント {i+1} の部分 {j+1} の処理中にエラーが発生しました: {str(e)}")
                                     # エラーが発生した場合、既存の出力ファイルを削除
                                     if Path(segment_file).exists():
                                         Path(segment_file).unlink()
