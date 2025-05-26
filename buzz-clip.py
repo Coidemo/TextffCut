@@ -998,31 +998,28 @@ def main():
     transcription_path = get_transcription_path(video_path, model_size)
     saved_result = load_transcription(transcription_path)
     
-    col1, col2 = st.columns(2)
+    # 文字起こしボタンを左寄せに配置
+    if saved_result:
+        if st.button("💾 保存済み結果を使用", type="primary"):
+            st.session_state.transcription_result = saved_result
+            st.success("✅ 文字起こし結果を読み込みました！")
+            st.rerun()
     
-    with col1:
-        if saved_result:
-            if st.button("💾 保存済み結果を使用", type="primary"):
-                st.session_state.transcription_result = saved_result
-                st.success("✅ 文字起こし結果を読み込みました！")
-                st.rerun()
-    
-    with col2:
-        if st.button("🚀 新しく文字起こし実行"):
-            with st.spinner("文字起こし中..."):
-                try:
-                    # 文字起こしとアライメント処理を実行
-                    result = transcribe_audio(video_path, model_size, device)
+    if st.button("🚀 新しく文字起こし実行"):
+        with st.spinner("文字起こし中..."):
+            try:
+                # 文字起こしとアライメント処理を実行
+                result = transcribe_audio(video_path, model_size, device)
+                
+                if result:
+                    # 結果を保存
+                    save_transcription(result, transcription_path)
+                    st.session_state.transcription_result = result
+                    st.success("✅ 文字起こし完了！")
+                    st.rerun()
                     
-                    if result:
-                        # 結果を保存
-                        save_transcription(result, transcription_path)
-                        st.session_state.transcription_result = result
-                        st.success("✅ 文字起こし完了！")
-                        st.rerun()
-                        
-                except Exception as e:
-                    st.error(f"❌ エラー: {str(e)}")
+            except Exception as e:
+                st.error(f"❌ エラー: {str(e)}")
     
     # 文字起こし結果の表示
     if 'transcription_result' in st.session_state and st.session_state.transcription_result:
