@@ -392,17 +392,18 @@ def show_diff_viewer(
             html_content += original_text[current_pos:]
         
         html_content += '</div>'
-        
-        # 新しい文字がある場合は警告
-        if diff.has_additions():
-            st.error("元の動画に存在しない部分があります。赤いハイライトを確認してください")
-            if st.button("❌ 赤ハイライト部分を削除", type="secondary"):
-                # 共通部分のみを結合
-                cleaned_text = "".join(pos.text for pos in diff.common_positions)
-                st.session_state.edited_text = cleaned_text
-                st.rerun()
     
+    # HTMLコンテンツを表示
     st.markdown(html_content, unsafe_allow_html=True)
+    
+    # 新しい文字がある場合は警告（HTMLの下に表示）
+    if diff and diff.has_additions():
+        st.error("元の動画に存在しない部分があります。赤いハイライトを確認してください")
+        if st.button("❌ 赤ハイライト部分を削除", type="secondary"):
+            # 共通部分のみを結合
+            cleaned_text = "".join(pos.text for pos in diff.common_positions)
+            st.session_state.edited_text = cleaned_text
+            st.rerun()
 
 
 def show_segment_preview(
