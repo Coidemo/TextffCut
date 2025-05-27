@@ -289,12 +289,8 @@ def main():
         with st.spinner("文字起こし中..."):
             try:
                 # プログレスバーを表示
-                progress_bar = st.progress(0)
-                status_text = st.empty()
-                
-                def progress_callback(progress, status):
-                    progress_bar.progress(progress)
-                    status_text.text(status)
+                from utils.progress import create_simple_progress
+                progress_callback = create_simple_progress("文字起こし処理中...")
                 
                 # 文字起こし実行
                 result = transcriber.transcribe(

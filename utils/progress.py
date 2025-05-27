@@ -159,20 +159,69 @@ def create_simple_progress(message: str = "処理中...") -> Callable[[float, st
     """シンプルなプログレス表示を作成"""
     progress_bar = st.progress(0.0)
     status_text = st.empty()
+    time_info = st.empty()
     start_time = time.time()
+    
+    # 移動平均用のデータ
+    progress_history = []
+    
+    def format_time(seconds: float) -> str:
+        """時間を読みやすい形式にフォーマット"""
+        if seconds < 60:
+            return f"{int(seconds)}秒"
+        elif seconds < 3600:
+            minutes = int(seconds // 60)
+            secs = int(seconds % 60)
+            if secs > 0:
+                return f"{minutes}分{secs}秒"
+            return f"{minutes}分"
+        else:
+            hours = int(seconds // 3600)
+            minutes = int((seconds % 3600) // 60)
+            if minutes > 0:
+                return f"{hours}時間{minutes}分"
+            return f"{hours}時間"
     
     def update(progress: float, status: str = ""):
         progress_bar.progress(progress)
         elapsed = time.time() - start_time
         
+        # 進捗履歴を更新（移動平均用）
+        progress_history.append((elapsed, progress))
+        if len(progress_history) > 10:  # 最新10個のデータを保持
+            progress_history.pop(0)
+        
         if status:
-            if progress > 0 and progress < 1.0:
-                estimated = elapsed / progress
-                remaining = estimated - elapsed
-                status_text.text(f"{status} (残り約{int(remaining)}秒)")
-            else:
-                status_text.text(status)
+            status_text.text(status)
         else:
             status_text.text(f"{message} {progress:.0%}")
+        
+        # 時間情報の表示
+        if progress > 0.01 and progress < 0.99:  # 1%以上99%未満の場合
+            # 移動平均で残り時間を計算
+            if len(progress_history) >= 2:
+                # 最新の進捗率の変化を計算
+                time_diff = progress_history[-1][0] - progress_history[0][0]
+                progress_diff = progress_history[-1][1] - progress_history[0][1]
+                
+                if progress_diff > 0:
+                    # 残り時間を推定
+                    rate = time_diff / progress_diff  # 1%あたりの時間
+                    remaining = rate * (1.0 - progress)
+                    
+                    # 時間情報を表示
+                    elapsed_str = format_time(elapsed)
+                    remaining_str = format_time(remaining)
+                    time_info.markdown(
+                        f"⏱️ **経過時間**: {elapsed_str} | **残り時間**: 約{remaining_str}"
+                    )
+                else:
+                    time_info.markdown(f"⏱️ **経過時間**: {format_time(elapsed)}")
+            else:
+                time_info.markdown(f"⏱️ **経過時間**: {format_time(elapsed)}")
+        elif progress >= 0.99:
+            time_info.markdown(f"⏱️ **総処理時間**: {format_time(elapsed)}")
+        else:
+            time_info.markdown("⏱️ **開始中...**")
             
     return update
