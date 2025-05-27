@@ -28,6 +28,10 @@ def show_video_input() -> Optional[Tuple[str, str]]:
         placeholder="/Users/username/Desktop/video.mp4"
     )
     
+    # 引用符を除去
+    if video_path:
+        video_path = video_path.strip().strip('"').strip("'")
+    
     if video_path and Path(video_path).exists():
         path = Path(video_path)
         
@@ -56,6 +60,8 @@ def show_video_input() -> Optional[Tuple[str, str]]:
                 "カスタム出力ディレクトリ",
                 value=str(default_output)
             )
+            # 引用符を除去
+            output_dir = output_dir.strip().strip('"').strip("'")
             output_dir = Path(output_dir)
         
         return str(path), str(output_dir)
