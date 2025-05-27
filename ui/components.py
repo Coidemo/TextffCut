@@ -1,0 +1,454 @@
+"""
+StreamlitベースのUIコンポーネント
+"""
+import streamlit as st
+from pathlib import Path
+from typing import List, Tuple, Optional, Dict, Any, Callable
+
+from config import Config
+from utils.file_utils import get_video_files
+from utils.time_utils import format_time
+from core.transcription import TranscriptionResult
+from core.text_processor import TextDifference, TextProcessor
+
+
+def show_video_selector(video_dir: Path) -> Optional[Path]:
+    """
+    動画ファイル選択UI
+    
+    Args:
+        video_dir: 動画ディレクトリ
+        
+    Returns:
+        選択された動画ファイルのパス
+    """
+    video_files = get_video_files(video_dir)
+    
+    if not video_files:
+        st.warning(f"📁 {video_dir} に動画ファイルがありません。")
+        st.info("動画ファイルを以下のフォルダに配置してください: " + str(video_dir))
+        return None
+    
+    selected_video = st.selectbox(
+        "🎬 動画ファイルを選択",
+        options=video_files,
+        format_func=lambda x: x.name
+    )
+    
+    return selected_video
+
+
+def show_model_selector(config: Config) -> str:
+    """
+    Whisperモデル選択UI
+    
+    Args:
+        config: アプリケーション設定
+        
+    Returns:
+        選択されたモデル名
+    """
+    from utils import settings_manager
+    
+    # 前回の設定を取得
+    saved_model = settings_manager.get('model_size', config.transcription.whisper_models[0])
+    default_index = config.transcription.whisper_models.index(saved_model) if saved_model in config.transcription.whisper_models else 0
+    
+    model_size = st.selectbox(
+        "Whisperモデル",
+        options=config.transcription.whisper_models,
+        index=default_index,
+        help="large-v3: 最高精度（メモリ使用量大）\nmedium: バランスが良い\nsmall/base: 軽量"
+    )
+    
+    # 設定が変更されたら保存
+    if model_size != saved_model:
+        settings_manager.set('model_size', model_size)
+    
+    # メモリ使用量の警告
+    import torch
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    if model_size == "large-v3" and device == "cpu":
+        st.warning("⚠️ large-v3モデルはCPUで実行すると非常に時間がかかります")
+    
+    return model_size
+
+
+def show_transcription_controls(
+    has_cache: bool = False
+) -> Tuple[bool, bool]:
+    """
+    文字起こしコントロールUI
+    
+    Args:
+        has_cache: キャッシュが存在するか
+        
+    Returns:
+        (キャッシュを使用するか, 新規実行するか)
+    """
+    use_cache = False
+    run_new = False
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if has_cache:
+            if st.button("💾 保存済み結果を使用", type="primary", use_container_width=True):
+                use_cache = True
+    
+    with col2:
+        if st.button("🚀 新しく文字起こし実行", use_container_width=True):
+            run_new = True
+    
+    return use_cache, run_new
+
+
+def show_silence_settings() -> Tuple[float, float, float]:
+    """
+    無音検出設定UI
+    
+    Returns:
+        (noise_threshold, min_silence_duration, min_segment_duration)
+    """
+    from utils import settings_manager
+    
+    st.subheader("無音検出の設定")
+    
+    # デフォルト値
+    DEFAULT_NOISE_THRESHOLD = -35
+    DEFAULT_MIN_SILENCE_DURATION = 0.3
+    DEFAULT_MIN_SEGMENT_DURATION = 0.3
+    
+    # 前回の設定を取得
+    saved_threshold = settings_manager.get('noise_threshold', DEFAULT_NOISE_THRESHOLD)
+    saved_silence = settings_manager.get('min_silence_duration', DEFAULT_MIN_SILENCE_DURATION)
+    saved_segment = settings_manager.get('min_segment_duration', DEFAULT_MIN_SEGMENT_DURATION)
+    
+    # デフォルトに戻すボタン
+    if st.button("🔧 パラメータをデフォルトに戻す", use_container_width=True):
+        settings_manager.set('noise_threshold', DEFAULT_NOISE_THRESHOLD)
+        settings_manager.set('min_silence_duration', DEFAULT_MIN_SILENCE_DURATION)
+        settings_manager.set('min_segment_duration', DEFAULT_MIN_SEGMENT_DURATION)
+        st.session_state.noise_threshold = DEFAULT_NOISE_THRESHOLD
+        st.session_state.min_silence_duration = DEFAULT_MIN_SILENCE_DURATION
+        st.session_state.min_segment_duration = DEFAULT_MIN_SEGMENT_DURATION
+        st.rerun()
+    
+    noise_threshold = st.slider(
+        "無音検出の閾値 (dB)",
+        min_value=-50,
+        max_value=-20,
+        value=st.session_state.get('noise_threshold', saved_threshold),
+        step=1,
+        help="無音と判定する音量の閾値。値が小さいほど厳密に検出します。"
+    )
+    
+    min_silence_duration = st.slider(
+        "最小無音時間 (秒)",
+        min_value=0.1,
+        max_value=1.0,
+        value=st.session_state.get('min_silence_duration', saved_silence),
+        step=0.1,
+        help="無音と判定する最小の時間。値が大きいほど長い無音が必要です。"
+    )
+    
+    min_segment_duration = st.slider(
+        "最小セグメント時間 (秒)",
+        min_value=0.1,
+        max_value=1.0,
+        value=st.session_state.get('min_segment_duration', saved_segment),
+        step=0.1,
+        help="セグメントとして残す最小の時間。値が小さいほど細かく分割されます。"
+    )
+    
+    # セッションと設定に保存
+    st.session_state.noise_threshold = noise_threshold
+    st.session_state.min_silence_duration = min_silence_duration
+    st.session_state.min_segment_duration = min_segment_duration
+    
+    # 設定が変更されたら保存
+    if noise_threshold != saved_threshold:
+        settings_manager.set('noise_threshold', noise_threshold)
+    if min_silence_duration != saved_silence:
+        settings_manager.set('min_silence_duration', min_silence_duration)
+    if min_segment_duration != saved_segment:
+        settings_manager.set('min_segment_duration', min_segment_duration)
+    
+    return noise_threshold, min_silence_duration, min_segment_duration
+
+
+def show_export_settings() -> Tuple[str, str, int, bool]:
+    """
+    エクスポート設定UI
+    
+    Returns:
+        (process_type, output_format, timeline_fps, create_srt)
+    """
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        process_type = st.radio(
+            "処理方法",
+            ["切り抜きのみ", "無音削除付き"],
+            index=1,
+            help="切り抜きのみ：指定した部分をそのまま切り出します\n無音削除付き：切り出した部分から無音を削除します"
+        )
+    
+    with col2:
+        output_format = st.radio(
+            "出力形式",
+            ["動画ファイル", "FCPXMLファイル"],
+            index=1,
+            help="動画ファイル：MP4形式で出力\nFCPXMLファイル：Final Cut Pro用のXMLファイルを出力"
+        )
+    
+    with col3:
+        timeline_fps = st.number_input(
+            "タイムラインのフレームレート",
+            min_value=24,
+            max_value=60,
+            value=30,
+            step=1,
+            help="FCPXMLファイルを生成する際のフレームレート"
+        )
+    
+    # SRT字幕の設定
+    st.markdown("### 📝 字幕設定")
+    create_srt = st.checkbox(
+        "SRT字幕ファイルを生成",
+        value=True,
+        help="切り抜いた部分の字幕ファイルを生成します"
+    )
+    
+    return process_type, output_format, timeline_fps, create_srt
+
+
+def show_subtitle_settings() -> Tuple[int, int, str]:
+    """
+    字幕の詳細設定UI
+    
+    Returns:
+        (chars_per_line, max_lines, subtitle_model_size)
+    """
+    from utils import settings_manager
+    
+    with st.expander("字幕の詳細設定", expanded=False):
+        # モデル選択
+        st.markdown("#### 字幕生成用Whisperモデル")
+        st.caption("精度を重視する場合は大きなモデルを選択してください（処理時間は長くなります）")
+        
+        # 利用可能なモデル
+        available_models = ["base", "small", "medium", "large-v3"]
+        model_descriptions = {
+            "base": "高速・標準精度（推奨）",
+            "small": "やや高精度・やや低速",
+            "medium": "高精度・低速",
+            "large-v3": "最高精度・最遅"
+        }
+        
+        # 前回の設定を取得
+        default_model = settings_manager.get('subtitle_model_size', 'medium')
+        default_chars = settings_manager.get('subtitle_chars_per_line', 20)
+        default_lines = settings_manager.get('subtitle_max_lines', 2)
+        
+        # モデル選択
+        model_index = available_models.index(default_model) if default_model in available_models else 2
+        subtitle_model_size = st.selectbox(
+            "文字起こしモデル",
+            options=available_models,
+            index=model_index,
+            format_func=lambda x: f"{x} - {model_descriptions[x]}",
+            help="メイン文字起こしとは別に、字幕生成専用のモデルを選択できます"
+        )
+        
+        # 設定を保存
+        if subtitle_model_size != default_model:
+            settings_manager.set('subtitle_model_size', subtitle_model_size)
+        
+        st.markdown("#### 字幕表示設定")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            chars_per_line = st.number_input(
+                "1行あたりの最大文字数",
+                min_value=10,
+                max_value=50,
+                value=default_chars,
+                step=1,
+                help="字幕1行に表示する最大文字数"
+            )
+        
+        with col2:
+            max_lines = st.number_input(
+                "最大行数",
+                min_value=1,
+                max_value=4,
+                value=default_lines,
+                step=1,
+                help="同時に表示する字幕の最大行数"
+            )
+        
+        # 設定を保存
+        if chars_per_line != default_chars:
+            settings_manager.set('subtitle_chars_per_line', chars_per_line)
+        if max_lines != default_lines:
+            settings_manager.set('subtitle_max_lines', max_lines)
+        
+        # 設定値を一行で表示
+        st.info(f"文字起こしモデル: {subtitle_model_size} | 字幕: {chars_per_line}文字×{max_lines}行")
+        
+        return chars_per_line, max_lines, subtitle_model_size
+    
+    # デフォルト値を返す
+    return 20, 2, "medium"
+
+
+def show_progress(
+    progress: float,
+    status: str,
+    progress_bar: Optional[Any] = None,
+    status_text: Optional[Any] = None
+) -> Tuple[Any, Any]:
+    """
+    進捗表示UI
+    
+    Args:
+        progress: 進捗率（0.0-1.0）
+        status: ステータステキスト
+        progress_bar: 既存のプログレスバー
+        status_text: 既存のステータステキスト
+        
+    Returns:
+        (progress_bar, status_text)
+    """
+    if progress_bar is None:
+        progress_bar = st.progress(0)
+    if status_text is None:
+        status_text = st.empty()
+    
+    progress_bar.progress(progress)
+    status_text.text(status)
+    
+    return progress_bar, status_text
+
+
+def show_text_editor(
+    initial_text: str = "",
+    height: int = 400
+) -> str:
+    """
+    テキスト編集UI
+    
+    Args:
+        initial_text: 初期テキスト
+        height: エディタの高さ
+        
+    Returns:
+        編集されたテキスト
+    """
+    edited_text = st.text_area(
+        label="切り抜き箇所",
+        value=initial_text,
+        height=height,
+        label_visibility="collapsed",
+        help="文字起こし結果から切り抜く文章をコピペしてください"
+    )
+    
+    return edited_text
+
+
+def show_diff_viewer(
+    original_text: str,
+    diff: Optional[TextDifference] = None,
+    height: int = 400
+):
+    """
+    差分表示UI
+    
+    Args:
+        original_text: 元のテキスト
+        diff: 差分情報
+        height: ビューアの高さ
+    """
+    if diff is None:
+        # 差分がない場合は元のテキストを表示
+        html_content = f'<div style="height: {height}px; overflow-y: auto; padding: 10px; border: 1px solid #ddd; border-radius: 5px;">{original_text}</div>'
+    else:
+        # 差分をHTML形式で生成
+        html_content = '<div style="height: ' + str(height) + 'px; overflow-y: auto; padding: 10px; border: 1px solid #ddd; border-radius: 5px;">'
+        
+        current_pos = 0
+        for pos in diff.common_positions:
+            # 共通部分の前のテキスト（削除された部分）
+            if current_pos < pos.start:
+                html_content += original_text[current_pos:pos.start]
+            
+            # 共通部分（緑でハイライト）
+            html_content += f'<span style="background-color: #e6ffe6;">{pos.text}</span>'
+            current_pos = pos.end
+        
+        # 最後の部分
+        if current_pos < len(original_text):
+            html_content += original_text[current_pos:]
+        
+        html_content += '</div>'
+        
+        # 新しい文字がある場合は警告
+        if diff.has_additions():
+            st.error("元の動画に存在しない部分があります。赤いハイライトを確認してください")
+            if st.button("❌ 赤ハイライト部分を削除", type="secondary"):
+                # 共通部分のみを結合
+                cleaned_text = "".join(pos.text for pos in diff.common_positions)
+                st.session_state.edited_text = cleaned_text
+                st.rerun()
+    
+    st.markdown(html_content, unsafe_allow_html=True)
+
+
+def show_segment_preview(
+    segments: List[Dict[str, Any]],
+    video_files: Optional[List[str]] = None
+):
+    """
+    セグメントプレビューUI
+    
+    Args:
+        segments: セグメント情報のリスト
+        video_files: 動画ファイルのリスト
+    """
+    with st.expander("抽出部分と生成された動画", expanded=False):
+        for i, segment in enumerate(segments):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown(f"**{segment['start']:.1f}s - {segment['end']:.1f}s**")
+                if 'text' in segment:
+                    st.markdown(segment['text'])
+            
+            with col2:
+                if video_files and i < len(video_files):
+                    st.video(video_files[i])
+            
+            st.markdown("---")
+
+
+def show_help():
+    """ヘルプ表示UI"""
+    st.header("ヘルプ")
+    st.markdown("""
+    ### 使い方
+    1. 動画ファイルを`videos`フォルダに配置
+    2. 動画を選択して文字起こしを実行
+    3. テキストを編集して必要な部分を抽出
+    4. 動画の切り出しや無音部分の削除を実行
+    
+    ### よくある質問
+    Q: 対応している動画形式は？  
+    A: MP4, MOV, AVI, MKV, WMVに対応しています。
+    
+    Q: 文字起こしの精度は？  
+    A: Whisperモデルのサイズによって異なります。large-v3が最も高精度です。
+    
+    Q: 無音部分の削除とは？  
+    A: 指定した閾値以下の音量が一定時間続く部分を削除します。
+    """)
