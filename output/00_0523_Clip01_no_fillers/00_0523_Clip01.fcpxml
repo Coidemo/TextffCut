@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE fcpxml>
+<fcpxml version="1.9">
+    <resources>
+        <format width="1920" name="FFVideoFormat1080p30" id="r0" height="1080" frameDuration="1/30s"/>
+        <asset format="r0" name="（朝ラジオ）世界は保守かリベラルか？ではなくて変革か維持か？で2つに分かれてる.mp4" audioChannels="2" duration="64/30s" audioSources="1" id="r1" hasVideo="1" hasAudio="1" start="79365/30s">
+            <media-rep src="file:///Users/naoki/buzz-clip/videos/（朝ラジオ）世界は保守かリベラルか？ではなくて変革か維持か？で2つに分かれてる.mp4" kind="original-media"/>
+        </asset>
+        <asset format="r0" name="（朝ラジオ）世界は保守かリベラルか？ではなくて変革か維持か？で2つに分かれてる.mp4" audioChannels="2" duration="176/30s" audioSources="1" id="r2" hasVideo="1" hasAudio="1" start="79429/30s">
+            <media-rep src="file:///Users/naoki/buzz-clip/videos/（朝ラジオ）世界は保守かリベラルか？ではなくて変革か維持か？で2つに分かれてる.mp4" kind="original-media"/>
+        </asset>
+        <asset format="r0" name="（朝ラジオ）世界は保守かリベラルか？ではなくて変革か維持か？で2つに分かれてる.mp4" audioChannels="2" duration="90/30s" audioSources="1" id="r3" hasVideo="1" hasAudio="1" start="79606/30s">
+            <media-rep src="file:///Users/naoki/buzz-clip/videos/（朝ラジオ）世界は保守かリベラルか？ではなくて変革か維持か？で2つに分かれてる.mp4" kind="original-media"/>
+        </asset>
+        <asset format="r0" name="（朝ラジオ）世界は保守かリベラルか？ではなくて変革か維持か？で2つに分かれてる.mp4" audioChannels="2" duration="132/30s" audioSources="1" id="r4" hasVideo="1" hasAudio="1" start="79814/30s">
+            <media-rep src="file:///Users/naoki/buzz-clip/videos/（朝ラジオ）世界は保守かリベラルか？ではなくて変革か維持か？で2つに分かれてる.mp4" kind="original-media"/>
+        </asset>
+        <asset format="r0" name="（朝ラジオ）世界は保守かリベラルか？ではなくて変革か維持か？で2つに分かれてる.mp4" audioChannels="2" duration="48/30s" audioSources="1" id="r5" hasVideo="1" hasAudio="1" start="79946/30s">
+            <media-rep src="file:///Users/naoki/buzz-clip/videos/（朝ラジオ）世界は保守かリベラルか？ではなくて変革か維持か？で2つに分かれてる.mp4" kind="original-media"/>
+        </asset>
+        <asset format="r0" name="（朝ラジオ）世界は保守かリベラルか？ではなくて変革か維持か？で2つに分かれてる.mp4" audioChannels="2" duration="82/30s" audioSources="1" id="r6" hasVideo="1" hasAudio="1" start="80026/30s">
+            <media-rep src="file:///Users/naoki/buzz-clip/videos/（朝ラジオ）世界は保守かリベラルか？ではなくて変革か維持か？で2つに分かれてる.mp4" kind="original-media"/>
+        </asset>
+        <asset format="r0" name="（朝ラジオ）世界は保守かリベラルか？ではなくて変革か維持か？で2つに分かれてる.mp4" audioChannels="2" duration="34/30s" audioSources="1" id="r7" hasVideo="1" hasAudio="1" start="80108/30s">
+            <media-rep src="file:///Users/naoki/buzz-clip/videos/（朝ラジオ）世界は保守かリベラルか？ではなくて変革か維持か？で2つに分かれてる.mp4" kind="original-media"/>
+        </asset>
+        <asset format="r0" name="（朝ラジオ）世界は保守かリベラルか？ではなくて変革か維持か？で2つに分かれてる.mp4" audioChannels="2" duration="31/30s" audioSources="1" id="r8" hasVideo="1" hasAudio="1" start="80141/30s">
+            <media-rep src="file:///Users/naoki/buzz-clip/videos/（朝ラジオ）世界は保守かリベラルか？ではなくて変革か維持か？で2つに分かれてる.mp4" kind="original-media"/>
+        </asset>
+        <asset format="r0" name="（朝ラジオ）世界は保守かリベラルか？ではなくて変革か維持か？で2つに分かれてる.mp4" audioChannels="2" duration="82/30s" audioSources="1" id="r9" hasVideo="1" hasAudio="1" start="80172/30s">
+            <media-rep src="file:///Users/naoki/buzz-clip/videos/（朝ラジオ）世界は保守かリベラルか？ではなくて変革か維持か？で2つに分かれてる.mp4" kind="original-media"/>
+        </asset>
+        <asset format="r0" name="（朝ラジオ）世界は保守かリベラルか？ではなくて変革か維持か？で2つに分かれてる.mp4" audioChannels="2" duration="36/30s" audioSources="1" id="r10" hasVideo="1" hasAudio="1" start="80254/30s">
+            <media-rep src="file:///Users/naoki/buzz-clip/videos/（朝ラジオ）世界は保守かリベラルか？ではなくて変革か維持か？で2つに分かれてる.mp4" kind="original-media"/>
+        </asset>
+        <asset format="r0" name="（朝ラジオ）世界は保守かリベラルか？ではなくて変革か維持か？で2つに分かれてる.mp4" audioChannels="2" duration="36/30s" audioSources="1" id="r11" hasVideo="1" hasAudio="1" start="80291/30s">
+            <media-rep src="file:///Users/naoki/buzz-clip/videos/（朝ラジオ）世界は保守かリベラルか？ではなくて変革か維持か？で2つに分かれてる.mp4" kind="original-media"/>
+        </asset>
+        <asset format="r0" name="（朝ラジオ）世界は保守かリベラルか？ではなくて変革か維持か？で2つに分かれてる.mp4" audioChannels="2" duration="172/30s" audioSources="1" id="r12" hasVideo="1" hasAudio="1" start="80326/30s">
+            <media-rep src="file:///Users/naoki/buzz-clip/videos/（朝ラジオ）世界は保守かリベラルか？ではなくて変革か維持か？で2つに分かれてる.mp4" kind="original-media"/>
+        </asset>
+        <asset format="r0" name="（朝ラジオ）世界は保守かリベラルか？ではなくて変革か維持か？で2つに分かれてる.mp4" audioChannels="2" duration="5/30s" audioSources="1" id="r13" hasVideo="1" hasAudio="1" start="86474/30s">
+            <media-rep src="file:///Users/naoki/buzz-clip/videos/（朝ラジオ）世界は保守かリベラルか？ではなくて変革か維持か？で2つに分かれてる.mp4" kind="original-media"/>
+        </asset>
+    </resources>
+    <library>
+        <event name="00_0523_Clip01 Event">
+            <project name="00_0523_Clip01 Project">
+                <sequence tcFormat="NDF" format="r0" duration="988/30s" tcStart="0/1s">
+                    <spine>
+                        <asset-clip tcFormat="NDF" offset="0/30s" format="r0" name="（朝ラジオ）世界は保守かリベラルか？ではなくて変革か維持か？で2つに分かれてる.mp4" duration="64/30s" ref="r1" enabled="1" start="79365/30s">
+                            <adjust-transform scale="1 1" anchor="0 0" position="0 0"/>
+                        </asset-clip>
+                        <asset-clip tcFormat="NDF" offset="64/30s" format="r0" name="（朝ラジオ）世界は保守かリベラルか？ではなくて変革か維持か？で2つに分かれてる.mp4" duration="176/30s" ref="r2" enabled="1" start="79429/30s">
+                            <adjust-transform scale="1 1" anchor="0 0" position="0 0"/>
+                        </asset-clip>
+                        <asset-clip tcFormat="NDF" offset="240/30s" format="r0" name="（朝ラジオ）世界は保守かリベラルか？ではなくて変革か維持か？で2つに分かれてる.mp4" duration="90/30s" ref="r3" enabled="1" start="79605/30s">
+                            <adjust-transform scale="1 1" anchor="0 0" position="0 0"/>
+                        </asset-clip>
+                        <asset-clip tcFormat="NDF" offset="330/30s" format="r0" name="（朝ラジオ）世界は保守かリベラルか？ではなくて変革か維持か？で2つに分かれてる.mp4" duration="132/30s" ref="r4" enabled="1" start="79814/30s">
+                            <adjust-transform scale="1 1" anchor="0 0" position="0 0"/>
+                        </asset-clip>
+                        <asset-clip tcFormat="NDF" offset="462/30s" format="r0" name="（朝ラジオ）世界は保守かリベラルか？ではなくて変革か維持か？で2つに分かれてる.mp4" duration="48/30s" ref="r5" enabled="1" start="79946/30s">
+                            <adjust-transform scale="1 1" anchor="0 0" position="0 0"/>
+                        </asset-clip>
+                        <asset-clip tcFormat="NDF" offset="510/30s" format="r0" name="（朝ラジオ）世界は保守かリベラルか？ではなくて変革か維持か？で2つに分かれてる.mp4" duration="82/30s" ref="r6" enabled="1" start="80026/30s">
+                            <adjust-transform scale="1 1" anchor="0 0" position="0 0"/>
+                        </asset-clip>
+                        <asset-clip tcFormat="NDF" offset="592/30s" format="r0" name="（朝ラジオ）世界は保守かリベラルか？ではなくて変革か維持か？で2つに分かれてる.mp4" duration="34/30s" ref="r7" enabled="1" start="80108/30s">
+                            <adjust-transform scale="1 1" anchor="0 0" position="0 0"/>
+                        </asset-clip>
+                        <asset-clip tcFormat="NDF" offset="626/30s" format="r0" name="（朝ラジオ）世界は保守かリベラルか？ではなくて変革か維持か？で2つに分かれてる.mp4" duration="31/30s" ref="r8" enabled="1" start="80141/30s">
+                            <adjust-transform scale="1 1" anchor="0 0" position="0 0"/>
+                        </asset-clip>
+                        <asset-clip tcFormat="NDF" offset="657/30s" format="r0" name="（朝ラジオ）世界は保守かリベラルか？ではなくて変革か維持か？で2つに分かれてる.mp4" duration="82/30s" ref="r9" enabled="1" start="80172/30s">
+                            <adjust-transform scale="1 1" anchor="0 0" position="0 0"/>
+                        </asset-clip>
+                        <asset-clip tcFormat="NDF" offset="739/30s" format="r0" name="（朝ラジオ）世界は保守かリベラルか？ではなくて変革か維持か？で2つに分かれてる.mp4" duration="36/30s" ref="r10" enabled="1" start="80255/30s">
+                            <adjust-transform scale="1 1" anchor="0 0" position="0 0"/>
+                        </asset-clip>
+                        <asset-clip tcFormat="NDF" offset="775/30s" format="r0" name="（朝ラジオ）世界は保守かリベラルか？ではなくて変革か維持か？で2つに分かれてる.mp4" duration="36/30s" ref="r11" enabled="1" start="80291/30s">
+                            <adjust-transform scale="1 1" anchor="0 0" position="0 0"/>
+                        </asset-clip>
+                        <asset-clip tcFormat="NDF" offset="811/30s" format="r0" name="（朝ラジオ）世界は保守かリベラルか？ではなくて変革か維持か？で2つに分かれてる.mp4" duration="172/30s" ref="r12" enabled="1" start="80326/30s">
+                            <adjust-transform scale="1 1" anchor="0 0" position="0 0"/>
+                        </asset-clip>
+                        <asset-clip tcFormat="NDF" offset="983/30s" format="r0" name="（朝ラジオ）世界は保守かリベラルか？ではなくて変革か維持か？で2つに分かれてる.mp4" duration="5/30s" ref="r13" enabled="1" start="86474/30s">
+                            <adjust-transform scale="1 1" anchor="0 0" position="0 0"/>
+                        </asset-clip>
+                    </spine>
+                </sequence>
+            </project>
+        </event>
+    </library>
+</fcpxml>

@@ -180,3 +180,9 @@ videos/
 
 # Archive folder
 archive/
+
+# macOS
+.DS_Store
+
+# Tests folder
+tests/
