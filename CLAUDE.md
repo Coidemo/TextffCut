@@ -2,6 +2,9 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## 🌐 言語設定
+**会話は日本語で行ってください。**
+
 ## 🎯 プロジェクト概要
 
 **Buzz Clip** - 動画の文字起こしと切り抜きを効率化するツール
@@ -95,6 +98,30 @@ buzz-clip/
 3. **時間計算の精度**
    - フレーム単位での丸めによる0.1秒程度の誤差は正常
    - FFmpegの `-ss` と `-to` オプションで正確な切り出し
+
+## 💼 開発運用ルール
+
+### ブランチ戦略
+1. **新機能開発は必ず新しいブランチで作業する**
+   ```bash
+   # 新機能用ブランチを作成
+   git checkout -b feature/機能名
+   # 例: git checkout -b feature/youtube-url-support
+   ```
+
+2. **開発完了後の流れ**
+   - ユーザーからOKが出るまでブランチで作業
+   - OKが出たらプルリクエストを作成
+   - mainブランチにマージ
+
+3. **ブランチ命名規則**
+   - `feature/機能名`: 新機能
+   - `fix/バグ名`: バグ修正
+   - `refactor/対象`: リファクタリング
+
+### コミットメッセージ
+- 日本語でOK
+- プレフィックスを使用: `feat:`, `fix:`, `docs:`, `refactor:`
 
 ## 🚀 今後の開発方針
 
