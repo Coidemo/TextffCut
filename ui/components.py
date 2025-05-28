@@ -177,12 +177,12 @@ def show_silence_settings() -> Tuple[float, float, float]:
     return noise_threshold, min_silence_duration, min_segment_duration
 
 
-def show_export_settings() -> Tuple[str, str, int, bool]:
+def show_export_settings() -> Tuple[str, str, int]:
     """
     エクスポート設定UI
     
     Returns:
-        (process_type, output_format, timeline_fps, create_srt)
+        (process_type, output_format, timeline_fps)
     """
     col1, col2, col3 = st.columns(3)
     
@@ -212,95 +212,9 @@ def show_export_settings() -> Tuple[str, str, int, bool]:
             help="FCPXMLファイルを生成する際のフレームレート"
         )
     
-    # SRT字幕の設定
-    st.markdown("### 📝 字幕設定")
-    create_srt = st.checkbox(
-        "SRT字幕ファイルを生成",
-        value=True,
-        help="切り抜いた部分の字幕ファイルを生成します"
-    )
-    
-    return process_type, output_format, timeline_fps, create_srt
+    return process_type, output_format, timeline_fps
 
 
-def show_subtitle_settings() -> Tuple[int, int, str]:
-    """
-    字幕の詳細設定UI
-    
-    Returns:
-        (chars_per_line, max_lines, subtitle_model_size)
-    """
-    from utils import settings_manager
-    
-    with st.expander("字幕の詳細設定", expanded=False):
-        # モデル選択
-        st.markdown("#### 字幕生成用Whisperモデル")
-        st.caption("精度を重視する場合は大きなモデルを選択してください（処理時間は長くなります）")
-        
-        # 利用可能なモデル
-        available_models = ["base", "small", "medium", "large-v3"]
-        model_descriptions = {
-            "base": "高速・標準精度（推奨）",
-            "small": "やや高精度・やや低速",
-            "medium": "高精度・低速",
-            "large-v3": "最高精度・最遅"
-        }
-        
-        # 前回の設定を取得
-        default_model = settings_manager.get('subtitle_model_size', 'medium')
-        default_chars = settings_manager.get('subtitle_chars_per_line', 20)
-        default_lines = settings_manager.get('subtitle_max_lines', 2)
-        
-        # モデル選択
-        model_index = available_models.index(default_model) if default_model in available_models else 2
-        subtitle_model_size = st.selectbox(
-            "文字起こしモデル",
-            options=available_models,
-            index=model_index,
-            format_func=lambda x: f"{x} - {model_descriptions[x]}",
-            help="メイン文字起こしとは別に、字幕生成専用のモデルを選択できます"
-        )
-        
-        # 設定を保存
-        if subtitle_model_size != default_model:
-            settings_manager.set('subtitle_model_size', subtitle_model_size)
-        
-        st.markdown("#### 字幕表示設定")
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            chars_per_line = st.number_input(
-                "1行あたりの最大文字数",
-                min_value=10,
-                max_value=50,
-                value=default_chars,
-                step=1,
-                help="字幕1行に表示する最大文字数"
-            )
-        
-        with col2:
-            max_lines = st.number_input(
-                "最大行数",
-                min_value=1,
-                max_value=4,
-                value=default_lines,
-                step=1,
-                help="同時に表示する字幕の最大行数"
-            )
-        
-        # 設定を保存
-        if chars_per_line != default_chars:
-            settings_manager.set('subtitle_chars_per_line', chars_per_line)
-        if max_lines != default_lines:
-            settings_manager.set('subtitle_max_lines', max_lines)
-        
-        # 設定値を一行で表示
-        st.info(f"文字起こしモデル: {subtitle_model_size} | 字幕: {chars_per_line}文字×{max_lines}行")
-        
-        return chars_per_line, max_lines, subtitle_model_size
-    
-    # デフォルト値を返す
-    return 20, 2, "medium"
 
 
 def show_progress(

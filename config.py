@@ -46,8 +46,6 @@ class UIConfig:
     page_title: str = "Buzz Clip - 文字起こし"
     page_icon: str = "🎙️"
     layout: str = "wide"
-    chars_per_line: int = 20
-    max_subtitle_lines: int = 2
 
 
 @dataclass
