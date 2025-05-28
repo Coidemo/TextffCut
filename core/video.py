@@ -171,6 +171,73 @@ class VideoProcessor:
             print(f"セグメント抽出エラー: {e}")
             return False
     
+    def detect_silence_from_wav(
+        self,
+        wav_path: str,
+        noise_threshold: float = -35,
+        min_silence_duration: float = 0.3,
+        start: Optional[float] = None,
+        end: Optional[float] = None
+    ) -> List[SilenceInfo]:
+        """
+        WAVファイルから直接無音部分を検出
+        
+        Args:
+            wav_path: WAV音声ファイルパス
+            noise_threshold: 無音判定の閾値（dB）
+            min_silence_duration: 最小無音時間（秒）
+            start: 検出開始時間
+            end: 検出終了時間
+            
+        Returns:
+            無音部分のリスト
+        """
+        # 無音検出コマンドを構築
+        detect_cmd = [
+            "ffmpeg", "-y",
+            "-i", str(wav_path)
+        ]
+        
+        # 時間範囲の指定
+        if start is not None:
+            detect_cmd.extend(["-ss", str(start)])
+        if end is not None:
+            detect_cmd.extend(["-to", str(end)])
+        
+        detect_cmd.extend([
+            "-af", f"silencedetect=noise={noise_threshold}dB:d={min_silence_duration}",
+            "-f", "null",
+            "-"
+        ])
+        
+        result = subprocess.run(detect_cmd, capture_output=True, text=True)
+        
+        # 結果を解析
+        silences = []
+        current_start = None
+        offset = start if start is not None else 0
+        
+        for line in result.stderr.split('\n'):
+            if 'silence_start' in line:
+                try:
+                    time_val = float(line.split('silence_start: ')[1].split()[0])
+                    current_start = time_val + offset
+                except:
+                    pass
+                    
+            elif 'silence_end' in line and current_start is not None:
+                try:
+                    time_val = float(line.split('silence_end: ')[1].split()[0])
+                    silences.append(SilenceInfo(
+                        start=current_start,
+                        end=time_val + offset
+                    ))
+                    current_start = None
+                except:
+                    pass
+        
+        return silences
+
     def detect_silence(
         self,
         input_path: str,
@@ -180,10 +247,10 @@ class VideoProcessor:
         end: Optional[float] = None
     ) -> List[SilenceInfo]:
         """
-        動画の無音部分を検出
+        動画から直接無音部分を検出（WAVファイル作成不要）
         
         Args:
-            input_path: 入力動画パス
+            input_path: 入力動画パス（MP4やWAVファイル）
             noise_threshold: 無音判定の閾値（dB）
             min_silence_duration: 最小無音時間（秒）
             start: 検出開始時間
@@ -192,73 +259,110 @@ class VideoProcessor:
         Returns:
             無音部分のリスト
         """
-        # 一時的な音声ファイルを作成
-        temp_audio = Path(input_path).parent / f"temp_audio_{int(time.time())}.wav"
+        # 動画から直接無音検出（一時ファイル不要）
+        detect_cmd = [
+            "ffmpeg", "-y",
+            "-i", str(input_path)
+        ]
         
-        try:
+        # 時間範囲の指定
+        if start is not None:
+            detect_cmd.extend(["-ss", str(start)])
+        if end is not None:
+            detect_cmd.extend(["-to", str(end)])
+        
+        detect_cmd.extend([
+            "-af", f"silencedetect=noise={noise_threshold}dB:d={min_silence_duration}",
+            "-f", "null",
+            "-"
+        ])
+        
+        result = subprocess.run(detect_cmd, capture_output=True, text=True)
+        
+        # 結果を解析
+        silences = []
+        current_start = None
+        offset = start if start is not None else 0
+        
+        for line in result.stderr.split('\n'):
+            if 'silence_start' in line:
+                try:
+                    time_val = float(line.split('silence_start: ')[1].split()[0])
+                    current_start = time_val + offset
+                except:
+                    pass
+                    
+            elif 'silence_end' in line and current_start is not None:
+                try:
+                    time_val = float(line.split('silence_end: ')[1].split()[0])
+                    silences.append(SilenceInfo(
+                        start=current_start,
+                        end=time_val + offset
+                    ))
+                    current_start = None
+                except:
+                    pass
+        
+        return silences
+    
+    def extract_audio_for_ranges(
+        self,
+        input_path: str,
+        time_ranges: List[Tuple[float, float]],
+        output_dir: str,
+        progress_callback: Optional[Callable[[float, str], None]] = None
+    ) -> List[Tuple[str, Tuple[float, float]]]:
+        """
+        指定された時間範囲の音声をWAVファイルとして抽出
+        
+        Args:
+            input_path: 入力動画パス
+            time_ranges: 時間範囲のリスト [(start, end), ...]
+            output_dir: 出力ディレクトリ
+            progress_callback: 進捗コールバック
+            
+        Returns:
+            [(wav_file_path, (start, end)), ...] WAVファイルパスと対応する時間範囲
+        """
+        output_dir = ensure_directory(Path(output_dir))
+        wav_files = []
+        
+        total = len(time_ranges)
+        for i, (start, end) in enumerate(time_ranges):
+            if progress_callback:
+                progress = i / total
+                progress_callback(progress, f"音声抽出中... セグメント {i+1}/{total}")
+            
+            # WAVファイル名（時間情報を含む）
+            wav_filename = f"segment_{i+1}_{start:.1f}_{end:.1f}.wav"
+            wav_path = output_dir / wav_filename
+            
             # 音声を抽出
-            extract_cmd = [
+            cmd = [
                 "ffmpeg", "-y",
+                "-ss", str(start),
+                "-to", str(end),
                 "-i", str(input_path),
                 "-vn",
                 "-acodec", "pcm_s16le",
                 "-ar", "44100",
                 "-ac", "1",
-                "-f", "wav"
+                "-f", "wav",
+                str(wav_path)
             ]
             
-            if start is not None:
-                extract_cmd.extend(["-ss", str(start)])
-            if end is not None:
-                extract_cmd.extend(["-to", str(end)])
-                
-            extract_cmd.append(str(temp_audio))
+            result = subprocess.run(cmd, capture_output=True, text=True)
             
-            result = subprocess.run(extract_cmd, capture_output=True)
-            if result.returncode != 0:
-                raise Exception(f"音声抽出エラー: {result.stderr}")
-            
-            # 無音検出
-            detect_cmd = [
-                "ffmpeg", "-y",
-                "-i", str(temp_audio),
-                "-af", f"silencedetect=noise={noise_threshold}dB:d={min_silence_duration}",
-                "-f", "null",
-                "-"
-            ]
-            
-            result = subprocess.run(detect_cmd, capture_output=True, text=True)
-            
-            # 結果を解析
-            silences = []
-            current_start = None
-            offset = start if start is not None else 0
-            
-            for line in result.stderr.split('\n'):
-                if 'silence_start' in line:
-                    try:
-                        time_val = float(line.split('silence_start: ')[1].split()[0])
-                        current_start = time_val + offset
-                    except:
-                        pass
-                        
-                elif 'silence_end' in line and current_start is not None:
-                    try:
-                        time_val = float(line.split('silence_end: ')[1].split()[0])
-                        silences.append(SilenceInfo(
-                            start=current_start,
-                            end=time_val + offset
-                        ))
-                        current_start = None
-                    except:
-                        pass
-            
-            return silences
-            
-        finally:
-            # 一時ファイルを削除
-            if temp_audio.exists():
-                temp_audio.unlink()
+            if result.returncode == 0:
+                wav_files.append((str(wav_path), (start, end)))
+                logger.info(f"音声抽出成功: {wav_filename}")
+            else:
+                logger.error(f"音声抽出失敗: {result.stderr}")
+        
+        if progress_callback:
+            progress_callback(1.0, "音声抽出完了")
+        
+        return wav_files
     
     def remove_silence(
         self,
@@ -385,6 +489,101 @@ class VideoProcessor:
         logger.info(f"有効なセグメント: {len(final_output_files)}/{len(output_files)}")
         return final_output_files, segment_info
     
+    def remove_silence_new(
+        self,
+        input_path: str,
+        time_ranges: List[Tuple[float, float]],
+        output_dir: str,
+        noise_threshold: float = -35,
+        min_silence_duration: float = 0.3,
+        min_segment_duration: float = 0.3,
+        progress_callback: Optional[Callable[[float, str], None]] = None
+    ) -> List[Tuple[float, float]]:
+        """
+        新フロー：時間範囲から無音を検出し、残す部分の時間範囲を返す
+        
+        Args:
+            input_path: 入力動画パス
+            time_ranges: 処理する時間範囲のリスト
+            output_dir: 一時ファイル用ディレクトリ
+            noise_threshold: 無音判定の閾値
+            min_silence_duration: 最小無音時間
+            min_segment_duration: 最小セグメント時間
+            progress_callback: 進捗コールバック
+            
+        Returns:
+            残す部分の時間範囲のリスト [(start, end), ...]
+        """
+        output_dir = ensure_directory(Path(output_dir))
+        keep_ranges = []
+        
+        # Step 1: 時間範囲のWAVファイルを抽出
+        if progress_callback:
+            progress_callback(0.0, "音声ファイルを抽出中...")
+        
+        wav_files = self.extract_audio_for_ranges(
+            input_path,
+            time_ranges,
+            output_dir / "temp_wav",
+            lambda p, s: progress_callback(p * 0.3, s) if progress_callback else None
+        )
+        
+        # Step 2: 各WAVファイルから無音を検出
+        total_wav = len(wav_files)
+        for i, (wav_path, (original_start, original_end)) in enumerate(wav_files):
+            if progress_callback:
+                base_progress = 0.3 + (i / total_wav) * 0.6
+                progress_callback(base_progress, f"無音検出中... セグメント {i+1}/{total_wav}")
+            
+            # WAVファイルから無音を検出（オフセットなし）
+            silences = self.detect_silence_from_wav(
+                wav_path,
+                noise_threshold,
+                min_silence_duration
+            )
+            
+            # 無音を除いた部分を計算（WAVファイル内の相対時間）
+            wav_duration = original_end - original_start
+            keep_segments = self._calculate_keep_segments(
+                0,  # WAVファイルの開始は0
+                wav_duration,
+                silences,
+                min_segment_duration
+            )
+            
+            # 元動画の時間にオフセットを適用
+            for seg in keep_segments:
+                keep_ranges.append((
+                    original_start + seg.start,
+                    original_start + seg.end
+                ))
+            
+            logger.info(f"セグメント {i+1}: {len(silences)}個の無音検出、{len(keep_segments)}個の部分を保持")
+        
+        # Step 3: 一時WAVファイルをクリーンアップ
+        if progress_callback:
+            progress_callback(0.9, "一時ファイルをクリーンアップ中...")
+        
+        for wav_path, _ in wav_files:
+            try:
+                Path(wav_path).unlink()
+            except Exception as e:
+                logger.warning(f"WAVファイル削除エラー: {e}")
+        
+        # 一時ディレクトリも削除
+        try:
+            (output_dir / "temp_wav").rmdir()
+        except:
+            pass
+        
+        if progress_callback:
+            progress_callback(1.0, "無音検出完了")
+        
+        # 時間順にソート
+        keep_ranges.sort(key=lambda x: x[0])
+        
+        return keep_ranges
+    
     def _calculate_keep_segments(
         self,
         start: float,
@@ -411,22 +610,6 @@ class VideoProcessor:
                 start=current_pos,
                 end=end
             ))
-        
-        # セグメント間の隙間をなくす
-        if len(keep_segments) > 1:
-            adjusted = []
-            for i, seg in enumerate(keep_segments):
-                if i == 0:
-                    adjusted.append(seg)
-                else:
-                    # 前のセグメントの終了を調整
-                    if adjusted[-1].end < seg.start:
-                        adjusted[-1] = VideoSegment(
-                            start=adjusted[-1].start,
-                            end=seg.start
-                        )
-                    adjusted.append(seg)
-            keep_segments = adjusted
         
         return keep_segments
     
