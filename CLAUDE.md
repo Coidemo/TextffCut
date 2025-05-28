@@ -2,62 +2,143 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## プロジェクト概要
+## 🎯 プロジェクト概要
 
-Buzz Clipは、AI文字起こしを使用して動画からハイライトを抽出する動画編集自動化ツールです。メインアプリケーション（`buzz-clip.py`）は、Whisperによる文字起こしとテキスト選択に基づくクリップ編集のためのStreamlitインターフェースを提供します。
+**Buzz Clip** - 動画の文字起こしと切り抜きを効率化するツール
 
-## 主要アーキテクチャ
+主な用途：
+- 90分程度の長時間動画から必要な部分だけを抽出
+- 無音部分を自動削除してタイトな編集素材を作成
+- DaVinci ResolveやFinal Cut Pro用のFCPXMLを生成
 
-プロジェクトは`buzz-clip.py`をメインエントリーポイントとするモノリシックアーキテクチャを採用しています。主要コンポーネント：
+## 📌 安定版情報 (重要)
 
-- **文字起こしエンジン**: WhisperXを使用した高精度日本語文字起こしとタイムスタンプアライメント
-- **動画処理**: FFmpegベースのセグメント抽出、無音削除、動画結合パイプライン
-- **エクスポートシステム**: Final Cut Pro統合のためのFCPXMLファイル生成
-- **UIレイヤー**: リアルタイム差分可視化を備えたStreamlitベースのWebインターフェース
+### v1.0.0-stable (2024-05-28)
+- **タグ**: `v1.0.0-stable`
+- **ブランチ**: `stable-v1.0.0`
+- **リモート**: GitHubにプッシュ済み
 
-## よく使うコマンド
+#### 主な特徴
+- ✅ 効率的なWAVベース無音検出（90分動画対応）
+- ✅ FCPXMLエクスポート最適化（隙間を詰めて配置）
+- ✅ 字幕機能を削除してシンプル化
+- ✅ 時間範囲ベースの統一的な処理フロー
 
+#### 安定版に戻る方法
 ```bash
-# アプリケーションの実行
-streamlit run buzz-clip.py
+# タグに戻る（推奨）
+git checkout v1.0.0-stable
 
-# 依存関係のインストール（最小要件）
-pip install streamlit whisper pytest
+# ブランチに切り替える
+git checkout stable-v1.0.0
 
-# テストの実行（実装時）
-pytest tests/
+# 最新の開発版に戻る
+git checkout main
 ```
 
-## 開発ワークフロー
+## 🏗️ 主要アーキテクチャ
 
-1. **動画入力**: 動画ファイルを`videos/`ディレクトリに配置
-2. **文字起こしキャッシュ**: 結果は`transcriptions/`にJSONファイルとして保存
-3. **出力構造**: 処理済み動画は`output/<プロジェクト名>/`に出力
-4. **FCPXMLエクスポート**: 生成されたXMLファイルはNLE互換性のため元の動画パスを参照
+プロジェクトはモジュール化されたアーキテクチャを採用：
 
-## 重要な実装詳細
+```
+buzz-clip/
+├── main.py              # メインアプリケーション（Streamlit）
+├── config.py            # 設定管理
+├── core/                # コア機能
+│   ├── transcription.py # WhisperXによる文字起こし
+│   ├── text_processor.py # テキスト差分検出
+│   ├── video.py         # 動画処理・無音検出
+│   └── export.py        # FCPXML/EDLエクスポート
+├── ui/                  # UI関連
+│   ├── components.py    # Streamlitコンポーネント
+│   └── file_upload.py   # ファイル入力処理
+└── utils/               # ユーティリティ
+```
 
-### タイムスタンプの精度
-システムはフレーム精度のタイムスタンプを維持：
-- 異なるフレームレート（ソース vs タイムライン）間の変換
-- FFmpegの`-avoid_negative_ts 1`を使用して同期問題を防止
-- FCPXML参照用の絶対タイムスタンプを計算
+## 🔧 技術的な詳細
 
-### 無音検出
-設定可能なパラメータでFFmpegのsilencedetectフィルターを使用：
-- `noise_threshold`: デフォルト -35dB
-- `min_silence_duration`: デフォルト 0.3秒
-- クリップ間のギャップを排除するためセグメントを結合
+### 新しい処理フロー (v1.0.0以降)
+1. **テキストから対象部分を特定**
+   - `text_processor.find_differences()` で差分計算
+   - 時間範囲（time_ranges）を取得
 
-### テキストから動画へのマッピング
-差分アルゴリズムは編集されたテキストを動画セグメントにマッピング：
-1. テキストの正規化（空白削除、ホワイトスペースの標準化）
-2. SequenceMatcherを使用して共通部分列を検出
-3. 単語/セグメントアライメントを介して文字位置を動画タイムスタンプに変換
+2. **無音検出（無音削除付きの場合）**
+   - 対象範囲のWAVファイルを抽出 (`extract_audio_for_ranges`)
+   - WAVから無音を検出 (`detect_silence_from_wav`)
+   - 残す範囲（keep_ranges）を計算
 
-## 既知の問題と制約
+3. **出力**
+   - FCPXML: 時間範囲を直接記述（動画処理なし）
+   - 動画: 必要部分のみ抽出して結合
 
-- リファクタブランチ（`refactor/module-split`）は不完全 - `main`ブランチを使用
-- WhisperXアライメントは一部の音声で失敗する可能性があり、基本的なタイムスタンプにフォールバック
-- 大きな動画ファイルは文字起こし時にメモリ問題を引き起こす可能性
-- FCPXML生成には元の動画ファイルパスが有効である必要がある
+### 重要なメソッド
+- `VideoProcessor.remove_silence_new()`: 新しい効率的な無音検出
+- `VideoProcessor.extract_audio_for_ranges()`: 複数範囲のWAV抽出
+- `FCPXMLExporter.export()`: 正しいアセット参照でFCPXML生成
+
+### 無音検出パラメータ
+- **閾値**: -35dB（デフォルト）
+- **最小無音時間**: 0.3秒
+- **最小セグメント時間**: 0.3秒
+
+## ⚠️ 注意事項
+
+1. **FCPXMLのアセット参照**
+   - 同じ動画は1つのアセット（例: r1）として定義
+   - 全クリップが同じアセットを参照すること
+   - 古いバージョンでは各クリップが別アセットになっていた（バグ）
+
+2. **WAVファイルの管理**
+   - 一時WAVファイルは `temp_wav/` に作成
+   - 処理後に自動クリーンアップ
+
+3. **時間計算の精度**
+   - フレーム単位での丸めによる0.1秒程度の誤差は正常
+   - FFmpegの `-ss` と `-to` オプションで正確な切り出し
+
+## 🚀 今後の開発方針
+
+### 優先度高
+- [ ] YouTube URL直接入力対応
+- [ ] バッチ処理機能
+- [ ] プリセット機能（よく使う設定の保存）
+
+### 優先度中
+- [ ] EDL/OTIO形式のエクスポート
+- [ ] AIによる自動切り抜き候補提案
+- [ ] Web API化
+
+## 📝 開発時のコマンド
+
+```bash
+# アプリケーション起動
+streamlit run main.py
+
+# インポート確認
+python -c "from main import main; print('Import OK')"
+
+# 無音検出のテスト
+python -c "from core.video import VideoProcessor; print('Video OK')"
+
+# FCPXMLのテスト生成
+python -c "from core.export import FCPXMLExporter; print('Export OK')"
+```
+
+## 🐛 既知の問題
+
+1. **メモリ使用量**: 2GB以上の動画ファイルで問題になる可能性
+2. **Windows対応**: FFmpegパスの設定が必要な場合がある
+3. **古いブランチ**: `refactor/module-split`は不完全（使用しない）
+
+## 📊 パフォーマンス指標
+
+- 90分動画の処理: 約5-10分（無音検出含む）
+- WAV抽出: 10秒あたり約1秒
+- 無音検出: リアルタイムの約2倍速
+- FCPXML生成: 即座（<1秒）
+
+---
+
+最終更新: 2024-05-28
+次回開発時はこのファイルを必ず確認してください。
+特に安定版（v1.0.0-stable）の情報は重要です。
