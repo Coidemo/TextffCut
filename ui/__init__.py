@@ -10,6 +10,7 @@ from .components import (
     show_progress,
     show_text_editor,
     show_diff_viewer,
+    show_red_highlight_button,
     show_segment_preview,
     show_help
 )
@@ -27,6 +28,7 @@ __all__ = [
     'show_progress',
     'show_text_editor',
     'show_diff_viewer',
+    'show_red_highlight_button',
     'show_segment_preview',
     'show_help',
     'show_video_input',

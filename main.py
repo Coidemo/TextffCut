@@ -20,6 +20,7 @@ from ui import (
     show_progress,
     show_text_editor,
     show_diff_viewer,
+    show_red_highlight_button,
     show_help,
     cleanup_temp_files
 )
@@ -38,7 +39,6 @@ st.set_page_config(
 
 def main():
     """メインアプリケーション"""
-    st.title(f"{config.ui.page_icon} Buzz Clip")
     
     # サイドバー
     with st.sidebar:
@@ -135,10 +135,10 @@ def main():
             st.caption("切り抜き箇所に指定した文章が緑色でハイライトされます")
             
             # 編集されたテキストがある場合は差分を表示
-            edited_text = st.session_state.get('edited_text', '')
-            if edited_text:
+            saved_edited_text = st.session_state.get('edited_text', '')
+            if saved_edited_text:
                 text_processor = TextProcessor()
-                diff = text_processor.find_differences(full_text, edited_text)
+                diff = text_processor.find_differences(full_text, saved_edited_text)
                 show_diff_viewer(full_text, diff)
             else:
                 show_diff_viewer(full_text)
@@ -162,6 +162,14 @@ def main():
                 
                 st.caption(f"文字数: {len(edited_text)}文字 / 時間: {total_duration:.1f}秒（無音削除前）")
             
+            # 赤ハイライト削除ボタン（保存されたテキストに基づく）
+            saved_edited_text = st.session_state.get('edited_text', '')
+            if saved_edited_text:
+                text_processor = TextProcessor()
+                diff = text_processor.find_differences(full_text, saved_edited_text)
+                if show_red_highlight_button(diff):
+                    st.rerun()
+            
             # 更新ボタン
             if st.button("🔄 更新", type="primary"):
                 st.session_state.edited_text = edited_text
@@ -172,11 +180,11 @@ def main():
             st.header("🎬 切り抜き箇所の抽出")
             
             # 処理オプション
-            st.markdown("### 処理オプション")
+            st.subheader("処理オプション")
             process_type, output_format, timeline_fps = show_export_settings()
             
             if process_type == "無音削除付き":
-                st.markdown("#### 無音削除の設定")
+                st.markdown("**無音削除の設定**")
                 st.info("現在の設定：\n"
                        f"- 無音検出の閾値: {noise_threshold}dB\n"
                        f"- 最小無音時間: {min_silence_duration}秒\n"

@@ -92,13 +92,15 @@ def show_transcription_controls(
     col1, col2 = st.columns(2)
     
     with col1:
+        # 保存済み結果がある場合は新規実行をsecondary、ない場合はprimary
+        button_type = "secondary" if has_cache else "primary"
+        if st.button("🚀 新しく文字起こし実行", type=button_type, use_container_width=True):
+            run_new = True
+    
+    with col2:
         if has_cache:
             if st.button("💾 保存済み結果を使用", type="primary", use_container_width=True):
                 use_cache = True
-    
-    with col2:
-        if st.button("🚀 新しく文字起こし実行", use_container_width=True):
-            run_new = True
     
     return use_cache, run_new
 
@@ -310,14 +312,28 @@ def show_diff_viewer(
     # HTMLコンテンツを表示
     st.markdown(html_content, unsafe_allow_html=True)
     
-    # 新しい文字がある場合は警告（HTMLの下に表示）
+    # 新しい文字がある場合は警告のみ表示（ボタンは別の場所に移動）
     if diff and diff.has_additions():
         st.error("元の動画に存在しない部分があります。赤いハイライトを確認してください")
-        if st.button("❌ 赤ハイライト部分を削除", type="secondary"):
+
+
+def show_red_highlight_button(diff: Optional[TextDifference]) -> bool:
+    """
+    赤ハイライト削除ボタンを表示
+    
+    Args:
+        diff: 差分情報
+        
+    Returns:
+        ボタンがクリックされたかどうか
+    """
+    if diff and diff.has_additions():
+        if st.button("❌ 赤ハイライト部分を削除", type="secondary", use_container_width=True):
             # 共通部分のみを結合
             cleaned_text = "".join(pos.text for pos in diff.common_positions)
             st.session_state.edited_text = cleaned_text
-            st.rerun()
+            return True
+    return False
 
 
 def show_segment_preview(

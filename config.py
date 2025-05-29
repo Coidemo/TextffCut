@@ -43,8 +43,8 @@ class VideoConfig:
 @dataclass
 class UIConfig:
     """UI関連の設定"""
-    page_title: str = "Buzz Clip - 文字起こし"
-    page_icon: str = "🎙️"
+    page_title: str = "Buzz Clip"
+    page_icon: str = "🎬"
     layout: str = "wide"
 
 
