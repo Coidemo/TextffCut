@@ -16,6 +16,22 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 📌 安定版情報 (重要)
 
+### v1.01 (2025-05-30) ⭐ **最新安定版**
+- **タグ**: `v1.01`
+- **リモート**: GitHubにプッシュ済み
+
+#### 主な特徴
+- ✅ 無音削除時のPAD設定機能（セグメント前後のパディング調整）
+- ✅ UI改善（ボタン配置最適化、レイアウト統一）
+- ✅ 効率的なWAVベース無音検出（90分動画対応）
+- ✅ FCPXMLエクスポート最適化（隙間を詰めて配置）
+- ✅ 時間範囲ベースの統一的な処理フロー
+
+#### 新機能 (v1.01)
+- **PAD設定**: セグメント開始前・終了後のパディング時間（0-0.5秒）を調整可能
+- **自然なつなぎ**: 音の急激な切り替わりを緩和して聞きやすい動画に
+- **UI最適化**: 文字起こしボタンの配置・色調整、レイアウト統一
+
 ### v1.0.0-stable (2024-05-28)
 - **タグ**: `v1.0.0-stable`
 - **ブランチ**: `stable-v1.0.0`
@@ -29,11 +45,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 #### 安定版に戻る方法
 ```bash
-# タグに戻る（推奨）
-git checkout v1.0.0-stable
+# 最新安定版に戻る（推奨）
+git checkout v1.01
 
-# ブランチに切り替える
-git checkout stable-v1.0.0
+# 旧安定版に戻る
+git checkout v1.0.0-stable
 
 # 最新の開発版に戻る
 git checkout main
