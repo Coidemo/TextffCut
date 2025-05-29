@@ -415,7 +415,9 @@ class VideoProcessor:
                 segment.start,
                 segment.end,
                 silences,
-                min_segment_duration
+                min_segment_duration,
+                0.0,  # 古い関数ではパディングなし
+                0.0
             )
             
             # 各部分を抽出
@@ -497,6 +499,8 @@ class VideoProcessor:
         noise_threshold: float = -35,
         min_silence_duration: float = 0.3,
         min_segment_duration: float = 0.3,
+        padding_start: float = 0.1,
+        padding_end: float = 0.1,
         progress_callback: Optional[Callable[[float, str], None]] = None
     ) -> List[Tuple[float, float]]:
         """
@@ -509,6 +513,8 @@ class VideoProcessor:
             noise_threshold: 無音判定の閾値
             min_silence_duration: 最小無音時間
             min_segment_duration: 最小セグメント時間
+            padding_start: セグメント開始前に追加するパディング時間
+            padding_end: セグメント終了後に追加するパディング時間
             progress_callback: 進捗コールバック
             
         Returns:
@@ -548,7 +554,9 @@ class VideoProcessor:
                 0,  # WAVファイルの開始は0
                 wav_duration,
                 silences,
-                min_segment_duration
+                min_segment_duration,
+                padding_start,
+                padding_end
             )
             
             # 元動画の時間にオフセットを適用
@@ -589,26 +597,36 @@ class VideoProcessor:
         start: float,
         end: float,
         silences: List[SilenceInfo],
-        min_duration: float
+        min_duration: float,
+        padding_start: float = 0.0,
+        padding_end: float = 0.0
     ) -> List[VideoSegment]:
-        """無音部分を除いたセグメントを計算"""
+        """無音部分を除いたセグメントを計算（パディング付き）"""
         keep_segments = []
         current_pos = start
         
         for silence in silences:
             # 無音の前の部分
             if silence.start - current_pos >= min_duration:
+                # パディングを適用してセグメントを拡張
+                segment_start = max(start, current_pos - padding_start)
+                segment_end = min(end, silence.start + padding_end)
+                
                 keep_segments.append(VideoSegment(
-                    start=current_pos,
-                    end=silence.start
+                    start=segment_start,
+                    end=segment_end
                 ))
             current_pos = silence.end
         
         # 最後の部分
         if end - current_pos >= min_duration:
+            # パディングを適用してセグメントを拡張
+            segment_start = max(start, current_pos - padding_start)
+            segment_end = min(end, end)  # 最後は元の終了時間まで
+            
             keep_segments.append(VideoSegment(
-                start=current_pos,
-                end=end
+                start=segment_start,
+                end=segment_end
             ))
         
         return keep_segments

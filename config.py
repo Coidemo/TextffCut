@@ -38,6 +38,8 @@ class VideoConfig:
     default_noise_threshold: float = -35.0
     default_min_silence_duration: float = 0.3
     default_min_segment_duration: float = 0.3
+    default_padding_start: float = 0.1  # 開始部分のパディング（秒）
+    default_padding_end: float = 0.1    # 終了部分のパディング（秒）
 
 
 @dataclass

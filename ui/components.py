@@ -105,12 +105,12 @@ def show_transcription_controls(
     return use_cache, run_new
 
 
-def show_silence_settings() -> Tuple[float, float, float]:
+def show_silence_settings() -> Tuple[float, float, float, float, float]:
     """
     無音検出設定UI
     
     Returns:
-        (noise_threshold, min_silence_duration, min_segment_duration)
+        (noise_threshold, min_silence_duration, min_segment_duration, padding_start, padding_end)
     """
     from utils import settings_manager
     
@@ -120,20 +120,28 @@ def show_silence_settings() -> Tuple[float, float, float]:
     DEFAULT_NOISE_THRESHOLD = -35
     DEFAULT_MIN_SILENCE_DURATION = 0.3
     DEFAULT_MIN_SEGMENT_DURATION = 0.3
+    DEFAULT_PADDING_START = 0.1
+    DEFAULT_PADDING_END = 0.1
     
     # 前回の設定を取得
     saved_threshold = settings_manager.get('noise_threshold', DEFAULT_NOISE_THRESHOLD)
     saved_silence = settings_manager.get('min_silence_duration', DEFAULT_MIN_SILENCE_DURATION)
     saved_segment = settings_manager.get('min_segment_duration', DEFAULT_MIN_SEGMENT_DURATION)
+    saved_padding_start = settings_manager.get('padding_start', DEFAULT_PADDING_START)
+    saved_padding_end = settings_manager.get('padding_end', DEFAULT_PADDING_END)
     
     # デフォルトに戻すボタン
     if st.button("🔧 パラメータをデフォルトに戻す", use_container_width=True):
         settings_manager.set('noise_threshold', DEFAULT_NOISE_THRESHOLD)
         settings_manager.set('min_silence_duration', DEFAULT_MIN_SILENCE_DURATION)
         settings_manager.set('min_segment_duration', DEFAULT_MIN_SEGMENT_DURATION)
+        settings_manager.set('padding_start', DEFAULT_PADDING_START)
+        settings_manager.set('padding_end', DEFAULT_PADDING_END)
         st.session_state.noise_threshold = DEFAULT_NOISE_THRESHOLD
         st.session_state.min_silence_duration = DEFAULT_MIN_SILENCE_DURATION
         st.session_state.min_segment_duration = DEFAULT_MIN_SEGMENT_DURATION
+        st.session_state.padding_start = DEFAULT_PADDING_START
+        st.session_state.padding_end = DEFAULT_PADDING_END
         st.rerun()
     
     noise_threshold = st.slider(
@@ -163,10 +171,33 @@ def show_silence_settings() -> Tuple[float, float, float]:
         help="セグメントとして残す最小の時間。値が小さいほど細かく分割されます。"
     )
     
+    st.markdown("**つなぎ部分の調整**")
+    st.caption("セグメント前後に余白を追加して自然なつなぎにします")
+    
+    padding_start = st.slider(
+        "開始部分のパディング (秒)",
+        min_value=0.0,
+        max_value=0.5,
+        value=st.session_state.get('padding_start', saved_padding_start),
+        step=0.05,
+        help="各セグメントの開始前に追加する余白時間"
+    )
+    
+    padding_end = st.slider(
+        "終了部分のパディング (秒)",
+        min_value=0.0,
+        max_value=0.5,
+        value=st.session_state.get('padding_end', saved_padding_end),
+        step=0.05,
+        help="各セグメントの終了後に追加する余白時間"
+    )
+    
     # セッションと設定に保存
     st.session_state.noise_threshold = noise_threshold
     st.session_state.min_silence_duration = min_silence_duration
     st.session_state.min_segment_duration = min_segment_duration
+    st.session_state.padding_start = padding_start
+    st.session_state.padding_end = padding_end
     
     # 設定が変更されたら保存
     if noise_threshold != saved_threshold:
@@ -175,8 +206,12 @@ def show_silence_settings() -> Tuple[float, float, float]:
         settings_manager.set('min_silence_duration', min_silence_duration)
     if min_segment_duration != saved_segment:
         settings_manager.set('min_segment_duration', min_segment_duration)
+    if padding_start != saved_padding_start:
+        settings_manager.set('padding_start', padding_start)
+    if padding_end != saved_padding_end:
+        settings_manager.set('padding_end', padding_end)
     
-    return noise_threshold, min_silence_duration, min_segment_duration
+    return noise_threshold, min_silence_duration, min_segment_duration, padding_start, padding_end
 
 
 def show_export_settings() -> Tuple[str, str, int]:
