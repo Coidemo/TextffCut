@@ -52,7 +52,7 @@ def main():
             model_size = show_model_selector(config)
             
             # 無音検出のパラメータ
-            noise_threshold, min_silence_duration, min_segment_duration = show_silence_settings()
+            noise_threshold, min_silence_duration, min_segment_duration, padding_start, padding_end = show_silence_settings()
         
         with tab2:
             st.header("保存された設定")
@@ -188,7 +188,9 @@ def main():
                 st.info("現在の設定：\n"
                        f"- 無音検出の閾値: {noise_threshold}dB\n"
                        f"- 最小無音時間: {min_silence_duration}秒\n"
-                       f"- 最小セグメント時間: {min_segment_duration}秒\n\n"
+                       f"- 最小セグメント時間: {min_segment_duration}秒\n"
+                       f"- 開始パディング: {padding_start}秒\n"
+                       f"- 終了パディング: {padding_end}秒\n\n"
                        "設定を変更する場合は、左のサイドパネルの「基本設定」タブから変更してください。")
             
             # 処理実行ボタン
@@ -247,6 +249,8 @@ def main():
                                 noise_threshold,
                                 min_silence_duration,
                                 min_segment_duration,
+                                padding_start=padding_start,
+                                padding_end=padding_end,
                                 progress_callback=progress_callback
                             )
                         
