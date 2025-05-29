@@ -41,15 +41,15 @@ def show_video_input() -> Optional[Tuple[str, str]]:
         # 出力ディレクトリの設定
         default_output = path.parent / "output"
         
-        
         # 出力先の設定
-        st.markdown("#### 📂 出力先の設定")
+        st.markdown("### 📂 出力先の設定")
         
         output_option = st.radio(
-            "",
+            "出力先の設定",
             ["🎯 動画と同じフォルダ内の'output'", "📁 カスタムフォルダ"],
             horizontal=True,
-            index=0
+            index=0,
+            label_visibility="collapsed"
         )
         
         if output_option == "🎯 動画と同じフォルダ内の'output'":
