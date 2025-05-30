@@ -302,10 +302,199 @@ def show_text_editor(
         value=initial_text,
         height=height,
         label_visibility="collapsed",
-        help="文字起こし結果から切り抜く文章をコピペしてください"
+        help="文字起こし結果から切り抜く文章をコピペしてください。\n\n**💡 複数セクション指定**\n区切り文字 `---` で分割すると、複数の箇所を個別に検索してマージできます。\n\n例:\n第1セクション\n---\n第2セクション\n---\n第3セクション"
     )
     
     return edited_text
+
+
+def show_edited_text_with_highlights(
+    edited_text: str,
+    diff: Optional[TextDifference] = None,
+    height: int = 400
+):
+    """
+    編集テキストに赤ハイライト表示
+    
+    Args:
+        edited_text: 編集されたテキスト
+        diff: 差分情報
+        height: ビューアの高さ
+    """
+    if not edited_text or diff is None:
+        return
+    
+    # 編集テキストベースで赤ハイライトを生成
+    html_content = f'<div style="height: {height}px; overflow-y: auto; padding: 10px; border: 1px solid #ddd; border-radius: 5px; background-color: #f9f9f9;">'
+    
+    # シンプルな文字列検索ベースの方法
+    # 既存の共通部分の情報を使用
+    covered_positions = set()
+    
+    # 共通部分でカバーされている編集テキストの位置をマーク
+    for common_pos in diff.common_positions:
+        # 編集テキスト内でこの共通テキストを検索
+        common_text = common_pos.text
+        search_start = 0
+        
+        while True:
+            found_pos = edited_text.find(common_text, search_start)
+            if found_pos == -1:
+                break
+            
+            # この位置がまだカバーされていない場合のみマーク
+            if not any(pos in covered_positions for pos in range(found_pos, found_pos + len(common_text))):
+                for i in range(found_pos, found_pos + len(common_text)):
+                    covered_positions.add(i)
+                break
+            
+            search_start = found_pos + 1
+    
+    # HTMLを生成
+    for i, char in enumerate(edited_text):
+        if i in covered_positions:
+            html_content += char  # 元テキストに存在
+        else:
+            html_content += f'<span style="background-color: #ffe6e6; color: #d00;">{char}</span>'  # 追加文字
+    
+    html_content += '</div>'
+    
+    st.markdown(html_content, unsafe_allow_html=True)
+
+
+def show_edited_text_with_separators_highlights(
+    edited_text: str,
+    separator: str,
+    height: int = 400
+):
+    """
+    区切り文字を含むテキストの赤ハイライト表示
+    
+    Args:
+        edited_text: 編集されたテキスト（区切り文字付き）
+        separator: 区切り文字
+        height: ビューアの高さ
+    """
+    from core.text_processor import TextProcessor
+    text_processor = TextProcessor()
+    
+    # 元のテキストを取得
+    full_text = ""
+    if 'transcription_result' in st.session_state:
+        full_text = st.session_state.transcription_result.get_full_text()
+    
+    # 編集テキストベースで赤ハイライトを生成
+    html_content = f'<div style="height: {height}px; overflow-y: auto; padding: 10px; border: 1px solid #ddd; border-radius: 5px; background-color: #f9f9f9; white-space: pre-wrap; font-family: monospace;">'
+    
+    # セクションに分割
+    sections = text_processor.split_text_by_separator(edited_text, separator)
+    
+    for i, section in enumerate(sections):
+        # 各セクションの差分を計算
+        section_diff = text_processor.find_differences(full_text, section)
+        covered_positions = set()
+        
+        # 共通部分でカバーされている位置をマーク
+        for common_pos in section_diff.common_positions:
+            common_text = common_pos.text
+            search_start = 0
+            
+            while True:
+                found_pos = section.find(common_text, search_start)
+                if found_pos == -1:
+                    break
+                
+                if not any(pos in covered_positions for pos in range(found_pos, found_pos + len(common_text))):
+                    for j in range(found_pos, found_pos + len(common_text)):
+                        covered_positions.add(j)
+                    break
+                
+                search_start = found_pos + 1
+        
+        # セクションのHTMLを生成
+        for j, char in enumerate(section):
+            if j in covered_positions:
+                html_content += char  # 元テキストに存在
+            else:
+                html_content += f'<span style="background-color: #ffe6e6; color: #d00;">{char}</span>'  # 追加文字
+        
+        # 区切り文字を追加（最後のセクション以外）
+        if i < len(sections) - 1:
+            html_content += f'\n<span style="color: #666; font-weight: bold;">{separator}</span>\n'
+    
+    html_content += '</div>'
+    
+    st.markdown(html_content, unsafe_allow_html=True)
+
+
+@st.dialog("エラー箇所")
+def show_red_highlight_modal(edited_text: str, diff: Optional[TextDifference] = None):
+    """
+    赤ハイライトのモーダル表示
+    
+    Args:
+        edited_text: 編集されたテキスト
+        diff: 差分情報
+    """
+    st.markdown("赤色の部分を削除してください。")
+    
+    # 元のテキスト（区切り文字付き）を取得
+    original_edited_text = st.session_state.get('original_edited_text', edited_text)
+    
+    # 区切り文字があるかチェック
+    separator_patterns = ["---", "——", "－－－"]
+    found_separator = None
+    for pattern in separator_patterns:
+        if pattern in original_edited_text:
+            found_separator = pattern
+            break
+    
+    if found_separator:
+        # 区切り文字がある場合：1つのエリアで区切り文字も含めて表示
+        show_edited_text_with_separators_highlights(original_edited_text, found_separator, height=300)
+    else:
+        # 区切り文字がない場合：通常のプレビュー表示
+        show_edited_text_with_highlights(edited_text, diff, height=300)
+    
+    if st.button("削除", type="primary", use_container_width=True, key="delete_highlights_modal"):
+        # 区切り文字がある場合の処理
+        original_edited_text = st.session_state.get('original_edited_text', edited_text)
+        
+        # 区切り文字パターンをチェック
+        separator_patterns = ["---", "——", "－－－"]
+        found_separator = None
+        for pattern in separator_patterns:
+            if pattern in original_edited_text:
+                found_separator = pattern
+                break
+        
+        if found_separator:
+            # 区切り文字がある場合：各セクションから個別に赤ハイライト削除
+            from core.text_processor import TextProcessor
+            text_processor = TextProcessor()
+            sections = text_processor.split_text_by_separator(original_edited_text, found_separator)
+            
+            # 元のテキストを取得（モーダル呼び出し元から）
+            full_text = ""
+            if 'transcription_result' in st.session_state:
+                full_text = st.session_state.transcription_result.get_full_text()
+            
+            cleaned_sections = []
+            for section in sections:
+                section_diff = text_processor.find_differences(full_text, section)
+                cleaned_section = "".join(pos.text for pos in section_diff.common_positions)
+                if cleaned_section.strip():
+                    cleaned_sections.append(cleaned_section)
+            
+            cleaned_text = f"\n{found_separator}\n".join(cleaned_sections)
+        else:
+            # 区切り文字がない場合：通常の処理
+            cleaned_text = "".join(pos.text for pos in diff.common_positions)
+        
+        st.session_state.edited_text = cleaned_text
+        st.session_state.show_modal = False
+        st.session_state.show_error_and_delete = False  # エラー状態もクリア
+        st.rerun()
 
 
 def show_diff_viewer(
@@ -325,7 +514,7 @@ def show_diff_viewer(
         # 差分がない場合は元のテキストを表示
         html_content = f'<div style="height: {height}px; overflow-y: auto; padding: 10px; border: 1px solid #ddd; border-radius: 5px;">{original_text}</div>'
     else:
-        # 差分をHTML形式で生成
+        # 差分をHTML形式で生成（従来通りシンプル版）
         html_content = '<div style="height: ' + str(height) + 'px; overflow-y: auto; padding: 10px; border: 1px solid #ddd; border-radius: 5px;">'
         
         current_pos = 0
@@ -346,29 +535,7 @@ def show_diff_viewer(
     
     # HTMLコンテンツを表示
     st.markdown(html_content, unsafe_allow_html=True)
-    
-    # 新しい文字がある場合は警告のみ表示（ボタンは別の場所に移動）
-    if diff and diff.has_additions():
-        st.error("元の動画に存在しない部分があります。赤いハイライトを確認してください")
 
-
-def show_red_highlight_button(diff: Optional[TextDifference]) -> bool:
-    """
-    赤ハイライト削除ボタンを表示
-    
-    Args:
-        diff: 差分情報
-        
-    Returns:
-        ボタンがクリックされたかどうか
-    """
-    if diff and diff.has_additions():
-        if st.button("❌ 赤ハイライト部分を削除", type="secondary", use_container_width=True):
-            # 共通部分のみを結合
-            cleaned_text = "".join(pos.text for pos in diff.common_positions)
-            st.session_state.edited_text = cleaned_text
-            return True
-    return False
 
 
 def show_segment_preview(
@@ -407,6 +574,22 @@ def show_help():
     2. 動画を選択して文字起こしを実行
     3. テキストを編集して必要な部分を抽出
     4. 動画の切り出しや無音部分の削除を実行
+    
+    ### 区切り文字機能
+    複数の箇所を一括で切り抜きたい場合は、区切り文字 `---` を使用できます：
+    
+    ```
+    第1セクション
+    ---
+    第2セクション
+    ---
+    第3セクション
+    ```
+    
+    **メリット**：
+    - 長い文章で意図しない箇所が選択される問題を解決
+    - 複数の離れた箇所を一括で切り抜き可能
+    - セクション毎に個別に検索してマージ
     
     ### よくある質問
     Q: 対応している動画形式は？  

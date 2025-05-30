@@ -28,6 +28,7 @@ class TextDifference:
     edited_text: str
     common_positions: List[TextPosition]
     added_chars: Set[str]
+    added_positions: List[TextPosition] = None  # 追加文字の位置情報
     
     def has_additions(self) -> bool:
         """追加された文字があるか"""
@@ -85,6 +86,8 @@ class TextDifference:
 class TextProcessor:
     """テキスト処理クラス"""
     
+    DEFAULT_SEPARATOR = "---"
+    
     @staticmethod
     def normalize_text(text: str) -> str:
         """テキストを正規化（空白の統一など）"""
@@ -123,6 +126,7 @@ class TextProcessor:
         matcher = SequenceMatcher(None, original_no_spaces, edited_no_spaces)
         common_positions = []
         added_chars = set()
+        added_positions = []
         
         for tag, i1, i2, j1, j2 in matcher.get_opcodes():
             if tag == 'equal':
@@ -140,12 +144,32 @@ class TextProcessor:
                 # 追加された文字を収集
                 added_text = edited_no_spaces[j1:j2]
                 added_chars.update(c for c in added_text if not c.isspace())
+                
+                # 追加文字の位置情報を記録（編集後テキストでの位置）
+                if tag == 'insert':
+                    # 挿入の場合：元テキストでの挿入位置を特定
+                    insert_pos = self._convert_position_with_spaces(original, original_no_spaces, i1)
+                    added_positions.append(TextPosition(
+                        start=insert_pos,
+                        end=insert_pos,  # 挿入位置なので長さは0
+                        text=edited_no_spaces[j1:j2]
+                    ))
+                elif tag == 'replace':
+                    # 置換の場合：元テキストでの置換位置
+                    replace_pos = self._convert_position_with_spaces(original, original_no_spaces, i1)
+                    replace_length = self._calculate_length_with_spaces(original, replace_pos, i2 - i1)
+                    added_positions.append(TextPosition(
+                        start=replace_pos,
+                        end=replace_pos + replace_length,
+                        text=edited_no_spaces[j1:j2]
+                    ))
         
         return TextDifference(
             original_text=original,
             edited_text=edited,
             common_positions=common_positions,
-            added_chars=added_chars
+            added_chars=added_chars,
+            added_positions=added_positions
         )
     
     def _convert_position_with_spaces(self, text_with_spaces: str, text_no_spaces: str, pos_no_spaces: int) -> int:
@@ -257,3 +281,98 @@ class TextProcessor:
         
         print(f"  最終結果: {lines}")
         return lines
+    
+    def split_text_by_separator(self, text: str, separator: str = None) -> List[str]:
+        """
+        区切り文字でテキストを分割
+        
+        Args:
+            text: 分割するテキスト
+            separator: 区切り文字（デフォルト: ---）
+            
+        Returns:
+            分割されたテキストのリスト
+        """
+        if separator is None:
+            separator = self.DEFAULT_SEPARATOR
+        
+        # 区切り文字で分割
+        sections = text.split(separator)
+        
+        # 空のセクションを除去し、前後の空白を削除
+        sections = [section.strip() for section in sections if section.strip()]
+        
+        return sections
+    
+    def find_differences_with_separator(self, original: str, edited: str, transcription, separator: str = None) -> List[Tuple[float, float]]:
+        """
+        区切り文字に対応した差分検索
+        
+        Args:
+            original: 元のテキスト（文字起こし結果）
+            edited: 編集後のテキスト（区切り文字を含む可能性）
+            transcription: 文字起こし結果
+            separator: 区切り文字（デフォルト: ---）
+            
+        Returns:
+            時間範囲のリスト
+        """
+        if separator is None:
+            separator = self.DEFAULT_SEPARATOR
+        
+        # 区切り文字が含まれているかチェック
+        if separator not in edited:
+            # 区切り文字がない場合は通常の処理
+            diff = self.find_differences(original, edited)
+            return diff.get_time_ranges(transcription)
+        
+        # 区切り文字で分割
+        sections = self.split_text_by_separator(edited, separator)
+        
+        all_time_ranges = []
+        
+        # 各セクションについて個別に差分検索
+        for i, section in enumerate(sections):
+            if not section.strip():
+                continue
+                
+            # 各セクションで差分検索
+            diff = self.find_differences(original, section)
+            section_ranges = diff.get_time_ranges(transcription)
+            
+            # 結果をマージ
+            all_time_ranges.extend(section_ranges)
+        
+        # 時間範囲をソートしてマージ
+        merged_ranges = self.merge_time_ranges(all_time_ranges)
+        
+        return merged_ranges
+    
+    def merge_time_ranges(self, time_ranges: List[Tuple[float, float]], gap_threshold: float = 1.0) -> List[Tuple[float, float]]:
+        """
+        時間範囲をマージ（近い範囲を結合）
+        
+        Args:
+            time_ranges: 時間範囲のリスト
+            gap_threshold: マージする閾値（秒）
+            
+        Returns:
+            マージされた時間範囲のリスト
+        """
+        if not time_ranges:
+            return []
+        
+        # 開始時間でソート
+        sorted_ranges = sorted(time_ranges)
+        merged = [sorted_ranges[0]]
+        
+        for current_start, current_end in sorted_ranges[1:]:
+            last_start, last_end = merged[-1]
+            
+            # 重複または近い範囲はマージ
+            if current_start <= last_end + gap_threshold:
+                merged[-1] = (last_start, max(last_end, current_end))
+            else:
+                merged.append((current_start, current_end))
+        
+        return merged
