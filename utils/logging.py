@@ -25,7 +25,7 @@ class BuzzClipLogger:
             return
             
         self._initialized = True
-        self.logger = logging.getLogger('buzz_clip')
+        self.logger = logging.getLogger('textffcut')
         self.logger.setLevel(logging.DEBUG)
         
         # ログディレクトリの作成
