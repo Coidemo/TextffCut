@@ -1,5 +1,5 @@
 """
-Buzz Clip 設定管理モジュール
+TextffCut 設定管理モジュール
 """
 import os
 from dataclasses import dataclass, field
@@ -45,7 +45,7 @@ class VideoConfig:
 @dataclass
 class UIConfig:
     """UI関連の設定"""
-    page_title: str = "Buzz Clip"
+    page_title: str = "TextffCut"
     page_icon: str = "🎬"
     layout: str = "wide"
 
@@ -94,10 +94,10 @@ class Config:
         config = cls()
         
         # 環境変数からの読み込み例
-        if model_size := os.getenv('BUZZ_CLIP_MODEL_SIZE'):
+        if model_size := os.getenv('TEXTFFCUT_MODEL_SIZE'):
             config.transcription.model_size = model_size
         
-        if output_dir := os.getenv('BUZZ_CLIP_OUTPUT_DIR'):
+        if output_dir := os.getenv('TEXTFFCUT_OUTPUT_DIR'):
             config.paths.output_dir = output_dir
             
         return config
