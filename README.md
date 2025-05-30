@@ -117,12 +117,30 @@ textffcut/
 │   └── export.py        # エクスポート処理
 ├── ui/                  # UI関連
 │   ├── components.py    # UIコンポーネント
-│   └── file_upload.py   # ファイル入力
+│   └── file_upload.py   # ファイル入力（Docker/ローカル分岐）
 └── utils/               # ユーティリティ
     ├── file_utils.py    # ファイル操作
     ├── settings.py      # 設定の保存/読み込み
     └── logging.py       # ロギング
 ```
+
+### 開発者向け情報
+
+**Docker版とローカル版の自動判定**
+
+アプリケーションは環境を自動判定して動作を切り替えます：
+
+```python
+# ui/file_upload.py
+is_docker = os.path.exists('/.dockerenv')
+```
+
+**主な違い：**
+- **動画選択**: Docker版はドロップダウン、ローカル版はパス入力
+- **出力先**: Docker版は`videos/`固定、ローカル版は`output/`
+- **UIメッセージ**: 環境に応じて適切なガイドを表示
+
+詳細は[CLAUDE.md](CLAUDE.md)を参照してください。
 
 ## 今後の計画
 

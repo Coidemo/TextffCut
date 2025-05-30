@@ -64,6 +64,7 @@ simple_build.py
 # Docker関連
 .dockerignore
 Dockerfile.*
+*.tar
 
 # ドキュメント（必要に応じて）
 *.md
