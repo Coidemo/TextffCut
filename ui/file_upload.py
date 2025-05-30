@@ -49,46 +49,55 @@ def show_video_input() -> Optional[Tuple[str, str]]:
     if video_path:
         video_path = video_path.strip().strip('"').strip("'")
     
-    if video_path and Path(video_path).exists():
-        path = Path(video_path)
+    if video_path:
+        # パスの長さチェック（異常に長い場合は警告）
+        if len(video_path) > 1000:
+            st.error("入力されたパスが長すぎます。正しいファイルパスを入力してください。")
+            return None
         
-        # 設定に保存
-        settings_manager.set('last_video_path', video_path)
-        
-        # 出力ディレクトリの設定
-        if is_docker:
-            # Docker版：動画と同じフォルダに出力
-            output_dir = path.parent
-            st.markdown("### 📂 出力先")
-            st.info(f"出力先: 動画と同じフォルダ（{output_dir}）")
-        else:
-            # ローカル版：従来の設定
-            default_output = path.parent / "output"
+        if Path(video_path).exists():
+            path = Path(video_path)
             
-            # 出力先の設定
-            st.markdown("### 📂 出力先の設定")
+            # 設定に保存
+            settings_manager.set('last_video_path', video_path)
             
-            output_option = st.radio(
-                "出力先の設定",
-                ["🎯 動画と同じフォルダ内の'output'", "📁 カスタムフォルダ"],
-                horizontal=True,
-                index=0,
-                label_visibility="collapsed"
-            )
-            
-            if output_option == "🎯 動画と同じフォルダ内の'output'":
-                output_dir = default_output
-                st.info(f"出力先: {output_dir}")
+            # 出力ディレクトリの設定
+            if is_docker:
+                # Docker版：動画と同じフォルダに出力
+                output_dir = path.parent
+                st.markdown("### 📂 出力先")
+                st.info(f"出力先: 動画と同じフォルダ（{output_dir}）")
             else:
-                output_dir = st.text_input(
-                    "カスタム出力ディレクトリ",
-                    value=str(default_output)
+                # ローカル版：従来の設定
+                default_output = path.parent / "output"
+                
+                # 出力先の設定
+                st.markdown("### 📂 出力先の設定")
+                
+                output_option = st.radio(
+                    "出力先の設定",
+                    ["🎯 動画と同じフォルダ内の'output'", "📁 カスタムフォルダ"],
+                    horizontal=True,
+                    index=0,
+                    label_visibility="collapsed"
                 )
-                # 引用符を除去
-                output_dir = output_dir.strip().strip('"').strip("'")
-                output_dir = Path(output_dir)
-        
-        return str(path), str(output_dir)
+                
+                if output_option == "🎯 動画と同じフォルダ内の'output'":
+                    output_dir = default_output
+                    st.info(f"出力先: {output_dir}")
+                else:
+                    output_dir = st.text_input(
+                        "カスタム出力ディレクトリ",
+                        value=str(default_output)
+                    )
+                    # 引用符を除去
+                    output_dir = output_dir.strip().strip('"').strip("'")
+                    output_dir = Path(output_dir)
+            
+            return str(path), str(output_dir)
+        else:
+            st.error(f"指定されたファイルが見つかりません: {video_path}")
+            return None
     
     return None
 

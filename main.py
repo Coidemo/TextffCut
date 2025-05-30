@@ -6,6 +6,7 @@ import streamlit as st
 from pathlib import Path
 from typing import List, Tuple, Optional
 import subprocess
+from datetime import datetime
 
 from config import config
 from core import Transcriber, TextProcessor, VideoProcessor, FCPXMLExporter, ExportSegment, VideoSegment
@@ -20,7 +21,8 @@ from ui import (
     show_progress,
     show_text_editor,
     show_diff_viewer,
-    show_red_highlight_button,
+    show_edited_text_with_highlights,
+    show_red_highlight_modal,
     show_help,
     cleanup_temp_files
 )
@@ -124,28 +126,50 @@ def main():
         
         st.header("✂️ 切り抜き箇所の指定")
         
+        # エラー表示（2カラムの上に表示）
+        if st.session_state.get('show_error_and_delete', False):
+            st.error("⚠️ 元動画に存在しない文字が切り抜き箇所に入力されています。削除してください。")
+        
         # 全テキストを取得
         full_text = transcription.get_full_text()
+        
         
         # 2カラムレイアウト
         col1, col2 = st.columns(2)
         
         with col1:
             st.markdown("#### 文字起こし結果")
-            st.caption("切り抜き箇所に指定した文章が緑色でハイライトされます")
+            st.caption("切り抜き箇所に指定した箇所が緑色でハイライトされます")
             
             # 編集されたテキストがある場合は差分を表示
             saved_edited_text = st.session_state.get('edited_text', '')
             if saved_edited_text:
                 text_processor = TextProcessor()
-                diff = text_processor.find_differences(full_text, saved_edited_text)
-                show_diff_viewer(full_text, diff)
+                
+                # 区切り文字がある場合は区切り文字対応の差分表示
+                separator_patterns = ["---", "——", "－－－"]
+                found_separator = None
+                for pattern in separator_patterns:
+                    if pattern in saved_edited_text:
+                        found_separator = pattern
+                        break
+                
+                if found_separator:
+                    # 区切り文字がある場合：区切り文字を除去して差分計算
+                    text_without_separator = saved_edited_text.replace(found_separator, ' ')  # スペースで置換
+                    diff = text_processor.find_differences(full_text, text_without_separator)
+                    show_diff_viewer(full_text, diff)
+                else:
+                    # 区切り文字がない場合：従来通り
+                    diff = text_processor.find_differences(full_text, saved_edited_text)
+                    show_diff_viewer(full_text, diff)
             else:
                 show_diff_viewer(full_text)
         
         with col2:
             st.markdown("#### 切り抜き箇所")
-            st.caption("文字起こし結果から切り抜く文章をコピペしてください")
+            st.caption("文字起こし結果から切り抜く箇所を入力してください")
+            
             
             # テキストエディタ
             edited_text = show_text_editor(
@@ -153,27 +177,103 @@ def main():
                 height=400
             )
             
-            # 文字数と時間の表示
-            if edited_text:
-                text_processor = TextProcessor()
-                diff = text_processor.find_differences(full_text, edited_text)
-                time_ranges = diff.get_time_ranges(transcription)
-                total_duration = sum(end - start for start, end in time_ranges)
-                
-                st.caption(f"文字数: {len(edited_text)}文字 / 時間: {total_duration:.1f}秒（無音削除前）")
+# モーダル表示の処理を削除（更新ボタンでのみ表示するため）
             
-            # 赤ハイライト削除ボタン（保存されたテキストに基づく）
+            # 文字数と時間の表示
+            display_text = edited_text
+            
+            # 保存されたテキストがあれば、それを優先
             saved_edited_text = st.session_state.get('edited_text', '')
             if saved_edited_text:
-                text_processor = TextProcessor()
-                diff = text_processor.find_differences(full_text, saved_edited_text)
-                if show_red_highlight_button(diff):
-                    st.rerun()
+                display_text = saved_edited_text
             
-            # 更新ボタン
-            if st.button("🔄 更新", type="primary"):
-                st.session_state.edited_text = edited_text
-                st.rerun()
+            
+            if display_text:
+                # 時間計算
+                text_processor = TextProcessor()
+                
+                # 区切り文字パターンをチェック
+                separator_patterns = ["---", "——", "－－－"]
+                found_separator = None
+                
+                for pattern in separator_patterns:
+                    if pattern in display_text:
+                        found_separator = pattern
+                        break
+                
+                if found_separator:
+                    time_ranges = text_processor.find_differences_with_separator(full_text, display_text, transcription, found_separator)
+                    sections = text_processor.split_text_by_separator(display_text, found_separator)
+                    separator_info = f" / セクション数: {len(sections)}"
+                else:
+                    diff = text_processor.find_differences(full_text, display_text)
+                    time_ranges = diff.get_time_ranges(transcription)
+                    separator_info = ""
+                
+                total_duration = sum(end - start for start, end in time_ranges)
+                st.caption(f"文字数: {len(display_text)}文字 / 時間: {total_duration:.1f}秒（無音削除前）{separator_info}")
+            
+            # ボタンを横並びに配置
+            button_col1, button_col2 = st.columns([1, 2])
+            
+            with button_col1:
+                # 更新ボタン
+                if st.button("🔄 更新", type="primary", use_container_width=True):
+                    st.session_state.edited_text = edited_text
+                    
+                    # 赤ハイライトがあるかチェック
+                    if edited_text:
+                        text_processor = TextProcessor()
+                        
+                        # 区切り文字対応
+                        separator_patterns = ["---", "——", "－－－"]
+                        found_separator = None
+                        for pattern in separator_patterns:
+                            if pattern in edited_text:
+                                found_separator = pattern
+                                break
+                        
+                        has_additions = False
+                        if found_separator:
+                            # 区切り文字がある場合：各セクションで追加文字をチェック
+                            sections = text_processor.split_text_by_separator(edited_text, found_separator)
+                            for section in sections:
+                                diff = text_processor.find_differences(full_text, section)
+                                if diff.has_additions():
+                                    has_additions = True
+                                    break
+                            
+                            # 区切り文字がある場合は、区切り文字を除去した全体テキストを渡す
+                            if has_additions:
+                                text_without_separator = edited_text.replace(found_separator, ' ')
+                                diff = text_processor.find_differences(full_text, text_without_separator)
+                                st.session_state.current_diff = diff
+                                st.session_state.current_edited_text = text_without_separator
+                                st.session_state.original_edited_text = edited_text  # 元のテキスト（区切り文字付き）も保存
+                        else:
+                            # 区切り文字がない場合：通常のチェック
+                            diff = text_processor.find_differences(full_text, edited_text)
+                            if diff.has_additions():
+                                has_additions = True
+                                st.session_state.current_diff = diff
+                                st.session_state.current_edited_text = edited_text
+                                st.session_state.original_edited_text = edited_text
+                        
+                        if has_additions:
+                            # エラー表示と削除ボタンを表示状態にする
+                            st.session_state.show_error_and_delete = True
+                            st.rerun()
+                        else:
+                            # エラー状態をクリア
+                            st.session_state.show_error_and_delete = False
+                            st.rerun()
+            
+            with button_col2:
+                # 削除ボタン（エラーがある場合のみ表示）
+                if st.session_state.get('show_error_and_delete', False):
+                    if st.button("エラー箇所を確認して削除", key="delete_highlights_main", use_container_width=True):
+                        st.session_state.show_modal = True
+                        st.rerun()
         
         # 切り抜き処理
         if edited_text and 'edited_text' in st.session_state:
@@ -195,15 +295,46 @@ def main():
             
             # 処理実行ボタン
             if st.button("🚀 処理を実行", type="primary", use_container_width=True):
-                # 差分からタイムスタンプを取得
+                # 区切り文字対応の差分検索を使用
                 text_processor = TextProcessor()
-                diff = text_processor.find_differences(full_text, edited_text)
                 
-                if diff.has_additions():
-                    st.error("元の動画に存在しない部分が含まれています。赤いハイライト部分を確認してください。")
-                    return
+                # 区切り文字の様々なパターンをチェック（処理実行時）
+                separator_patterns = ["---", "——", "－－－"]
+                found_separator = None
                 
-                time_ranges = diff.get_time_ranges(transcription)
+                for pattern in separator_patterns:
+                    if pattern in edited_text:
+                        found_separator = pattern
+                        break
+                
+                if found_separator:
+                    # 区切り文字対応処理
+                    time_ranges = text_processor.find_differences_with_separator(full_text, edited_text, transcription, found_separator)
+                    
+                    # 各セクションで追加文字チェック
+                    sections = text_processor.split_text_by_separator(edited_text, found_separator)
+                    has_additions = False
+                    for section in sections:
+                        diff = text_processor.find_differences(full_text, section)
+                        if diff.has_additions():
+                            has_additions = True
+                            break
+                    
+                    if has_additions:
+                        st.error("元の動画に存在しない部分が含まれています。各セクションを確認してください。")
+                        return
+                        
+                    st.info(f"区切り文字 '{found_separator}' により {len(sections)} セクションに分割して処理します。")
+                        
+                else:
+                    # 従来の処理
+                    diff = text_processor.find_differences(full_text, edited_text)
+                    
+                    if diff.has_additions():
+                        st.error("元の動画に存在しない部分が含まれています。赤いハイライト部分を確認してください。")
+                        return
+                    
+                    time_ranges = diff.get_time_ranges(transcription)
                 
                 if not time_ranges:
                     st.error("切り抜き箇所が見つかりませんでした。")
@@ -342,6 +473,13 @@ def main():
                         
                     except Exception as e:
                         st.error(f"処理中にエラーが発生しました: {str(e)}")
+
+    # モーダル表示
+    if st.session_state.get('show_modal', False):
+        show_red_highlight_modal(
+            st.session_state.get('current_edited_text', ''),
+            st.session_state.get('current_diff', None)
+        )
 
 
 if __name__ == "__main__":
