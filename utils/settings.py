@@ -16,7 +16,7 @@ class SettingsManager:
         Args:
             settings_file: 設定ファイル名
         """
-        self.settings_file = Path.home() / ".buzz-clip" / settings_file
+        self.settings_file = Path.home() / ".textffcut" / settings_file
         self.settings_file.parent.mkdir(parents=True, exist_ok=True)
         self._settings = self._load_settings()
     
