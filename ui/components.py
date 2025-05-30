@@ -277,8 +277,14 @@ def show_progress(
     if status_text is None:
         status_text = st.empty()
     
-    progress_bar.progress(progress)
-    status_text.text(status)
+    # 進捗を更新（1.0を超えないように）
+    progress_bar.progress(min(progress, 1.0))
+    
+    # 完了時は成功メッセージとして表示
+    if progress >= 1.0:
+        status_text.success(status)
+    else:
+        status_text.info(status)
     
     return progress_bar, status_text
 
