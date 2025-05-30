@@ -1,5 +1,5 @@
 """
-Buzz Clip - メインアプリケーション
+TextffCut - メインアプリケーション
 リファクタリング版：モジュール化された構造を使用
 """
 import streamlit as st

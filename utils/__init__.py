@@ -1,5 +1,5 @@
 """
-Buzz Clip ユーティリティモジュール
+TextffCut ユーティリティモジュール
 """
 from .time_utils import (
     format_time,

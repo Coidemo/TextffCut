@@ -1,5 +1,5 @@
 """
-Buzz Clip コアモジュール
+TextffCut コアモジュール
 """
 from .transcription import Transcriber, TranscriptionResult, TranscriptionSegment
 from .video import VideoProcessor, VideoSegment, VideoInfo, SilenceInfo

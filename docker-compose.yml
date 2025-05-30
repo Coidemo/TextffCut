@@ -1,0 +1,40 @@
+version: '3.8'
+
+name: textffcut
+
+services:
+  textffcut:
+    build: .
+    ports:
+      - "8501:8501"
+    volumes:
+      # 文字起こし結果用ディレクトリをマウント
+      - ./transcriptions:/app/transcriptions
+      # ログ用ディレクトリをマウント
+      - ./logs:/app/logs
+      # ホストのホームディレクトリもマウント（読み書き可能）
+      - ${HOME}:${HOME}
+    environment:
+      # Streamlit設定
+      - STREAMLIT_SERVER_ADDRESS=0.0.0.0
+      - STREAMLIT_SERVER_PORT=8501
+      # 日本語ロケール設定
+      - LANG=ja_JP.UTF-8
+      - LC_ALL=ja_JP.UTF-8
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # 将来的な拡張: Redis（セッション管理用）
+  # redis:
+  #   image: redis:7-alpine
+  #   restart: unless-stopped
+  #   volumes:
+  #     - redis_data:/data
+
+# volumes:
+#   redis_data:
