@@ -324,8 +324,6 @@ def main():
                         st.error("元の動画に存在しない部分が含まれています。各セクションを確認してください。")
                         return
                         
-                    st.info(f"区切り文字 '{found_separator}' により {len(sections)} セクションに分割して処理します。")
-                        
                 else:
                     # 従来の処理
                     diff = text_processor.find_differences(full_text, edited_text)
@@ -411,8 +409,8 @@ def main():
                             )
                             
                             if success:
-                                st.success(f"FCPXMLファイルを生成しました！\n出力先: {fcpxml_path}")
-                                st.info(f"📊 {len(keep_ranges)}個のクリップ、総時間: {timeline_pos:.1f}秒")
+                                # 100%完了を表示
+                                show_progress(1.0, f"処理が完了しました！ 出力先: {fcpxml_path} | 📊 {len(keep_ranges)}個のクリップ、総時間: {timeline_pos:.1f}秒", progress_bar, status_text)
                                 
                                 # FCPXMLの場合は中間ファイルを全て削除
                                 cleanup_intermediate_files(project_path, keep_patterns=["*.fcpxml"])
@@ -426,7 +424,7 @@ def main():
                             total_ranges = len(keep_ranges)
                             
                             for i, (start, end) in enumerate(keep_ranges):
-                                progress = i / total_ranges
+                                progress = (i + 1) / total_ranges * 0.8  # 最大80%まで
                                 show_progress(progress, f"セグメント {i+1}/{total_ranges} を抽出中...", progress_bar, status_text)
                                 
                                 segment_file = project_path / f"segment_{i+1}.mp4"
@@ -452,9 +450,11 @@ def main():
                                 )
                                 
                                 if success:
-                                    st.success(f"処理が完了しました！\n出力先: {project_path}")
+                                    # 100%完了を表示
+                                    show_progress(1.0, f"処理が完了しました！ 出力先: {project_path} | 📊 {len(keep_ranges)}個のセグメントを結合", progress_bar, status_text)
+                                    
+                                    # 動画プレビュー
                                     st.video(str(combined_path))
-                                    st.info(f"📊 {len(keep_ranges)}個のセグメントを結合")
                                     
                                     # 中間ファイルをクリーンアップ（結合ファイルは保持）
                                     cleanup_intermediate_files(project_path, keep_patterns=["combined.mp4"])
@@ -462,7 +462,10 @@ def main():
                                     st.error("動画の結合に失敗しました")
                                     
                             elif output_files:
-                                st.success(f"処理が完了しました！\n出力先: {project_path}")
+                                # 100%完了を表示
+                                show_progress(1.0, f"処理が完了しました！ 出力先: {project_path}", progress_bar, status_text)
+                                
+                                # 動画プレビュー
                                 st.video(output_files[0])
                                 
                                 # 中間ファイルをクリーンアップ

@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 🎯 プロジェクト概要
 
-**Buzz Clip** - 動画の文字起こしと切り抜きを効率化するツール
+**TextffCut** - 動画の文字起こしと切り抜きを効率化するツール
 
 主な用途：
 - 90分程度の長時間動画から必要な部分だけを抽出
@@ -70,9 +70,32 @@ buzz-clip/
 │   └── export.py        # FCPXML/EDLエクスポート
 ├── ui/                  # UI関連
 │   ├── components.py    # Streamlitコンポーネント
-│   └── file_upload.py   # ファイル入力処理
+│   └── file_upload.py   # ファイル入力処理（Docker/ローカル分岐）
 └── utils/               # ユーティリティ
 ```
+
+### Docker版とローカル版の分岐
+
+環境判定は `/.dockerenv` ファイルの存在で自動的に行われます：
+
+```python
+import os
+is_docker = os.path.exists('/.dockerenv')
+```
+
+**主な分岐箇所：**
+
+1. **動画ファイル入力** (`ui/file_upload.py`)
+   - Docker版：`/app/videos/`内の動画をドロップダウンで選択
+   - ローカル版：フルパス入力
+
+2. **出力先設定**
+   - Docker版：`/app/videos/`固定（入力と同じ場所）
+   - ローカル版：動画と同じフォルダの`output/`またはカスタム指定
+
+3. **UIメッセージ**
+   - Docker版：「videos/フォルダ内の動画ファイルを選択してください」
+   - ローカル版：「動画ファイルのフルパス」
 
 ## 🔧 技術的な詳細
 
