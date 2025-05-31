@@ -1,0 +1,521 @@
+"""
+API版文字起こしモジュール
+"""
+import os
+import json
+import tempfile
+from pathlib import Path
+from typing import Dict, Any, Optional, List
+import requests
+from dataclasses import dataclass
+
+from .transcription import TranscriptionResult, TranscriptionSegment
+from config import Config
+from utils.logging import get_logger
+
+logger = get_logger(__name__)
+
+
+class APITranscriber:
+    """API版文字起こしクラス"""
+    
+    def __init__(self, config: Config):
+        self.config = config
+        self.api_config = config.transcription
+    
+    def transcribe(self, audio_path: str, model_size: str = None, 
+                  progress_callback: Optional[callable] = None) -> TranscriptionResult:
+        """
+        APIを使用して音声ファイルを文字起こし
+        
+        Args:
+            audio_path: 音声ファイルパス
+            model_size: モデルサイズ（API版では一部のみ有効）
+            progress_callback: 進捗コールバック
+            
+        Returns:
+            TranscriptionResult: 文字起こし結果
+        """
+        if progress_callback:
+            progress_callback(0.1, "APIに接続中...")
+        
+        # OpenAI API専用
+        if self.api_config.api_provider == "openai":
+            result = self._transcribe_openai(audio_path, progress_callback)
+        else:
+            raise ValueError(f"Unsupported API provider: {self.api_config.api_provider}. Only 'openai' is supported.")
+        
+        if progress_callback:
+            progress_callback(1.0, "文字起こし完了")
+        
+        return result
+    
+    def _transcribe_openai(self, audio_path: str, 
+                          progress_callback: Optional[callable] = None) -> TranscriptionResult:
+        """OpenAI Whisper APIを使用（ローカル版と同じチャンク並列処理）"""
+        try:
+            from openai import OpenAI
+            import tempfile
+            import numpy as np
+            import soundfile as sf
+            
+            if not self.api_config.api_key:
+                raise ValueError("OpenAI API key is required")
+            
+            # OpenAI クライアントを初期化
+            client = OpenAI(api_key=self.api_config.api_key)
+            
+            # 元ファイルサイズをチェック
+            original_size = os.path.getsize(audio_path) / (1024 * 1024)
+            
+            if progress_callback:
+                progress_callback(0.05, f"音声を読み込み中（元サイズ: {original_size:.1f}MB）...")
+            
+            # WhisperXと同じ方法で音声を読み込み
+            try:
+                import whisperx
+                audio = whisperx.load_audio(audio_path)
+                
+                if progress_callback:
+                    progress_callback(0.1, "音声データを最適化完了、チャンク分割中...")
+                
+                # ローカル版と同じチャンク分割処理
+                return self._transcribe_with_chunks(client, audio, audio_path, progress_callback)
+                        
+            except ImportError:
+                # WhisperXが利用できない場合はFFmpegで変換
+                logger.warning("WhisperXが利用できないため、FFmpegで音声変換します")
+                return self._transcribe_with_ffmpeg(client, audio_path, progress_callback)
+            
+        except Exception as e:
+            logger.error(f"OpenAI API error: {str(e)}")
+            raise
+    
+    def _transcribe_with_chunks(self, client, audio, original_audio_path: str,
+                               progress_callback: Optional[callable] = None) -> TranscriptionResult:
+        """ローカル版と同じチャンク分割並列処理"""
+        import tempfile
+        import soundfile as sf
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        
+        # ローカル版と同じ設定でチャンク分割
+        chunk_seconds = self.api_config.chunk_seconds  # 30秒
+        sample_rate = 16000
+        step = chunk_seconds * sample_rate
+        
+        # チャンクを作成
+        chunks = []
+        for i in range(0, len(audio), step):
+            chunk_audio = audio[i:i+step]
+            start_time = i / sample_rate
+            duration = len(chunk_audio) / sample_rate
+            
+            chunks.append({
+                "array": chunk_audio,
+                "start": start_time,
+                "duration": duration
+            })
+        
+        total_chunks = len(chunks)
+        logger.info(f"音声をチャンク分割: {total_chunks}個のチャンク（{chunk_seconds}秒ずつ）")
+        
+        if progress_callback:
+            progress_callback(0.15, f"チャンク分割完了: {total_chunks}個のチャンク")
+        
+        # 一時ディレクトリを作成
+        temp_dir = tempfile.mkdtemp(prefix="textffcut_api_chunks_")
+        
+        try:
+            # 各チャンクをWAVファイルとして保存
+            chunk_files = []
+            for i, chunk in enumerate(chunks):
+                chunk_file = os.path.join(temp_dir, f"chunk_{i:03d}.wav")
+                sf.write(chunk_file, chunk["array"], sample_rate)
+                
+                # ファイルサイズチェック（25MB制限）
+                chunk_size = os.path.getsize(chunk_file) / (1024 * 1024)
+                if chunk_size > 25:
+                    logger.warning(f"チャンク {i} がサイズ制限を超過: {chunk_size:.1f}MB")
+                    continue
+                
+                chunk_files.append((chunk_file, chunk["start"], i))
+            
+            if not chunk_files:
+                raise ValueError("有効なチャンクが作成できませんでした")
+            
+            if progress_callback:
+                progress_callback(0.2, f"チャンクファイル作成完了: {len(chunk_files)}個")
+            
+            # 並列でAPI処理（レート制限考慮で3並列）
+            max_workers = min(3, len(chunk_files))
+            all_segments = []
+            completed_chunks = 0
+            
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                # 各チャンクのAPI処理を送信
+                futures = []
+                for chunk_file, start_offset, chunk_idx in chunk_files:
+                    future = executor.submit(self._transcribe_chunk_api, client, chunk_file, start_offset, chunk_idx)
+                    futures.append(future)
+                
+                # 完了したものから結果を取得
+                for future in as_completed(futures):
+                    try:
+                        segments = future.result()
+                        all_segments.extend(segments)
+                        completed_chunks += 1
+                        
+                        if progress_callback:
+                            progress = 0.2 + (0.7 * completed_chunks / len(chunk_files))
+                            progress_callback(progress, f"チャンク {completed_chunks}/{len(chunk_files)} 完了")
+                    
+                    except Exception as e:
+                        logger.warning(f"チャンク処理失敗: {e}")
+                        completed_chunks += 1
+                        continue
+            
+            if progress_callback:
+                progress_callback(0.9, "結果を統合中...")
+            
+            # セグメントをソート
+            all_segments.sort(key=lambda x: x.start)
+            
+            # アライメント処理を追加（ローカル版と同等の精度）
+            if progress_callback:
+                progress_callback(0.95, "アライメント処理中...")
+            
+            aligned_segments = self._perform_alignment(audio, all_segments, progress_callback)
+            
+            if progress_callback:
+                progress_callback(1.0, "チャンク並列処理完了")
+            
+            return TranscriptionResult(
+                language=self.api_config.language,
+                segments=aligned_segments,
+                original_audio_path=original_audio_path,
+                model_size="whisper-1_api",
+                processing_time=0.0
+            )
+        
+        finally:
+            # 一時ファイルをクリーンアップ
+            import shutil
+            try:
+                shutil.rmtree(temp_dir)
+            except:
+                pass
+    
+    def _transcribe_chunk_api(self, client, chunk_file: str, start_offset: float, chunk_idx: int) -> List[TranscriptionSegment]:
+        """単一チャンクのAPI処理"""
+        try:
+            with open(chunk_file, 'rb') as audio_file:
+                response = client.audio.transcriptions.create(
+                    model="whisper-1",
+                    file=audio_file,
+                    language=self.api_config.language,
+                    response_format="verbose_json",
+                    timestamp_granularities=["segment"]
+                )
+            
+            segments = []
+            if hasattr(response, 'segments') and response.segments:
+                for seg in response.segments:
+                    segment = TranscriptionSegment(
+                        start=seg.start + start_offset,
+                        end=seg.end + start_offset,
+                        text=seg.text,
+                        words=[]
+                    )
+                    segments.append(segment)
+            elif response.text.strip():
+                # セグメント情報がない場合
+                estimated_duration = len(response.text) / 20
+                segment = TranscriptionSegment(
+                    start=start_offset,
+                    end=start_offset + estimated_duration,
+                    text=response.text,
+                    words=[]
+                )
+                segments.append(segment)
+            
+            logger.info(f"チャンク {chunk_idx} 処理完了: {len(segments)}セグメント")
+            return segments
+        
+        except Exception as e:
+            logger.error(f"チャンク {chunk_idx} API処理エラー: {e}")
+            return []
+    
+    def _perform_alignment(self, audio, segments: List[TranscriptionSegment], 
+                          progress_callback: Optional[callable] = None):
+        """ローカル版と同じアライメント処理"""
+        try:
+            import whisperx
+            
+            # WhisperXのアライメントモデルを読み込み
+            align_model, metadata = whisperx.load_align_model(
+                language_code=self.api_config.language, 
+                device="cpu"  # API版では基本的にCPU
+            )
+            
+            # API結果をWhisperX形式に変換
+            whisperx_segments = []
+            for seg in segments:
+                whisperx_segments.append({
+                    "start": seg.start,
+                    "end": seg.end,
+                    "text": seg.text
+                })
+            
+            # アライメント実行（ローカル版と同じ処理）
+            aligned_result = whisperx.align(
+                whisperx_segments,
+                align_model,
+                metadata,
+                audio,
+                "cpu",
+                return_char_alignments=True
+            )
+            
+            # 結果をTranscriptionSegment形式に戻す
+            aligned_segments = []
+            for seg in aligned_result["segments"]:
+                segment = TranscriptionSegment(
+                    start=seg["start"],
+                    end=seg["end"],
+                    text=seg["text"],
+                    words=seg.get("words", []),
+                    chars=seg.get("chars", [])
+                )
+                aligned_segments.append(segment)
+            
+            logger.info(f"アライメント処理完了: {len(aligned_segments)}セグメント")
+            return aligned_segments
+            
+        except ImportError:
+            logger.warning("WhisperXが利用できないため、アライメント処理をスキップします")
+            return segments
+        except Exception as e:
+            logger.warning(f"アライメント処理に失敗: {e}")
+            return segments
+    
+    def _transcribe_with_ffmpeg(self, client, audio_path: str,
+                               progress_callback: Optional[callable] = None) -> TranscriptionResult:
+        """FFmpegを使用した音声変換（WhisperX非対応環境用）"""
+        import tempfile
+        import subprocess
+        
+        if progress_callback:
+            progress_callback(0.1, "FFmpegで音声を変換中...")
+        
+        # 一時WAVファイルを作成
+        with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_wav:
+            temp_wav_path = temp_wav.name
+        
+        try:
+            # FFmpegでWAVに変換
+            cmd = [
+                'ffmpeg', '-i', audio_path,
+                '-vn', '-ar', '16000', '-ac', '1',
+                '-y', temp_wav_path
+            ]
+            
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode != 0:
+                raise Exception(f"FFmpeg変換に失敗: {result.stderr}")
+            
+            wav_size = os.path.getsize(temp_wav_path) / (1024 * 1024)
+            
+            if progress_callback:
+                progress_callback(0.3, f"FFmpeg変換完了: {wav_size:.1f}MB")
+            
+            # FFmpeg版では従来通りファイル全体を処理
+            return self._transcribe_single_file(client, temp_wav_path, progress_callback)
+        
+        finally:
+            try:
+                os.unlink(temp_wav_path)
+            except:
+                pass
+    
+    def _transcribe_single_file(self, client, audio_path: str, 
+                               progress_callback: Optional[callable] = None) -> TranscriptionResult:
+        """単一ファイルの文字起こし"""
+        if progress_callback:
+            progress_callback(0.3, "音声ファイルをアップロード中...")
+        
+        with open(audio_path, 'rb') as audio_file:
+            if progress_callback:
+                progress_callback(0.5, "文字起こし処理中...")
+            
+            response = client.audio.transcriptions.create(
+                model="whisper-1",
+                file=audio_file,
+                language=self.api_config.language,
+                response_format="verbose_json",
+                timestamp_granularities=["segment"]
+            )
+        
+        if progress_callback:
+            progress_callback(0.8, "結果を処理中...")
+        
+        return self._process_openai_response(response, audio_path)
+    
+    def _transcribe_large_file(self, client, audio_path: str,
+                              progress_callback: Optional[callable] = None) -> TranscriptionResult:
+        """大きなファイルを分割して文字起こし"""
+        import tempfile
+        import subprocess
+        
+        # 一時ディレクトリを作成
+        temp_dir = tempfile.mkdtemp(prefix="textffcut_split_")
+        
+        try:
+            if progress_callback:
+                progress_callback(0.1, "音声ファイルを分割中...")
+            
+            # FFmpegで10分ごとに分割（約20MBになるように調整）
+            chunk_duration = 600  # 10分
+            chunk_files = []
+            
+            # 音声の長さを取得
+            result = subprocess.run([
+                'ffprobe', '-v', 'quiet', '-show_entries', 'format=duration',
+                '-of', 'csv=p=0', audio_path
+            ], capture_output=True, text=True)
+            
+            try:
+                total_duration = float(result.stdout.strip())
+            except:
+                # 長さが取得できない場合は仮定値
+                total_duration = 3600  # 1時間と仮定
+            
+            num_chunks = int(total_duration / chunk_duration) + 1
+            
+            for i in range(num_chunks):
+                start_time = i * chunk_duration
+                if start_time >= total_duration:
+                    break
+                
+                chunk_file = os.path.join(temp_dir, f"chunk_{i:03d}.mp4")
+                
+                # FFmpegで分割
+                cmd = [
+                    'ffmpeg', '-i', audio_path,
+                    '-ss', str(start_time),
+                    '-t', str(chunk_duration),
+                    '-c', 'copy',
+                    '-y', chunk_file
+                ]
+                
+                subprocess.run(cmd, capture_output=True)
+                
+                if os.path.exists(chunk_file) and os.path.getsize(chunk_file) > 0:
+                    chunk_files.append((chunk_file, start_time))
+            
+            if not chunk_files:
+                raise ValueError("音声ファイルの分割に失敗しました")
+            
+            # 各チャンクを文字起こし
+            all_segments = []
+            
+            for i, (chunk_file, start_offset) in enumerate(chunk_files):
+                if progress_callback:
+                    progress = 0.2 + (0.7 * i / len(chunk_files))
+                    progress_callback(progress, f"チャンク {i+1}/{len(chunk_files)} を処理中...")
+                
+                # チャンクのサイズをチェック
+                chunk_size = os.path.getsize(chunk_file) / (1024 * 1024)
+                if chunk_size > 25:
+                    logger.warning(f"チャンク {i+1} がまだ大きすぎます: {chunk_size:.1f}MB")
+                    continue
+                
+                try:
+                    with open(chunk_file, 'rb') as audio_file:
+                        response = client.audio.transcriptions.create(
+                            model="whisper-1",
+                            file=audio_file,
+                            language=self.api_config.language,
+                            response_format="verbose_json",
+                            timestamp_granularities=["segment"]
+                        )
+                    
+                    # セグメントの時間を調整（開始オフセットを追加）
+                    if hasattr(response, 'segments') and response.segments:
+                        for seg in response.segments:
+                            segment = TranscriptionSegment(
+                                start=seg.start + start_offset,
+                                end=seg.end + start_offset,
+                                text=seg.text,
+                                words=[]
+                            )
+                            all_segments.append(segment)
+                    elif response.text.strip():
+                        # セグメント情報がない場合
+                        estimated_duration = len(response.text) / 20
+                        segment = TranscriptionSegment(
+                            start=start_offset,
+                            end=start_offset + estimated_duration,
+                            text=response.text,
+                            words=[]
+                        )
+                        all_segments.append(segment)
+                
+                except Exception as e:
+                    logger.warning(f"チャンク {i+1} の処理に失敗: {e}")
+                    continue
+            
+            if progress_callback:
+                progress_callback(0.9, "結果を統合中...")
+            
+            # セグメントをソート
+            all_segments.sort(key=lambda x: x.start)
+            
+            return TranscriptionResult(
+                language=self.api_config.language,
+                segments=all_segments,
+                original_audio_path=audio_path,
+                model_size="whisper-1_api",
+                processing_time=0.0
+            )
+        
+        finally:
+            # 一時ファイルをクリーンアップ
+            import shutil
+            try:
+                shutil.rmtree(temp_dir)
+            except:
+                pass
+    
+    def _process_openai_response(self, response, audio_path: str) -> TranscriptionResult:
+        """OpenAI APIレスポンスを処理"""
+        segments = []
+        if hasattr(response, 'segments') and response.segments:
+            for seg in response.segments:
+                segment = TranscriptionSegment(
+                    start=seg.start,
+                    end=seg.end,
+                    text=seg.text,
+                    words=[]
+                )
+                segments.append(segment)
+        else:
+            # セグメント情報がない場合は全体を1つのセグメントとして扱う
+            text_length = len(response.text)
+            estimated_duration = max(text_length / 20, 10.0)
+            
+            segments = [TranscriptionSegment(
+                start=0.0,
+                end=estimated_duration,
+                text=response.text,
+                words=[]
+            )]
+        
+        return TranscriptionResult(
+            language=self.api_config.language,
+            segments=segments,
+            original_audio_path=audio_path,
+            model_size="whisper-1_api",
+            processing_time=0.0
+        )
+    
+    
