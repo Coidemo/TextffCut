@@ -287,7 +287,8 @@ def main():
                     mode_options,
                     index=default_index,
                     key="mode_radio_main",
-                    label_visibility="collapsed"
+                    label_visibility="collapsed",
+                    horizontal=True
                 )
                 use_api = selected_mode == "🌐 API"
                 st.session_state.use_api = use_api
