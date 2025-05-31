@@ -8,6 +8,8 @@ services:
     ports:
       - "8501:8501"
     volumes:
+      # 動画ファイルと出力用ディレクトリをマウント
+      - ./videos:/app/videos
       # 文字起こし結果用ディレクトリをマウント
       - ./transcriptions:/app/transcriptions
       # ログ用ディレクトリをマウント
