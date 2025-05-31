@@ -28,17 +28,6 @@ def show_video_input() -> Optional[Tuple[str, str]]:
         # ホスト側のvideosフォルダパス
         host_videos_path = "/Users/naoki/myProject/TextffCut/videos"
         
-        # フォルダ案内と更新ボタン
-        st.info("📁 動画ファイルを以下のフォルダに配置してください")
-        st.code(host_videos_path, language=None)
-        
-        col1, col2 = st.columns([3, 1])
-        with col1:
-            st.markdown("**Finderアクセス:** `⌘+Shift+G` でパスを貼り付け")
-        with col2:
-            if st.button("🔄 更新", help="ファイルリストを更新"):
-                st.rerun()
-        
         # videosフォルダ内のファイルを取得
         videos_dir = Path("/app/videos")
         if videos_dir.exists():
@@ -49,17 +38,28 @@ def show_video_input() -> Optional[Tuple[str, str]]:
             video_files.extend([f.name for f in videos_dir.glob("*.webm") if f.is_file()])
             video_files = sorted(video_files)
             
-            if video_files:
+            # 動画選択（常に表示）
+            col1, col2 = st.columns([4, 1])
+            with col1:
                 selected_file = st.selectbox(
                     "動画ファイルを選択",
-                    [""] + video_files,
-                    help="videos/フォルダ内にある動画ファイル"
+                    [""] + video_files if video_files else ["（動画ファイルがありません）"],
+                    disabled=not video_files
                 )
-                video_path = str(videos_dir / selected_file) if selected_file else None
+            with col2:
+                # ボタンをセレクトボックスの下端に合わせる
+                st.markdown("<div style='margin-top: 1.875rem;'></div>", unsafe_allow_html=True)
+                if st.button("🔄 更新", help="ファイルリストを更新"):
+                    st.rerun()
+            
+            if video_files and selected_file:
+                video_path = str(videos_dir / selected_file)
             else:
-                st.warning("videos/フォルダに動画ファイルが見つかりません。")
-                st.info("上の **📂 Finder で開く** ボタンで動画ファイルを追加してください。")
                 video_path = None
+                
+            # 動画追加の案内（常に表示）
+            st.info("📁 対象の動画がない場合は、以下のフォルダに格納して更新ボタンを押してください")
+            st.code(host_videos_path, language=None)
         else:
             st.error("videos/フォルダが見つかりません。")
             video_path = None
