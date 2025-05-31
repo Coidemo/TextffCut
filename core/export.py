@@ -70,9 +70,15 @@ class FCPXMLExporter:
             
             return True
             
+        except OSError as e:
+            from utils.exceptions import FileNotFoundError as BuzzFileNotFoundError
+            raise BuzzFileNotFoundError(f"FCPXML書き込みエラー: {str(e)}")
+        except PermissionError as e:
+            from utils.exceptions import VideoProcessingError
+            raise VideoProcessingError(f"FCPXML書き込み権限エラー: {str(e)}")
         except Exception as e:
-            print(f"FCPXMLエクスポートエラー: {e}")
-            return False
+            from utils.exceptions import VideoProcessingError
+            raise VideoProcessingError(f"FCPXMLエクスポートエラー: {str(e)}")
     
     def _build_fcpxml(
         self,
@@ -204,6 +210,12 @@ class EDLExporter:
             
             return True
             
+        except OSError as e:
+            from utils.exceptions import FileNotFoundError as BuzzFileNotFoundError
+            raise BuzzFileNotFoundError(f"EDL書き込みエラー: {str(e)}")
+        except PermissionError as e:
+            from utils.exceptions import VideoProcessingError
+            raise VideoProcessingError(f"EDL書き込み権限エラー: {str(e)}")
         except Exception as e:
-            print(f"EDLエクスポートエラー: {e}")
-            return False
+            from utils.exceptions import VideoProcessingError
+            raise VideoProcessingError(f"EDLエクスポートエラー: {str(e)}")

@@ -344,8 +344,16 @@ def main():
                 
                 st.rerun()
                     
+        except FileNotFoundError:
+            st.error("📁 指定された動画ファイルが見つかりません。パスを確認してください。")
+            return
+        except OSError as e:
+            st.error(f"💾 ファイルアクセスエラー: {str(e)}")
+            return
         except Exception as e:
-            st.error(f"動画情報の取得に失敗: {e}")
+            from utils.exceptions import BuzzClipError
+            error = BuzzClipError(f"動画情報の取得に失敗: {str(e)}")
+            st.error(error.get_user_message())
             return
     
     # 文字起こし実行の判定
@@ -434,7 +442,13 @@ def main():
                 cancel_placeholder.empty()
                 progress_bar.empty()
                 progress_text.empty()
-                st.error(f"❌ エラー: {str(e)}")
+                
+                from utils.exceptions import BuzzClipError, TranscriptionError
+                if isinstance(e, TranscriptionError):
+                    st.error(e.get_user_message())
+                else:
+                    error = BuzzClipError(f"文字起こし処理でエラーが発生しました: {str(e)}")
+                    st.error(error.get_user_message())
     
     # 文字起こし結果の処理
     if 'transcription_result' in st.session_state and st.session_state.transcription_result:
@@ -830,7 +844,12 @@ def main():
                         
                         
                     except Exception as e:
-                        st.error(f"処理中にエラーが発生しました: {str(e)}")
+                        from utils.exceptions import BuzzClipError, VideoProcessingError
+                        if isinstance(e, VideoProcessingError):
+                            st.error(e.get_user_message())
+                        else:
+                            error = BuzzClipError(f"動画処理中にエラーが発生しました: {str(e)}")
+                            st.error(error.get_user_message())
 
     # モーダル表示
     if st.session_state.get('show_modal', False):

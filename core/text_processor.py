@@ -56,31 +56,44 @@ class TextDifference:
         end_pos: int
     ) -> Tuple[Optional[float], Optional[float]]:
         """文字位置からタイムスタンプを取得"""
-        start_time = None
-        end_time = None
-        current_pos = 0
-        
-        for seg in segments:
-            if seg.words:
-                for word in seg.words:
-                    word_len = len(word['word'])
-                    if start_time is None and current_pos <= start_pos < current_pos + word_len:
-                        start_time = word['start']
-                    if end_time is None and current_pos < end_pos <= current_pos + word_len:
-                        end_time = word['end']
-                    current_pos += word_len
-            else:
-                text = seg.text
-                if start_time is None and current_pos <= start_pos < current_pos + len(text):
-                    start_time = seg.start
-                if end_time is None and current_pos < end_pos <= current_pos + len(text):
-                    end_time = seg.end
-                current_pos += len(text)
+        try:
+            start_time = None
+            end_time = None
+            current_pos = 0
             
-            if start_time is not None and end_time is not None:
-                break
-        
-        return start_time, end_time
+            for seg in segments:
+                if seg.words:
+                    for word in seg.words:
+                        try:
+                            word_len = len(word['word'])
+                            if start_time is None and current_pos <= start_pos < current_pos + word_len:
+                                start_time = word['start']
+                            if end_time is None and current_pos < end_pos <= current_pos + word_len:
+                                end_time = word['end']
+                            current_pos += word_len
+                        except (KeyError, TypeError) as e:
+                            # 不正なword形式の場合はスキップ
+                            continue
+                else:
+                    try:
+                        text = seg.text
+                        if start_time is None and current_pos <= start_pos < current_pos + len(text):
+                            start_time = seg.start
+                        if end_time is None and current_pos < end_pos <= current_pos + len(text):
+                            end_time = seg.end
+                        current_pos += len(text)
+                    except AttributeError as e:
+                        # seg.textが存在しない場合はスキップ
+                        continue
+                
+                if start_time is not None and end_time is not None:
+                    break
+            
+            return start_time, end_time
+            
+        except Exception as e:
+            from utils.exceptions import VideoProcessingError
+            raise VideoProcessingError(f"タイムスタンプ取得エラー: {str(e)}")
 
 
 class TextProcessor:
@@ -114,63 +127,78 @@ class TextProcessor:
         Returns:
             TextDifference: 差分情報
         """
-        # テキストを正規化
-        original = self.normalize_text(original)
-        edited = self.normalize_text(edited)
+        try:
+            # 入力検証
+            if not isinstance(original, str) or not isinstance(edited, str):
+                from utils.exceptions import VideoProcessingError
+                raise VideoProcessingError("テキスト差分検出: 入力は文字列である必要があります")
+            
+            # テキストを正規化
+            original = self.normalize_text(original)
+            edited = self.normalize_text(edited)
+            
+            # 空白を除去したテキストで差分を計算
+            original_no_spaces = self.remove_spaces(original)
+            edited_no_spaces = self.remove_spaces(edited)
+            
+            # 差分を計算
+            matcher = SequenceMatcher(None, original_no_spaces, edited_no_spaces)
+            common_positions = []
+            added_chars = set()
+            added_positions = []
+            
+        except Exception as e:
+            from utils.exceptions import VideoProcessingError
+            raise VideoProcessingError(f"テキスト差分検出エラー: {str(e)}")
         
-        # 空白を除去したテキストで差分を計算
-        original_no_spaces = self.remove_spaces(original)
-        edited_no_spaces = self.remove_spaces(edited)
-        
-        # 差分を計算
-        matcher = SequenceMatcher(None, original_no_spaces, edited_no_spaces)
-        common_positions = []
-        added_chars = set()
-        added_positions = []
-        
-        for tag, i1, i2, j1, j2 in matcher.get_opcodes():
-            if tag == 'equal':
-                # 元のテキストでの位置を計算
-                original_pos = self._convert_position_with_spaces(original, original_no_spaces, i1)
-                length = self._calculate_length_with_spaces(original, original_pos, i2 - i1)
-                
-                common_positions.append(TextPosition(
-                    start=original_pos,
-                    end=original_pos + length,
-                    text=original[original_pos:original_pos + length]
-                ))
-                
-            elif tag in ['insert', 'replace']:
-                # 追加された文字を収集
-                added_text = edited_no_spaces[j1:j2]
-                added_chars.update(c for c in added_text if not c.isspace())
-                
-                # 追加文字の位置情報を記録（編集後テキストでの位置）
-                if tag == 'insert':
-                    # 挿入の場合：元テキストでの挿入位置を特定
-                    insert_pos = self._convert_position_with_spaces(original, original_no_spaces, i1)
-                    added_positions.append(TextPosition(
-                        start=insert_pos,
-                        end=insert_pos,  # 挿入位置なので長さは0
-                        text=edited_no_spaces[j1:j2]
+        try:
+            for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+                if tag == 'equal':
+                    # 元のテキストでの位置を計算
+                    original_pos = self._convert_position_with_spaces(original, original_no_spaces, i1)
+                    length = self._calculate_length_with_spaces(original, original_pos, i2 - i1)
+                    
+                    common_positions.append(TextPosition(
+                        start=original_pos,
+                        end=original_pos + length,
+                        text=original[original_pos:original_pos + length]
                     ))
-                elif tag == 'replace':
-                    # 置換の場合：元テキストでの置換位置
-                    replace_pos = self._convert_position_with_spaces(original, original_no_spaces, i1)
-                    replace_length = self._calculate_length_with_spaces(original, replace_pos, i2 - i1)
-                    added_positions.append(TextPosition(
-                        start=replace_pos,
-                        end=replace_pos + replace_length,
-                        text=edited_no_spaces[j1:j2]
-                    ))
-        
-        return TextDifference(
-            original_text=original,
-            edited_text=edited,
-            common_positions=common_positions,
-            added_chars=added_chars,
-            added_positions=added_positions
-        )
+                    
+                elif tag in ['insert', 'replace']:
+                    # 追加された文字を収集
+                    added_text = edited_no_spaces[j1:j2]
+                    added_chars.update(c for c in added_text if not c.isspace())
+                    
+                    # 追加文字の位置情報を記録（編集後テキストでの位置）
+                    if tag == 'insert':
+                        # 挿入の場合：元テキストでの挿入位置を特定
+                        insert_pos = self._convert_position_with_spaces(original, original_no_spaces, i1)
+                        added_positions.append(TextPosition(
+                            start=insert_pos,
+                            end=insert_pos,  # 挿入位置なので長さは0
+                            text=edited_no_spaces[j1:j2]
+                        ))
+                    elif tag == 'replace':
+                        # 置換の場合：元テキストでの置換位置
+                        replace_pos = self._convert_position_with_spaces(original, original_no_spaces, i1)
+                        replace_length = self._calculate_length_with_spaces(original, replace_pos, i2 - i1)
+                        added_positions.append(TextPosition(
+                            start=replace_pos,
+                            end=replace_pos + replace_length,
+                            text=edited_no_spaces[j1:j2]
+                        ))
+            
+            return TextDifference(
+                original_text=original,
+                edited_text=edited,
+                common_positions=common_positions,
+                added_chars=added_chars,
+                added_positions=added_positions
+            )
+            
+        except Exception as e:
+            from utils.exceptions import VideoProcessingError
+            raise VideoProcessingError(f"差分計算処理エラー: {str(e)}")
     
     def _convert_position_with_spaces(self, text_with_spaces: str, text_no_spaces: str, pos_no_spaces: int) -> int:
         """空白を除去したテキストの位置を、元のテキストの位置に変換"""

@@ -87,9 +87,27 @@ class APITranscriber:
                 logger.warning("WhisperXが利用できないため、FFmpegで音声変換します")
                 return self._transcribe_with_ffmpeg(client, audio_path, progress_callback)
             
+        except ImportError as e:
+            from utils.exceptions import TranscriptionError
+            raise TranscriptionError("必要なライブラリが見つかりません。インストールを確認してください。")
+        except openai.RateLimitError as e:
+            from utils.exceptions import TranscriptionError
+            raise TranscriptionError("API利用制限に達しました。しばらく待ってから再試行してください。")
+        except openai.AuthenticationError as e:
+            from utils.exceptions import TranscriptionError
+            raise TranscriptionError("APIキーが無効です。設定を確認してください。")
+        except openai.APIConnectionError as e:
+            from utils.exceptions import TranscriptionError
+            raise TranscriptionError("API接続エラーです。ネットワーク接続を確認してください。")
+        except openai.BadRequestError as e:
+            from utils.exceptions import TranscriptionError
+            if "larger than the maximum" in str(e):
+                raise TranscriptionError("ファイルサイズが上限（25MB）を超えています。動画を圧縮するか、ローカルモードを使用してください。")
+            else:
+                raise TranscriptionError(f"APIリクエストエラー: {str(e)}")
         except Exception as e:
-            logger.error(f"OpenAI API error: {str(e)}")
-            raise
+            from utils.exceptions import TranscriptionError
+            raise TranscriptionError(f"文字起こしエラー: {str(e)}")
     
     def _transcribe_with_chunks(self, client, audio, original_audio_path: str,
                                progress_callback: Optional[callable] = None) -> TranscriptionResult:
@@ -169,6 +187,14 @@ class APITranscriber:
                             progress = 0.2 + (0.7 * completed_chunks / len(chunk_files))
                             progress_callback(progress, f"チャンク {completed_chunks}/{len(chunk_files)} 完了")
                     
+                    except openai.RateLimitError as e:
+                        logger.warning(f"レート制限でチャンク失敗、リトライ: {e}")
+                        completed_chunks += 1
+                        continue
+                    except openai.APIError as e:
+                        logger.warning(f"API エラーでチャンク失敗: {e}")
+                        completed_chunks += 1
+                        continue
                     except Exception as e:
                         logger.warning(f"チャンク処理失敗: {e}")
                         completed_chunks += 1
@@ -241,8 +267,17 @@ class APITranscriber:
             logger.info(f"チャンク {chunk_idx} 処理完了: {len(segments)}セグメント")
             return segments
         
+        except openai.RateLimitError as e:
+            logger.error(f"チャンク {chunk_idx}: レート制限エラー - {e}")
+            return []
+        except openai.AuthenticationError as e:
+            logger.error(f"チャンク {chunk_idx}: 認証エラー - {e}")
+            return []
+        except openai.APIError as e:
+            logger.error(f"チャンク {chunk_idx}: API エラー - {e}")
+            return []
         except Exception as e:
-            logger.error(f"チャンク {chunk_idx} API処理エラー: {e}")
+            logger.error(f"チャンク {chunk_idx}: 予期しないエラー - {e}")
             return []
     
     def _perform_alignment(self, audio, segments: List[TranscriptionSegment], 
@@ -293,6 +328,12 @@ class APITranscriber:
             
         except ImportError:
             logger.warning("WhisperXが利用できないため、アライメント処理をスキップします")
+            return segments
+        except RuntimeError as e:
+            if "CUDA" in str(e) or "memory" in str(e):
+                logger.warning(f"メモリ不足でアライメント失敗: {e}")
+            else:
+                logger.warning(f"ランタイムエラーでアライメント失敗: {e}")
             return segments
         except Exception as e:
             logger.warning(f"アライメント処理に失敗: {e}")
