@@ -26,6 +26,7 @@ from ui import (
     show_edited_text_with_highlights,
     show_red_highlight_modal,
     show_help,
+    show_result_folder_section,
     cleanup_temp_files
 )
 
@@ -126,8 +127,20 @@ def main():
     </svg>
     '''
     
-    st.markdown(f'{icon_svg}<span style="font-size: 3rem; font-weight: bold; vertical-align: middle;">Text<span style="color: red; font-style: italic;">ff</span>Cut</span>', unsafe_allow_html=True)
-    st.markdown('<p style="margin-top: -10px; margin-bottom: 20px; color: #666; font-size: 1.1rem;">動画の文字起こしと切り抜きを効率化するツール</p>', unsafe_allow_html=True)
+    # Docker環境判定
+    import os
+    is_docker = os.path.exists('/.dockerenv')
+    
+    # タイトル表示（Docker版かどうかで表示を変更）
+    if is_docker:
+        title_text = 'Text<span style="color: red; font-style: italic;">ff</span>Cut <span style="color: #0066cc; font-size: 1.2rem;">Docker Edition</span>'
+        subtitle_text = '動画の文字起こしと切り抜きを効率化するツール - Docker版'
+    else:
+        title_text = 'Text<span style="color: red; font-style: italic;">ff</span>Cut'
+        subtitle_text = '動画の文字起こしと切り抜きを効率化するツール'
+    
+    st.markdown(f'{icon_svg}<span style="font-size: 3rem; font-weight: bold; vertical-align: middle;">{title_text}</span>', unsafe_allow_html=True)
+    st.markdown(f'<p style="margin-top: -10px; margin-bottom: 20px; color: #666; font-size: 1.1rem;">{subtitle_text}</p>', unsafe_allow_html=True)
     
     # サイドバー
     with st.sidebar:
@@ -768,6 +781,9 @@ def main():
                                 
                                 # FCPXMLの場合は中間ファイルを削除（TextffCutファイルと文字起こしを保護）
                                 cleanup_intermediate_files(project_path, keep_patterns=[f"{safe_name}_TextffCut_*.fcpxml", f"{safe_name}_TextffCut_*.mp4", "transcriptions/"])
+                                
+                                # 結果フォルダセクションを表示（Docker版のみ）
+                                show_result_folder_section(project_path, safe_name)
                             else:
                                 st.error("FCPXMLファイルの生成に失敗しました。")
                         else:
@@ -813,6 +829,9 @@ def main():
                                     
                                     # 中間ファイルをクリーンアップ（TextffCutファイルと文字起こしは保持）
                                     cleanup_intermediate_files(project_path, keep_patterns=[f"{safe_name}_TextffCut_*.mp4", f"{safe_name}_TextffCut_*.fcpxml", "transcriptions/"])
+                                    
+                                    # 結果フォルダセクションを表示（Docker版のみ）
+                                    show_result_folder_section(project_path, safe_name)
                                 else:
                                     st.error("動画の結合に失敗しました")
                                     
@@ -825,6 +844,9 @@ def main():
                                 
                                 # 中間ファイルをクリーンアップ
                                 cleanup_intermediate_files(project_path, keep_patterns=["*.mp4"])
+                                
+                                # 結果フォルダセクションを表示（Docker版のみ）
+                                show_result_folder_section(project_path, safe_name)
                             else:
                                 st.error("動画の抽出に失敗しました")
                         
