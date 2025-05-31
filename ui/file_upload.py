@@ -24,9 +24,10 @@ def show_video_input() -> Optional[Tuple[str, str]]:
     if is_docker:
         # Docker版：Finderアクセス機能
         import subprocess
+        import os
         
-        # ホスト側のvideosフォルダパス
-        host_videos_path = "/Users/naoki/myProject/TextffCut/videos"
+        # ホスト側のvideosフォルダパス（環境変数または現在の作業ディレクトリから取得）
+        host_videos_path = os.getenv('HOST_VIDEOS_PATH', os.path.join(os.getcwd(), 'videos'))
         
         # videosフォルダ内のファイルを取得
         videos_dir = Path(get_videos_directory())

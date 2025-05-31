@@ -33,6 +33,9 @@ services:
       - TEXTFFCUT_USE_API=${TEXTFFCUT_USE_API:-false}
       - TEXTFFCUT_API_KEY=${TEXTFFCUT_API_KEY:-}
       
+      # ホスト側のvideosフォルダパス
+      - HOST_VIDEOS_PATH=${PWD}/videos
+      
       # ログレベル
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       
