@@ -8,6 +8,10 @@ FROM python:3.10-slim as builder
 RUN apt-get update && apt-get install -y \
     build-essential \
     git \
+    libffi-dev \
+    libssl-dev \
+    python3-dev \
+    cargo \
     && rm -rf /var/lib/apt/lists/*
 
 # Pythonパッケージをインストール
