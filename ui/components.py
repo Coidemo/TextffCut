@@ -175,33 +175,35 @@ def show_transcription_controls(
     
     # 利用可能なキャッシュがある場合は選択UI表示
     if available_caches:
-        st.markdown("#### 📝 過去の文字起こし結果を利用する")
-        
-        # キャッシュ選択用のセレクトボックス
-        cache_options = []
-        cache_map = {}
-        
-        for i, cache in enumerate(available_caches):
-            from datetime import datetime
-            modified_date = datetime.fromtimestamp(cache["modified_time"]).strftime("%Y-%m-%d %H:%M")
+        # 枠線で囲んで表示
+        with st.container(border=True):
+            st.markdown("#### 📝 過去の文字起こし結果を利用する")
             
-            option_text = f"{cache['mode']}モード - {cache['model_size']} | {modified_date}"
-            cache_options.append(option_text)
-            cache_map[option_text] = cache
-        
-        selected_option = st.selectbox(
-            "保存済みの文字起こし結果",
-            cache_options,
-            help="使用する文字起こし結果を選択してください"
-        )
-        
-        if selected_option:
-            selected_cache = cache_map[selected_option]
-    
-    # キャッシュ使用ボタンのみ表示
-    if available_caches and selected_cache:
-        if st.button("💾 選択した結果を使用", type="primary", use_container_width=True):
-            use_cache = True
+            # キャッシュ選択用のセレクトボックス
+            cache_options = []
+            cache_map = {}
+            
+            for i, cache in enumerate(available_caches):
+                from datetime import datetime
+                modified_date = datetime.fromtimestamp(cache["modified_time"]).strftime("%Y-%m-%d %H:%M")
+                
+                option_text = f"{cache['mode']}モード - {cache['model_size']} | {modified_date}"
+                cache_options.append(option_text)
+                cache_map[option_text] = cache
+            
+            selected_option = st.selectbox(
+                "保存済みの文字起こし結果",
+                cache_options,
+                help="使用する文字起こし結果を選択してください"
+            )
+            
+            if selected_option:
+                selected_cache = cache_map[selected_option]
+            
+            # キャッシュ使用ボタンを枠内に表示
+            if selected_cache:
+                if st.button("💾 選択した結果を使用", type="primary", use_container_width=True):
+                    use_cache = True
     
     return use_cache, run_new, selected_cache
 
