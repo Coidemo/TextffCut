@@ -276,22 +276,27 @@ def main():
             # モードとモデル選択を表示
             use_api, model_size = show_transcription_mode_selector()
             
-            # シンプルな2カラムレイアウト
-            info_col1, info_col2 = st.columns(2)
+            # 4カラムレイアウトで1行表示
+            info_col1, info_col2, info_col3, info_col4 = st.columns(4)
             
             with info_col1:
-                st.markdown("📊 **動画時間**")
-                st.markdown(f"{duration_minutes:.1f}分 ({format_time(video_info.duration)})")
+                st.markdown("📊 **動画時間**: {:.1f}分".format(duration_minutes))
             
             with info_col2:
-                if use_api:
-                    estimated_cost_usd = duration_minutes * 0.006
-                    estimated_cost_jpy = estimated_cost_usd * 150
-                    st.markdown("💰 **推定料金**")
-                    st.markdown(f"${estimated_cost_usd:.3f} (約{estimated_cost_jpy:.0f}円)")
-                else:
-                    st.markdown("💰 **料金**")
-                    st.markdown("無料（ローカル処理）")
+                st.markdown("⏱️ **時間**: {}".format(format_time(video_info.duration)))
+            
+            if use_api:
+                estimated_cost_usd = duration_minutes * 0.006
+                estimated_cost_jpy = estimated_cost_usd * 150
+                with info_col3:
+                    st.markdown("💰 **USD**: ${:.3f}".format(estimated_cost_usd))
+                with info_col4:
+                    st.markdown("💴 **円**: 約{:.0f}円".format(estimated_cost_jpy))
+            else:
+                with info_col3:
+                    st.markdown("💰 **料金**: 無料")
+                with info_col4:
+                    st.markdown("🖥️ **処理**: ローカル")
             
             # API利用時の注意事項をコンパクトに表示
             if use_api:
