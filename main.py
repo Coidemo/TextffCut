@@ -669,13 +669,7 @@ def main():
             
             if process_type == "無音削除付き":
                 st.markdown("##### 🔇 無音削除の設定")
-                st.info("現在の設定：\n"
-                       f"- 無音検出の閾値: {noise_threshold}dB\n"
-                       f"- 最小無音時間: {min_silence_duration}秒\n"
-                       f"- 最小セグメント時間: {min_segment_duration}秒\n"
-                       f"- 開始パディング: {padding_start}秒\n"
-                       f"- 終了パディング: {padding_end}秒\n\n"
-                       "設定を変更する場合は、左のサイドパネルの「無音検出」タブから変更してください。")
+                st.info(f"現在の設定: 閾値{noise_threshold}dB | 無音{min_silence_duration}秒 | セグメント{min_segment_duration}秒 | パディング{padding_start}-{padding_end}秒 | 設定変更は左サイドパネルの「無音検出」タブから")
             
             # 出力先の表示
             st.markdown("#### 📁 出力先")
