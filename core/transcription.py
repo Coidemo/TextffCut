@@ -185,8 +185,14 @@ class Transcriber:
                     "segments_count": len(data.get("segments", []))
                 })
                 
+            except json.JSONDecodeError as e:
+                logger.warning(f"キャッシュファイル形式エラー: {cache_file} - {e}")
+                continue
+            except OSError as e:
+                logger.warning(f"キャッシュファイルアクセスエラー: {cache_file} - {e}")
+                continue
             except Exception as e:
-                logger.warning(f"キャッシュファイル読み込みエラー: {cache_file}, {e}")
+                logger.warning(f"キャッシュファイル読み込みエラー: {cache_file} - {e}")
                 continue
         
         # 更新時刻でソート（新しい順）
@@ -203,7 +209,14 @@ class Transcriber:
             with open(cache_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
             return TranscriptionResult.from_dict(data)
-        except Exception:
+        except json.JSONDecodeError as e:
+            logger.error(f"キャッシュファイル形式エラー: {cache_path} - {e}")
+            return None
+        except OSError as e:
+            logger.error(f"キャッシュファイルアクセスエラー: {cache_path} - {e}")
+            return None
+        except Exception as e:
+            logger.error(f"キャッシュ読み込みエラー: {cache_path} - {e}")
             return None
     
     def save_to_cache(self, result: TranscriptionResult, cache_path: Path):
@@ -396,9 +409,15 @@ class Transcriber:
             
             segments_all = aligned_result["segments"]
             
+        except RuntimeError as e:
+            if "CUDA" in str(e) or "memory" in str(e):
+                logger.warning(f"メモリ不足でアライメント失敗、スキップ: {e}")
+            else:
+                logger.warning(f"ランタイムエラーでアライメント失敗、スキップ: {e}")
+        except ImportError as e:
+            logger.warning(f"アライメントモジュール不足、スキップ: {e}")
         except Exception as e:
-            # アライメントが失敗しても続行
-            print(f"アライメント処理に失敗しました: {e}")
+            logger.warning(f"アライメント処理に失敗、スキップ: {e}")
         
         # 結果を構築
         segments = [

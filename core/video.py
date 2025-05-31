@@ -69,16 +69,18 @@ class VideoInfo:
                 codec=codec
             )
             
+        except subprocess.CalledProcessError as e:
+            from utils.exceptions import FFmpegError
+            raise FFmpegError("ffprobe", e.stderr)
+        except FileNotFoundError:
+            from utils.exceptions import FileNotFoundError as BuzzFileNotFoundError
+            raise BuzzFileNotFoundError(str(video_path))
+        except json.JSONDecodeError as e:
+            from utils.exceptions import VideoProcessingError
+            raise VideoProcessingError(f"動画メタデータの解析エラー: {str(e)}")
         except Exception as e:
-            # エラー時はデフォルト値を返す
-            return cls(
-                path=video_path,
-                duration=0.0,
-                fps=30.0,
-                width=1920,
-                height=1080,
-                codec='unknown'
-            )
+            from utils.exceptions import VideoProcessingError
+            raise VideoProcessingError(f"動画情報取得エラー: {str(e)}")
 
 
 @dataclass
@@ -167,9 +169,19 @@ class VideoProcessor:
                 result = subprocess.run(cmd, capture_output=True)
                 return result.returncode == 0
                 
+        except subprocess.CalledProcessError as e:
+            from utils.exceptions import FFmpegError
+            cmd_str = ' '.join(str(c) for c in cmd)
+            raise FFmpegError(cmd_str, e.stderr)
+        except FileNotFoundError:
+            from utils.exceptions import FileNotFoundError as BuzzFileNotFoundError
+            raise BuzzFileNotFoundError(str(input_path))
+        except OSError as e:
+            from utils.exceptions import VideoProcessingError
+            raise VideoProcessingError(f"ファイルシステムエラー: {str(e)}")
         except Exception as e:
-            print(f"セグメント抽出エラー: {e}")
-            return False
+            from utils.exceptions import VideoProcessingError
+            raise VideoProcessingError(f"セグメント抽出エラー: {str(e)}")
     
     def detect_silence_from_wav(
         self,
@@ -748,8 +760,10 @@ class VideoProcessor:
                     try:
                         if Path(temp_file).exists():
                             Path(temp_file).unlink()
-                    except:
-                        pass
+                    except OSError as e:
+                        logger.warning(f"一時ファイル削除に失敗: {temp_file} - {str(e)}")
+                    except Exception as e:
+                        logger.warning(f"予期しない一時ファイル削除エラー: {temp_file} - {str(e)}")
             else:
                 logger.info(f"デバッグモード: 一時音声ファイルを保持しました ({len(temp_audio_files)}ファイル)")
                     
@@ -853,9 +867,19 @@ class VideoProcessor:
             
             return success
             
+        except subprocess.CalledProcessError as e:
+            from utils.exceptions import FFmpegError
+            cmd_str = ' '.join(str(c) for c in cmd)
+            raise FFmpegError(cmd_str, e.stderr)
+        except FileNotFoundError as e:
+            from utils.exceptions import FileNotFoundError as BuzzFileNotFoundError
+            raise BuzzFileNotFoundError(str(e))
+        except OSError as e:
+            from utils.exceptions import VideoProcessingError
+            raise VideoProcessingError(f"ファイルシステムエラー: {str(e)}")
         except Exception as e:
-            logger.error(f"動画結合エラー: {e}")
-            return False
+            from utils.exceptions import VideoProcessingError
+            raise VideoProcessingError(f"動画結合エラー: {str(e)}")
     
     def _monitor_ffmpeg_progress(
         self,
