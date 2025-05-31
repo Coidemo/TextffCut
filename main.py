@@ -172,12 +172,8 @@ def main():
             video_info = VideoInfo.from_file(video_path)
             duration_minutes = video_info.duration / 60
             
-            # 確認画面を表示（過去の結果がある場合のみ区切り線とタイトルを表示）
-            if available_caches:
-                st.markdown("---")
-                st.markdown("#### 🚀 新たに文字起こしする")
-                # 常に上書き警告を表示
-                st.warning("⚠️ 同じ設定の過去の文字起こし結果は上書きされます")
+            # 確認画面を表示
+            # （警告メッセージは実行ボタンの直前に移動）
             
             # モードとモデル選択を表示
             use_api, model_size = show_transcription_mode_selector()
@@ -230,6 +226,10 @@ def main():
                 else:
                     button_text = "🖥️ ローカルで文字起こしを実行する"
                 button_type = "primary"  # 赤塗り
+            
+            # 過去の結果がある場合は上書き警告を表示
+            if available_caches:
+                st.warning("⚠️ 同じ設定の過去の文字起こし結果は上書きされます")
             
             if st.button(button_text, type=button_type, use_container_width=True):
                 # APIモードでAPIキーチェック
