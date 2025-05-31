@@ -28,31 +28,16 @@ def show_video_input() -> Optional[Tuple[str, str]]:
         # ホスト側のvideosフォルダパス
         host_videos_path = "/Users/naoki/myProject/TextffCut/videos"
         
-        # Finderで開くボタンと説明
-        col1, col2, col3 = st.columns([2, 1, 1])
+        # フォルダ案内と更新ボタン
+        st.info("📁 動画ファイルを以下のフォルダに配置してください")
+        st.code(host_videos_path, language=None)
+        
+        col1, col2 = st.columns([3, 1])
         with col1:
-            st.info(f"📁 動画ファイルを以下のフォルダに配置してください:\\n`{host_videos_path}`")
+            st.markdown("**Finderアクセス:** `⌘+Shift+G` でパスを貼り付け")
         with col2:
-            if st.button("📂 フォルダパス表示", help="videos/フォルダのパスを表示します"):
-                st.code(host_videos_path, language=None)
-                st.info("上記のパスをコピーして、Finderの「移動」>「フォルダへ移動」で開いてください")
-                st.markdown("**または:** Finderで `⌘+Shift+G` を押してパスを貼り付け")
-        with col3:
             if st.button("🔄 更新", help="ファイルリストを更新"):
                 st.rerun()
-        
-        # 使い方説明
-        with st.expander("📋 使い方", expanded=False):
-            st.markdown("""
-            1. **📂 フォルダパス表示** ボタンをクリック
-            2. 表示されたパスをコピー
-            3. Finderで `⌘+Shift+G` を押してパスを貼り付け
-            4. 開いたフォルダに動画ファイルをコピー
-            5. **🔄 更新** ボタンでファイルリストを更新
-            6. 下のドロップダウンから動画を選択
-            
-            💡 **メリット**: 大きなファイルも制限なし！
-            """)
         
         # videosフォルダ内のファイルを取得
         videos_dir = Path("/app/videos")
