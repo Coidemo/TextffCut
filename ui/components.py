@@ -235,63 +235,86 @@ def show_silence_settings() -> Tuple[float, float, float, float, float]:
     
     # デフォルトに戻すボタン
     if st.button("🔧 パラメータをデフォルトに戻す", use_container_width=True):
+        # 設定ファイルを更新
         settings_manager.set('noise_threshold', DEFAULT_NOISE_THRESHOLD)
         settings_manager.set('min_silence_duration', DEFAULT_MIN_SILENCE_DURATION)
         settings_manager.set('min_segment_duration', DEFAULT_MIN_SEGMENT_DURATION)
         settings_manager.set('padding_start', DEFAULT_PADDING_START)
         settings_manager.set('padding_end', DEFAULT_PADDING_END)
+        
+        # session_stateを更新
         st.session_state.noise_threshold = DEFAULT_NOISE_THRESHOLD
         st.session_state.min_silence_duration = DEFAULT_MIN_SILENCE_DURATION
         st.session_state.min_segment_duration = DEFAULT_MIN_SEGMENT_DURATION
         st.session_state.padding_start = DEFAULT_PADDING_START
         st.session_state.padding_end = DEFAULT_PADDING_END
+        
+        # 明示的に成功メッセージを表示
+        st.success("パラメータをデフォルト値に戻しました")
+        
         st.rerun()
     
-    noise_threshold = st.slider(
+    # session_stateにデフォルト値を設定（初回のみ）
+    if 'noise_threshold' not in st.session_state:
+        st.session_state.noise_threshold = saved_threshold
+    if 'min_silence_duration' not in st.session_state:
+        st.session_state.min_silence_duration = saved_silence
+    if 'min_segment_duration' not in st.session_state:
+        st.session_state.min_segment_duration = saved_segment
+    if 'padding_start' not in st.session_state:
+        st.session_state.padding_start = saved_padding_start
+    if 'padding_end' not in st.session_state:
+        st.session_state.padding_end = saved_padding_end
+    
+    noise_threshold = st.number_input(
         "無音検出の閾値 (dB)",
         min_value=-50,
         max_value=-20,
-        value=st.session_state.get('noise_threshold', saved_threshold),
+        value=st.session_state.noise_threshold,
         step=1,
         help="無音と判定する音量の閾値。値が小さいほど厳密に検出します。"
     )
     
-    min_silence_duration = st.slider(
+    min_silence_duration = st.number_input(
         "最小無音時間 (秒)",
         min_value=0.1,
         max_value=1.0,
-        value=st.session_state.get('min_silence_duration', saved_silence),
+        value=st.session_state.min_silence_duration,
         step=0.1,
+        format="%.1f",
         help="無音と判定する最小の時間。値が大きいほど長い無音が必要です。"
     )
     
-    min_segment_duration = st.slider(
+    min_segment_duration = st.number_input(
         "最小セグメント時間 (秒)",
         min_value=0.1,
         max_value=1.0,
-        value=st.session_state.get('min_segment_duration', saved_segment),
+        value=st.session_state.min_segment_duration,
         step=0.1,
+        format="%.1f",
         help="セグメントとして残す最小の時間。値が小さいほど細かく分割されます。"
     )
     
     st.markdown("**つなぎ部分の調整**")
     st.caption("セグメント前後に余白を追加して自然なつなぎにします")
     
-    padding_start = st.slider(
+    padding_start = st.number_input(
         "開始部分のパディング (秒)",
         min_value=0.0,
         max_value=0.5,
-        value=st.session_state.get('padding_start', saved_padding_start),
+        value=st.session_state.padding_start,
         step=0.05,
+        format="%.2f",
         help="各セグメントの開始前に追加する余白時間"
     )
     
-    padding_end = st.slider(
+    padding_end = st.number_input(
         "終了部分のパディング (秒)",
         min_value=0.0,
         max_value=0.5,
-        value=st.session_state.get('padding_end', saved_padding_end),
+        value=st.session_state.padding_end,
         step=0.05,
+        format="%.2f",
         help="各セグメントの終了後に追加する余白時間"
     )
     
