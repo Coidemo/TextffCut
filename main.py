@@ -26,7 +26,7 @@ from ui import (
     show_edited_text_with_highlights,
     show_red_highlight_modal,
     show_help,
-    show_download_section,
+    show_result_folder_section,
     cleanup_temp_files
 )
 
@@ -770,8 +770,8 @@ def main():
                                 # FCPXMLの場合は中間ファイルを削除（TextffCutファイルと文字起こしを保護）
                                 cleanup_intermediate_files(project_path, keep_patterns=[f"{safe_name}_TextffCut_*.fcpxml", f"{safe_name}_TextffCut_*.mp4", "transcriptions/"])
                                 
-                                # ダウンロードセクションを表示（Docker版のみ）
-                                show_download_section(project_path, safe_name)
+                                # 結果フォルダセクションを表示（Docker版のみ）
+                                show_result_folder_section(project_path, safe_name)
                             else:
                                 st.error("FCPXMLファイルの生成に失敗しました。")
                         else:
@@ -818,8 +818,8 @@ def main():
                                     # 中間ファイルをクリーンアップ（TextffCutファイルと文字起こしは保持）
                                     cleanup_intermediate_files(project_path, keep_patterns=[f"{safe_name}_TextffCut_*.mp4", f"{safe_name}_TextffCut_*.fcpxml", "transcriptions/"])
                                     
-                                    # ダウンロードセクションを表示（Docker版のみ）
-                                    show_download_section(project_path, safe_name)
+                                    # 結果フォルダセクションを表示（Docker版のみ）
+                                    show_result_folder_section(project_path, safe_name)
                                 else:
                                     st.error("動画の結合に失敗しました")
                                     
@@ -833,8 +833,8 @@ def main():
                                 # 中間ファイルをクリーンアップ
                                 cleanup_intermediate_files(project_path, keep_patterns=["*.mp4"])
                                 
-                                # ダウンロードセクションを表示（Docker版のみ）
-                                show_download_section(project_path, safe_name)
+                                # 結果フォルダセクションを表示（Docker版のみ）
+                                show_result_folder_section(project_path, safe_name)
                             else:
                                 st.error("動画の抽出に失敗しました")
                         

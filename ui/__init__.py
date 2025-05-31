@@ -15,7 +15,7 @@ from .components import (
     show_red_highlight_modal,
     show_segment_preview,
     show_help,
-    show_download_section
+    show_result_folder_section
 )
 from .file_upload import (
     show_video_input,
@@ -36,7 +36,7 @@ __all__ = [
     'show_red_highlight_modal',
     'show_segment_preview',
     'show_help',
-    'show_download_section',
+    'show_result_folder_section',
     'show_video_input',
     'cleanup_temp_files'
 ]
