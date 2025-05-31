@@ -3,10 +3,16 @@ version: '3.8'
 name: textffcut
 
 services:
-  textffcut:
-    build: .
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      cache_from:
+        - textffcut:latest
+    image: textffcut:latest
+    container_name: textffcut_app
     ports:
-      - "8501:8501"
+      - "${TEXTFFCUT_PORT:-8501}:8501"
     volumes:
       # 動画ファイルと出力用ディレクトリをマウント
       - ./videos:/app/videos
@@ -23,26 +29,53 @@ services:
       # ホストのホームディレクトリもマウント（読み書き可能）
       - ${HOME}:${HOME}
     environment:
-      # Streamlit設定
-      - STREAMLIT_SERVER_ADDRESS=0.0.0.0
-      - STREAMLIT_SERVER_PORT=8501
-      # 日本語ロケール設定
-      - LANG=ja_JP.UTF-8
-      - LC_ALL=ja_JP.UTF-8
+      # API設定（.envファイルからも読み込み可能）
+      - TEXTFFCUT_USE_API=${TEXTFFCUT_USE_API:-false}
+      - TEXTFFCUT_API_KEY=${TEXTFFCUT_API_KEY:-}
+      
+      # ログレベル
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      
+      # タイムゾーン
+      - TZ=Asia/Tokyo
+      
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
+    
+    # リソース制限（必要に応じて調整）
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 8G
+        reservations:
+          cpus: '2'
+          memory: 4G
+    
+    # ネットワーク
+    networks:
+      - textffcut_net
 
-  # 将来的な拡張: Redis（セッション管理用）
-  # redis:
-  #   image: redis:7-alpine
-  #   restart: unless-stopped
+  # Nginx リバースプロキシ（オプション）
+  # 本番環境でHTTPS対応する場合に使用
+  # nginx:
+  #   image: nginx:alpine
+  #   container_name: textffcut_nginx
+  #   ports:
+  #     - "80:80"
+  #     - "443:443"
   #   volumes:
-  #     - redis_data:/data
+  #     - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+  #     - ./nginx/ssl:/etc/nginx/ssl:ro
+  #   depends_on:
+  #     - app
+  #   networks:
+  #     - textffcut_net
 
-# volumes:
-#   redis_data:
+networks:
+  textffcut_net:
+    driver: bridge
+
+# 永続化ボリューム（必要に応じて使用）
+volumes:
+  textffcut_data:
+    driver: local
