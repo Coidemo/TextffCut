@@ -678,13 +678,13 @@ def main():
             if is_docker:
                 # Docker環境の場合のフルパス表示
                 docker_output_path = "/Users/naoki/myProject/TextffCut/videos"
-                st.info(f"動画と同じ場所に フォルダを作成して出力します。")
+                st.markdown('動画と同じ場所に"{動画名}_TextffCut フォルダ"を作成して出力します。')
                 st.code(docker_output_path, language=None)
             else:
                 # ローカル環境の場合のフルパス表示
                 video_name = Path(video_path).stem
                 output_full_path = str(Path(video_path).parent / f"{video_name}_TextffCut")
-                st.info(f"動画と同じ場所に {video_name}_TextffCut フォルダを作成して出力します。")
+                st.markdown('動画と同じ場所に"{動画名}_TextffCut フォルダ"を作成して出力します。')
                 st.code(output_full_path, language=None)
             
             # 処理実行ボタン
