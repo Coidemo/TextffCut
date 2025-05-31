@@ -1,75 +1,70 @@
-# Git関連
-.git
-.gitignore
-.gitattributes
-
-# Python関連
-__pycache__
-*.pyc
-*.pyo
-*.pyd
-.Python
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
 *.so
-.pytest_cache
-.coverage
-htmlcov
+.Python
+venv/
+env/
+ENV/
 
-# 仮想環境
-venv
-env
-.venv
-
-# IDE関連
-.vscode
-.idea
+# IDE
+.vscode/
+.idea/
 *.swp
 *.swo
 *~
 
-# macOS
+# OS
 .DS_Store
-.AppleDouble
-.LSOverride
-
-# Windows
 Thumbs.db
-ehthumbs.db
-Desktop.ini
 
-# ログファイル
-logs/*.log
-*.log
-
-# 一時ファイル
-temp_wav
-*.tmp
-*.temp
-
-# 出力ファイル（ローカル開発用）
-output/*
-transcriptions/*
+# Project specific
 videos/*
+output/*
+logs/*
+temp/*
+transcriptions/*
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.wmv
 
-# ビルド関連
-dist
-build
-*.egg-info
+# Git
+.git/
+.gitignore
 
-# PyInstaller関連
-*.spec
-build_*.sh
-manual_build.py
-simple_build.py
-
-# Docker関連
-.dockerignore
-Dockerfile.*
-*.tar
-
-# ドキュメント（必要に応じて）
+# Documentation
 *.md
 !README.md
+docs/
 
-# 環境設定
-.env
+# Tests
+tests/
+test_*.py
+*_test.py
+
+# Build
+dist/
+build/
+*.egg-info/
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+
+# Environment files
 .env.local
+.env.*.local
+
+# Node (if any frontend assets)
+node_modules/
+
+# Coverage reports
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
