@@ -134,10 +134,10 @@ def main():
     # タイトル表示（Docker版かどうかで表示を変更）
     if is_docker:
         title_text = 'Text<span style="color: red; font-style: italic;">ff</span>Cut <span style="color: #0066cc; font-size: 1.2rem;">Docker Edition</span>'
-        subtitle_text = 'FCPXML出力対応テキスト編集ツール - Docker版'
+        subtitle_text = '【FCPXML対応】切り抜き動画編集支援ツール - Docker版'
     else:
         title_text = 'Text<span style="color: red; font-style: italic;">ff</span>Cut'
-        subtitle_text = 'FCPXML出力対応テキスト編集ツール'
+        subtitle_text = '【FCPXML対応】切り抜き動画編集支援ツール'
     
     st.markdown(f'{icon_svg}<span style="font-size: 3rem; font-weight: bold; vertical-align: middle;">{title_text}</span>', unsafe_allow_html=True)
     st.markdown(f'<p style="margin-top: -10px; margin-bottom: 20px; color: #666; font-size: 1.1rem;">{subtitle_text}</p>', unsafe_allow_html=True)
