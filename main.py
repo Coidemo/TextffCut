@@ -676,10 +676,16 @@ def main():
             import os
             is_docker = os.path.exists('/.dockerenv')
             if is_docker:
-                st.info("作業フォルダの videos/ ディレクトリ（動画と同じ場所）")
+                # Docker環境の場合のフルパス表示
+                docker_output_path = "/Users/naoki/myProject/TextffCut/videos"
+                st.info(f"動画と同じ場所に フォルダを作成して出力します。")
+                st.code(docker_output_path, language=None)
             else:
+                # ローカル環境の場合のフルパス表示
                 video_name = Path(video_path).stem
+                output_full_path = str(Path(video_path).parent / f"{video_name}_TextffCut")
                 st.info(f"動画と同じ場所に {video_name}_TextffCut フォルダを作成して出力します。")
+                st.code(output_full_path, language=None)
             
             # 処理実行ボタン
             if st.button("🚀 処理を実行", type="primary", use_container_width=True):
