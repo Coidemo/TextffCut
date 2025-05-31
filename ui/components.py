@@ -723,17 +723,16 @@ def show_help():
     """)
 
 
-def show_download_section(project_path: Path, project_name: str):
+def show_result_folder_section(project_path: Path, project_name: str):
     """
-    Docker版用のダウンロードセクション表示
+    Docker版用の結果フォルダ表示セクション
     
     Args:
         project_path: プロジェクトディレクトリのパス
         project_name: プロジェクト名
     """
     import os
-    import zipfile
-    import tempfile
+    import subprocess
     
     # Docker環境の判定
     is_docker = os.path.exists('/.dockerenv')
@@ -742,7 +741,7 @@ def show_download_section(project_path: Path, project_name: str):
         return
     
     st.markdown("---")
-    st.subheader("📥 ダウンロード")
+    st.subheader("📁 処理結果")
     
     # 出力ファイルを検索
     output_files = []
@@ -750,79 +749,28 @@ def show_download_section(project_path: Path, project_name: str):
         output_files.extend(list(project_path.glob(pattern)))
     
     if not output_files:
-        st.info("ダウンロード可能なファイルがありません。")
+        st.info("出力ファイルがありません。")
         return
     
-    # 個別ファイルダウンロード
-    st.markdown("#### 📄 個別ファイル")
+    # ファイル一覧表示
+    st.markdown("#### 📄 生成されたファイル")
     for file_path in output_files:
         if file_path.exists():
             file_size = file_path.stat().st_size
             file_size_mb = file_size / (1024 * 1024)
-            
-            col1, col2 = st.columns([3, 1])
-            with col1:
-                st.markdown(f"**{file_path.name}** ({file_size_mb:.1f} MB)")
-            with col2:
-                with open(file_path, "rb") as f:
-                    st.download_button(
-                        label="📥",
-                        data=f.read(),
-                        file_name=file_path.name,
-                        mime=_get_mime_type(file_path.suffix),
-                        key=f"download_{file_path.name}"
-                    )
+            st.markdown(f"**{file_path.name}** ({file_size_mb:.1f} MB)")
     
-    # ZIP一括ダウンロード
-    if len(output_files) > 1:
-        st.markdown("#### 📦 一括ダウンロード")
-        
-        # ZIPファイルを作成
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.zip') as temp_zip:
-            with zipfile.ZipFile(temp_zip.name, 'w', zipfile.ZIP_DEFLATED) as zipf:
-                for file_path in output_files:
-                    if file_path.exists():
-                        zipf.write(file_path, file_path.name)
-            
-            # ZIPファイルを読み込んでダウンロードボタンを作成
-            with open(temp_zip.name, "rb") as f:
-                zip_data = f.read()
-            
-            total_size_mb = len(zip_data) / (1024 * 1024)
-            st.markdown(f"**全ファイル ({total_size_mb:.1f} MB)**")
-            
-            st.download_button(
-                label="📦 ZIPで一括ダウンロード",
-                data=zip_data,
-                file_name=f"{project_name}_TextffCut.zip",
-                mime="application/zip",
-                type="primary",
-                use_container_width=True
-            )
-            
-            # 一時ファイルを削除
-            os.unlink(temp_zip.name)
-
-
-def _get_mime_type(file_extension: str) -> str:
-    """
-    ファイル拡張子からMIMEタイプを取得
-    
-    Args:
-        file_extension: ファイル拡張子（例: ".mp4"）
-        
-    Returns:
-        MIMEタイプ
-    """
-    mime_types = {
-        '.mp4': 'video/mp4',
-        '.mov': 'video/quicktime',
-        '.avi': 'video/x-msvideo',
-        '.fcpxml': 'application/xml',
-        '.xml': 'application/xml',
-        '.zip': 'application/zip',
-        '.txt': 'text/plain',
-        '.json': 'application/json'
-    }
-    
-    return mime_types.get(file_extension.lower(), 'application/octet-stream')
+    # Finderで開くボタン
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        st.info("上記のファイルが生成されました。Finderで確認できます。")
+    with col2:
+        if st.button("📂 Finder で開く", key="open_result_folder", help="結果フォルダをFinderで開きます"):
+            try:
+                # ホスト側の結果フォルダを開く
+                # project_pathは /app/videos/project_name_TextffCut の形式
+                host_result_path = str(project_path).replace("/app/videos", "/Users/naoki/myProject/TextffCut/videos")
+                subprocess.run(["open", host_result_path], check=True)
+                st.success("Finderで開きました！")
+            except Exception as e:
+                st.error(f"Finderで開くのに失敗しました: {e}")
