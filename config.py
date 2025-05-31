@@ -19,9 +19,22 @@ class TranscriptionConfig:
     language: str = "ja"
     compute_type: str = "int8"
     
+    # API設定（OpenAI専用）
+    use_api: bool = False  # APIを使用するかどうか
+    api_provider: str = "openai"  # 固定
+    api_key: Optional[str] = None
+    api_models: List[str] = field(default_factory=lambda: ["whisper-1"])
+    
     def __post_init__(self):
         if self.num_workers is None:
             self.num_workers = os.cpu_count() // 2 or 4
+        
+        # 環境変数からAPI設定を読み込み
+        if os.getenv('TEXTFFCUT_USE_API', '').lower() == 'true':
+            self.use_api = True
+        if api_key := os.getenv('TEXTFFCUT_API_KEY'):
+            self.api_key = api_key
+        # APIプロバイダーはOpenAI固定（環境変数での変更不要）
 
 
 @dataclass

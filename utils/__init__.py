@@ -31,6 +31,7 @@ from .cleanup import (
 )
 from .subprocess_utils import run_command_with_timeout
 from .settings import settings_manager
+from .api_key_manager import api_key_manager
 
 __all__ = [
     'format_time',
@@ -57,5 +58,6 @@ __all__ = [
     'cleanup_intermediate_files',
     'cleanup_old_projects',
     'ProcessingContext',
-    'settings_manager'
+    'settings_manager',
+    'api_key_manager'
 ]

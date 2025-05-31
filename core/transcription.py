@@ -9,10 +9,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Callable
 
-import whisperx
-import torch
+try:
+    import whisperx
+    import torch
+    WHISPERX_AVAILABLE = True
+except ImportError:
+    WHISPERX_AVAILABLE = False
 
 from config import Config
+from utils.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -87,17 +94,105 @@ class TranscriptionResult:
 
 
 class Transcriber:
-    """文字起こし処理クラス"""
+    """文字起こし処理クラス（ローカル/API統合版）"""
     
     def __init__(self, config: Config):
         self.config = config
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        
+        # APIモードかローカルモードかを判定
+        if self.config.transcription.use_api:
+            # API版を使用
+            from .transcription_api import APITranscriber
+            self.api_transcriber = APITranscriber(config)
+            self.device = None
+            logger.info(f"APIモードで初期化: {self.config.transcription.api_provider}")
+        else:
+            # ローカル版を使用
+            if not WHISPERX_AVAILABLE:
+                raise ImportError(
+                    "WhisperXが利用できません。API版を使用するか、WhisperXをインストールしてください。\n"
+                    "pip install whisperx"
+                )
+            self.api_transcriber = None
+            self.device = "cuda" if torch.cuda.is_available() else "cpu"
+            logger.info(f"ローカルモードで初期化: デバイス={self.device}")
         
     def get_cache_path(self, video_path: str, model_size: str) -> Path:
-        """キャッシュファイルのパスを取得"""
+        """キャッシュファイルのパスを取得（TextffCutフォルダ内のtranscriptions/）"""
+        from utils.file_utils import get_safe_filename
+        
         video_name = Path(video_path).stem
-        cache_dir = self.config.paths.transcriptions_path
-        return cache_dir / f"{video_name}_{model_size}.json"
+        video_parent = Path(video_path).parent
+        safe_name = get_safe_filename(video_name)
+        
+        # TextffCutフォルダ内のtranscriptions/サブフォルダ
+        textffcut_dir = video_parent / f"{safe_name}_TextffCut"
+        cache_dir = textffcut_dir / "transcriptions"
+        
+        # シンプルなファイル名（動画名不要）
+        return cache_dir / f"{model_size}.json"
+    
+    def get_available_caches(self, video_path: str) -> List[Dict[str, Any]]:
+        """利用可能なキャッシュファイルのリストを取得"""
+        from utils.file_utils import get_safe_filename
+        
+        video_name = Path(video_path).stem
+        video_parent = Path(video_path).parent
+        safe_name = get_safe_filename(video_name)
+        
+        # 動画と同じディレクトリの {動画名}_TextffCut/transcriptions/ を確認
+        textffcut_dir = video_parent / f"{safe_name}_TextffCut"
+        cache_dir = textffcut_dir / "transcriptions"
+        
+        if not cache_dir.exists():
+            return []
+        
+        available_caches = []
+        
+        # キャッシュディレクトリ内のすべてのJSONファイルを検索
+        for cache_file in cache_dir.glob("*.json"):
+            try:
+                # ファイル名からモデル情報を抽出
+                # 新しい構造では: {モデル名}.json または {モデル名}_api.json
+                filename = cache_file.stem
+                
+                # キャッシュファイルの情報を読み込み
+                with open(cache_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                
+                # APIモードかローカルモードかを判定
+                is_api_mode = filename.endswith("_api")
+                
+                if is_api_mode:
+                    # _apiを除去してモデル名を取得
+                    model_size = filename.replace("_api", "")
+                    mode = "API"
+                else:
+                    # そのままモデル名として使用
+                    model_size = filename
+                    mode = "ローカル"
+                
+                # ファイルの更新時刻を取得
+                modified_time = cache_file.stat().st_mtime
+                
+                available_caches.append({
+                    "model_size": model_size,
+                    "mode": mode,
+                    "is_api": is_api_mode,
+                    "file_path": cache_file,
+                    "modified_time": modified_time,
+                    "processing_time": data.get("processing_time", 0.0),
+                    "segments_count": len(data.get("segments", []))
+                })
+                
+            except Exception as e:
+                logger.warning(f"キャッシュファイル読み込みエラー: {cache_file}, {e}")
+                continue
+        
+        # 更新時刻でソート（新しい順）
+        available_caches.sort(key=lambda x: x["modified_time"], reverse=True)
+        
+        return available_caches
     
     def load_from_cache(self, cache_path: Path) -> Optional[TranscriptionResult]:
         """キャッシュから文字起こし結果を読み込み"""
@@ -141,20 +236,66 @@ class Transcriber:
         video_path: str, 
         model_size: Optional[str] = None,
         progress_callback: Optional[Callable[[float, str], None]] = None,
-        use_cache: bool = True
+        use_cache: bool = True,
+        save_cache: bool = True
     ) -> TranscriptionResult:
         """
-        動画の文字起こしを実行
+        動画の文字起こしを実行（API/ローカル自動切り替え）
         
         Args:
             video_path: 動画ファイルのパス
             model_size: Whisperモデルサイズ
             progress_callback: 進捗コールバック関数 (progress: 0.0-1.0, status: str)
-            use_cache: キャッシュを使用するか
+            use_cache: キャッシュを読み込むか
+            save_cache: キャッシュに保存するか
             
         Returns:
             TranscriptionResult: 文字起こし結果
         """
+        # APIモードの場合はAPITranscriberに委譲
+        if self.config.transcription.use_api:
+            return self._transcribe_api(video_path, model_size, progress_callback, use_cache, save_cache)
+        else:
+            return self._transcribe_local(video_path, model_size, progress_callback, use_cache, save_cache)
+    
+    def _transcribe_api(
+        self, 
+        video_path: str, 
+        model_size: Optional[str] = None,
+        progress_callback: Optional[Callable[[float, str], None]] = None,
+        use_cache: bool = True,
+        save_cache: bool = True
+    ) -> TranscriptionResult:
+        """API版の文字起こし"""
+        model_size = model_size or self.config.transcription.model_size
+        
+        # キャッシュ確認
+        cache_path = self.get_cache_path(video_path, f"{model_size}_api")
+        if use_cache:
+            cached_result = self.load_from_cache(cache_path)
+            if cached_result:
+                if progress_callback:
+                    progress_callback(1.0, "キャッシュから読み込み完了")
+                return cached_result
+        
+        # APIで文字起こし実行
+        result = self.api_transcriber.transcribe(video_path, model_size, progress_callback)
+        
+        # キャッシュに保存
+        if save_cache:
+            self.save_to_cache(result, cache_path)
+        
+        return result
+    
+    def _transcribe_local(
+        self, 
+        video_path: str, 
+        model_size: Optional[str] = None,
+        progress_callback: Optional[Callable[[float, str], None]] = None,
+        use_cache: bool = True,
+        save_cache: bool = True
+    ) -> TranscriptionResult:
+        """ローカル版の文字起こし（既存の実装）"""
         start_time = time.time()
         model_size = model_size or self.config.transcription.model_size
         
@@ -282,7 +423,8 @@ class Transcriber:
         )
         
         # キャッシュに保存
-        self.save_to_cache(result, cache_path)
+        if save_cache:
+            self.save_to_cache(result, cache_path)
         
         if progress_callback:
             progress_callback(1.0, "文字起こし完了")
