@@ -16,7 +16,7 @@ git clone https://github.com/Coidemo/TextffCut.git
 cd TextffCut
 
 # Docker版を起動
-./docker-run.sh start
+./scripts/docker-run.sh start
 
 # ブラウザで http://localhost:8501 にアクセス
 ```
@@ -49,28 +49,28 @@ TEXTFFCUT_API_KEY=sk-your-openai-api-key
 ### 基本操作
 ```bash
 # 起動
-./docker-run.sh start
+./scripts/docker-run.sh start
 
 # 停止
-./docker-run.sh stop
+./scripts/docker-run.sh stop
 
 # 再起動
-./docker-run.sh restart
+./scripts/docker-run.sh restart
 
 # ログ確認
-./docker-run.sh logs
+./scripts/docker-run.sh logs
 
 # 状態確認
-./docker-run.sh status
+./scripts/docker-run.sh status
 ```
 
 ### 高度な操作
 ```bash
 # コンテナ内でシェルを起動
-./docker-run.sh shell
+./scripts/docker-run.sh shell
 
 # 完全クリーンアップ
-./docker-run.sh clean
+./scripts/docker-run.sh clean
 ```
 
 ## 🔧 カスタマイズ
@@ -105,7 +105,7 @@ volumes:
 docker --version
 
 # ログを確認
-./docker-run.sh logs
+./scripts/docker-run.sh logs
 ```
 
 ### メモリ不足エラー
@@ -163,5 +163,5 @@ volumes:
 問題が解決しない場合は、以下の情報を添えてIssueを作成してください：
 
 1. `docker --version` の出力
-2. `./docker-run.sh logs` の出力
+2. `./scripts/docker-run.sh logs` の出力
 3. エラーメッセージのスクリーンショット

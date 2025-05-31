@@ -24,10 +24,10 @@ git clone https://github.com/Coidemo/TextffCut.git
 cd TextffCut
 
 # 2. インストールスクリプトを実行
-./install.sh
+./scripts/install.sh
 
 # 3. 起動
-./run.sh
+./scripts/start.sh
 ```
 
 ### 方法2: 手動インストール
@@ -36,7 +36,7 @@ cd TextffCut
 
 ```bash
 # Homebrewのインストール（未インストールの場合）
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEA./scripts/install.sh)"
 
 # FFmpegのインストール
 brew install ffmpeg
@@ -79,7 +79,7 @@ git clone https://github.com/Coidemo/TextffCut.git
 cd TextffCut
 
 # 2. Docker版を起動
-./docker-run.sh start
+./scripts/docker-run.sh start
 
 # 3. ブラウザで http://localhost:8501 にアクセス
 ```

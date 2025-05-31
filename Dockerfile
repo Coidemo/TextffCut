@@ -77,7 +77,7 @@ ENV STREAMLIT_SERVER_HEADLESS=true \
     STREAMLIT_BROWSER_SERVER_ADDRESS=localhost
 
 # エントリーポイントスクリプト
-COPY --chown=textffcut:textffcut docker-entrypoint.sh /usr/local/bin/
+COPY --chown=textffcut:textffcut scripts/docker-entrypoint.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 ENTRYPOINT ["docker-entrypoint.sh"]

@@ -18,14 +18,14 @@ TextffCutの詳細な使用方法を説明します。
 
 ```bash
 # ローカル版
-./run.sh
+./scripts/start.sh
 
 # または
 source venv/bin/activate
 streamlit run main.py
 
 # Docker版
-./docker-run.sh start
+./scripts/docker-run.sh start
 ```
 
 ブラウザが自動的に開き、TextffCutが表示されます。

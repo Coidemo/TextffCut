@@ -12,14 +12,14 @@ git clone https://github.com/Coidemo/TextffCut.git
 cd TextffCut
 
 # 自動インストール
-./install.sh
+./scripts/install.sh
 ```
 
 ### ステップ2: 起動
 
 ```bash
 # アプリを起動
-./run.sh
+./scripts/start.sh
 ```
 
 ブラウザが開き、TextffCutが表示されます。
