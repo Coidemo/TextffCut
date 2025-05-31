@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # TextffCut インストールスクリプト
-# macOS/Linux用
+# macOS専用
 
 set -e  # エラーが発生したら即終了
 
@@ -15,21 +15,19 @@ NC='\033[0m' # No Color
 echo ""
 echo "======================================"
 echo "   TextffCut インストールスクリプト"
+echo "        macOS専用版"
 echo "======================================"
 echo ""
 
-# OSの確認
-OS_TYPE=""
-if [[ "$OSTYPE" == "darwin"* ]]; then
-    OS_TYPE="macOS"
-elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
-    OS_TYPE="Linux"
-else
-    echo -e "${RED}エラー: サポートされていないOSです。${NC}"
+# macOSの確認
+if [[ "$OSTYPE" != "darwin"* ]]; then
+    echo -e "${RED}エラー: このスクリプトはmacOS専用です。${NC}"
     exit 1
 fi
 
-echo "検出されたOS: $OS_TYPE"
+# macOSバージョンの確認
+MAC_VERSION=$(sw_vers -productVersion)
+echo "macOS $MAC_VERSION を検出しました。"
 echo ""
 
 # Python確認
@@ -43,20 +41,32 @@ fi
 PYTHON_VERSION=$(python3 --version | cut -d' ' -f2)
 echo "   Python $PYTHON_VERSION が見つかりました。"
 
+# Homebrew確認
+echo ""
+echo "2. Homebrewの確認..."
+if ! command -v brew &> /dev/null; then
+    echo -e "${YELLOW}警告: Homebrewがインストールされていません。${NC}"
+    echo "Homebrewをインストールするには:"
+    echo '  /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'
+    echo ""
+    read -p "続行しますか？ (y/n): " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        exit 1
+    fi
+else
+    BREW_VERSION=$(brew --version | head -n1 | cut -d' ' -f2)
+    echo "   Homebrew $BREW_VERSION が見つかりました。"
+fi
+
 # FFmpeg確認
 echo ""
-echo "2. FFmpegの確認..."
+echo "3. FFmpegの確認..."
 if ! command -v ffmpeg &> /dev/null; then
     echo -e "${YELLOW}警告: FFmpegがインストールされていません。${NC}"
     echo ""
-    if [[ "$OS_TYPE" == "macOS" ]]; then
-        echo "FFmpegをインストールするには:"
-        echo "  brew install ffmpeg"
-    else
-        echo "FFmpegをインストールするには:"
-        echo "  sudo apt-get install ffmpeg  # Ubuntu/Debian"
-        echo "  sudo yum install ffmpeg      # CentOS/RHEL"
-    fi
+    echo "FFmpegをインストールするには:"
+    echo "  brew install ffmpeg"
     echo ""
     read -p "続行しますか？ (y/n): " -n 1 -r
     echo
@@ -70,7 +80,7 @@ fi
 
 # 仮想環境の作成
 echo ""
-echo "3. Python仮想環境の作成..."
+echo "4. Python仮想環境の作成..."
 if [ -d "venv" ]; then
     echo -e "${YELLOW}   既存の仮想環境が見つかりました。${NC}"
     read -p "   再作成しますか？ (y/n): " -n 1 -r
@@ -87,35 +97,33 @@ fi
 
 # 仮想環境の有効化
 echo ""
-echo "4. 仮想環境の有効化..."
+echo "5. 仮想環境の有効化..."
 source venv/bin/activate
 echo "   仮想環境を有効化しました。"
 
 # pipのアップグレード
 echo ""
-echo "5. pipのアップグレード..."
+echo "6. pipのアップグレード..."
 pip install --upgrade pip > /dev/null 2>&1
 echo "   pipをアップグレードしました。"
 
 # 依存関係のインストール
 echo ""
-echo "6. 依存関係のインストール..."
+echo "7. 依存関係のインストール..."
 echo "   これには数分かかる場合があります..."
 
-# PyTorchのインストール（CPU/GPU自動判定）
-if [[ "$OS_TYPE" == "macOS" ]]; then
-    echo "   macOS用のPyTorchをインストール中..."
-    pip install torch torchaudio
+# Apple Silicon確認
+ARCH=$(uname -m)
+if [[ "$ARCH" == "arm64" ]]; then
+    echo "   Apple Silicon (M1/M2/M3)を検出しました。"
+    echo "   Metal Performance Shaders対応のPyTorchをインストール中..."
 else
-    # NVIDIAドライバーの確認
-    if command -v nvidia-smi &> /dev/null; then
-        echo "   NVIDIA GPUが検出されました。CUDA版PyTorchをインストール中..."
-        pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu118
-    else
-        echo "   CPU版PyTorchをインストール中..."
-        pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
-    fi
+    echo "   Intel Macを検出しました。"
+    echo "   macOS用のPyTorchをインストール中..."
 fi
+
+# macOS用PyTorchのインストール
+pip install torch torchaudio
 
 # その他の依存関係
 echo "   その他の依存関係をインストール中..."
@@ -123,15 +131,20 @@ pip install -r requirements.txt
 
 # インストール確認
 echo ""
-echo "7. インストールの確認..."
+echo "8. インストールの確認..."
 python3 -c "import streamlit; print('   ✓ Streamlit')"
 python3 -c "import torch; print('   ✓ PyTorch')"
 python3 -c "import whisperx; print('   ✓ WhisperX')"
 python3 -c "import openai; print('   ✓ OpenAI')"
 
+# Apple Siliconの場合のMPS確認
+if [[ "$ARCH" == "arm64" ]]; then
+    python3 -c "import torch; print(f'   ✓ Metal Performance Shaders: {torch.backends.mps.is_available()}')"
+fi
+
 # 起動スクリプトの作成
 echo ""
-echo "8. 起動スクリプトの作成..."
+echo "9. 起動スクリプトの作成..."
 cat > run.sh << 'EOF'
 #!/bin/bash
 # TextffCut 起動スクリプト

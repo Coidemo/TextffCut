@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 TextffCut セットアップヘルパー
-Python環境の確認と必要なパッケージのインストールを支援
+macOS専用 - Python環境の確認と必要なパッケージのインストールを支援
 """
 import sys
 import subprocess
@@ -10,9 +10,30 @@ import os
 from pathlib import Path
 
 
+def check_macos():
+    """macOSの確認"""
+    if platform.system() != "Darwin":
+        print("❌ このツールはmacOS専用です。")
+        print(f"  検出されたOS: {platform.system()}")
+        return False
+    
+    # macOSバージョンの取得
+    mac_version = platform.mac_ver()[0]
+    print(f"✅ macOS {mac_version} を検出しました。")
+    
+    # Apple Siliconの確認
+    processor = platform.processor()
+    if processor == "arm" or "Apple" in processor:
+        print("✅ Apple Silicon (M1/M2/M3) を検出しました。")
+    else:
+        print("✅ Intel Mac を検出しました。")
+    
+    return True
+
+
 def check_python_version():
     """Python バージョンの確認"""
-    print("Pythonバージョンの確認...")
+    print("\nPythonバージョンの確認...")
     version = sys.version_info
     print(f"  Python {version.major}.{version.minor}.{version.micro}")
     
@@ -22,6 +43,25 @@ def check_python_version():
     
     print("  ✅ Pythonバージョンは問題ありません。")
     return True
+
+
+def check_homebrew():
+    """Homebrewの確認"""
+    print("\nHomebrewの確認...")
+    try:
+        result = subprocess.run(["brew", "--version"], 
+                              capture_output=True, text=True)
+        if result.returncode == 0:
+            version_line = result.stdout.split('\n')[0]
+            print(f"  ✅ {version_line}")
+            return True
+    except FileNotFoundError:
+        pass
+    
+    print("  ⚠️  Homebrewがインストールされていません。")
+    print("  インストール方法:")
+    print('    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"')
+    return False
 
 
 def check_ffmpeg():
@@ -39,97 +79,76 @@ def check_ffmpeg():
     
     print("  ⚠️  FFmpegがインストールされていません。")
     print("  インストール方法:")
-    
-    system = platform.system()
-    if system == "Darwin":  # macOS
-        print("    brew install ffmpeg")
-    elif system == "Windows":
-        print("    1. https://ffmpeg.org/download.html からダウンロード")
-        print("    2. 解凍してPATHに追加")
-    else:  # Linux
-        print("    sudo apt-get install ffmpeg  # Ubuntu/Debian")
-        print("    sudo yum install ffmpeg      # CentOS/RHEL")
-    
+    print("    brew install ffmpeg")
     return False
 
 
-def check_cuda():
-    """CUDA/GPUサポートの確認"""
+def check_gpu_support():
+    """GPUサポートの確認（macOS専用）"""
     print("\nGPUサポートの確認...")
     
-    # NVIDIA GPUの確認
-    try:
-        result = subprocess.run(["nvidia-smi"], 
-                              capture_output=True, text=True)
-        if result.returncode == 0:
-            print("  ✅ NVIDIA GPUが検出されました。")
-            return "cuda"
-    except FileNotFoundError:
-        pass
-    
-    # macOSの確認
-    if platform.system() == "Darwin":
-        # Apple Siliconの確認
-        if platform.processor() == "arm" or "Apple" in platform.processor():
-            print("  ✅ Apple Silicon (Metal Performance Shaders)が検出されました。")
-            return "mps"
-    
-    print("  ℹ️  GPUが検出されませんでした。CPU版を使用します。")
-    return "cpu"
-
-
-def get_torch_install_command(device_type):
-    """PyTorchインストールコマンドの取得"""
-    if device_type == "cuda":
-        return "pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu118"
-    elif device_type == "mps":
-        return "pip install torch torchaudio"
+    # Apple Siliconの確認
+    processor = platform.processor()
+    if processor == "arm" or "Apple" in processor:
+        print("  ✅ Apple Silicon (Metal Performance Shaders)対応")
+        return "mps"
     else:
-        return "pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu"
+        print("  ℹ️  Intel Mac (CPU処理)")
+        return "cpu"
 
 
 def main():
     """メイン処理"""
     print("=" * 50)
     print("   TextffCut セットアップヘルパー")
+    print("         macOS専用版")
     print("=" * 50)
     print()
+    
+    # macOS確認
+    if not check_macos():
+        print("\n❌ セットアップを中止します。")
+        sys.exit(1)
     
     # Pythonバージョン確認
     if not check_python_version():
         print("\n❌ セットアップを中止します。")
         sys.exit(1)
     
+    # Homebrew確認
+    homebrew_ok = check_homebrew()
+    
     # FFmpeg確認
     ffmpeg_ok = check_ffmpeg()
     
     # GPU確認
-    device_type = check_cuda()
+    device_type = check_gpu_support()
     
     # インストール推奨事項
     print("\n" + "=" * 50)
     print("インストール推奨事項:")
     print("=" * 50)
     
-    print("\n1. 仮想環境の作成（推奨）:")
-    print("   python -m venv venv")
-    
-    if platform.system() == "Windows":
-        print("   venv\\Scripts\\activate")
-    else:
-        print("   source venv/bin/activate")
-    
-    print("\n2. PyTorchのインストール:")
-    print(f"   {get_torch_install_command(device_type)}")
-    
-    print("\n3. その他の依存関係:")
-    print("   pip install -r requirements.txt")
-    
-    print("\n4. 起動方法:")
-    print("   streamlit run main.py")
+    if not homebrew_ok:
+        print("\n0. Homebrewのインストール（必須）:")
+        print('   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"')
     
     if not ffmpeg_ok:
-        print("\n⚠️  注意: FFmpegのインストールを忘れずに！")
+        print("\n0. FFmpegのインストール（必須）:")
+        print("   brew install ffmpeg")
+    
+    print("\n1. 仮想環境の作成（推奨）:")
+    print("   python3 -m venv venv")
+    print("   source venv/bin/activate")
+    
+    print("\n2. 依存関係のインストール:")
+    print("   pip install -r requirements.txt")
+    
+    print("\n3. 起動方法:")
+    print("   streamlit run main.py")
+    
+    if device_type == "mps":
+        print("\n💡 ヒント: Apple Siliconでは自動的にMetal Performance Shadersが使用されます。")
     
     print("\n✅ 上記のコマンドを順番に実行してください。")
     
@@ -138,12 +157,10 @@ def main():
     response = input("自動インストールスクリプトを実行しますか？ (y/n): ")
     
     if response.lower() == 'y':
-        if platform.system() == "Windows":
-            print("\nWindowsの場合: install.bat を実行してください。")
-        else:
-            print("\nmacOS/Linuxの場合: ./install.sh を実行してください。")
+        print("\n以下のコマンドを実行してください:")
+        print("  ./install.sh")
     
-    print("\n設定の詳細は README.md を参照してください。")
+    print("\n詳細は README.md を参照してください。")
 
 
 if __name__ == "__main__":
