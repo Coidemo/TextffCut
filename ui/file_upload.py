@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Optional, Tuple
 
 from utils import logger, settings_manager
+from utils.environment import is_docker_environment, get_videos_directory, get_default_output_directory
 
 
 def show_video_input() -> Optional[Tuple[str, str]]:
@@ -18,15 +19,14 @@ def show_video_input() -> Optional[Tuple[str, str]]:
     st.markdown("### 🎬 動画ファイルの選択")
     
     # Docker環境の判定
-    import os
-    is_docker = os.path.exists('/.dockerenv')
+    is_docker = is_docker_environment()
     
     if is_docker:
         # Docker版：作業フォルダ内の動画を選択
         st.info("📁 videos/フォルダ内の動画ファイルを選択してください")
         
         # videosフォルダ内のファイルを取得
-        videos_dir = Path("/app/videos")
+        videos_dir = Path(get_videos_directory())
         if videos_dir.exists():
             video_files = [f.name for f in videos_dir.glob("*.mp4") if f.is_file()]
             video_files.extend([f.name for f in videos_dir.glob("*.mov") if f.is_file()])
@@ -88,13 +88,8 @@ def show_video_input() -> Optional[Tuple[str, str]]:
             settings_manager.set('last_video_path', video_path)
             
             # 出力ディレクトリの設定
-            if is_docker:
-                # Docker版：videosフォルダに出力
-                output_dir = Path("/app/videos")
-            else:
-                # ローカル版：動画と同じ場所に直接出力
-                # outputディレクトリは使用しない（動画と同じ場所に直接作成）
-                output_dir = path.parent
+            output_dir_str = get_default_output_directory(video_path)
+            output_dir = Path(output_dir_str) if output_dir_str else path.parent
             
             # Docker環境では変換後のパスを返す
             return_path = container_video_path if is_docker else str(path)

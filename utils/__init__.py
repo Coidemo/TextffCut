@@ -32,6 +32,13 @@ from .cleanup import (
 from .subprocess_utils import run_command_with_timeout
 from .settings import settings_manager
 from .api_key_manager import api_key_manager
+from .environment import (
+    is_docker_environment,
+    get_environment_type,
+    get_videos_directory,
+    get_default_output_directory,
+    get_environment_info
+)
 
 __all__ = [
     'format_time',
@@ -59,5 +66,10 @@ __all__ = [
     'cleanup_old_projects',
     'ProcessingContext',
     'settings_manager',
-    'api_key_manager'
+    'api_key_manager',
+    'is_docker_environment',
+    'get_environment_type',
+    'get_videos_directory',
+    'get_default_output_directory',
+    'get_environment_info'
 ]
