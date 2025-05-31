@@ -22,8 +22,11 @@ def show_video_input() -> Optional[Tuple[str, str]]:
     is_docker = os.path.exists('/.dockerenv')
     
     if is_docker:
-        # Docker版：作業フォルダ内の動画を選択
-        st.info("📁 videos/フォルダ内の動画ファイルを選択してください")
+        # Docker版：Finderアクセス機能
+        import subprocess
+        
+        # ホスト側のvideosフォルダパス
+        host_videos_path = "/Users/naoki/myProject/TextffCut/videos"
         
         # videosフォルダ内のファイルを取得
         videos_dir = Path("/app/videos")
@@ -31,19 +34,32 @@ def show_video_input() -> Optional[Tuple[str, str]]:
             video_files = [f.name for f in videos_dir.glob("*.mp4") if f.is_file()]
             video_files.extend([f.name for f in videos_dir.glob("*.mov") if f.is_file()])
             video_files.extend([f.name for f in videos_dir.glob("*.avi") if f.is_file()])
+            video_files.extend([f.name for f in videos_dir.glob("*.mkv") if f.is_file()])
+            video_files.extend([f.name for f in videos_dir.glob("*.webm") if f.is_file()])
             video_files = sorted(video_files)
             
-            if video_files:
+            # 動画選択（常に表示）
+            col1, col2 = st.columns([4, 1])
+            with col1:
                 selected_file = st.selectbox(
-                    "動画ファイルを選択",
-                    video_files,
-                    help="作業フォルダのvideos/内にある動画ファイル"
+                    "編集する動画を選択してください",
+                    [""] + video_files if video_files else ["（動画ファイルがありません）"],
+                    disabled=not video_files
                 )
-                video_path = str(videos_dir / selected_file) if selected_file else None
+            with col2:
+                # ボタンをセレクトボックスの下端に合わせる
+                st.markdown("<div style='margin-top: 1.875rem;'></div>", unsafe_allow_html=True)
+                if st.button("🔄 リストを更新", help="ファイルリストを更新"):
+                    st.rerun()
+            
+            if video_files and selected_file:
+                video_path = str(videos_dir / selected_file)
             else:
-                st.warning("videos/フォルダに動画ファイルが見つかりません。")
-                st.info("動画ファイルを作業フォルダの videos/ ディレクトリに配置してください。")
                 video_path = None
+                
+            # 動画追加の案内（常に表示）
+            st.caption("📁 対象の動画がない場合は、以下のフォルダに格納してリストを更新ボタンを押してください")
+            st.code(host_videos_path, language=None)
         else:
             st.error("videos/フォルダが見つかりません。")
             video_path = None

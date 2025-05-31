@@ -721,3 +721,54 @@ def show_help():
     
     [GitHub Issues](https://github.com/Coidemo/TextffCut/issues) からお寄せください
     """)
+
+
+def show_result_folder_section(project_path: Path, project_name: str):
+    """
+    Docker版用の結果フォルダ表示セクション
+    
+    Args:
+        project_path: プロジェクトディレクトリのパス
+        project_name: プロジェクト名
+    """
+    import os
+    import subprocess
+    
+    # Docker環境の判定
+    is_docker = os.path.exists('/.dockerenv')
+    
+    if not is_docker or not project_path.exists():
+        return
+    
+    st.markdown("---")
+    st.subheader("📁 処理結果")
+    
+    # 出力ファイルを検索
+    output_files = []
+    for pattern in ["*.fcpxml", "*.mp4", "*.mov", "*.avi"]:
+        output_files.extend(list(project_path.glob(pattern)))
+    
+    if not output_files:
+        st.info("出力ファイルがありません。")
+        return
+    
+    # ファイル一覧表示
+    st.markdown("#### 📄 生成されたファイル")
+    for file_path in output_files:
+        if file_path.exists():
+            file_size = file_path.stat().st_size
+            file_size_mb = file_size / (1024 * 1024)
+            st.markdown(f"**{file_path.name}** ({file_size_mb:.1f} MB)")
+    
+    # フォルダパス表示
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        st.info("上記のファイルが生成されました。以下のパスで確認できます。")
+    with col2:
+        if st.button("📂 フォルダパス表示", key="show_result_path", help="結果フォルダのパスを表示します"):
+            # ホスト側の結果フォルダパス
+            # project_pathは /app/videos/project_name_TextffCut の形式
+            host_result_path = str(project_path).replace("/app/videos", "/Users/naoki/myProject/TextffCut/videos")
+            st.code(host_result_path, language=None)
+            st.info("上記のパスをコピーして、Finderの「移動」>「フォルダへ移動」で開いてください")
+            st.markdown("**または:** Finderで `⌘+Shift+G` を押してパスを貼り付け")
