@@ -234,6 +234,18 @@ docker-compose restart
 - FCPXMLエクスポート最適化
 - 字幕機能を削除してシンプル化
 
+## 📚 ドキュメント
+
+### はじめに
+- 🚀 [クイックスタート](QUICKSTART.md) - 5分で始める
+- 📦 [インストールガイド](INSTALL.md) - 詳細なセットアップ手順
+- 📖 [ユーザーガイド](USER_GUIDE.md) - 完全な使用方法
+
+### 詳細情報
+- 🐳 [Docker ガイド](DOCKER_GUIDE.md) - Docker版の使い方
+- 🔧 [トラブルシューティング](TROUBLESHOOTING.md) - 問題解決ガイド
+- 📝 [開発者向け情報](CLAUDE.md) - 開発・カスタマイズ情報
+
 ## 📞 サポート
 
 - **Issues**: バグ報告・機能要望
