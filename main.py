@@ -276,36 +276,37 @@ def main():
             # モードとモデル選択を表示
             use_api, model_size = show_transcription_mode_selector()
             
-            # 動画時間情報の表示
-            col1, col2 = st.columns(2)
-            with col1:
+            # 横並びレイアウトで情報表示
+            info_col1, info_col2, info_col3 = st.columns(3)
+            
+            with info_col1:
                 st.markdown("📊 **動画時間**")
                 st.markdown(f"{duration_minutes:.1f}分 ({format_time(video_info.duration)})")
-            
-            with col2:
-                # 空白列（レイアウト調整）
-                pass
             
             # APIモードの場合は料金情報表示
             if use_api:
                 estimated_cost_usd = duration_minutes * 0.006
                 estimated_cost_jpy = estimated_cost_usd * 150
                 
-                st.markdown("💰 **推定料金**")
-                cost_col1, cost_col2 = st.columns(2)
-                with cost_col1:
-                    st.markdown(f"USD: ${estimated_cost_usd:.3f}")
-                with cost_col2:
-                    st.markdown(f"日本円: 約{estimated_cost_jpy:.0f}円")
+                with info_col2:
+                    st.markdown("💰 **推定料金（USD）**")
+                    st.markdown(f"${estimated_cost_usd:.3f}")
                 
-                # 注意事項
-                st.info("""
-**注意事項:**
-• OpenAI Whisper API料金: $0.006/動画1分あたり（2025年5月時点）  
-• 為替レート変動: 円換算は概算です  
-• 失敗時課金: 処理に失敗した場合も課金される可能性があります  
-• 最新料金: [OpenAI公式サイト](https://openai.com/pricing)で必ずご確認ください
-                """)
+                with info_col3:
+                    st.markdown("💰 **推定料金（円）**")
+                    st.markdown(f"約{estimated_cost_jpy:.0f}円")
+            else:
+                with info_col2:
+                    st.markdown("🖥️ **処理方式**")
+                    st.markdown("ローカル処理（無料）")
+                
+                with info_col3:
+                    st.markdown("⚡ **処理速度**")
+                    st.markdown("環境により変動")
+            
+            # API利用時の注意事項をコンパクトに表示
+            if use_api:
+                st.caption("⚠️ API料金: $0.006/分 | 為替変動あり | [最新料金](https://openai.com/pricing)を確認")
             
             # GPU/CPU情報はタブ内で表示されるため、ここでは削除
             
