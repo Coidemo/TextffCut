@@ -175,8 +175,28 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 
-# Videos folder
+# TextffCut specific excludes
+# Videos and media files
 videos/
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.webm
+*.wav
+*.mp3
+
+# Output and working directories
+output/
+logs/
+transcriptions/
+temp/
+temp_*/
+
+# Backup files
+*_backup.py
+*.backup
+*.bak
 
 # Archive folder
 archive/
@@ -186,3 +206,10 @@ archive/
 
 # Tests folder
 tests/
+
+# Streamlit logs
+streamlit.log
+
+# Environment and config
+.env
+.env.local
