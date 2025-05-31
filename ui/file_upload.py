@@ -22,31 +22,58 @@ def show_video_input() -> Optional[Tuple[str, str]]:
     is_docker = os.path.exists('/.dockerenv')
     
     if is_docker:
-        # Docker版：作業フォルダ内の動画を選択
-        st.info("📁 videos/フォルダ内の動画ファイルを選択してください")
+        # Docker版：ドラッグ&ドロップ + 選択
+        st.info("📁 動画ファイルをドラッグ&ドロップするか、下から選択してください")
         
-        # videosフォルダ内のファイルを取得
-        videos_dir = Path("/app/videos")
-        if videos_dir.exists():
-            video_files = [f.name for f in videos_dir.glob("*.mp4") if f.is_file()]
-            video_files.extend([f.name for f in videos_dir.glob("*.mov") if f.is_file()])
-            video_files.extend([f.name for f in videos_dir.glob("*.avi") if f.is_file()])
-            video_files = sorted(video_files)
+        # ドラッグ&ドロップでのアップロード
+        uploaded_file = st.file_uploader(
+            "動画ファイルをドラッグ&ドロップ",
+            type=['mp4', 'mov', 'avi', 'mkv', 'webm'],
+            help="対応形式: MP4, MOV, AVI, MKV, WebM"
+        )
+        
+        # アップロードされたファイルがある場合の処理
+        if uploaded_file is not None:
+            # videos/フォルダに保存
+            videos_dir = Path("/app/videos")
+            videos_dir.mkdir(exist_ok=True)
             
-            if video_files:
-                selected_file = st.selectbox(
-                    "動画ファイルを選択",
-                    video_files,
-                    help="作業フォルダのvideos/内にある動画ファイル"
-                )
-                video_path = str(videos_dir / selected_file) if selected_file else None
-            else:
-                st.warning("videos/フォルダに動画ファイルが見つかりません。")
-                st.info("動画ファイルを作業フォルダの videos/ ディレクトリに配置してください。")
-                video_path = None
+            # 安全なファイル名を生成
+            safe_filename = uploaded_file.name.replace(" ", "_")
+            video_path = videos_dir / safe_filename
+            
+            # ファイルを保存
+            with open(video_path, "wb") as f:
+                f.write(uploaded_file.getbuffer())
+            
+            st.success(f"✅ ファイルをアップロードしました: {safe_filename}")
+            video_path = str(video_path)
         else:
-            st.error("videos/フォルダが見つかりません。")
-            video_path = None
+            # videosフォルダ内のファイルを取得
+            videos_dir = Path("/app/videos")
+            if videos_dir.exists():
+                video_files = [f.name for f in videos_dir.glob("*.mp4") if f.is_file()]
+                video_files.extend([f.name for f in videos_dir.glob("*.mov") if f.is_file()])
+                video_files.extend([f.name for f in videos_dir.glob("*.avi") if f.is_file()])
+                video_files.extend([f.name for f in videos_dir.glob("*.mkv") if f.is_file()])
+                video_files.extend([f.name for f in videos_dir.glob("*.webm") if f.is_file()])
+                video_files = sorted(video_files)
+                
+                if video_files:
+                    st.markdown("**または既存のファイルから選択:**")
+                    selected_file = st.selectbox(
+                        "動画ファイルを選択",
+                        [""] + video_files,
+                        help="作業フォルダのvideos/内にある動画ファイル"
+                    )
+                    video_path = str(videos_dir / selected_file) if selected_file else None
+                else:
+                    st.warning("videos/フォルダに動画ファイルが見つかりません。")
+                    st.info("上のエリアに動画ファイルをドラッグ&ドロップしてください。")
+                    video_path = None
+            else:
+                st.error("videos/フォルダが見つかりません。")
+                video_path = None
     else:
         # ローカル版：従来のパス入力
         # 前回のパスを設定から取得
