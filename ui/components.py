@@ -45,7 +45,7 @@ def show_api_key_manager():
     from utils.api_key_manager import api_key_manager
     from config import config
     
-    st.markdown("### 🔑 APIキー設定")
+    st.markdown("#### 🔑 APIキー設定")
     
     # 保存されたAPIキーを確認
     saved_key = api_key_manager.load_api_key()
@@ -217,7 +217,7 @@ def show_silence_settings() -> Tuple[float, float, float, float, float]:
     """
     from utils import settings_manager
     
-    st.subheader("無音検出の設定")
+    st.markdown("#### 🔇 無音検出の設定")
     
     # デフォルト値
     DEFAULT_NOISE_THRESHOLD = -35
@@ -676,18 +676,16 @@ def show_segment_preview(
 
 def show_help():
     """ヘルプ表示UI"""
-    st.header("ヘルプ")
+    st.markdown("#### ❓ ヘルプ")
     
     st.markdown("""
-    ### 📚 ドキュメント
+    ##### 📚 ドキュメント
     
     詳しい使い方や最新情報は、GitHub をご覧ください：
     
     🔗 **[TextffCut ドキュメント](https://github.com/Coidemo/TextffCut#readme)**
     
-    ---
-    
-    ### 💡 クイックヒント
+    ##### 💡 クイックヒント
     
     **区切り文字機能**  
     切り抜き箇所の指定がうまくいかない場合は、`---` で区切ってみてください
@@ -696,9 +694,7 @@ def show_help():
     - GPU環境あり → ローカルモード（無料・高速）
     - GPU環境なし → APIモード（有料・最高速）
     
-    ---
-    
-    ### 🐛 問題報告・機能要望
+    ##### 🐛 問題報告・機能要望
     
     [GitHub Issues](https://github.com/Coidemo/TextffCut/issues) からお寄せください
     """)

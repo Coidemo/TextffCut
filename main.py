@@ -38,6 +38,70 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# フォントサイズを調整するCSS
+st.markdown("""
+<style>
+    /* 全体的なフォントサイズを小さく */
+    .stApp {
+        font-size: 14px;
+    }
+    
+    /* 見出しのサイズ調整 */
+    h1 {
+        font-size: 2rem !important;
+    }
+    h2 {
+        font-size: 1.5rem !important;
+    }
+    h3 {
+        font-size: 1.25rem !important;
+    }
+    h4 {
+        font-size: 1.1rem !important;
+    }
+    
+    /* テキスト入力やセレクトボックスのフォントサイズ */
+    .stSelectbox > div > div {
+        font-size: 14px !important;
+    }
+    
+    /* ボタンのフォントサイズ */
+    .stButton > button {
+        font-size: 14px !important;
+    }
+    
+    /* キャプションのフォントサイズ */
+    .caption {
+        font-size: 12px !important;
+    }
+    
+    /* サイドバーのフォントサイズ調整 */
+    .sidebar .sidebar-content {
+        font-size: 14px !important;
+    }
+    
+    /* サイドバーの見出し */
+    .sidebar h1, .sidebar h2, .sidebar h3, .sidebar h4 {
+        font-size: 1rem !important;
+    }
+    
+    /* サイドバーのボタン */
+    .sidebar .stButton > button {
+        font-size: 13px !important;
+    }
+    
+    /* サイドバーのタブ */
+    .sidebar .stTabs [data-baseweb="tab-list"] button {
+        font-size: 13px !important;
+    }
+    
+    /* サイドバーのセレクトボックス */
+    .sidebar .stSelectbox {
+        font-size: 13px !important;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 
 
 
@@ -46,7 +110,7 @@ def main():
     
     # サイドバー
     with st.sidebar:
-        st.title("⚙️ 設定")
+        st.subheader("⚙️ 設定")
         
         # タブで設定を整理
         tab1, tab2, tab3 = st.tabs(["🔑 APIキー", "🔇 無音検出", "❓ ヘルプ"])
