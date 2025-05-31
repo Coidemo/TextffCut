@@ -30,16 +30,11 @@ def show_video_input() -> Optional[Tuple[str, str]]:
         with col1:
             st.info("📁 動画ファイルを videos/ フォルダに配置してください")
         with col2:
-            if st.button("📂 Finder で開く", help="videos/フォルダをFinderで開きます"):
-                try:
-                    # ホスト側のvideosフォルダを動的に特定
-                    import os
-                    # 作業ディレクトリから推測
-                    host_videos_path = os.getcwd().replace("/app", "/Users/naoki/myProject/TextffCut") + "/videos"
-                    subprocess.run(["open", host_videos_path], check=True)
-                    st.success("Finderで開きました！")
-                except Exception as e:
-                    st.error(f"Finderで開くのに失敗しました: {e}")
+            if st.button("📂 フォルダパス表示", help="videos/フォルダのパスを表示します"):
+                host_videos_path = "/Users/naoki/myProject/TextffCut/videos"
+                st.code(host_videos_path, language=None)
+                st.info("上記のパスをコピーして、Finderの「移動」>「フォルダへ移動」で開いてください")
+                st.markdown("**または:** Finderで `⌘+Shift+G` を押してパスを貼り付け")
         with col3:
             if st.button("🔄 更新", help="ファイルリストを更新"):
                 st.rerun()
@@ -47,10 +42,12 @@ def show_video_input() -> Optional[Tuple[str, str]]:
         # 使い方説明
         with st.expander("📋 使い方", expanded=False):
             st.markdown("""
-            1. **📂 Finder で開く** ボタンをクリック
-            2. 開いたフォルダに動画ファイルをコピー
-            3. **🔄 更新** ボタンでファイルリストを更新
-            4. 下のドロップダウンから動画を選択
+            1. **📂 フォルダパス表示** ボタンをクリック
+            2. 表示されたパスをコピー
+            3. Finderで `⌘+Shift+G` を押してパスを貼り付け
+            4. 開いたフォルダに動画ファイルをコピー
+            5. **🔄 更新** ボタンでファイルリストを更新
+            6. 下のドロップダウンから動画を選択
             
             💡 **メリット**: 大きなファイルも制限なし！
             """)

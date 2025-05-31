@@ -760,17 +760,15 @@ def show_result_folder_section(project_path: Path, project_name: str):
             file_size_mb = file_size / (1024 * 1024)
             st.markdown(f"**{file_path.name}** ({file_size_mb:.1f} MB)")
     
-    # Finderで開くボタン
+    # フォルダパス表示
     col1, col2 = st.columns([3, 1])
     with col1:
-        st.info("上記のファイルが生成されました。Finderで確認できます。")
+        st.info("上記のファイルが生成されました。以下のパスで確認できます。")
     with col2:
-        if st.button("📂 Finder で開く", key="open_result_folder", help="結果フォルダをFinderで開きます"):
-            try:
-                # ホスト側の結果フォルダを開く
-                # project_pathは /app/videos/project_name_TextffCut の形式
-                host_result_path = str(project_path).replace("/app/videos", "/Users/naoki/myProject/TextffCut/videos")
-                subprocess.run(["open", host_result_path], check=True)
-                st.success("Finderで開きました！")
-            except Exception as e:
-                st.error(f"Finderで開くのに失敗しました: {e}")
+        if st.button("📂 フォルダパス表示", key="show_result_path", help="結果フォルダのパスを表示します"):
+            # ホスト側の結果フォルダパス
+            # project_pathは /app/videos/project_name_TextffCut の形式
+            host_result_path = str(project_path).replace("/app/videos", "/Users/naoki/myProject/TextffCut/videos")
+            st.code(host_result_path, language=None)
+            st.info("上記のパスをコピーして、Finderの「移動」>「フォルダへ移動」で開いてください")
+            st.markdown("**または:** Finderで `⌘+Shift+G` を押してパスを貼り付け")
