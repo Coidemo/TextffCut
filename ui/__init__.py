@@ -3,7 +3,8 @@ Buzz Clip UIモジュール
 """
 from .components import (
     show_video_selector,
-    show_model_selector,
+    show_api_key_manager,
+    show_transcription_mode_selector,
     show_transcription_controls,
     show_silence_settings,
     show_export_settings,
@@ -22,7 +23,8 @@ from .file_upload import (
 
 __all__ = [
     'show_video_selector',
-    'show_model_selector',
+    'show_api_key_manager',
+    'show_transcription_mode_selector',
     'show_transcription_controls',
     'show_silence_settings',
     'show_export_settings',

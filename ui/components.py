@@ -38,71 +38,174 @@ def show_video_selector(video_dir: Path) -> Optional[Path]:
     return selected_video
 
 
-def show_model_selector(config: Config) -> str:
+def show_api_key_manager():
     """
-    Whisperモデル選択UI
+    APIキー管理UI（サイドバー用）
+    """
+    from utils.api_key_manager import api_key_manager
+    from config import config
     
-    Args:
-        config: アプリケーション設定
+    st.markdown("#### 🔑 APIキー設定")
+    
+    # 保存されたAPIキーを確認
+    saved_key = api_key_manager.load_api_key()
+    
+    if saved_key:
+        # 保存されたキーがある場合
+        masked_key = api_key_manager.mask_api_key(saved_key)
+        st.success(f"✅ 保存されたAPIキー: {masked_key}")
+        st.caption("🔒 APIキーは暗号化して保存されています")
         
-    Returns:
-        選択されたモデル名
+        # 削除ボタンを保存済みキー情報の下に配置
+        if st.button("🗑️ 保存済みキーを削除", use_container_width=True):
+            if api_key_manager.delete_api_key():
+                st.success("保存されたAPIキーを削除しました")
+                st.rerun()
+            else:
+                st.error("APIキーの削除に失敗しました")
+        
+        # session_stateに保存
+        st.session_state.api_key = saved_key
+    else:
+        # 保存されたキーがない場合のみ入力欄を表示
+        api_key = st.text_input(
+            "OpenAI APIキー",
+            type="password",
+            value=config.transcription.api_key or "",
+            help="入力すると自動的に暗号化して保存されます"
+        )
+        
+        # APIキーが入力されたら自動的に保存
+        if api_key and api_key.startswith('sk-'):
+            if api_key_manager.save_api_key(api_key):
+                st.success("✅ APIキーを暗号化保存しました")
+                st.rerun()
+        
+        # session_stateに保存
+        st.session_state.api_key = api_key if api_key else ""
+
+
+def show_transcription_mode_selector():
     """
-    from utils import settings_manager
+    文字起こしモードとモデル選択UI（ラジオボタン版）
     
-    # 前回の設定を取得
-    saved_model = settings_manager.get('model_size', config.transcription.whisper_models[0])
-    default_index = config.transcription.whisper_models.index(saved_model) if saved_model in config.transcription.whisper_models else 0
+    Returns:
+        Tuple[bool, str]: (use_api, model_size)
+    """
+    from utils.api_key_manager import api_key_manager
     
-    model_size = st.selectbox(
-        "Whisperモデル",
-        options=config.transcription.whisper_models,
+    # モード選択（ラジオボタンで確実に動作させる）
+    st.markdown("**⚙️ 処理モード**")
+    mode_options = ["🖥️ ローカル", "🌐 API"]
+    previous_mode = st.session_state.get('use_api', False)
+    default_index = 1 if previous_mode else 0
+    
+    selected_mode = st.radio(
+        "処理モード",
+        mode_options,
         index=default_index,
-        help="large-v3: 最高精度（メモリ使用量大）\nmedium: バランスが良い\nsmall/base: 軽量"
+        horizontal=True,
+        key="mode_radio_selector",
+        label_visibility="collapsed"
     )
     
-    # 設定が変更されたら保存
-    if model_size != saved_model:
-        settings_manager.set('model_size', model_size)
+    use_api = selected_mode == "🌐 API"
+    st.session_state.use_api = use_api
     
-    # メモリ使用量の警告
-    import torch
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    if model_size == "large-v3" and device == "cpu":
-        st.warning("⚠️ large-v3モデルはCPUで実行すると非常に時間がかかります")
+    if use_api:
+        # APIモード
+        st.markdown("**🤖 モデル**")
+        st.markdown("whisper-1（固定）")
+        model_size = "whisper-1"
+        
+        # APIキーをセッションに保存（表示はしない）
+        saved_key = api_key_manager.load_api_key()
+        if saved_key:
+            st.session_state.api_key = saved_key
+    else:
+        # ローカルモード
+        st.markdown("**🤖 モデル選択**")
+        model_options = ["base (高速・低精度)", "small (高速・普通精度)", "medium (普通速度・高精度)", "large-v3 (低速・最高精度)"]
+        model_values = ["base", "small", "medium", "large-v3"]
+        default_local_index = 2  # medium
+        
+        # セッション状態から前回の選択を取得
+        previous_model = st.session_state.get('local_model_size', 'medium')
+        try:
+            default_local_index = model_values.index(previous_model)
+        except ValueError:
+            default_local_index = 2  # medium
+        
+        selected_option = st.selectbox(
+            "ローカルモデル",
+            model_options,
+            index=default_local_index,
+            key="local_model_radio_selector",
+            help="速度と精度のトレードオフ：高速なモデルほど精度が下がります"
+        )
+        
+        # 選択されたオプションから実際のモデル名を取得
+        model_size = model_values[model_options.index(selected_option)]
+        st.session_state.local_model_size = model_size
+        
+        # large-v3モデル選択時のみ警告表示
+        if model_size == "large-v3":
+            st.warning("⚠️ large-v3モデルは処理に時間がかかります")
     
-    return model_size
+    return use_api, model_size
 
 
 def show_transcription_controls(
-    has_cache: bool = False
-) -> Tuple[bool, bool]:
+    has_cache: bool = False,
+    available_caches: List[Dict[str, Any]] = None
+) -> Tuple[bool, bool, Optional[Dict[str, Any]]]:
     """
     文字起こしコントロールUI
     
     Args:
         has_cache: キャッシュが存在するか
+        available_caches: 利用可能なキャッシュのリスト
         
     Returns:
-        (キャッシュを使用するか, 新規実行するか)
+        (キャッシュを使用するか, 新規実行するか, 選択されたキャッシュ情報)
     """
     use_cache = False
     run_new = False
+    selected_cache = None
     
-    col1, col2 = st.columns(2)
+    # 利用可能なキャッシュがある場合は選択UI表示
+    if available_caches:
+        # 枠線で囲んで表示
+        with st.container(border=True):
+            st.markdown("#### 📝 過去の文字起こし結果を利用する")
+            
+            # キャッシュ選択用のセレクトボックス
+            cache_options = []
+            cache_map = {}
+            
+            for i, cache in enumerate(available_caches):
+                from datetime import datetime
+                modified_date = datetime.fromtimestamp(cache["modified_time"]).strftime("%Y-%m-%d %H:%M")
+                
+                option_text = f"{cache['mode']}モード - {cache['model_size']} | {modified_date}"
+                cache_options.append(option_text)
+                cache_map[option_text] = cache
+            
+            selected_option = st.selectbox(
+                "保存済みの文字起こし結果",
+                cache_options,
+                help="使用する文字起こし結果を選択してください"
+            )
+            
+            if selected_option:
+                selected_cache = cache_map[selected_option]
+            
+            # キャッシュ使用ボタンを枠内に表示
+            if selected_cache:
+                if st.button("💾 選択した結果を使用", type="primary", use_container_width=True):
+                    use_cache = True
     
-    with col1:
-        # 保存済み結果がある場合は新規実行をsecondary、ない場合はprimary
-        button_type = "secondary" if has_cache else "primary"
-        if st.button("🚀 新しく文字起こし実行", type=button_type, use_container_width=True):
-            run_new = True
-    
-    with col2:
-        if has_cache:
-            if st.button("💾 保存済み結果を使用", type="primary", use_container_width=True):
-                use_cache = True
-    
-    return use_cache, run_new
+    return use_cache, run_new, selected_cache
 
 
 def show_silence_settings() -> Tuple[float, float, float, float, float]:
@@ -114,7 +217,7 @@ def show_silence_settings() -> Tuple[float, float, float, float, float]:
     """
     from utils import settings_manager
     
-    st.subheader("無音検出の設定")
+    st.markdown("#### 🔇 無音検出の設定")
     
     # デフォルト値
     DEFAULT_NOISE_THRESHOLD = -35
@@ -132,63 +235,86 @@ def show_silence_settings() -> Tuple[float, float, float, float, float]:
     
     # デフォルトに戻すボタン
     if st.button("🔧 パラメータをデフォルトに戻す", use_container_width=True):
+        # 設定ファイルを更新
         settings_manager.set('noise_threshold', DEFAULT_NOISE_THRESHOLD)
         settings_manager.set('min_silence_duration', DEFAULT_MIN_SILENCE_DURATION)
         settings_manager.set('min_segment_duration', DEFAULT_MIN_SEGMENT_DURATION)
         settings_manager.set('padding_start', DEFAULT_PADDING_START)
         settings_manager.set('padding_end', DEFAULT_PADDING_END)
+        
+        # session_stateを更新
         st.session_state.noise_threshold = DEFAULT_NOISE_THRESHOLD
         st.session_state.min_silence_duration = DEFAULT_MIN_SILENCE_DURATION
         st.session_state.min_segment_duration = DEFAULT_MIN_SEGMENT_DURATION
         st.session_state.padding_start = DEFAULT_PADDING_START
         st.session_state.padding_end = DEFAULT_PADDING_END
+        
+        # 明示的に成功メッセージを表示
+        st.success("パラメータをデフォルト値に戻しました")
+        
         st.rerun()
     
-    noise_threshold = st.slider(
+    # session_stateにデフォルト値を設定（初回のみ）
+    if 'noise_threshold' not in st.session_state:
+        st.session_state.noise_threshold = saved_threshold
+    if 'min_silence_duration' not in st.session_state:
+        st.session_state.min_silence_duration = saved_silence
+    if 'min_segment_duration' not in st.session_state:
+        st.session_state.min_segment_duration = saved_segment
+    if 'padding_start' not in st.session_state:
+        st.session_state.padding_start = saved_padding_start
+    if 'padding_end' not in st.session_state:
+        st.session_state.padding_end = saved_padding_end
+    
+    noise_threshold = st.number_input(
         "無音検出の閾値 (dB)",
         min_value=-50,
         max_value=-20,
-        value=st.session_state.get('noise_threshold', saved_threshold),
+        value=st.session_state.noise_threshold,
         step=1,
         help="無音と判定する音量の閾値。値が小さいほど厳密に検出します。"
     )
     
-    min_silence_duration = st.slider(
+    min_silence_duration = st.number_input(
         "最小無音時間 (秒)",
         min_value=0.1,
         max_value=1.0,
-        value=st.session_state.get('min_silence_duration', saved_silence),
+        value=st.session_state.min_silence_duration,
         step=0.1,
+        format="%.1f",
         help="無音と判定する最小の時間。値が大きいほど長い無音が必要です。"
     )
     
-    min_segment_duration = st.slider(
+    min_segment_duration = st.number_input(
         "最小セグメント時間 (秒)",
         min_value=0.1,
         max_value=1.0,
-        value=st.session_state.get('min_segment_duration', saved_segment),
+        value=st.session_state.min_segment_duration,
         step=0.1,
+        format="%.1f",
         help="セグメントとして残す最小の時間。値が小さいほど細かく分割されます。"
     )
     
     st.markdown("**つなぎ部分の調整**")
     st.caption("セグメント前後に余白を追加して自然なつなぎにします")
     
-    padding_start = st.slider(
+    padding_start = st.number_input(
         "開始部分のパディング (秒)",
         min_value=0.0,
         max_value=0.5,
-        value=st.session_state.get('padding_start', saved_padding_start),
+        value=st.session_state.padding_start,
         step=0.05,
+        format="%.2f",
         help="各セグメントの開始前に追加する余白時間"
     )
     
-    padding_end = st.slider(
+    padding_end = st.number_input(
         "終了部分のパディング (秒)",
         min_value=0.0,
         max_value=0.5,
-        value=st.session_state.get('padding_end', saved_padding_end),
+        value=st.session_state.padding_end,
         step=0.05,
+        format="%.2f",
         help="各セグメントの終了後に追加する余白時間"
     )
     
@@ -573,37 +699,25 @@ def show_segment_preview(
 
 def show_help():
     """ヘルプ表示UI"""
-    st.header("ヘルプ")
+    st.markdown("#### ❓ ヘルプ")
+    
     st.markdown("""
-    ### 使い方
-    1. 動画ファイルを`videos`フォルダに配置
-    2. 動画を選択して文字起こしを実行
-    3. テキストを編集して必要な部分を抽出
-    4. 動画の切り出しや無音部分の削除を実行
+    ##### 📚 ドキュメント
     
-    ### 区切り文字機能
-    複数の箇所を一括で切り抜きたい場合は、区切り文字 `---` を使用できます：
+    詳しい使い方や最新情報は、GitHub をご覧ください：
     
-    ```
-    第1セクション
-    ---
-    第2セクション
-    ---
-    第3セクション
-    ```
+    🔗 **[TextffCut ドキュメント](https://github.com/Coidemo/TextffCut#readme)**
     
-    **メリット**：
-    - 長い文章で意図しない箇所が選択される問題を解決
-    - 複数の離れた箇所を一括で切り抜き可能
-    - セクション毎に個別に検索してマージ
+    ##### 💡 クイックヒント
     
-    ### よくある質問
-    Q: 対応している動画形式は？  
-    A: MP4, MOV, AVI, MKV, WMVに対応しています。
+    **区切り文字機能**  
+    切り抜き箇所の指定がうまくいかない場合は、`---` で区切ってみてください
     
-    Q: 文字起こしの精度は？  
-    A: Whisperモデルのサイズによって異なります。large-v3が最も高精度です。
+    **推奨設定**  
+    - GPU環境あり → ローカルモード（無料・高速）
+    - GPU環境なし → APIモード（有料・最高速）
     
-    Q: 無音部分の削除とは？  
-    A: 指定した閾値以下の音量が一定時間続く部分を削除します。
+    ##### 🐛 問題報告・機能要望
+    
+    [GitHub Issues](https://github.com/Coidemo/TextffCut/issues) からお寄せください
     """)

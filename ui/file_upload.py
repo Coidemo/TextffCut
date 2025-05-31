@@ -91,34 +91,10 @@ def show_video_input() -> Optional[Tuple[str, str]]:
             if is_docker:
                 # Docker版：videosフォルダに出力
                 output_dir = Path("/app/videos")
-                st.markdown("### 📂 出力先")
-                st.info(f"出力先: 作業フォルダの videos/ ディレクトリ（動画と同じ場所）")
             else:
-                # ローカル版：従来の設定
-                default_output = path.parent / "output"
-                
-                # 出力先の設定
-                st.markdown("### 📂 出力先の設定")
-                
-                output_option = st.radio(
-                    "出力先の設定",
-                    ["🎯 動画と同じフォルダ内の'output'", "📁 カスタムフォルダ"],
-                    horizontal=True,
-                    index=0,
-                    label_visibility="collapsed"
-                )
-                
-                if output_option == "🎯 動画と同じフォルダ内の'output'":
-                    output_dir = default_output
-                    st.info(f"出力先: {output_dir}")
-                else:
-                    output_dir = st.text_input(
-                        "カスタム出力ディレクトリ",
-                        value=str(default_output)
-                    )
-                    # 引用符を除去
-                    output_dir = output_dir.strip().strip('"').strip("'")
-                    output_dir = Path(output_dir)
+                # ローカル版：動画と同じ場所に直接出力
+                # outputディレクトリは使用しない（動画と同じ場所に直接作成）
+                output_dir = path.parent
             
             # Docker環境では変換後のパスを返す
             return_path = container_video_path if is_docker else str(path)
