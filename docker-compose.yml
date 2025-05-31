@@ -14,6 +14,12 @@ services:
       - ./transcriptions:/app/transcriptions
       # ログ用ディレクトリをマウント
       - ./logs:/app/logs
+      # 開発用: アプリケーションコードをマウント
+      - ./main.py:/app/main.py
+      - ./ui:/app/ui
+      - ./core:/app/core
+      - ./utils:/app/utils
+      - ./config.py:/app/config.py
       # ホストのホームディレクトリもマウント（読み書き可能）
       - ${HOME}:${HOME}
     environment:
