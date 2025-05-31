@@ -134,10 +134,10 @@ def main():
     # タイトル表示（Docker版かどうかで表示を変更）
     if is_docker:
         title_text = 'Text<span style="color: red; font-style: italic;">ff</span>Cut <span style="color: #0066cc; font-size: 1.2rem;">Docker Edition</span>'
-        subtitle_text = '動画の文字起こしと切り抜きを効率化するツール - Docker版'
+        subtitle_text = '【FCPXML対応】切り抜き動画編集支援ツール - Docker版'
     else:
         title_text = 'Text<span style="color: red; font-style: italic;">ff</span>Cut'
-        subtitle_text = '動画の文字起こしと切り抜きを効率化するツール'
+        subtitle_text = '【FCPXML対応】切り抜き動画編集支援ツール'
     
     st.markdown(f'{icon_svg}<span style="font-size: 3rem; font-weight: bold; vertical-align: middle;">{title_text}</span>', unsafe_allow_html=True)
     st.markdown(f'<p style="margin-top: -10px; margin-bottom: 20px; color: #666; font-size: 1.1rem;">{subtitle_text}</p>', unsafe_allow_html=True)
@@ -273,39 +273,78 @@ def main():
             # 確認画面を表示
             # （警告メッセージは実行ボタンの直前に移動）
             
-            # モードとモデル選択を表示
-            use_api, model_size = show_transcription_mode_selector()
+            # 処理モード・モデル選択・動画時間・料金を4カラムで横並び表示
+            mode_col, model_col, time_col, price_col = st.columns(4)
             
-            # 動画時間情報の表示
-            col1, col2 = st.columns(2)
-            with col1:
-                st.markdown("📊 **動画時間**")
+            with mode_col:
+                st.markdown("**⚙️ 処理モード**")
+                mode_options = ["🖥️ ローカル", "🌐 API"]
+                previous_mode = st.session_state.get('use_api', False)
+                default_index = 1 if previous_mode else 0
+                
+                selected_mode = st.radio(
+                    "処理モード",
+                    mode_options,
+                    index=default_index,
+                    key="mode_radio_main",
+                    label_visibility="collapsed",
+                    horizontal=True
+                )
+                use_api = selected_mode == "🌐 API"
+                st.session_state.use_api = use_api
+            
+            with model_col:
+                if use_api:
+                    st.markdown("**🤖 モデル**")
+                    st.markdown("whisper-1（固定）")
+                    model_size = "whisper-1"
+                    
+                    # APIキーをセッションに保存
+                    from utils.api_key_manager import api_key_manager
+                    saved_key = api_key_manager.load_api_key()
+                    if saved_key:
+                        st.session_state.api_key = saved_key
+                else:
+                    st.markdown("**🤖 モデル選択**")
+                    model_options = ["base (高速・低精度)", "small (高速・普通精度)", "medium (普通速度・高精度)", "large-v3 (低速・最高精度)"]
+                    model_values = ["base", "small", "medium", "large-v3"]
+                    default_local_index = 2  # medium
+                    
+                    # セッション状態から前回の選択を取得
+                    previous_model = st.session_state.get('local_model_size', 'medium')
+                    try:
+                        default_local_index = model_values.index(previous_model)
+                    except ValueError:
+                        default_local_index = 2  # medium
+                    
+                    selected_option = st.selectbox(
+                        "ローカルモデル",
+                        model_options,
+                        index=default_local_index,
+                        key="local_model_main",
+                        label_visibility="collapsed"
+                    )
+                    
+                    model_size = model_values[model_options.index(selected_option)]
+                    st.session_state.local_model_size = model_size
+            
+            with time_col:
+                st.markdown("**📊 動画時間**")
                 st.markdown(f"{duration_minutes:.1f}分 ({format_time(video_info.duration)})")
             
-            with col2:
-                # 空白列（レイアウト調整）
-                pass
+            with price_col:
+                if use_api:
+                    estimated_cost_usd = duration_minutes * 0.006
+                    estimated_cost_jpy = estimated_cost_usd * 150
+                    st.markdown("**💰 推定料金**")
+                    st.markdown(f"${estimated_cost_usd:.3f} (約{estimated_cost_jpy:.0f}円)")
+                else:
+                    st.markdown("**💰 料金**")
+                    st.markdown("無料（ローカル処理）")
             
-            # APIモードの場合は料金情報表示
+            # API利用時の注意事項をコンパクトに表示
             if use_api:
-                estimated_cost_usd = duration_minutes * 0.006
-                estimated_cost_jpy = estimated_cost_usd * 150
-                
-                st.markdown("💰 **推定料金**")
-                cost_col1, cost_col2 = st.columns(2)
-                with cost_col1:
-                    st.markdown(f"USD: ${estimated_cost_usd:.3f}")
-                with cost_col2:
-                    st.markdown(f"日本円: 約{estimated_cost_jpy:.0f}円")
-                
-                # 注意事項
-                st.info("""
-**注意事項:**
-• OpenAI Whisper API料金: $0.006/動画1分あたり（2025年5月時点）  
-• 為替レート変動: 円換算は概算です  
-• 失敗時課金: 処理に失敗した場合も課金される可能性があります  
-• 最新料金: [OpenAI公式サイト](https://openai.com/pricing)で必ずご確認ください
-                """)
+                st.caption("⚠️ API料金: $0.006/分 | 為替変動あり | [最新料金](https://openai.com/pricing)を確認")
             
             # GPU/CPU情報はタブ内で表示されるため、ここでは削除
             
@@ -630,23 +669,23 @@ def main():
             
             if process_type == "無音削除付き":
                 st.markdown("##### 🔇 無音削除の設定")
-                st.info("現在の設定：\n"
-                       f"- 無音検出の閾値: {noise_threshold}dB\n"
-                       f"- 最小無音時間: {min_silence_duration}秒\n"
-                       f"- 最小セグメント時間: {min_segment_duration}秒\n"
-                       f"- 開始パディング: {padding_start}秒\n"
-                       f"- 終了パディング: {padding_end}秒\n\n"
-                       "設定を変更する場合は、左のサイドパネルの「基本設定」タブから変更してください。")
+                st.info(f"現在の設定: 閾値{noise_threshold}dB | 無音{min_silence_duration}秒 | セグメント{min_segment_duration}秒 | パディング{padding_start}-{padding_end}秒 | 設定変更は左サイドパネルの「無音検出」タブから")
             
             # 出力先の表示
             st.markdown("#### 📁 出力先")
             import os
             is_docker = os.path.exists('/.dockerenv')
             if is_docker:
-                st.info("作業フォルダの videos/ ディレクトリ（動画と同じ場所）")
+                # Docker環境の場合のフルパス表示
+                docker_output_path = "/Users/naoki/myProject/TextffCut/videos"
+                st.markdown('動画と同じ場所に"{動画名}_TextffCut フォルダ"を作成して出力します。')
+                st.code(docker_output_path, language=None)
             else:
+                # ローカル環境の場合のフルパス表示
                 video_name = Path(video_path).stem
-                st.info(f"動画と同じ場所に {video_name}_TextffCut フォルダを作成して出力します。")
+                output_full_path = str(Path(video_path).parent / f"{video_name}_TextffCut")
+                st.markdown('動画と同じ場所に"{動画名}_TextffCut フォルダ"を作成して出力します。')
+                st.code(output_full_path, language=None)
             
             # 処理実行ボタン
             if st.button("🚀 処理を実行", type="primary", use_container_width=True):
