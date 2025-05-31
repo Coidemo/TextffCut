@@ -94,63 +94,66 @@ def show_transcription_mode_selector():
     """
     from utils.api_key_manager import api_key_manager
     
-    # モード選択（ラジオボタンで確実に動作させる）
-    st.markdown("**⚙️ 処理モード**")
-    mode_options = ["🖥️ ローカル", "🌐 API"]
-    previous_mode = st.session_state.get('use_api', False)
-    default_index = 1 if previous_mode else 0
+    # 横並びレイアウトでモード選択とモデル選択を配置
+    mode_col, model_col = st.columns([1, 2])
     
-    selected_mode = st.radio(
-        "処理モード",
-        mode_options,
-        index=default_index,
-        horizontal=True,
-        key="mode_radio_selector",
-        label_visibility="collapsed"
-    )
-    
-    use_api = selected_mode == "🌐 API"
-    st.session_state.use_api = use_api
-    
-    if use_api:
-        # APIモード
-        st.markdown("**🤖 モデル**")
-        st.markdown("whisper-1（固定）")
-        model_size = "whisper-1"
+    with mode_col:
+        st.markdown("**⚙️ 処理モード**")
+        mode_options = ["🖥️ ローカル", "🌐 API"]
+        previous_mode = st.session_state.get('use_api', False)
+        default_index = 1 if previous_mode else 0
         
-        # APIキーをセッションに保存（表示はしない）
-        saved_key = api_key_manager.load_api_key()
-        if saved_key:
-            st.session_state.api_key = saved_key
-    else:
-        # ローカルモード
-        st.markdown("**🤖 モデル選択**")
-        model_options = ["base (高速・低精度)", "small (高速・普通精度)", "medium (普通速度・高精度)", "large-v3 (低速・最高精度)"]
-        model_values = ["base", "small", "medium", "large-v3"]
-        default_local_index = 2  # medium
-        
-        # セッション状態から前回の選択を取得
-        previous_model = st.session_state.get('local_model_size', 'medium')
-        try:
-            default_local_index = model_values.index(previous_model)
-        except ValueError:
-            default_local_index = 2  # medium
-        
-        selected_option = st.selectbox(
-            "ローカルモデル",
-            model_options,
-            index=default_local_index,
-            key="local_model_radio_selector",
-            help="速度と精度のトレードオフ：高速なモデルほど精度が下がります"
+        selected_mode = st.radio(
+            "処理モード",
+            mode_options,
+            index=default_index,
+            key="mode_radio_selector",
+            label_visibility="collapsed"
         )
         
-        # 選択されたオプションから実際のモデル名を取得
-        model_size = model_values[model_options.index(selected_option)]
-        st.session_state.local_model_size = model_size
-        
-        # large-v3モデル選択時のみ警告表示
-        if model_size == "large-v3":
-            st.warning("⚠️ large-v3モデルは処理に時間がかかります")
+        use_api = selected_mode == "🌐 API"
+        st.session_state.use_api = use_api
+    
+    with model_col:
+        if use_api:
+            # APIモード
+            st.markdown("**🤖 モデル**")
+            st.markdown("whisper-1（固定）")
+            model_size = "whisper-1"
+            
+            # APIキーをセッションに保存（表示はしない）
+            saved_key = api_key_manager.load_api_key()
+            if saved_key:
+                st.session_state.api_key = saved_key
+        else:
+            # ローカルモード
+            st.markdown("**🤖 モデル選択**")
+            model_options = ["base (高速・低精度)", "small (高速・普通精度)", "medium (普通速度・高精度)", "large-v3 (低速・最高精度)"]
+            model_values = ["base", "small", "medium", "large-v3"]
+            default_local_index = 2  # medium
+            
+            # セッション状態から前回の選択を取得
+            previous_model = st.session_state.get('local_model_size', 'medium')
+            try:
+                default_local_index = model_values.index(previous_model)
+            except ValueError:
+                default_local_index = 2  # medium
+            
+            selected_option = st.selectbox(
+                "ローカルモデル",
+                model_options,
+                index=default_local_index,
+                key="local_model_radio_selector",
+                label_visibility="collapsed"
+            )
+            
+            # 選択されたオプションから実際のモデル名を取得
+            model_size = model_values[model_options.index(selected_option)]
+            st.session_state.local_model_size = model_size
+            
+            # large-v3モデル選択時のみ警告表示
+            if model_size == "large-v3":
+                st.caption("⚠️ large-v3モデルは処理に時間がかかります")
     
     return use_api, model_size
 
