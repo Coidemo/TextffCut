@@ -138,6 +138,36 @@ is_docker = os.path.exists('/.dockerenv')
    - フレーム単位での丸めによる0.1秒程度の誤差は正常
    - FFmpegの `-ss` と `-to` オプションで正確な切り出し
 
+## 🌐 新機能: Whisper API統合（v1.1.0-dev）
+
+### API/ローカル自動切り替え機能
+- ✅ 統合Transcriberクラス（`core/transcription.py`）
+- ✅ API版文字起こし（`core/transcription_api.py`）
+- ✅ UI統合（API設定パネル）
+- ✅ 環境変数による設定切り替え
+
+#### サポートAPI
+1. **OpenAI Whisper API**: 公式API、$0.006/分（専用最適化）
+
+#### Streamlit Cloud用構成
+- 依存関係: `requirements_streamlit_cloud.txt`
+- 環境変数: `.env.example`参照
+- API専用モード（WhisperXなし）
+
+#### 使用方法
+```bash
+# ローカル版（従来通り）
+streamlit run main.py
+
+# API版（環境変数で切り替え）
+TEXTFFCUT_USE_API=true TEXTFFCUT_API_KEY=sk-xxx streamlit run main.py
+
+# または.envファイルで設定
+echo "TEXTFFCUT_USE_API=true" > .env
+echo "TEXTFFCUT_API_KEY=your_key" >> .env
+streamlit run main.py
+```
+
 ## 💼 開発運用ルール
 
 ### ブランチ戦略
@@ -189,6 +219,30 @@ python -c "from core.video import VideoProcessor; print('Video OK')"
 # FCPXMLのテスト生成
 python -c "from core.export import FCPXMLExporter; print('Export OK')"
 ```
+
+## 🔄 定期メンテナンスタスク
+
+### API料金情報の更新確認
+**頻度**: 月1回（毎月第1週）  
+**担当**: 開発者  
+**タスク**:
+1. [OpenAI Pricing](https://openai.com/pricing)でWhisper API料金を確認
+2. 現在のコード内料金情報と比較
+3. 変更があれば以下を更新：
+   - `main.py:137行目`: API料金（$0.006/分）
+   - `main.py:155行目`: 料金記載日付
+   - `README_API.md`: 料金シミュレーション部分
+4. 大幅な料金変更があればユーザーに通知
+
+**チェックポイント**:
+- Whisper API料金: 現在 $0.006/分（2025年5月時点）
+- 料金変更履歴をGitコミットで記録
+- 円換算レート（150円/USD）も適宜見直し
+
+**関連ファイル**:
+- `/main.py` (料金確認ダイアログ)
+- `/README_API.md` (料金説明)
+- `/ui/components.py` (料金表示)
 
 ## 🐛 既知の問題
 
