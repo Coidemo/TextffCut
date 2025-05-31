@@ -14,18 +14,20 @@ services:
     ports:
       - "${TEXTFFCUT_PORT:-8501}:8501"
     volumes:
-      # 作業用ディレクトリ（ホストと共有）
+      # 動画ファイルと出力用ディレクトリをマウント
       - ./videos:/app/videos
-      - ./output:/app/output
+      # 文字起こし結果用ディレクトリをマウント
+      - ./transcriptions:/app/transcriptions
+      # ログ用ディレクトリをマウント
       - ./logs:/app/logs
-      
-      # 設定ファイル（オプション）
-      - ./.env:/app/.env:ro
-      
-      # macOSユーザー向け：ホームディレクトリアクセス（オプション）
-      # コメントアウトを解除して使用
-      # - ${HOME}:/host/home:ro
-      
+      # 開発用: アプリケーションコードをマウント
+      - ./main.py:/app/main.py
+      - ./ui:/app/ui
+      - ./core:/app/core
+      - ./utils:/app/utils
+      - ./config.py:/app/config.py
+      # ホストのホームディレクトリもマウント（読み書き可能）
+      - ${HOME}:${HOME}
     environment:
       # API設定（.envファイルからも読み込み可能）
       - TEXTFFCUT_USE_API=${TEXTFFCUT_USE_API:-false}
