@@ -25,13 +25,15 @@ def show_video_input() -> Optional[Tuple[str, str]]:
         # Docker版：Finderアクセス機能
         import subprocess
         
+        # ホスト側のvideosフォルダパス
+        host_videos_path = "/Users/naoki/myProject/TextffCut/videos"
+        
         # Finderで開くボタンと説明
         col1, col2, col3 = st.columns([2, 1, 1])
         with col1:
-            st.info("📁 動画ファイルを videos/ フォルダに配置してください")
+            st.info(f"📁 動画ファイルを以下のフォルダに配置してください:\\n`{host_videos_path}`")
         with col2:
             if st.button("📂 フォルダパス表示", help="videos/フォルダのパスを表示します"):
-                host_videos_path = "/Users/naoki/myProject/TextffCut/videos"
                 st.code(host_videos_path, language=None)
                 st.info("上記のパスをコピーして、Finderの「移動」>「フォルダへ移動」で開いてください")
                 st.markdown("**または:** Finderで `⌘+Shift+G` を押してパスを貼り付け")
