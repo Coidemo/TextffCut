@@ -269,57 +269,68 @@ def show_silence_settings() -> Tuple[float, float, float, float, float]:
     if 'padding_end' not in st.session_state:
         st.session_state.padding_end = saved_padding_end
     
-    noise_threshold = st.number_input(
-        "無音検出の閾値 (dB)",
-        min_value=-50,
-        max_value=-20,
-        value=st.session_state.noise_threshold,
-        step=1,
-        help="無音と判定する音量の閾値。値が小さいほど厳密に検出します。"
-    )
+    # 無音検出設定を3カラムで横並び表示
+    silence_col1, silence_col2, silence_col3 = st.columns(3)
     
-    min_silence_duration = st.number_input(
-        "最小無音時間 (秒)",
-        min_value=0.1,
-        max_value=1.0,
-        value=st.session_state.min_silence_duration,
-        step=0.1,
-        format="%.1f",
-        help="無音と判定する最小の時間。値が大きいほど長い無音が必要です。"
-    )
+    with silence_col1:
+        noise_threshold = st.number_input(
+            "無音検出の閾値 (dB)",
+            min_value=-50,
+            max_value=-20,
+            value=st.session_state.noise_threshold,
+            step=1,
+            help="無音と判定する音量の閾値。値が小さいほど厳密に検出します。"
+        )
     
-    min_segment_duration = st.number_input(
-        "最小セグメント時間 (秒)",
-        min_value=0.1,
-        max_value=1.0,
-        value=st.session_state.min_segment_duration,
-        step=0.1,
-        format="%.1f",
-        help="セグメントとして残す最小の時間。値が小さいほど細かく分割されます。"
-    )
+    with silence_col2:
+        min_silence_duration = st.number_input(
+            "最小無音時間 (秒)",
+            min_value=0.1,
+            max_value=1.0,
+            value=st.session_state.min_silence_duration,
+            step=0.1,
+            format="%.1f",
+            help="無音と判定する最小の時間。値が大きいほど長い無音が必要です。"
+        )
+    
+    with silence_col3:
+        min_segment_duration = st.number_input(
+            "最小セグメント時間 (秒)",
+            min_value=0.1,
+            max_value=1.0,
+            value=st.session_state.min_segment_duration,
+            step=0.1,
+            format="%.1f",
+            help="セグメントとして残す最小の時間。値が小さいほど細かく分割されます。"
+        )
     
     st.markdown("**つなぎ部分の調整**")
     st.caption("セグメント前後に余白を追加して自然なつなぎにします")
     
-    padding_start = st.number_input(
-        "開始部分のパディング (秒)",
-        min_value=0.0,
-        max_value=0.5,
-        value=st.session_state.padding_start,
-        step=0.05,
-        format="%.2f",
-        help="各セグメントの開始前に追加する余白時間"
-    )
+    # パディング設定を2カラムで横並び表示
+    padding_col1, padding_col2 = st.columns(2)
     
-    padding_end = st.number_input(
-        "終了部分のパディング (秒)",
-        min_value=0.0,
-        max_value=0.5,
-        value=st.session_state.padding_end,
-        step=0.05,
-        format="%.2f",
-        help="各セグメントの終了後に追加する余白時間"
-    )
+    with padding_col1:
+        padding_start = st.number_input(
+            "開始部分のパディング (秒)",
+            min_value=0.0,
+            max_value=0.5,
+            value=st.session_state.padding_start,
+            step=0.05,
+            format="%.2f",
+            help="各セグメントの開始前に追加する余白時間"
+        )
+    
+    with padding_col2:
+        padding_end = st.number_input(
+            "終了部分のパディング (秒)",
+            min_value=0.0,
+            max_value=0.5,
+            value=st.session_state.padding_end,
+            step=0.05,
+            format="%.2f",
+            help="各セグメントの終了後に追加する余白時間"
+        )
     
     # セッションと設定に保存
     st.session_state.noise_threshold = noise_threshold
