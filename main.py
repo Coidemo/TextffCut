@@ -276,33 +276,22 @@ def main():
             # モードとモデル選択を表示
             use_api, model_size = show_transcription_mode_selector()
             
-            # 横並びレイアウトで情報表示
-            info_col1, info_col2, info_col3 = st.columns(3)
+            # シンプルな2カラムレイアウト
+            info_col1, info_col2 = st.columns(2)
             
             with info_col1:
                 st.markdown("📊 **動画時間**")
                 st.markdown(f"{duration_minutes:.1f}分 ({format_time(video_info.duration)})")
             
-            # APIモードの場合は料金情報表示
-            if use_api:
-                estimated_cost_usd = duration_minutes * 0.006
-                estimated_cost_jpy = estimated_cost_usd * 150
-                
-                with info_col2:
-                    st.markdown("💰 **推定料金（USD）**")
-                    st.markdown(f"${estimated_cost_usd:.3f}")
-                
-                with info_col3:
-                    st.markdown("💰 **推定料金（円）**")
-                    st.markdown(f"約{estimated_cost_jpy:.0f}円")
-            else:
-                with info_col2:
-                    st.markdown("🖥️ **処理方式**")
-                    st.markdown("ローカル処理（無料）")
-                
-                with info_col3:
-                    st.markdown("⚡ **処理速度**")
-                    st.markdown("環境により変動")
+            with info_col2:
+                if use_api:
+                    estimated_cost_usd = duration_minutes * 0.006
+                    estimated_cost_jpy = estimated_cost_usd * 150
+                    st.markdown("💰 **推定料金**")
+                    st.markdown(f"${estimated_cost_usd:.3f} (約{estimated_cost_jpy:.0f}円)")
+                else:
+                    st.markdown("💰 **料金**")
+                    st.markdown("無料（ローカル処理）")
             
             # API利用時の注意事項をコンパクトに表示
             if use_api:
