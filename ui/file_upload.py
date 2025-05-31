@@ -42,14 +42,14 @@ def show_video_input() -> Optional[Tuple[str, str]]:
             col1, col2 = st.columns([4, 1])
             with col1:
                 selected_file = st.selectbox(
-                    "動画ファイルを選択",
+                    "編集する動画を選択してください",
                     [""] + video_files if video_files else ["（動画ファイルがありません）"],
                     disabled=not video_files
                 )
             with col2:
                 # ボタンをセレクトボックスの下端に合わせる
                 st.markdown("<div style='margin-top: 1.875rem;'></div>", unsafe_allow_html=True)
-                if st.button("🔄 更新", help="ファイルリストを更新"):
+                if st.button("🔄 リストを更新", help="ファイルリストを更新"):
                     st.rerun()
             
             if video_files and selected_file:
@@ -58,7 +58,7 @@ def show_video_input() -> Optional[Tuple[str, str]]:
                 video_path = None
                 
             # 動画追加の案内（常に表示）
-            st.info("📁 対象の動画がない場合は、以下のフォルダに格納して更新ボタンを押してください")
+            st.caption("📁 対象の動画がない場合は、以下のフォルダに格納してリストを更新ボタンを押してください")
             st.code(host_videos_path, language=None)
         else:
             st.error("videos/フォルダが見つかりません。")
