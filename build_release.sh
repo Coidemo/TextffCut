@@ -116,25 +116,31 @@ if %errorlevel% equ 0 (
     docker rm TextffCut 2>nul
 )
 
-REM 古いバージョンのイメージを削除
-echo 古いバージョンのイメージをクリーンアップしています...
-
-REM まず古いバージョンのコンテナを全て削除
-echo 古いバージョンのコンテナを削除しています...
-for /f "tokens=1,2" %%a in ('docker ps -a --format "{{.Names}} {{.Image}}" ^| findstr "textffcut:" ^| findstr /v ":${VERSION}"') do (
-    echo コンテナ削除中: %%a (%%b)
-    docker rm -f %%a 2>nul
-)
-
-REM 古いバージョンのイメージを削除（強制削除）
-set OLD_IMAGES_FOUND=0
-for /f "tokens=*" %%a in ('docker images --format "{{.Repository}}:{{.Tag}}" ^| findstr "^textffcut:" ^| findstr /v ":${VERSION}$"') do (
-    set OLD_IMAGES_FOUND=1
-    echo 削除中: %%a
-    docker rmi -f %%a 2>nul
-)
-if %OLD_IMAGES_FOUND% equ 0 (
-    echo 削除する古いイメージはありません。
+REM 現在のバージョンのイメージが存在するかチェック
+docker images | findstr textffcut:${VERSION} >nul 2>&1
+if %errorlevel% equ 0 (
+    echo 既存のイメージ textffcut:${VERSION} を使用します。
+) else (
+    REM 古いバージョンのイメージを削除
+    echo 古いバージョンのイメージをクリーンアップしています...
+    
+    REM まず古いバージョンのコンテナを全て削除
+    echo 古いバージョンのコンテナを削除しています...
+    for /f "tokens=1,2" %%a in ('docker ps -a --format "{{.Names}} {{.Image}}" ^| findstr "textffcut:" ^| findstr /v ":${VERSION}"') do (
+        echo コンテナ削除中: %%a (%%b)
+        docker rm -f %%a 2>nul
+    )
+    
+    REM 古いバージョンのイメージを削除（強制削除）
+    set OLD_IMAGES_FOUND=0
+    for /f "tokens=*" %%a in ('docker images --format "{{.Repository}}:{{.Tag}}" ^| findstr "^textffcut:" ^| findstr /v ":${VERSION}$"') do (
+        set OLD_IMAGES_FOUND=1
+        echo 削除中: %%a
+        docker rmi -f %%a 2>nul
+    )
+    if %OLD_IMAGES_FOUND% equ 0 (
+        echo 削除する古いイメージはありません。
+    )
 )
 
 REM イメージをロード（まだロードされていない場合）
@@ -248,29 +254,34 @@ if [ -n "\$EXISTING_CONTAINER" ]; then
     docker rm "\$EXISTING_CONTAINER" 2>/dev/null || true
 fi
 
-# 古いバージョンのイメージを削除
-echo "古いバージョンのイメージをクリーンアップしています..."
-
-# まず古いバージョンのコンテナを全て削除
-echo "古いバージョンのコンテナを削除しています..."
-docker ps -a --format "{{.Names}} {{.Image}}" | grep "textffcut:" | grep -v ":${VERSION}" | while read name image; do
-    if [ -n "\$name" ]; then
-        echo "コンテナ削除中: \$name (\$image)"
-        docker rm -f "\$name" 2>/dev/null || true
-    fi
-done
-
-# 古いバージョンのイメージを削除（強制削除）
-OLD_IMAGES=\$(docker images --format "{{.Repository}}:{{.Tag}}" | grep "^textffcut:" | grep -v ":${VERSION}\$" || true)
-if [ -n "\$OLD_IMAGES" ]; then
-    echo "\$OLD_IMAGES" | while read image; do
-        if [ -n "\$image" ]; then
-            echo "削除中: \$image"
-            docker rmi -f "\$image" 2>/dev/null || true
+# 現在のバージョンのイメージが存在するかチェック
+if docker images | grep -q "textffcut.*${VERSION}"; then
+    echo "既存のイメージ textffcut:${VERSION} を使用します。"
+else
+    # 古いバージョンのイメージを削除
+    echo "古いバージョンのイメージをクリーンアップしています..."
+    
+    # まず古いバージョンのコンテナを全て削除
+    echo "古いバージョンのコンテナを削除しています..."
+    docker ps -a --format "{{.Names}} {{.Image}}" | grep "textffcut:" | grep -v ":${VERSION}" | while read name image; do
+        if [ -n "\$name" ]; then
+            echo "コンテナ削除中: \$name (\$image)"
+            docker rm -f "\$name" 2>/dev/null || true
         fi
     done
-else
-    echo "削除する古いイメージはありません。"
+    
+    # 古いバージョンのイメージを削除（強制削除）
+    OLD_IMAGES=\$(docker images --format "{{.Repository}}:{{.Tag}}" | grep "^textffcut:" | grep -v ":${VERSION}\$" || true)
+    if [ -n "\$OLD_IMAGES" ]; then
+        echo "\$OLD_IMAGES" | while read image; do
+            if [ -n "\$image" ]; then
+                echo "削除中: \$image"
+                docker rmi -f "\$image" 2>/dev/null || true
+            fi
+        done
+    else
+        echo "削除する古いイメージはありません。"
+    fi
 fi
 
 # イメージをロード（まだロードされていない場合）
