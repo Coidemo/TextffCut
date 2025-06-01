@@ -34,7 +34,7 @@ echo ""
 
 # 既存のリリースファイルをクリーンアップ
 echo "既存のリリースファイルをクリーンアップしています..."
-rm -f release/textffcut_v${VERSION}_docker_distribution.zip
+rm -f release/TextffCut_v${VERSION}.zip
 rm -f release/textffcut_v${VERSION}_docker.tar.gz
 echo "✅ クリーンアップ完了"
 echo ""
@@ -374,7 +374,7 @@ mv docker-compose-simple.yml TextffCut/
 mv README_Docker.md TextffCut/
 
 # ZIPファイルを作成
-zip -r textffcut_v${VERSION}_docker_distribution.zip TextffCut
+zip -r TextffCut_v${VERSION}.zip TextffCut
 
 # 一時フォルダを削除（ZIPファイルのみ残す）
 rm -rf TextffCut
@@ -388,7 +388,7 @@ echo "ビルド完了！"
 echo "=========================================="
 echo ""
 echo "生成されたファイル:"
-ls -lh textffcut_v${VERSION}_docker_distribution.zip
+ls -lh TextffCut_v${VERSION}.zip
 echo ""
-echo "配布用ファイル: release/textffcut_v${VERSION}_docker_distribution.zip"
+echo "配布用ファイル: release/TextffCut_v${VERSION}.zip"
 echo ""
