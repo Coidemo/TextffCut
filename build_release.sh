@@ -319,7 +319,8 @@ cat > release/README_Docker.md <<'EOF'
 
 ## 必要なシステム要件
 
-- Windows 10/11 または macOS 10.15以降
+- **検証済み環境**: macOS 10.15以降
+- **未検証**: Windows 10/11（Dockerの仕組み上動作するはずですが、検証していません）
 - Docker Desktop がインストールされていること
 - 8GB以上のメモリ（推奨: 16GB以上）
 - 10GB以上の空きディスク容量
@@ -355,7 +356,8 @@ cat > release/README_Docker.md <<'EOF'
 
 1. **動画ファイルの配置**
    - 同じフォルダ内の `videos` フォルダに動画ファイルを配置します
-   - 対応形式: MP4, MOV, AVI, MKV など
+   - **検証済み形式**: MP4
+   - **未検証形式**: MOV, AVI, MKV（FFmpegが対応しているため動作するはずです）
 
 2. **アプリケーションの利用**
    - ブラウザで `http://localhost:8501` にアクセス
