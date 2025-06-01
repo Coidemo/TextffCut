@@ -85,7 +85,8 @@ class TranscriptionResult:
         """全セグメントのテキストを結合"""
         full_text = ""
         for seg in self.segments:
-            if seg.words:
+            # words が存在し、かつ空でない場合のみ words を使用
+            if seg.words and len(seg.words) > 0:
                 text = "".join(word['word'] for word in seg.words)
             else:
                 text = seg.text

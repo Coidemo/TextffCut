@@ -63,8 +63,37 @@ class APITranscriber:
             if not self.api_config.api_key:
                 raise ValueError("OpenAI API key is required")
             
+            # デバッグ: 環境変数を確認
+            import os
+            import sys
+            logger.info("=== OpenAI Client Debug Info ===")
+            logger.info(f"Python version: {sys.version}")
+            logger.info(f"OpenAI module: {openai}")
+            logger.info(f"OpenAI version: {openai.__version__}")
+            logger.info(f"OpenAI file: {openai.__file__}")
+            
+            # 環境変数を確認
+            for key in os.environ:
+                if 'PROXY' in key.upper() or 'proxy' in key:
+                    logger.info(f"{key}: {os.environ[key]}")
+            
             # OpenAI クライアントを初期化
-            client = OpenAI(api_key=self.api_config.api_key)
+            try:
+                # OpenAIクラスの属性を確認
+                logger.info(f"OpenAI class: {OpenAI}")
+                logger.info(f"OpenAI.__init__ signature: {OpenAI.__init__.__code__.co_varnames}")
+                
+                client = OpenAI(api_key=self.api_config.api_key)
+                logger.info("OpenAI client initialized successfully")
+            except TypeError as e:
+                logger.error(f"TypeError during OpenAI init: {str(e)}")
+                logger.error(f"Available OpenAI init params: {OpenAI.__init__.__code__.co_varnames}")
+                raise
+            except Exception as e:
+                logger.error(f"OpenAI client initialization error: {type(e).__name__}: {str(e)}")
+                import traceback
+                logger.error(f"Traceback: {traceback.format_exc()}")
+                raise
             
             # 元ファイルサイズをチェック
             original_size = os.path.getsize(audio_path) / (1024 * 1024)
@@ -251,7 +280,7 @@ class APITranscriber:
                         start=seg.start + start_offset,
                         end=seg.end + start_offset,
                         text=seg.text,
-                        words=[]
+                        words=None  # アライメント処理なしの場合は None に設定
                     )
                     segments.append(segment)
             elif response.text.strip():
@@ -261,7 +290,7 @@ class APITranscriber:
                     start=start_offset,
                     end=start_offset + estimated_duration,
                     text=response.text,
-                    words=[]
+                    words=None  # アライメント処理なしの場合は None に設定
                 )
                 segments.append(segment)
             
@@ -488,7 +517,7 @@ class APITranscriber:
                                 start=seg.start + start_offset,
                                 end=seg.end + start_offset,
                                 text=seg.text,
-                                words=[]
+                                words=None  # アライメント処理なしの場合は None に設定
                             )
                             all_segments.append(segment)
                     elif response.text.strip():
@@ -498,7 +527,7 @@ class APITranscriber:
                             start=start_offset,
                             end=start_offset + estimated_duration,
                             text=response.text,
-                            words=[]
+                            words=None  # アライメント処理なしの場合は None に設定
                         )
                         all_segments.append(segment)
                 
@@ -537,7 +566,7 @@ class APITranscriber:
                     start=seg.start,
                     end=seg.end,
                     text=seg.text,
-                    words=[]
+                    words=None  # アライメント処理なしの場合は None に設定
                 )
                 segments.append(segment)
         else:
@@ -549,7 +578,7 @@ class APITranscriber:
                 start=0.0,
                 end=estimated_duration,
                 text=response.text,
-                words=[]
+                words=None  # アライメント処理なしの場合は None に設定
             )]
         
         return TranscriptionResult(
