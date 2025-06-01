@@ -236,12 +236,23 @@ fi
 
 # 古いバージョンのイメージを削除
 echo "古いバージョンのイメージをクリーンアップしています..."
+
+# まず古いバージョンのコンテナを全て削除
+echo "古いバージョンのコンテナを削除しています..."
+docker ps -a --format "{{.Names}} {{.Image}}" | grep "textffcut:" | grep -v ":${VERSION}" | while read name image; do
+    if [ -n "\$name" ]; then
+        echo "コンテナ削除中: \$name (\$image)"
+        docker rm -f "\$name" 2>/dev/null || true
+    fi
+done
+
+# 古いバージョンのイメージを削除（強制削除）
 OLD_IMAGES=\$(docker images --format "{{.Repository}}:{{.Tag}}" | grep "^textffcut:" | grep -v ":${VERSION}\$" || true)
 if [ -n "\$OLD_IMAGES" ]; then
     echo "\$OLD_IMAGES" | while read image; do
         if [ -n "\$image" ]; then
             echo "削除中: \$image"
-            docker rmi "\$image" 2>/dev/null || true
+            docker rmi -f "\$image" 2>/dev/null || true
         fi
     done
 else
