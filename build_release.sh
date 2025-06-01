@@ -318,38 +318,44 @@ services:
       - HOST_VIDEOS_PATH=\${HOST_VIDEOS_PATH}
 EOF
 
-# README.md の作成
-cat > release/README.md <<'EOF'
-# TextffCut
+# README.txt の作成
+cat > release/README.txt <<'EOF'
+=====================================
+TextffCut
+=====================================
 
 動画の文字起こしと切り抜きを効率化するツールです。
 
-## クイックスタート
 
-### 1. Docker Desktop を起動
-Docker Desktop がインストールされていない場合は、[公式サイト](https://www.docker.com/products/docker-desktop/)からダウンロードしてください。
+【クイックスタート】
 
-### 2. TextffCut を起動
-- **Windows**: `START.bat` をダブルクリック
-- **macOS**: `START.command` をダブルクリック（初回は右クリック→「開く」）
+1. Docker Desktop を起動
+   Docker Desktop がインストールされていない場合は、
+   公式サイトからダウンロードしてください。
+   https://www.docker.com/products/docker-desktop/
 
-初回起動時は準備に数分かかります。
+2. TextffCut を起動
+   - Windows: START.bat をダブルクリック
+   - macOS: START.command をダブルクリック（初回は右クリック→「開く」）
+   
+   ※初回起動時は準備に数分かかります。
 
-### 3. 使い方
-1. `videos` フォルダに動画ファイル（MP4）を入れる
-2. ブラウザで自動的に開く画面で操作
-3. 結果は `videos` フォルダ内に保存される
+3. 使い方
+   (1) videos フォルダに動画ファイル（MP4）を入れる
+   (2) ブラウザで自動的に開く画面で操作
+   (3) 結果は videos フォルダ内に保存される
 
-### 4. 終了方法
-ターミナル/コマンドプロンプトで `Ctrl+C` を押す
+4. 終了方法
+   ターミナル/コマンドプロンプトで Ctrl+C を押す
 
-## 📖 詳しい使い方
+
+【詳しい使い方】
 
 スクリーンショット付きの詳しい説明は note をご覧ください：
+https://note.com/coidemo
 
-**[Coidemo - note](https://note.com/coidemo)**
 
-## 動作環境
+【動作環境】
 - Docker Desktop 必須
 - メモリ 8GB以上推奨
 - 検証済み: macOS + MP4形式
@@ -371,7 +377,7 @@ mv textffcut_v${VERSION}_docker.tar.gz TextffCut/
 mv START.bat TextffCut/
 mv START.command TextffCut/
 mv docker-compose-simple.yml TextffCut/
-mv README.md TextffCut/
+mv README.txt TextffCut/
 
 # ZIPファイルを作成
 zip -r TextffCut_v${VERSION}.zip TextffCut
