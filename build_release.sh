@@ -124,15 +124,15 @@ echo "TextffCut v${VERSION} を起動します..."
 echo ""
 
 # スクリプトの絶対パスを取得
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
-cd "$SCRIPT_DIR"
+SCRIPT_DIR="\$( cd "\$( dirname "\${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+cd "\$SCRIPT_DIR"
 
 # デバッグ情報（後で削除予定）
-# echo "スクリプトディレクトリ: $SCRIPT_DIR"
-# echo "現在のディレクトリ: $(pwd)"
+# echo "スクリプトディレクトリ: \$SCRIPT_DIR"
+# echo "現在のディレクトリ: \$(pwd)"
 
 # 環境変数を設定
-export HOST_VIDEOS_PATH="${SCRIPT_DIR}/videos"
+export HOST_VIDEOS_PATH="\${SCRIPT_DIR}/videos"
 
 # Docker Desktopが起動しているか確認
 if ! docker version &>/dev/null; then
