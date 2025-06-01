@@ -32,9 +32,19 @@ from ui import (
 
 
 # Streamlitの設定
+# アイコンファイルのパスを設定
+from pathlib import Path
+
+icon_path = Path(__file__).parent / "assets" / "icon.png"
+if icon_path.exists():
+    page_icon = str(icon_path)
+else:
+    # フォールバック
+    page_icon = "🎬"
+
 st.set_page_config(
     page_title=config.ui.page_title,
-    page_icon="🎬",
+    page_icon=page_icon,
     layout=config.ui.layout,
     initial_sidebar_state="expanded"
 )
