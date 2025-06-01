@@ -136,6 +136,14 @@ if ! docker version &>/dev/null; then
     exit 1
 fi
 
+# 既存のTextffCutコンテナをチェックして停止
+EXISTING_CONTAINER=$(docker ps -a --format "{{.Names}}" | grep -E "^textffcut_app$" || true)
+if [ -n "$EXISTING_CONTAINER" ]; then
+    echo "既存のTextffCutコンテナを停止・削除しています..."
+    docker stop "$EXISTING_CONTAINER" 2>/dev/null || true
+    docker rm "$EXISTING_CONTAINER" 2>/dev/null || true
+fi
+
 # ポート8501を使用しているプロセスをチェック
 PORT=8501
 if lsof -ti:$PORT > /dev/null 2>&1; then
