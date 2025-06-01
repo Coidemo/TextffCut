@@ -117,23 +117,20 @@ def get_safe_filename(filename: str) -> str:
 
 def get_unique_path(base_path: Path) -> Path:
     """
-    ファイルが既に存在する場合、連番を付けてユニークなパスを生成
+    最初から連番を付けてユニークなパスを生成
     
     Args:
         base_path: 基本となるファイルパス
         
     Returns:
-        ユニークなファイルパス
+        ユニークなファイルパス（最初から_01が付く）
     """
-    if not base_path.exists():
-        return base_path
-    
     # ファイル名と拡張子を分離
     stem = base_path.stem
     suffix = base_path.suffix
     parent = base_path.parent
     
-    # 連番を付けて試す
+    # 最初から01を付ける
     counter = 1
     while True:
         new_path = parent / f"{stem}_{counter:02d}{suffix}"
