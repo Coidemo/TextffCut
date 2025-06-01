@@ -41,7 +41,7 @@
 - リアルタイムプレビュー
 
 ### **多様な出力形式**
-- **動画ファイル**: MP4形式
+- **動画ファイル**: MP4形式（検証済み）
 - **FCPXMLファイル**: Final Cut Pro/DaVinci Resolve用
 - **統一出力**: `{動画名}_TextffCut/` フォルダに整理
 
@@ -154,14 +154,20 @@ streamlit run main.py
 ## 🛠️ 推奨環境
 
 ### システム要件
-- **Docker版**: Docker Desktop
+- **Docker版**: 
+  - **検証済み**: macOS + Docker Desktop
+  - **未検証**: Windows + Docker Desktop（Dockerの仕組み上動作するはずです）
 - **ローカル版**: Python 3.8以上、FFmpeg
+
+### 対応動画形式
+- **検証済み**: MP4
+- **未検証**: MOV, AVI, MKV（FFmpegが対応しているため動作するはずです）
 
 ### ローカルモードでの推奨環境
 **🚀 GPU利用可能な場合（推奨）**
-- **Windows**: NVIDIA GPU + CUDA 11.2以上
-- **Mac**: M1/M2チップ（Metal Performance Shaders）
-- **Linux**: NVIDIA GPU + CUDA
+- **Mac（検証済み）**: M1/M2チップ（Metal Performance Shaders）
+- **Windows（未検証）**: NVIDIA GPU + CUDA 11.2以上
+- **Linux（未検証）**: NVIDIA GPU + CUDA
 
 **💻 CPU使用の場合**
 - 処理時間は大幅に増加（GPU比で3-6倍程度）
