@@ -44,16 +44,16 @@ def show_video_input() -> Optional[Tuple[str, str]]:
             if st.button("🔄 リストを更新", help="ファイルリストを更新"):
                 st.rerun()
         
+        # 動画フォルダのパスを常に表示
+        st.caption("📁 動画フォルダのパス:")
+        st.code(host_videos_path, language=None)
+        
         if video_files and selected_file:
             # フルパスを返す
             video_path = str(videos_dir / selected_file)
             
             # 動画と同じディレクトリを出力先として返す
             return video_path, str(videos_dir)
-        
-        # 動画追加の案内
-        st.caption("📁 対象の動画がない場合は、以下のフォルダに格納してリストを更新ボタンを押してください")
-        st.code(host_videos_path, language=None)
     else:
         st.error("videos/フォルダが見つかりません。")
     
