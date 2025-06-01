@@ -103,6 +103,13 @@ if not exist videos (
     mkdir videos
 )
 
+REM 古いバージョンのイメージを削除
+echo 古いバージョンのイメージをクリーンアップしています...
+for /f "tokens=1,2" %%a in ('docker images --format "{{.Repository}}:{{.Tag}}" ^| findstr "textffcut:" ^| findstr /v "${VERSION}"') do (
+    echo 削除中: %%a
+    docker rmi %%a 2>nul
+)
+
 REM イメージをロード（まだロードされていない場合）
 docker images | findstr textffcut:${VERSION} >nul 2>&1
 if %errorlevel% neq 0 (
@@ -205,6 +212,13 @@ if [ ! -d "videos" ]; then
     echo "videosフォルダを作成しています..."
     mkdir -p videos
 fi
+
+# 古いバージョンのイメージを削除
+echo "古いバージョンのイメージをクリーンアップしています..."
+docker images --format "{{.Repository}}:{{.Tag}}" | grep "^textffcut:" | grep -v "${VERSION}" | while read image; do
+    echo "削除中: $image"
+    docker rmi "$image" 2>/dev/null || true
+done
 
 # イメージをロード（まだロードされていない場合）
 if ! docker images | grep -q "textffcut.*${VERSION}"; then
