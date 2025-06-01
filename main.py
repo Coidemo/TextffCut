@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import List, Tuple, Optional
 import subprocess
 from datetime import datetime
+import os
 
 from config import config
 from core import Transcriber, TextProcessor, VideoProcessor, FCPXMLExporter, ExportSegment, VideoSegment
@@ -705,10 +706,17 @@ def main():
             st.markdown("#### 📁 出力先")
             video_name = Path(video_path).stem
             safe_name = get_safe_filename(video_name)
-            video_parent = Path(video_path).parent
             
-            # 実際の出力先パスを計算
-            output_full_path = str(video_parent / f"{safe_name}_TextffCut")
+            # Docker環境でのパス表示を修正
+            if os.path.exists('/.dockerenv'):
+                # Docker環境：ホストパスを表示
+                host_videos_path = os.getenv('HOST_VIDEOS_PATH', '/path/to/videos')
+                output_full_path = os.path.join(host_videos_path, f"{safe_name}_TextffCut")
+            else:
+                # ローカル環境：通常のパス
+                video_parent = Path(video_path).parent
+                output_full_path = str(video_parent / f"{safe_name}_TextffCut")
+            
             st.code(output_full_path, language=None)
             
             # 処理実行ボタン
