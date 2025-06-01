@@ -27,6 +27,11 @@ echo "バージョン: v${VERSION}"
 echo "=========================================="
 echo ""
 
+# VERSION.txtファイルを更新
+echo "v${VERSION}" > VERSION.txt
+echo "✅ VERSION.txt を更新しました"
+echo ""
+
 # 既存のリリースファイルをクリーンアップ
 echo "既存のリリースファイルをクリーンアップしています..."
 rm -f release/textffcut_v${VERSION}_docker_distribution.zip
