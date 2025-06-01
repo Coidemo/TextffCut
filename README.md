@@ -15,11 +15,11 @@
 
 **TextffCut** = Text + diff + Cut（テキスト差分による動画切り抜き）
 
-## 📖 完全ガイド
+## 📖 使い方ガイド
 
-**初めての方はこちら！** スクリーンショットと動画で分かりやすく解説しています：
+詳しい使い方は note で公開予定です：
 
-📖 **[TextffCut 完全ガイド - note](https://note.com/YOUR_NOTE_URL)**
+📖 **[Coidemo - note](https://note.com/coidemo)**
 
 ## 🌟 最新バージョン
 
