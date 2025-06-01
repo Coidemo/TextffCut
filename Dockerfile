@@ -2,7 +2,7 @@
 # マルチステージビルドで最適化
 
 # ステージ1: ビルド環境
-FROM python:3.10-slim as builder
+FROM python:3.10-slim AS builder
 
 # ビルドに必要なパッケージをインストール
 RUN apt-get update && apt-get install -y \
