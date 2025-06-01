@@ -132,7 +132,7 @@ def main():
     is_docker = os.path.exists('/.dockerenv')
     
     # バージョン情報を取得（package.jsonやバージョンファイルから読み込む想定）
-    version = "v1.0.3"  # TODO: 動的に取得する仕組みを追加
+    version = "v1.0.4"  # TODO: 動的に取得する仕組みを追加
     
     # タイトル表示
     title_text = f'Text<span style="color: red; font-style: italic;">ff</span>Cut <span style="color: #666; font-size: 1rem;">{version}</span>'

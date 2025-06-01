@@ -55,8 +55,8 @@ echo ""
 # 4. 配布用ファイルの作成
 echo "4. 配布用ファイルを作成しています..."
 
-# START_GUI.bat の作成
-cat > release/START_GUI.bat <<EOF
+# START.bat の作成
+cat > release/START.bat <<EOF
 @echo off
 echo TextffCut v${VERSION} を起動します...
 echo.
@@ -111,13 +111,17 @@ if %errorlevel% neq 0 (
 )
 
 echo アプリケーションを起動しています...
+echo.
+echo ブラウザで http://localhost:8501 を開いています...
+start http://localhost:8501
+
 docker-compose -f ./docker-compose-simple.yml up
 
 pause
 EOF
 
-# START_GUI.command の作成
-cat > release/START_GUI.command <<EOF
+# START.command の作成
+cat > release/START.command <<EOF
 #!/bin/bash
 
 echo "TextffCut v${VERSION} を起動します..."
@@ -211,12 +215,18 @@ fi
 echo "アプリケーションを起動しています..."
 if [ -n "$TEXTFFCUT_PORT" ]; then
     echo "URL: http://localhost:$TEXTFFCUT_PORT"
+    echo ""
+    echo "ブラウザで http://localhost:$TEXTFFCUT_PORT を開いています..."
+    open "http://localhost:$TEXTFFCUT_PORT"
     # docker-compose.ymlを一時的に作成（ポート変更対応）
     sed "s/8501:8501/$TEXTFFCUT_PORT:8501/g" ./docker-compose-simple.yml > ./docker-compose-temp.yml
     docker-compose -f ./docker-compose-temp.yml up
     rm -f ./docker-compose-temp.yml
 else
     echo "URL: http://localhost:8501"
+    echo ""
+    echo "ブラウザで http://localhost:8501 を開いています..."
+    open "http://localhost:8501"
     docker-compose -f ./docker-compose-simple.yml up
 fi
 
@@ -269,15 +279,15 @@ cat > release/README_Docker.md <<'EOF'
 ### 3. TextffCut の起動
 
 #### Windows の場合
-1. `START_GUI.bat` をダブルクリックします
+1. `START.bat` をダブルクリックします
 2. 初回起動時は Docker イメージの読み込みに数分かかります
 3. ブラウザが自動的に開き、`http://localhost:8501` でアプリケーションが表示されます
 
 #### macOS の場合
-1. `START_GUI.command` をダブルクリックします
+1. `START.command` をダブルクリックします
    - 初回実行時に「開発元が未確認」の警告が出る場合は、Finderで右クリック→「開く」を選択
 2. 初回起動時は Docker イメージの読み込みに数分かかります
-3. ブラウザで `http://localhost:8501` を開きます
+3. ブラウザが自動的に開き、`http://localhost:8501` でアプリケーションが表示されます
 
 ## 使い方
 
@@ -317,7 +327,7 @@ cat > release/README_Docker.md <<'EOF'
 EOF
 
 # 実行権限を付与
-chmod +x release/START_GUI.command
+chmod +x release/START.command
 
 echo "✅ 配布用ファイルの作成完了"
 echo ""
@@ -329,8 +339,8 @@ cd release
 # TextffCutフォルダを作成してファイルを配置
 mkdir -p TextffCut
 mv textffcut_v${VERSION}_docker.tar.gz TextffCut/
-mv START_GUI.bat TextffCut/
-mv START_GUI.command TextffCut/
+mv START.bat TextffCut/
+mv START.command TextffCut/
 mv docker-compose-simple.yml TextffCut/
 mv README_Docker.md TextffCut/
 
