@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple
 from xml.etree import ElementTree as ET
+import os
 
 from config import Config
 from utils.time_utils import format_timestamp, frames_to_timecode
@@ -109,8 +110,18 @@ class FCPXMLExporter:
             # 動画の総フレーム数
             duration_frames = int(info.duration * timeline_fps)
             
+            # Docker環境の場合はホストパスに変換
+            if os.path.exists('/.dockerenv'):
+                # /app/videos/xxx.mp4 -> HOST_VIDEOS_PATH/xxx.mp4
+                video_filename = Path(path).name
+                host_videos_path = os.getenv('HOST_VIDEOS_PATH', '/path/to/videos')
+                file_url = f"file://{os.path.join(host_videos_path, video_filename)}"
+            else:
+                # ローカル環境は通常通り
+                file_url = f"file://{Path(path).resolve()}"
+            
             xml_content += f'''        <asset format="r0" name="{Path(path).name}" audioChannels="2" duration="{duration_frames}/{timeline_fps}s" audioSources="1" id="{resource_id}" hasVideo="1" hasAudio="1" start="0/1s">
-            <media-rep src="file://{Path(path).resolve()}" kind="original-media"/>
+            <media-rep src="{file_url}" kind="original-media"/>
         </asset>
 '''
         
