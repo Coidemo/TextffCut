@@ -687,19 +687,13 @@ def main():
             
             # 出力先の表示
             st.markdown("#### 📁 出力先")
-            import os
-            is_docker = os.path.exists('/.dockerenv')
-            if is_docker:
-                # Docker環境の場合のフルパス表示
-                docker_output_path = "/Users/naoki/myProject/TextffCut/videos"
-                st.markdown('動画と同じ場所に"{動画名}_TextffCut フォルダ"を作成して出力します。')
-                st.code(docker_output_path, language=None)
-            else:
-                # ローカル環境の場合のフルパス表示
-                video_name = Path(video_path).stem
-                output_full_path = str(Path(video_path).parent / f"{video_name}_TextffCut")
-                st.markdown('動画と同じ場所に"{動画名}_TextffCut フォルダ"を作成して出力します。')
-                st.code(output_full_path, language=None)
+            video_name = Path(video_path).stem
+            safe_name = get_safe_filename(video_name)
+            video_parent = Path(video_path).parent
+            
+            # 実際の出力先パスを計算
+            output_full_path = str(video_parent / f"{safe_name}_TextffCut")
+            st.code(output_full_path, language=None)
             
             # 処理実行ボタン
             if st.button("🚀 処理を実行", type="primary", use_container_width=True):
