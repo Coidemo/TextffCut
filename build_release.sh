@@ -55,8 +55,8 @@ echo ""
 # 4. 配布用ファイルの作成
 echo "4. 配布用ファイルを作成しています..."
 
-# START_GUI.bat の作成
-cat > release/START_GUI.bat <<EOF
+# START.bat の作成
+cat > release/START.bat <<EOF
 @echo off
 echo TextffCut v${VERSION} を起動します...
 echo.
@@ -103,6 +103,35 @@ if not exist videos (
     mkdir videos
 )
 
+REM 既存のTextffCutコンテナを停止・削除
+docker ps -a --format "{{.Names}}" | findstr "^textffcut_app$" >nul 2>&1
+if %errorlevel% equ 0 (
+    echo 既存のTextffCutコンテナを停止・削除しています...
+    docker stop textffcut_app 2>nul
+    docker rm textffcut_app 2>nul
+)
+
+REM 古いバージョンのイメージを削除
+echo 古いバージョンのイメージをクリーンアップしています...
+
+REM まず古いバージョンのコンテナを全て削除
+echo 古いバージョンのコンテナを削除しています...
+for /f "tokens=1,2" %%a in ('docker ps -a --format "{{.Names}} {{.Image}}" ^| findstr "textffcut:" ^| findstr /v ":${VERSION}"') do (
+    echo コンテナ削除中: %%a (%%b)
+    docker rm -f %%a 2>nul
+)
+
+REM 古いバージョンのイメージを削除（強制削除）
+set OLD_IMAGES_FOUND=0
+for /f "tokens=*" %%a in ('docker images --format "{{.Repository}}:{{.Tag}}" ^| findstr "^textffcut:" ^| findstr /v ":${VERSION}$"') do (
+    set OLD_IMAGES_FOUND=1
+    echo 削除中: %%a
+    docker rmi -f %%a 2>nul
+)
+if %OLD_IMAGES_FOUND% equ 0 (
+    echo 削除する古いイメージはありません。
+)
+
 REM イメージをロード（まだロードされていない場合）
 docker images | findstr textffcut:${VERSION} >nul 2>&1
 if %errorlevel% neq 0 (
@@ -111,13 +140,17 @@ if %errorlevel% neq 0 (
 )
 
 echo アプリケーションを起動しています...
+echo.
+echo ブラウザで http://localhost:8501 を開いています...
+start http://localhost:8501
+
 docker-compose -f ./docker-compose-simple.yml up
 
 pause
 EOF
 
-# START_GUI.command の作成
-cat > release/START_GUI.command <<EOF
+# START.command の作成
+cat > release/START.command <<EOF
 #!/bin/bash
 
 echo "TextffCut v${VERSION} を起動します..."
@@ -202,6 +235,39 @@ if [ ! -d "videos" ]; then
     mkdir -p videos
 fi
 
+# 既存のTextffCutコンテナをチェックして停止
+EXISTING_CONTAINER=\$(docker ps -a --format "{{.Names}}" | grep -E "^textffcut_app\$" || true)
+if [ -n "\$EXISTING_CONTAINER" ]; then
+    echo "既存のTextffCutコンテナを停止・削除しています..."
+    docker stop "\$EXISTING_CONTAINER" 2>/dev/null || true
+    docker rm "\$EXISTING_CONTAINER" 2>/dev/null || true
+fi
+
+# 古いバージョンのイメージを削除
+echo "古いバージョンのイメージをクリーンアップしています..."
+
+# まず古いバージョンのコンテナを全て削除
+echo "古いバージョンのコンテナを削除しています..."
+docker ps -a --format "{{.Names}} {{.Image}}" | grep "textffcut:" | grep -v ":${VERSION}" | while read name image; do
+    if [ -n "\$name" ]; then
+        echo "コンテナ削除中: \$name (\$image)"
+        docker rm -f "\$name" 2>/dev/null || true
+    fi
+done
+
+# 古いバージョンのイメージを削除（強制削除）
+OLD_IMAGES=\$(docker images --format "{{.Repository}}:{{.Tag}}" | grep "^textffcut:" | grep -v ":${VERSION}\$" || true)
+if [ -n "\$OLD_IMAGES" ]; then
+    echo "\$OLD_IMAGES" | while read image; do
+        if [ -n "\$image" ]; then
+            echo "削除中: \$image"
+            docker rmi -f "\$image" 2>/dev/null || true
+        fi
+    done
+else
+    echo "削除する古いイメージはありません。"
+fi
+
 # イメージをロード（まだロードされていない場合）
 if ! docker images | grep -q "textffcut.*${VERSION}"; then
     echo "Dockerイメージをロードしています（初回のみ）..."
@@ -211,12 +277,18 @@ fi
 echo "アプリケーションを起動しています..."
 if [ -n "$TEXTFFCUT_PORT" ]; then
     echo "URL: http://localhost:$TEXTFFCUT_PORT"
+    echo ""
+    echo "ブラウザで http://localhost:$TEXTFFCUT_PORT を開いています..."
+    open "http://localhost:$TEXTFFCUT_PORT"
     # docker-compose.ymlを一時的に作成（ポート変更対応）
     sed "s/8501:8501/$TEXTFFCUT_PORT:8501/g" ./docker-compose-simple.yml > ./docker-compose-temp.yml
     docker-compose -f ./docker-compose-temp.yml up
     rm -f ./docker-compose-temp.yml
 else
     echo "URL: http://localhost:8501"
+    echo ""
+    echo "ブラウザで http://localhost:8501 を開いています..."
+    open "http://localhost:8501"
     docker-compose -f ./docker-compose-simple.yml up
 fi
 
@@ -269,15 +341,15 @@ cat > release/README_Docker.md <<'EOF'
 ### 3. TextffCut の起動
 
 #### Windows の場合
-1. `START_GUI.bat` をダブルクリックします
+1. `START.bat` をダブルクリックします
 2. 初回起動時は Docker イメージの読み込みに数分かかります
 3. ブラウザが自動的に開き、`http://localhost:8501` でアプリケーションが表示されます
 
 #### macOS の場合
-1. `START_GUI.command` をダブルクリックします
+1. `START.command` をダブルクリックします
    - 初回実行時に「開発元が未確認」の警告が出る場合は、Finderで右クリック→「開く」を選択
 2. 初回起動時は Docker イメージの読み込みに数分かかります
-3. ブラウザで `http://localhost:8501` を開きます
+3. ブラウザが自動的に開き、`http://localhost:8501` でアプリケーションが表示されます
 
 ## 使い方
 
@@ -317,7 +389,7 @@ cat > release/README_Docker.md <<'EOF'
 EOF
 
 # 実行権限を付与
-chmod +x release/START_GUI.command
+chmod +x release/START.command
 
 echo "✅ 配布用ファイルの作成完了"
 echo ""
@@ -329,8 +401,8 @@ cd release
 # TextffCutフォルダを作成してファイルを配置
 mkdir -p TextffCut
 mv textffcut_v${VERSION}_docker.tar.gz TextffCut/
-mv START_GUI.bat TextffCut/
-mv START_GUI.command TextffCut/
+mv START.bat TextffCut/
+mv START.command TextffCut/
 mv docker-compose-simple.yml TextffCut/
 mv README_Docker.md TextffCut/
 
