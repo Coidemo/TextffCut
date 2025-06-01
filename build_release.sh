@@ -318,8 +318,8 @@ services:
       - HOST_VIDEOS_PATH=\${HOST_VIDEOS_PATH}
 EOF
 
-# README_Docker.md の作成
-cat > release/README_Docker.md <<'EOF'
+# README.md の作成
+cat > release/README.md <<'EOF'
 # TextffCut
 
 動画の文字起こしと切り抜きを効率化するツールです。
@@ -371,7 +371,7 @@ mv textffcut_v${VERSION}_docker.tar.gz TextffCut/
 mv START.bat TextffCut/
 mv START.command TextffCut/
 mv docker-compose-simple.yml TextffCut/
-mv README_Docker.md TextffCut/
+mv README.md TextffCut/
 
 # ZIPファイルを作成
 zip -r TextffCut_v${VERSION}.zip TextffCut
