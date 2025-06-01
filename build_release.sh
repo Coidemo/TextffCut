@@ -12,7 +12,8 @@ cd "$SCRIPT_DIR"
 
 # バージョン番号の取得
 if [ -n "$1" ]; then
-    VERSION=$1
+    # 引数にvが付いている場合は削除
+    VERSION=${1#v}
 else
     # Gitから最新のタグを取得（タグがない場合は0.9.0をデフォルト）
     VERSION=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.9.0")
@@ -21,7 +22,7 @@ else
 fi
 
 echo "=========================================="
-echo "TextffCut Docker版 リリースビルド"
+echo "TextffCut リリースビルド"
 echo "バージョン: v${VERSION}"
 echo "=========================================="
 echo ""
@@ -55,9 +56,9 @@ echo ""
 echo "4. 配布用ファイルを作成しています..."
 
 # START_GUI.bat の作成
-cat > release/START_GUI.bat <<'EOF'
+cat > release/START_GUI.bat <<EOF
 @echo off
-echo TextffCut Docker版を起動します...
+echo TextffCut v${VERSION} を起動します...
 echo.
 
 REM 環境変数を設定
@@ -103,30 +104,35 @@ if not exist videos (
 )
 
 REM イメージをロード（まだロードされていない場合）
-docker images | findstr textffcut:VERSION >nul 2>&1
+docker images | findstr textffcut:${VERSION} >nul 2>&1
 if %errorlevel% neq 0 (
     echo Dockerイメージをロードしています（初回のみ）...
-    docker load -i textffcut_vVERSION_docker.tar.gz
+    docker load -i textffcut_v${VERSION}_docker.tar.gz
 )
 
 echo アプリケーションを起動しています...
-docker-compose -f docker-compose-simple.yml up
+docker-compose -f ./docker-compose-simple.yml up
 
 pause
 EOF
 
 # START_GUI.command の作成
-cat > release/START_GUI.command <<'EOF'
+cat > release/START_GUI.command <<EOF
 #!/bin/bash
 
-echo "TextffCut Docker版を起動します..."
+echo "TextffCut v${VERSION} を起動します..."
 echo ""
 
-# スクリプトのディレクトリに移動
-cd "$(dirname "$0")"
+# スクリプトの絶対パスを取得
+SCRIPT_DIR="\$( cd "\$( dirname "\${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+cd "\$SCRIPT_DIR"
+
+# デバッグ情報（後で削除予定）
+# echo "スクリプトディレクトリ: \$SCRIPT_DIR"
+# echo "現在のディレクトリ: \$(pwd)"
 
 # 環境変数を設定
-export HOST_VIDEOS_PATH="${PWD}/videos"
+export HOST_VIDEOS_PATH="\${SCRIPT_DIR}/videos"
 
 # Docker Desktopが起動しているか確認
 if ! docker version &>/dev/null; then
@@ -197,21 +203,21 @@ if [ ! -d "videos" ]; then
 fi
 
 # イメージをロード（まだロードされていない場合）
-if ! docker images | grep -q "textffcut.*VERSION"; then
+if ! docker images | grep -q "textffcut.*${VERSION}"; then
     echo "Dockerイメージをロードしています（初回のみ）..."
-    docker load -i textffcut_vVERSION_docker.tar.gz
+    docker load -i textffcut_v${VERSION}_docker.tar.gz
 fi
 
 echo "アプリケーションを起動しています..."
 if [ -n "$TEXTFFCUT_PORT" ]; then
     echo "URL: http://localhost:$TEXTFFCUT_PORT"
     # docker-compose.ymlを一時的に作成（ポート変更対応）
-    sed "s/8501:8501/$TEXTFFCUT_PORT:8501/g" docker-compose-simple.yml > docker-compose-temp.yml
-    docker-compose -f docker-compose-temp.yml up
-    rm -f docker-compose-temp.yml
+    sed "s/8501:8501/$TEXTFFCUT_PORT:8501/g" ./docker-compose-simple.yml > ./docker-compose-temp.yml
+    docker-compose -f ./docker-compose-temp.yml up
+    rm -f ./docker-compose-temp.yml
 else
     echo "URL: http://localhost:8501"
-    docker-compose -f docker-compose-simple.yml up
+    docker-compose -f ./docker-compose-simple.yml up
 fi
 
 read -p "Enterキーを押して終了..."
@@ -237,7 +243,7 @@ EOF
 
 # README_Docker.md の作成
 cat > release/README_Docker.md <<'EOF'
-# TextffCut Docker版 セットアップガイド
+# TextffCut セットアップガイド
 
 ## 必要なシステム要件
 
@@ -309,11 +315,6 @@ cat > release/README_Docker.md <<'EOF'
 
 問題が解決しない場合は、エラーメッセージと共にお問い合わせください。
 EOF
-
-# バージョン番号を置換
-sed -i.bak "s/VERSION/${VERSION}/g" release/START_GUI.bat
-sed -i.bak "s/VERSION/${VERSION}/g" release/START_GUI.command
-rm release/*.bak
 
 # 実行権限を付与
 chmod +x release/START_GUI.command
