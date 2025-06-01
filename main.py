@@ -141,8 +141,15 @@ def main():
     import os
     is_docker = os.path.exists('/.dockerenv')
     
-    # バージョン情報を取得（package.jsonやバージョンファイルから読み込む想定）
-    version = "v1.0.4"  # TODO: 動的に取得する仕組みを追加
+    # バージョン情報を取得（VERSION.txtから読み込む）
+    try:
+        version_file = Path(__file__).parent / "VERSION.txt"
+        if version_file.exists():
+            version = version_file.read_text().strip()
+        else:
+            version = "v1.0.0"  # デフォルト値
+    except:
+        version = "v1.0.0"  # エラー時のフォールバック
     
     # タイトル表示
     title_text = f'Text<span style="color: red; font-style: italic;">ff</span>Cut <span style="color: #666; font-size: 1rem;">{version}</span>'
