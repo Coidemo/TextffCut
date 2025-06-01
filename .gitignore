@@ -213,3 +213,6 @@ streamlit.log
 # Environment and config
 .env
 .env.local
+
+# リリースパッケージ
+release/
