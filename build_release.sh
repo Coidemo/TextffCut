@@ -227,21 +227,21 @@ if [ ! -d "videos" ]; then
 fi
 
 # 既存のTextffCutコンテナをチェックして停止
-EXISTING_CONTAINER=$(docker ps -a --format "{{.Names}}" | grep -E "^textffcut_app$" || true)
-if [ -n "$EXISTING_CONTAINER" ]; then
+EXISTING_CONTAINER=\$(docker ps -a --format "{{.Names}}" | grep -E "^textffcut_app\$" || true)
+if [ -n "\$EXISTING_CONTAINER" ]; then
     echo "既存のTextffCutコンテナを停止・削除しています..."
-    docker stop "$EXISTING_CONTAINER" 2>/dev/null || true
-    docker rm "$EXISTING_CONTAINER" 2>/dev/null || true
+    docker stop "\$EXISTING_CONTAINER" 2>/dev/null || true
+    docker rm "\$EXISTING_CONTAINER" 2>/dev/null || true
 fi
 
 # 古いバージョンのイメージを削除
 echo "古いバージョンのイメージをクリーンアップしています..."
-OLD_IMAGES=$(docker images --format "{{.Repository}}:{{.Tag}}" | grep "^textffcut:" | grep -v ":${VERSION}$" || true)
-if [ -n "$OLD_IMAGES" ]; then
-    echo "$OLD_IMAGES" | while read image; do
-        if [ -n "$image" ]; then
-            echo "削除中: $image"
-            docker rmi "$image" 2>/dev/null || true
+OLD_IMAGES=\$(docker images --format "{{.Repository}}:{{.Tag}}" | grep "^textffcut:" | grep -v ":${VERSION}\$" || true)
+if [ -n "\$OLD_IMAGES" ]; then
+    echo "\$OLD_IMAGES" | while read image; do
+        if [ -n "\$image" ]; then
+            echo "削除中: \$image"
+            docker rmi "\$image" 2>/dev/null || true
         fi
     done
 else
