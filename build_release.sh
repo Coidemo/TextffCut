@@ -111,7 +111,7 @@ if %errorlevel% neq 0 (
 )
 
 echo アプリケーションを起動しています...
-docker-compose -f docker-compose-simple.yml up
+docker-compose -f ./docker-compose-simple.yml up
 
 pause
 EOF
@@ -207,12 +207,12 @@ echo "アプリケーションを起動しています..."
 if [ -n "$TEXTFFCUT_PORT" ]; then
     echo "URL: http://localhost:$TEXTFFCUT_PORT"
     # docker-compose.ymlを一時的に作成（ポート変更対応）
-    sed "s/8501:8501/$TEXTFFCUT_PORT:8501/g" docker-compose-simple.yml > docker-compose-temp.yml
-    docker-compose -f docker-compose-temp.yml up
-    rm -f docker-compose-temp.yml
+    sed "s/8501:8501/$TEXTFFCUT_PORT:8501/g" ./docker-compose-simple.yml > ./docker-compose-temp.yml
+    docker-compose -f ./docker-compose-temp.yml up
+    rm -f ./docker-compose-temp.yml
 else
     echo "URL: http://localhost:8501"
-    docker-compose -f docker-compose-simple.yml up
+    docker-compose -f ./docker-compose-simple.yml up
 fi
 
 read -p "Enterキーを押して終了..."
