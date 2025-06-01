@@ -322,6 +322,11 @@ EOF
 cat > release/README_Docker.md <<'EOF'
 # TextffCut セットアップガイド
 
+📖 **詳しい使い方はこちら**: [TextffCut 完全ガイド（note）](https://note.com/YOUR_NOTE_URL)
+- スクリーンショット付きの詳細な説明
+- 動画での操作説明
+- よくある質問と解決方法
+
 ## 必要なシステム要件
 
 - **検証済み環境**: macOS 10.15以降

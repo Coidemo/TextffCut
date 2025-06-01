@@ -718,9 +718,13 @@ def show_help():
     st.markdown("""
     ##### 📚 ドキュメント
     
-    詳しい使い方や最新情報は、GitHub をご覧ください：
+    **🆕 完全ガイド（おすすめ）**  
+    スクリーンショットと動画で分かりやすく解説しています：
     
-    🔗 **[TextffCut ドキュメント](https://github.com/Coidemo/TextffCut#readme)**
+    📖 **[TextffCut 完全ガイド - note](https://note.com/YOUR_NOTE_URL)**
+    
+    **技術情報・詳細設定**  
+    🔗 **[GitHub ドキュメント](https://github.com/Coidemo/TextffCut#readme)**
     
     ##### 💡 クイックヒント
     
