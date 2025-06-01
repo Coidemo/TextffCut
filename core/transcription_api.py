@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional, List
 import requests
 from dataclasses import dataclass
+import openai
 
 from .transcription import TranscriptionResult, TranscriptionSegment
 from config import Config
