@@ -104,11 +104,11 @@ if not exist videos (
 )
 
 REM 既存のTextffCutコンテナを停止・削除
-docker ps -a --format "{{.Names}}" | findstr "^textffcut_app$" >nul 2>&1
+docker ps -a --format "{{.Names}}" | findstr "^TextffCut$" >nul 2>&1
 if %errorlevel% equ 0 (
     echo 既存のTextffCutコンテナを停止・削除しています...
-    docker stop textffcut_app 2>nul
-    docker rm textffcut_app 2>nul
+    docker stop TextffCut 2>nul
+    docker rm TextffCut 2>nul
 )
 
 REM 古いバージョンのイメージを削除
@@ -176,7 +176,7 @@ if ! docker version &>/dev/null; then
 fi
 
 # 既存のTextffCutコンテナをチェックして停止
-EXISTING_CONTAINER=$(docker ps -a --format "{{.Names}}" | grep -E "^textffcut_app$" || true)
+EXISTING_CONTAINER=$(docker ps -a --format "{{.Names}}" | grep -E "^TextffCut$" || true)
 if [ -n "$EXISTING_CONTAINER" ]; then
     echo "既存のTextffCutコンテナを停止・削除しています..."
     docker stop "$EXISTING_CONTAINER" 2>/dev/null || true
@@ -236,7 +236,7 @@ if [ ! -d "videos" ]; then
 fi
 
 # 既存のTextffCutコンテナをチェックして停止
-EXISTING_CONTAINER=\$(docker ps -a --format "{{.Names}}" | grep -E "^textffcut_app\$" || true)
+EXISTING_CONTAINER=\$(docker ps -a --format "{{.Names}}" | grep -E "^TextffCut\$" || true)
 if [ -n "\$EXISTING_CONTAINER" ]; then
     echo "既存のTextffCutコンテナを停止・削除しています..."
     docker stop "\$EXISTING_CONTAINER" 2>/dev/null || true
@@ -302,7 +302,7 @@ version: '3.8'
 services:
   textffcut:
     image: textffcut:${VERSION}
-    container_name: textffcut_app
+    container_name: TextffCut
     restart: unless-stopped
     ports:
       - "8501:8501"
@@ -392,7 +392,7 @@ cat > release/README_Docker.md <<'EOF'
 
 3. **Docker Desktop から停止**
    - Docker Desktop を開く
-   - 「Containers」タブで `textffcut_app` を探す
+   - 「Containers」タブで `TextffCut` を探す
    - 停止ボタン（■）をクリック
 
 ### 💡 便利な使い方のヒント
