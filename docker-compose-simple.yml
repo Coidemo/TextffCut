@@ -1,8 +1,6 @@
-version: '3.8'
-
 services:
   textffcut:
-    image: textffcut:1.1.0
+    image: textffcut:0.9.3
     container_name: textffcut_app
     restart: no  # 自動再起動しない
     ports:
