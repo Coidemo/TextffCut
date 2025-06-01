@@ -49,6 +49,7 @@ test_*.py
 dist/
 build/
 *.egg-info/
+release/
 
 # Temporary files
 *.tmp

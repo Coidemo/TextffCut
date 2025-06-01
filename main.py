@@ -34,7 +34,7 @@ from ui import (
 # Streamlitの設定
 st.set_page_config(
     page_title=config.ui.page_title,
-    page_icon="assets/icon.svg",
+    page_icon="🎬",
     layout=config.ui.layout,
     initial_sidebar_state="expanded"
 )
@@ -806,7 +806,8 @@ def main():
                         # 出力形式に応じて処理
                         if output_format == "FCPXMLファイル":
                             # FCPXMLを生成（時間範囲から直接）
-                            fcpxml_path = project_path / f"{safe_name}_TextffCut_{type_suffix}.fcpxml"
+                            from utils.file_utils import get_unique_path
+                            fcpxml_path = get_unique_path(project_path / f"{safe_name}_TextffCut_{type_suffix}.fcpxml")
                             
                             # エクスポート用セグメントを構築（隙間を詰めて配置）
                             export_segments = []
@@ -836,7 +837,7 @@ def main():
                                 cleanup_intermediate_files(project_path, keep_patterns=[f"{safe_name}_TextffCut_*.fcpxml", f"{safe_name}_TextffCut_*.mp4", "transcriptions/"])
                                 
                                 # 結果フォルダセクションを表示（Docker版のみ）
-                                show_result_folder_section(project_path, safe_name)
+                                # show_result_folder_section(project_path, safe_name)
                             else:
                                 st.error("FCPXMLファイルの生成に失敗しました。")
                         else:
@@ -864,7 +865,8 @@ def main():
                             # 結合処理
                             if len(output_files) > 1:
                                 # 統一された命名規則で出力
-                                combined_path = project_path / f"{safe_name}_TextffCut_{type_suffix}.mp4"
+                                from utils.file_utils import get_unique_path
+                                combined_path = get_unique_path(project_path / f"{safe_name}_TextffCut_{type_suffix}.mp4")
                                 show_progress(0.8, "動画を統合しています...", progress_bar, status_text)
                                 
                                 success = video_processor.combine_videos(
@@ -884,7 +886,7 @@ def main():
                                     cleanup_intermediate_files(project_path, keep_patterns=[f"{safe_name}_TextffCut_*.mp4", f"{safe_name}_TextffCut_*.fcpxml", "transcriptions/"])
                                     
                                     # 結果フォルダセクションを表示（Docker版のみ）
-                                    show_result_folder_section(project_path, safe_name)
+                                    # show_result_folder_section(project_path, safe_name)
                                 else:
                                     st.error("動画の結合に失敗しました")
                                     
@@ -899,7 +901,7 @@ def main():
                                 cleanup_intermediate_files(project_path, keep_patterns=["*.mp4"])
                                 
                                 # 結果フォルダセクションを表示（Docker版のみ）
-                                show_result_folder_section(project_path, safe_name)
+                                # show_result_folder_section(project_path, safe_name)
                             else:
                                 st.error("動画の抽出に失敗しました")
                         

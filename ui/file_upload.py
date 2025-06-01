@@ -26,8 +26,8 @@ def show_video_input() -> Optional[Tuple[str, str]]:
         import subprocess
         import os
         
-        # ホスト側のvideosフォルダパス（環境変数または現在の作業ディレクトリから取得）
-        host_videos_path = os.getenv('HOST_VIDEOS_PATH', os.path.join(os.getcwd(), 'videos'))
+        # ホスト側のvideosフォルダパス（環境変数から取得、なければデフォルト値）
+        host_videos_path = os.getenv('HOST_VIDEOS_PATH', '/app/videos')
         
         # videosフォルダ内のファイルを取得
         videos_dir = Path(get_videos_directory())

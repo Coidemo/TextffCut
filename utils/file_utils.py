@@ -113,3 +113,34 @@ def get_safe_filename(filename: str) -> str:
         filename = filename[:200]
     
     return filename or 'untitled'
+
+
+def get_unique_path(base_path: Path) -> Path:
+    """
+    ファイルが既に存在する場合、連番を付けてユニークなパスを生成
+    
+    Args:
+        base_path: 基本となるファイルパス
+        
+    Returns:
+        ユニークなファイルパス
+    """
+    if not base_path.exists():
+        return base_path
+    
+    # ファイル名と拡張子を分離
+    stem = base_path.stem
+    suffix = base_path.suffix
+    parent = base_path.parent
+    
+    # 連番を付けて試す
+    counter = 1
+    while True:
+        new_path = parent / f"{stem}_{counter:02d}{suffix}"
+        if not new_path.exists():
+            return new_path
+        counter += 1
+        
+        # 無限ループ防止
+        if counter > 999:
+            raise ValueError(f"Too many files with the same name: {base_path}")

@@ -775,11 +775,7 @@ def show_result_folder_section(project_path: Path, project_name: str):
             st.markdown(f"**{file_path.name}** ({file_size_mb:.1f} MB)")
     
     # フォルダパス表示
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        st.info("上記のファイルが生成されました。以下のパスで確認できます。")
-    with col2:
-        if st.button("📂 フォルダパス表示", key="show_result_path", help="結果フォルダのパスを表示します"):
+    if st.button("📂 フォルダパス表示", key="show_result_path", help="結果フォルダのパスを表示します"):
             # ホスト側の結果フォルダパス
             # project_pathは /app/videos/project_name_TextffCut の形式
             host_result_path = str(project_path).replace("/app/videos", "/Users/naoki/myProject/TextffCut/videos")

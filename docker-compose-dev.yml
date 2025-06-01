@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  textffcut:
+    image: textffcut:1.1.0
+    container_name: textffcut_dev
+    restart: no
+    ports:
+      - "8501:8501"
+    volumes:
+      # コードをマウント（リアルタイム反映）
+      - ./main.py:/app/main.py
+      - ./ui:/app/ui
+      - ./core:/app/core
+      - ./utils:/app/utils
+      - ./config.py:/app/config.py
+      # データフォルダ
+      - ./videos:/app/videos
+      - ./output:/app/output
+      - ./transcriptions:/app/transcriptions
+      - ./logs:/app/logs
+    environment:
+      - TZ=Asia/Tokyo
+      - HOST_VIDEOS_PATH=${PWD}/videos
+      - STREAMLIT_SERVER_RUN_ON_SAVE=true
+      - STREAMLIT_SERVER_FILE_WATCHER_TYPE=auto

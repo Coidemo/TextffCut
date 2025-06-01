@@ -244,6 +244,34 @@ python -c "from core.export import FCPXMLExporter; print('Export OK')"
 - `/README_API.md` (料金説明)
 - `/ui/components.py` (料金表示)
 
+## 📦 配布パッケージ作成
+
+### 配布パッケージ作成
+購入者向けのパッケージを作成するには：
+
+```bash
+# プロジェクトルートから実行
+./scripts/create_release_package.sh
+```
+
+これにより `release/TextffCut-v1.1.0.zip` が作成されます。
+
+**パッケージ内容:**
+- Dockerイメージ（tar.gz形式、約800MB）
+- 起動スクリプト（START_GUI.command/bat）
+- アンインストールスクリプト（UNINSTALL.command/bat）
+- docker-compose-simple.yml
+- 使い方ドキュメント
+
+**配布前の確認事項:**
+1. Docker Desktopでパッケージの動作確認
+2. Mac/Windows両方での起動確認
+3. アンインストールスクリプトの動作確認
+
+**注意**: requirements.txtで特定バージョンを指定しています（2025-06-01更新）。
+- torch 2.7.0: より小さいDockerイメージ（3.6GB vs 4.9GB）
+- 圧縮後: 約800MB（以前は1.5GB）
+
 ## 🐛 既知の問題
 
 1. **メモリ使用量**: 2GB以上の動画ファイルで問題になる可能性
@@ -259,6 +287,6 @@ python -c "from core.export import FCPXMLExporter; print('Export OK')"
 
 ---
 
-最終更新: 2024-05-28
+最終更新: 2025-06-01
 次回開発時はこのファイルを必ず確認してください。
-特に安定版（v1.0.0-stable）の情報は重要です。
+特に安定版（v1.01）の情報は重要です。

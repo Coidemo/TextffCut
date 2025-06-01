@@ -16,8 +16,8 @@ RUN apt-get update && apt-get install -y \
 
 # Pythonパッケージをインストール
 WORKDIR /build
-COPY requirements-lock.txt requirements.txt ./
-RUN pip install --user --no-cache-dir -r requirements-lock.txt
+COPY requirements.txt ./
+RUN pip install --user --no-cache-dir -r requirements.txt
 
 # ステージ2: 実行環境
 FROM python:3.10-slim

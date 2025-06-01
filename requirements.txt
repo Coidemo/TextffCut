@@ -1,30 +1,31 @@
 # TextffCut Dependencies
 # 全モード共通（ローカル版・API版）
+# 2025-06-01更新: より小さいDockerイメージのため最新版を使用
 
 # Core dependencies
-streamlit>=1.28.0
+streamlit==1.45.1  # Latest version with st.dialog support
 
 # Audio/Video processing
-ffmpeg-python>=0.2.0
-pydub>=0.25.0
+ffmpeg-python==0.2.0
+pydub==0.25.1
 
 # Data processing
-numpy>=1.24.0
-pandas>=2.0.0
+numpy==1.26.4  # streamlit 1.28.2 requires numpy<2
+pandas==2.0.3
 
 # Utilities
-python-dotenv>=1.0.0
-tqdm>=4.66.0
-psutil>=5.9.0
-cryptography>=41.0.0
+python-dotenv==1.0.0
+tqdm==4.66.1
+psutil==5.9.5
+cryptography==41.0.7
 
 # API support
-openai>=1.0.0
-requests>=2.31.0
+openai==1.12.0
+requests==2.31.0
 
 # Whisper support (required for both modes)
-# APIモードでもアライメント処理で必要
-torch>=2.2.0
-torchaudio>=2.2.0
-openai-whisper>=20230918
-whisperx>=3.1.0
+# 新しいバージョンでサイズ削減
+torch==2.7.0
+torchaudio==2.7.0
+openai-whisper==20240930
+whisperx==3.1.1
