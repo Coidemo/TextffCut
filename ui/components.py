@@ -716,24 +716,9 @@ def show_help():
     st.markdown("#### ❓ ヘルプ")
     
     st.markdown("""
-    ##### 📚 ドキュメント
+    詳しい使い方は note で公開予定です：
     
-    詳しい使い方や最新情報は、GitHub をご覧ください：
-    
-    🔗 **[TextffCut ドキュメント](https://github.com/Coidemo/TextffCut#readme)**
-    
-    ##### 💡 クイックヒント
-    
-    **区切り文字機能**  
-    切り抜き箇所の指定がうまくいかない場合は、`---` で区切ってみてください
-    
-    **推奨設定**  
-    - GPU環境あり → ローカルモード（無料・高速）
-    - GPU環境なし → APIモード（有料・最高速）
-    
-    ##### 🐛 問題報告・機能要望
-    
-    [GitHub Issues](https://github.com/Coidemo/TextffCut/issues) からお寄せください
+    📖 **[Coidemo - note](https://note.com/coidemo)**
     """)
 
 

@@ -320,96 +320,39 @@ EOF
 
 # README_Docker.md の作成
 cat > release/README_Docker.md <<'EOF'
-# TextffCut セットアップガイド
+# TextffCut
 
-## 必要なシステム要件
+動画の文字起こしと切り抜きを効率化するツールです。
 
-- **検証済み環境**: macOS 10.15以降
-- **未検証**: Windows 10/11（Dockerの仕組み上動作するはずですが、検証していません）
-- Docker Desktop がインストールされていること
-- 8GB以上のメモリ（推奨: 16GB以上）
-- 10GB以上の空きディスク容量
+## クイックスタート
 
-## セットアップ手順
+### 1. Docker Desktop を起動
+Docker Desktop がインストールされていない場合は、[公式サイト](https://www.docker.com/products/docker-desktop/)からダウンロードしてください。
 
-### 1. Docker Desktop のインストール
+### 2. TextffCut を起動
+- **Windows**: `START.bat` をダブルクリック
+- **macOS**: `START.command` をダブルクリック（初回は右クリック→「開く」）
 
-まだインストールしていない場合は、以下からダウンロードしてインストールしてください：
+初回起動時は準備に数分かかります。
 
-- **Windows**: [Docker Desktop for Windows](https://docs.docker.com/desktop/install/windows-install/)
-- **macOS**: [Docker Desktop for Mac](https://docs.docker.com/desktop/install/mac-install/)
+### 3. 使い方
+1. `videos` フォルダに動画ファイル（MP4）を入れる
+2. ブラウザで自動的に開く画面で操作
+3. 結果は `videos` フォルダ内に保存される
 
-### 2. Docker Desktop の起動
+### 4. 終了方法
+ターミナル/コマンドプロンプトで `Ctrl+C` を押す
 
-インストール後、Docker Desktop を起動してください。
-タスクバー（Windows）またはメニューバー（macOS）にDockerアイコンが表示されます。
+## 📖 詳しい使い方
 
-### 3. TextffCut の起動
+スクリーンショット付きの詳しい説明は note をご覧ください：
 
-#### Windows の場合
-1. `START.bat` をダブルクリックします
-2. 初回起動時は Docker イメージの読み込みに数分かかります
-3. ブラウザが自動的に開き、`http://localhost:8501` でアプリケーションが表示されます
+**[Coidemo - note](https://note.com/coidemo)**
 
-#### macOS の場合
-1. `START.command` をダブルクリックします
-   - 初回実行時に「開発元が未確認」の警告が出る場合は、Finderで右クリック→「開く」を選択
-2. 初回起動時は Docker イメージの読み込みに数分かかります
-3. ブラウザが自動的に開き、`http://localhost:8501` でアプリケーションが表示されます
-
-## 使い方
-
-1. **動画ファイルの配置**
-   - 同じフォルダ内の `videos` フォルダに動画ファイルを配置します
-   - **検証済み形式**: MP4
-   - **未検証形式**: MOV, AVI, MKV（FFmpegが対応しているため動作するはずです）
-
-2. **アプリケーションの利用**
-   - ブラウザで `http://localhost:8501` にアクセス
-   - 動画を選択して文字起こし・編集を行います
-
-3. **出力ファイル**
-   - 処理結果は `videos` フォルダ内に保存されます
-
-## トラブルシューティング
-
-### アプリケーションが起動しない
-- Docker Desktop が起動していることを確認してください
-- ポート 8501 が他のアプリケーションで使用されていないか確認してください
-
-### メモリ不足エラー
-- Docker Desktop の設定でメモリ割り当てを増やしてください
-  - Docker Desktop → Settings → Resources → Memory
-
-### 動画が表示されない
-- 動画ファイルが `videos` フォルダに配置されているか確認してください
-- ファイル名に日本語が含まれている場合、英数字に変更してみてください
-
-## アプリケーションの停止
-
-### 推奨される停止方法（簡単）
-1. **ターミナル/コマンドプロンプトで `Ctrl+C` を押す**
-   - これが最も簡単で確実な方法です
-   - ターミナルに戻って `Ctrl+C` を押すだけで停止します
-
-### その他の停止方法
-2. **ターミナル/コマンドプロンプトウィンドウを閉じる**
-   - ウィンドウを閉じても停止します
-   - ただし、Dockerコンテナが残る場合があります
-
-3. **Docker Desktop から停止**
-   - Docker Desktop を開く
-   - 「Containers」タブで `TextffCut` を探す
-   - 停止ボタン（■）をクリック
-
-### 💡 便利な使い方のヒント
-- ブラウザタブは閉じても問題ありません（アプリは動作し続けます）
-- 再度アクセスしたい場合は http://localhost:8501 を開いてください
-- 作業が終わったら、必ずターミナルで `Ctrl+C` を押して停止してください
-
-## サポート
-
-問題が解決しない場合は、エラーメッセージと共にお問い合わせください。
+## 動作環境
+- Docker Desktop 必須
+- メモリ 8GB以上推奨
+- 検証済み: macOS + MP4形式
 EOF
 
 # 実行権限を付与
