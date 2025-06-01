@@ -104,11 +104,11 @@ if not exist videos (
 )
 
 REM 既存のTextffCutコンテナを停止・削除
-docker ps -a --format "{{.Names}}" | findstr "^textffcut_app$" >nul 2>&1
+docker ps -a --format "{{.Names}}" | findstr "^TextffCut$" >nul 2>&1
 if %errorlevel% equ 0 (
     echo 既存のTextffCutコンテナを停止・削除しています...
-    docker stop textffcut_app 2>nul
-    docker rm textffcut_app 2>nul
+    docker stop TextffCut 2>nul
+    docker rm TextffCut 2>nul
 )
 
 REM 古いバージョンのイメージを削除
@@ -176,7 +176,7 @@ if ! docker version &>/dev/null; then
 fi
 
 # 既存のTextffCutコンテナをチェックして停止
-EXISTING_CONTAINER=$(docker ps -a --format "{{.Names}}" | grep -E "^textffcut_app$" || true)
+EXISTING_CONTAINER=$(docker ps -a --format "{{.Names}}" | grep -E "^TextffCut$" || true)
 if [ -n "$EXISTING_CONTAINER" ]; then
     echo "既存のTextffCutコンテナを停止・削除しています..."
     docker stop "$EXISTING_CONTAINER" 2>/dev/null || true
@@ -236,7 +236,7 @@ if [ ! -d "videos" ]; then
 fi
 
 # 既存のTextffCutコンテナをチェックして停止
-EXISTING_CONTAINER=\$(docker ps -a --format "{{.Names}}" | grep -E "^textffcut_app\$" || true)
+EXISTING_CONTAINER=\$(docker ps -a --format "{{.Names}}" | grep -E "^TextffCut\$" || true)
 if [ -n "\$EXISTING_CONTAINER" ]; then
     echo "既存のTextffCutコンテナを停止・削除しています..."
     docker stop "\$EXISTING_CONTAINER" 2>/dev/null || true
@@ -302,7 +302,7 @@ version: '3.8'
 services:
   textffcut:
     image: textffcut:${VERSION}
-    container_name: textffcut_app
+    container_name: TextffCut
     restart: unless-stopped
     ports:
       - "8501:8501"
@@ -380,8 +380,25 @@ cat > release/README_Docker.md <<'EOF'
 
 ## アプリケーションの停止
 
-- コマンドプロンプト/ターミナルで `Ctrl+C` を押します
-- または Docker Desktop でコンテナを停止します
+### 推奨される停止方法（簡単）
+1. **ターミナル/コマンドプロンプトで `Ctrl+C` を押す**
+   - これが最も簡単で確実な方法です
+   - ターミナルに戻って `Ctrl+C` を押すだけで停止します
+
+### その他の停止方法
+2. **ターミナル/コマンドプロンプトウィンドウを閉じる**
+   - ウィンドウを閉じても停止します
+   - ただし、Dockerコンテナが残る場合があります
+
+3. **Docker Desktop から停止**
+   - Docker Desktop を開く
+   - 「Containers」タブで `TextffCut` を探す
+   - 停止ボタン（■）をクリック
+
+### 💡 便利な使い方のヒント
+- ブラウザタブは閉じても問題ありません（アプリは動作し続けます）
+- 再度アクセスしたい場合は http://localhost:8501 を開いてください
+- 作業が終わったら、必ずターミナルで `Ctrl+C` を押して停止してください
 
 ## サポート
 
