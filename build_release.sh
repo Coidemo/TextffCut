@@ -113,11 +113,20 @@ if %errorlevel% equ 0 (
 
 REM 古いバージョンのイメージを削除
 echo 古いバージョンのイメージをクリーンアップしています...
+
+REM まず古いバージョンのコンテナを全て削除
+echo 古いバージョンのコンテナを削除しています...
+for /f "tokens=1,2" %%a in ('docker ps -a --format "{{.Names}} {{.Image}}" ^| findstr "textffcut:" ^| findstr /v ":${VERSION}"') do (
+    echo コンテナ削除中: %%a (%%b)
+    docker rm -f %%a 2>nul
+)
+
+REM 古いバージョンのイメージを削除（強制削除）
 set OLD_IMAGES_FOUND=0
 for /f "tokens=*" %%a in ('docker images --format "{{.Repository}}:{{.Tag}}" ^| findstr "^textffcut:" ^| findstr /v ":${VERSION}$"') do (
     set OLD_IMAGES_FOUND=1
     echo 削除中: %%a
-    docker rmi %%a 2>nul
+    docker rmi -f %%a 2>nul
 )
 if %OLD_IMAGES_FOUND% equ 0 (
     echo 削除する古いイメージはありません。
