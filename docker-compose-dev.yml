@@ -1,24 +1,28 @@
+version: '3.8'
+
 services:
-  textffcut:
-    image: textffcut:0.9.3
+  textffcut-dev:
+    image: textffcut:1.0.2
     container_name: textffcut_dev
-    restart: no
     ports:
-      - "8501:8501"
+      - "8502:8501"
     volumes:
-      # コードをマウント（リアルタイム反映）
+      # コードをマウントしてリアルタイム編集可能に
       - ./main.py:/app/main.py
-      - ./ui:/app/ui
-      - ./core:/app/core
-      - ./utils:/app/utils
       - ./config.py:/app/config.py
-      # データフォルダ
+      - ./core:/app/core
+      - ./ui:/app/ui
+      - ./utils:/app/utils
+      # データディレクトリ
       - ./videos:/app/videos
       - ./output:/app/output
-      - ./transcriptions:/app/transcriptions
       - ./logs:/app/logs
     environment:
       - TZ=Asia/Tokyo
-      - HOST_VIDEOS_PATH=${PWD}/videos
-      - STREAMLIT_SERVER_RUN_ON_SAVE=true
-      - STREAMLIT_SERVER_FILE_WATCHER_TYPE=auto
+      - PYTHONUNBUFFERED=1
+      - STREAMLIT_SERVER_HEADLESS=true
+      - STREAMLIT_SERVER_PORT=8501
+      - STREAMLIT_SERVER_ADDRESS=0.0.0.0
+      # デバッグ用環境変数
+      - DEBUG=1
+    command: ["streamlit", "run", "main.py", "--server.runOnSave", "true"]

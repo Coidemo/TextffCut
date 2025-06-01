@@ -276,12 +276,21 @@ class APITranscriber:
             segments = []
             if hasattr(response, 'segments') and response.segments:
                 for seg in response.segments:
-                    segment = TranscriptionSegment(
-                        start=seg.start + start_offset,
-                        end=seg.end + start_offset,
-                        text=seg.text,
-                        words=None  # アライメント処理なしの場合は None に設定
-                    )
+                    # seg がdictの場合とオブジェクトの場合の両方に対応
+                    if isinstance(seg, dict):
+                        segment = TranscriptionSegment(
+                            start=seg['start'] + start_offset,
+                            end=seg['end'] + start_offset,
+                            text=seg['text'],
+                            words=None  # アライメント処理なしの場合は None に設定
+                        )
+                    else:
+                        segment = TranscriptionSegment(
+                            start=seg.start + start_offset,
+                            end=seg.end + start_offset,
+                            text=seg.text,
+                            words=None  # アライメント処理なしの場合は None に設定
+                        )
                     segments.append(segment)
             elif response.text.strip():
                 # セグメント情報がない場合

@@ -33,11 +33,11 @@ from .subprocess_utils import run_command_with_timeout
 from .settings import settings_manager
 from .api_key_manager import api_key_manager
 from .environment import (
-    is_docker_environment,
-    get_environment_type,
-    get_videos_directory,
-    get_default_output_directory,
-    get_environment_info
+    VIDEOS_DIR,
+    OUTPUT_DIR,
+    LOGS_DIR,
+    TEMP_DIR,
+    DEFAULT_HOST_PATH
 )
 
 __all__ = [
@@ -67,9 +67,9 @@ __all__ = [
     'ProcessingContext',
     'settings_manager',
     'api_key_manager',
-    'is_docker_environment',
-    'get_environment_type',
-    'get_videos_directory',
-    'get_default_output_directory',
-    'get_environment_info'
+    'VIDEOS_DIR',
+    'OUTPUT_DIR',
+    'LOGS_DIR',
+    'TEMP_DIR',
+    'DEFAULT_HOST_PATH'
 ]
