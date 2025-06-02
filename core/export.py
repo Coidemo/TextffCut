@@ -283,7 +283,6 @@ class XMEMLExporter:
             
             # タイムライン上の位置（前のクリップの終了位置）
             timeline_start_frames = sum(int(s.duration * timeline_fps) for s in segments[:i-1])
-            timeline_end_frames = timeline_start_frames + duration_frames
             
             # URLエンコードされたファイルパス
             from urllib.parse import quote
@@ -307,7 +306,7 @@ class XMEMLExporter:
 							<ntsc>FALSE</ntsc>
 						</rate>
 						<start>{timeline_start_frames}</start>
-						<end>{timeline_end_frames}</end>
+						<end>{duration_frames}</end>
 						<in>{start_frames}</in>
 						<out>{end_frames}</out>
 						<alphatype>none</alphatype>
