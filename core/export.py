@@ -227,13 +227,13 @@ class XMEMLExporter:
         timeline_fps: int,
         project_name: str
     ) -> str:
-        """XMEMLコンテンツを構築"""
+        """XMEMLコンテンツを構築（Premiere Pro完全互換）"""
         import uuid
         
         # 総時間を計算（フレーム数）
         total_duration_frames = sum(int(seg.duration * timeline_fps) for seg in segments)
         
-        # XMLヘッダー（Premiere Pro形式：sequenceを直接配置）
+        # XMLヘッダー
         xml_content = '''<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE xmeml>
 <xmeml version="4">
@@ -253,6 +253,26 @@ class XMEMLExporter:
 							<timebase>''' + str(timeline_fps) + '''</timebase>
 							<ntsc>FALSE</ntsc>
 						</rate>
+						<codec>
+							<name>Apple ProRes 422</name>
+							<appspecificdata>
+								<appname>Final Cut Pro</appname>
+								<appmanufacturer>Apple Inc.</appmanufacturer>
+								<appversion>7.0</appversion>
+								<data>
+									<qtcodec>
+										<codecname>Apple ProRes 422</codecname>
+										<codectypename>Apple ProRes 422</codectypename>
+										<codectypecode>apcn</codectypecode>
+										<codecvendorcode>appl</codecvendorcode>
+										<spatialquality>1024</spatialquality>
+										<temporalquality>0</temporalquality>
+										<keyframerate>0</keyframerate>
+										<datarate>0</datarate>
+									</qtcodec>
+								</data>
+							</appspecificdata>
+						</codec>
 						<width>1920</width>
 						<height>1080</height>
 						<anamorphic>FALSE</anamorphic>
@@ -264,9 +284,10 @@ class XMEMLExporter:
 				<track>
 '''
         
-        # クリップを追加
+        # ビデオクリップを追加
         file_counter = 1
         file_map = {}
+        video_clip_count = len(segments)
         
         for i, seg in enumerate(segments, 1):
             # ファイルIDを管理
@@ -281,12 +302,12 @@ class XMEMLExporter:
             end_frames = int(seg.end_time * timeline_fps)
             duration_frames = end_frames - start_frames
             
-            # タイムライン上の位置（前のクリップの終了位置）
+            # タイムライン上の位置
             timeline_start_frames = sum(int(s.duration * timeline_fps) for s in segments[:i-1])
+            timeline_end_frames = timeline_start_frames + duration_frames
             
             # URLエンコードされたファイルパス
             from urllib.parse import quote
-            # Premiere Proは小文字のURLエンコーディングを期待している
             encoded_filename = quote(Path(seg.source_path).name)
             
             # Docker環境の場合はホストパスに変換
@@ -296,17 +317,20 @@ class XMEMLExporter:
             else:
                 file_url = f"file://localhost{Path(seg.source_path).resolve()}".replace('\\', '/')
             
+            # 総ファイルduration
+            total_file_duration = int(video_infos[seg.source_path].duration * timeline_fps)
+            
             xml_content += f'''					<clipitem id="clipitem-{i}">
 						<masterclipid>masterclip-1</masterclipid>
 						<name>{Path(seg.source_path).stem}</name>
 						<enabled>TRUE</enabled>
-						<duration>{duration_frames}</duration>
+						<duration>{total_file_duration}</duration>
 						<rate>
 							<timebase>{timeline_fps}</timebase>
 							<ntsc>FALSE</ntsc>
 						</rate>
 						<start>{timeline_start_frames}</start>
-						<end>{end_frames}</end>
+						<end>{timeline_end_frames}</end>
 						<in>{start_frames}</in>
 						<out>{end_frames}</out>
 						<alphatype>none</alphatype>
@@ -319,7 +343,7 @@ class XMEMLExporter:
 								<timebase>{timeline_fps}</timebase>
 								<ntsc>FALSE</ntsc>
 							</rate>
-							<duration>{int(video_infos[seg.source_path].duration * timeline_fps)}</duration>
+							<duration>{total_file_duration}</duration>
 							<timecode>
 								<rate>
 									<timebase>{timeline_fps}</timebase>
@@ -352,10 +376,51 @@ class XMEMLExporter:
 								</audio>
 							</media>
 						</file>
+						<link>
+							<linkclipref>clipitem-{i}</linkclipref>
+							<mediatype>video</mediatype>
+							<trackindex>1</trackindex>
+							<clipindex>{i}</clipindex>
+						</link>
+						<link>
+							<linkclipref>clipitem-{video_clip_count + i}</linkclipref>
+							<mediatype>audio</mediatype>
+							<trackindex>1</trackindex>
+							<clipindex>{i}</clipindex>
+							<groupindex>1</groupindex>
+						</link>
+						<link>
+							<linkclipref>clipitem-{video_clip_count * 2 + i}</linkclipref>
+							<mediatype>audio</mediatype>
+							<trackindex>2</trackindex>
+							<clipindex>{i}</clipindex>
+							<groupindex>1</groupindex>
+						</link>
+						<logginginfo>
+							<description></description>
+							<scene></scene>
+							<shottake></shottake>
+							<lognote></lognote>
+							<good></good>
+							<originalvideofilename></originalvideofilename>
+							<originalaudiofilename></originalaudiofilename>
+						</logginginfo>
+						<colorinfo>
+							<lut></lut>
+							<lut1></lut1>
+							<asc_sop></asc_sop>
+							<asc_sat></asc_sat>
+							<lut2></lut2>
+						</colorinfo>
+						<labels>
+							<label2>Iris</label2>
+						</labels>
 					</clipitem>
 '''
         
-        xml_content += '''				</track>
+        xml_content += '''					<enabled>TRUE</enabled>
+					<locked>FALSE</locked>
+				</track>
 			</video>
 			<audio>
 				<numOutputChannels>2</numOutputChannels>
@@ -383,8 +448,199 @@ class XMEMLExporter:
 						</channel>
 					</group>
 				</outputs>
+'''
+        
+        # オーディオトラック1を追加
+        xml_content += '''				<track currentExplodedTrackIndex="0" totalExplodedTrackCount="2" premiereTrackType="Stereo">
+'''
+        
+        for i, seg in enumerate(segments, 1):
+            file_id = file_map[seg.source_path]
+            
+            # フレーム数で計算（ビデオと同じ）
+            start_frames = int(seg.start_time * timeline_fps)
+            end_frames = int(seg.end_time * timeline_fps)
+            duration_frames = end_frames - start_frames
+            
+            # タイムライン上の位置
+            timeline_start_frames = sum(int(s.duration * timeline_fps) for s in segments[:i-1])
+            timeline_end_frames = timeline_start_frames + duration_frames
+            
+            # 総ファイルduration
+            total_file_duration = int(video_infos[seg.source_path].duration * timeline_fps)
+            
+            xml_content += f'''					<clipitem id="clipitem-{video_clip_count + i}" premiereChannelType="stereo">
+						<masterclipid>masterclip-1</masterclipid>
+						<name>{Path(seg.source_path).stem}</name>
+						<enabled>TRUE</enabled>
+						<duration>{total_file_duration}</duration>
+						<rate>
+							<timebase>{timeline_fps}</timebase>
+							<ntsc>FALSE</ntsc>
+						</rate>
+						<start>{timeline_start_frames}</start>
+						<end>{timeline_end_frames}</end>
+						<in>{start_frames}</in>
+						<out>{end_frames}</out>
+						<file id="{file_id}"/>
+						<sourcetrack>
+							<mediatype>audio</mediatype>
+							<trackindex>1</trackindex>
+						</sourcetrack>
+						<link>
+							<linkclipref>clipitem-{i}</linkclipref>
+							<mediatype>video</mediatype>
+							<trackindex>1</trackindex>
+							<clipindex>{i}</clipindex>
+						</link>
+						<link>
+							<linkclipref>clipitem-{video_clip_count + i}</linkclipref>
+							<mediatype>audio</mediatype>
+							<trackindex>1</trackindex>
+							<clipindex>{i}</clipindex>
+							<groupindex>1</groupindex>
+						</link>
+						<link>
+							<linkclipref>clipitem-{video_clip_count * 2 + i}</linkclipref>
+							<mediatype>audio</mediatype>
+							<trackindex>2</trackindex>
+							<clipindex>{i}</clipindex>
+							<groupindex>1</groupindex>
+						</link>
+						<logginginfo>
+							<description></description>
+							<scene></scene>
+							<shottake></shottake>
+							<lognote></lognote>
+							<good></good>
+							<originalvideofilename></originalvideofilename>
+							<originalaudiofilename></originalaudiofilename>
+						</logginginfo>
+						<colorinfo>
+							<lut></lut>
+							<lut1></lut1>
+							<asc_sop></asc_sop>
+							<asc_sat></asc_sat>
+							<lut2></lut2>
+						</colorinfo>
+						<labels>
+							<label2>Iris</label2>
+						</labels>
+					</clipitem>
+'''
+        
+        xml_content += '''					<enabled>TRUE</enabled>
+					<locked>FALSE</locked>
+					<outputchannelindex>1</outputchannelindex>
+				</track>
+'''
+        
+        # オーディオトラック2を追加
+        xml_content += '''				<track currentExplodedTrackIndex="1" totalExplodedTrackCount="2" premiereTrackType="Stereo">
+'''
+        
+        for i, seg in enumerate(segments, 1):
+            file_id = file_map[seg.source_path]
+            
+            # フレーム数で計算（ビデオと同じ）
+            start_frames = int(seg.start_time * timeline_fps)
+            end_frames = int(seg.end_time * timeline_fps)
+            duration_frames = end_frames - start_frames
+            
+            # タイムライン上の位置
+            timeline_start_frames = sum(int(s.duration * timeline_fps) for s in segments[:i-1])
+            timeline_end_frames = timeline_start_frames + duration_frames
+            
+            # 総ファイルduration
+            total_file_duration = int(video_infos[seg.source_path].duration * timeline_fps)
+            
+            xml_content += f'''					<clipitem id="clipitem-{video_clip_count * 2 + i}" premiereChannelType="stereo">
+						<masterclipid>masterclip-1</masterclipid>
+						<name>{Path(seg.source_path).stem}</name>
+						<enabled>TRUE</enabled>
+						<duration>{total_file_duration}</duration>
+						<rate>
+							<timebase>{timeline_fps}</timebase>
+							<ntsc>FALSE</ntsc>
+						</rate>
+						<start>{timeline_start_frames}</start>
+						<end>{timeline_end_frames}</end>
+						<in>{start_frames}</in>
+						<out>{end_frames}</out>
+						<file id="{file_id}"/>
+						<sourcetrack>
+							<mediatype>audio</mediatype>
+							<trackindex>2</trackindex>
+						</sourcetrack>
+						<link>
+							<linkclipref>clipitem-{i}</linkclipref>
+							<mediatype>video</mediatype>
+							<trackindex>1</trackindex>
+							<clipindex>{i}</clipindex>
+						</link>
+						<link>
+							<linkclipref>clipitem-{video_clip_count + i}</linkclipref>
+							<mediatype>audio</mediatype>
+							<trackindex>1</trackindex>
+							<clipindex>{i}</clipindex>
+							<groupindex>1</groupindex>
+						</link>
+						<link>
+							<linkclipref>clipitem-{video_clip_count * 2 + i}</linkclipref>
+							<mediatype>audio</mediatype>
+							<trackindex>2</trackindex>
+							<clipindex>{i}</clipindex>
+							<groupindex>1</groupindex>
+						</link>
+						<logginginfo>
+							<description></description>
+							<scene></scene>
+							<shottake></shottake>
+							<lognote></lognote>
+							<good></good>
+							<originalvideofilename></originalvideofilename>
+							<originalaudiofilename></originalaudiofilename>
+						</logginginfo>
+						<colorinfo>
+							<lut></lut>
+							<lut1></lut1>
+							<asc_sop></asc_sop>
+							<asc_sat></asc_sat>
+							<lut2></lut2>
+						</colorinfo>
+						<labels>
+							<label2>Iris</label2>
+						</labels>
+					</clipitem>
+'''
+        
+        xml_content += '''					<enabled>TRUE</enabled>
+					<locked>FALSE</locked>
+					<outputchannelindex>2</outputchannelindex>
+				</track>
 			</audio>
 		</media>
+		<timecode>
+			<rate>
+				<timebase>''' + str(timeline_fps) + '''</timebase>
+				<ntsc>FALSE</ntsc>
+			</rate>
+			<string>00:00:00:00</string>
+			<frame>0</frame>
+			<displayformat>NDF</displayformat>
+		</timecode>
+		<labels>
+			<label2>Forest</label2>
+		</labels>
+		<logginginfo>
+			<description></description>
+			<scene></scene>
+			<shottake></shottake>
+			<lognote></lognote>
+			<good></good>
+			<originalvideofilename></originalvideofilename>
+			<originalaudiofilename></originalaudiofilename>
+		</logginginfo>
 	</sequence>
 </xmeml>'''
         
