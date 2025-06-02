@@ -289,7 +289,8 @@ class XMEMLExporter:
             
             # URLエンコードされたファイルパス
             from urllib.parse import quote
-            encoded_filename = quote(Path(seg.source_path).name.encode('utf-8'))
+            # Premiere Proは小文字のURLエンコーディングを期待している
+            encoded_filename = quote(Path(seg.source_path).name)
             
             # Docker環境の場合はホストパスに変換
             if os.path.exists('/.dockerenv'):
@@ -317,6 +318,7 @@ class XMEMLExporter:
                                         <timebase>{timeline_fps}</timebase>
                                         <ntsc>FALSE</ntsc>
                                     </rate>
+                                    <duration>{int(video_infos[seg.source_path].duration * timeline_fps)}</duration>
                                 </file>
                             </clipitem>
 '''
