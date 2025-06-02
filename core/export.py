@@ -233,37 +233,35 @@ class XMEMLExporter:
         # 総時間を計算（フレーム数）
         total_duration_frames = sum(int(seg.duration * timeline_fps) for seg in segments)
         
-        # XMLヘッダー
+        # XMLヘッダー（Premiere Pro形式：sequenceを直接配置）
         xml_content = '''<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE xmeml>
 <xmeml version="4">
-    <project>
-        <name>''' + project_name + '''</name>
-        <children>
-            <sequence id="sequence-1">
-                <uuid>''' + str(uuid.uuid4()) + '''</uuid>
-                <duration>''' + str(total_duration_frames) + '''</duration>
-                <rate>
-                    <timebase>''' + str(timeline_fps) + '''</timebase>
-                    <ntsc>FALSE</ntsc>
-                </rate>
-                <name>''' + project_name + '''</name>
-                <media>
-                    <video>
-                        <format>
-                            <samplecharacteristics>
-                                <rate>
-                                    <timebase>''' + str(timeline_fps) + '''</timebase>
-                                    <ntsc>FALSE</ntsc>
-                                </rate>
-                                <width>1920</width>
-                                <height>1080</height>
-                                <anamorphic>FALSE</anamorphic>
-                                <pixelaspectratio>square</pixelaspectratio>
-                                <fielddominance>none</fielddominance>
-                            </samplecharacteristics>
-                        </format>
-                        <track>
+	<sequence id="sequence-1">
+		<uuid>''' + str(uuid.uuid4()) + '''</uuid>
+		<duration>''' + str(total_duration_frames) + '''</duration>
+		<rate>
+			<timebase>''' + str(timeline_fps) + '''</timebase>
+			<ntsc>FALSE</ntsc>
+		</rate>
+		<name>''' + project_name + '''</name>
+		<media>
+			<video>
+				<format>
+					<samplecharacteristics>
+						<rate>
+							<timebase>''' + str(timeline_fps) + '''</timebase>
+							<ntsc>FALSE</ntsc>
+						</rate>
+						<width>1920</width>
+						<height>1080</height>
+						<anamorphic>FALSE</anamorphic>
+						<pixelaspectratio>square</pixelaspectratio>
+						<fielddominance>none</fielddominance>
+						<colordepth>24</colordepth>
+					</samplecharacteristics>
+				</format>
+				<track>
 '''
         
         # クリップを追加
@@ -299,36 +297,69 @@ class XMEMLExporter:
             else:
                 file_url = f"file://localhost{Path(seg.source_path).resolve()}".replace('\\', '/')
             
-            xml_content += f'''                            <clipitem id="clipitem-{i}">
-                                <name>{Path(seg.source_path).stem}_segment{i}</name>
-                                <enabled>TRUE</enabled>
-                                <duration>{duration_frames}</duration>
-                                <rate>
-                                    <timebase>{timeline_fps}</timebase>
-                                    <ntsc>FALSE</ntsc>
-                                </rate>
-                                <start>{timeline_start_frames}</start>
-                                <end>{timeline_end_frames}</end>
-                                <in>{start_frames}</in>
-                                <out>{end_frames}</out>
-                                <file id="{file_id}">
-                                    <name>{Path(seg.source_path).name}</name>
-                                    <pathurl>{file_url}</pathurl>
-                                    <rate>
-                                        <timebase>{timeline_fps}</timebase>
-                                        <ntsc>FALSE</ntsc>
-                                    </rate>
-                                    <duration>{int(video_infos[seg.source_path].duration * timeline_fps)}</duration>
-                                </file>
-                            </clipitem>
+            xml_content += f'''					<clipitem id="clipitem-{i}">
+						<masterclipid>masterclip-1</masterclipid>
+						<name>{Path(seg.source_path).stem}</name>
+						<enabled>TRUE</enabled>
+						<duration>{duration_frames}</duration>
+						<rate>
+							<timebase>{timeline_fps}</timebase>
+							<ntsc>FALSE</ntsc>
+						</rate>
+						<start>{timeline_start_frames}</start>
+						<end>{timeline_end_frames}</end>
+						<in>{start_frames}</in>
+						<out>{end_frames}</out>
+						<alphatype>none</alphatype>
+						<pixelaspectratio>square</pixelaspectratio>
+						<anamorphic>FALSE</anamorphic>
+						<file id="{file_id}">
+							<name>{Path(seg.source_path).name}</name>
+							<pathurl>{file_url}</pathurl>
+							<rate>
+								<timebase>{timeline_fps}</timebase>
+								<ntsc>FALSE</ntsc>
+							</rate>
+							<duration>{int(video_infos[seg.source_path].duration * timeline_fps)}</duration>
+							<timecode>
+								<rate>
+									<timebase>{timeline_fps}</timebase>
+									<ntsc>FALSE</ntsc>
+								</rate>
+								<string>00:00:00:00</string>
+								<frame>0</frame>
+								<displayformat>NDF</displayformat>
+							</timecode>
+							<media>
+								<video>
+									<samplecharacteristics>
+										<rate>
+											<timebase>{timeline_fps}</timebase>
+											<ntsc>FALSE</ntsc>
+										</rate>
+										<width>1920</width>
+										<height>1080</height>
+										<anamorphic>FALSE</anamorphic>
+										<pixelaspectratio>square</pixelaspectratio>
+										<fielddominance>none</fielddominance>
+									</samplecharacteristics>
+								</video>
+								<audio>
+									<samplecharacteristics>
+										<depth>16</depth>
+										<samplerate>48000</samplerate>
+									</samplecharacteristics>
+									<channelcount>2</channelcount>
+								</audio>
+							</media>
+						</file>
+					</clipitem>
 '''
         
-        xml_content += '''                        </track>
-                    </video>
-                </media>
-            </sequence>
-        </children>
-    </project>
+        xml_content += '''				</track>
+			</video>
+		</media>
+	</sequence>
 </xmeml>'''
         
         return xml_content
