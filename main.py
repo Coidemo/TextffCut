@@ -849,7 +849,13 @@ def main():
                             
                             if success:
                                 # 100%完了を表示
-                                show_progress(1.0, f"処理が完了しました！ 出力先: {fcpxml_path} | 📊 {len(keep_ranges)}個のクリップ、総時間: {timeline_pos:.1f}秒", progress_bar, status_text)
+                                # Docker環境でのパス表示修正
+                                if os.path.exists('/.dockerenv'):
+                                    host_videos_path = os.getenv('HOST_VIDEOS_PATH', '/path/to/videos')
+                                    display_path = os.path.join(host_videos_path, fcpxml_path.name)
+                                else:
+                                    display_path = fcpxml_path
+                                show_progress(1.0, f"処理が完了しました！ 出力先: {display_path} | 📊 {len(keep_ranges)}個のクリップ、総時間: {timeline_pos:.1f}秒", progress_bar, status_text)
                                 
                                 # FCPXMLの場合は中間ファイルを削除（TextffCutファイルと文字起こしを保護）
                                 cleanup_intermediate_files(project_path, keep_patterns=[f"{safe_name}_TextffCut_*.fcpxml", f"{safe_name}_TextffCut_*.mp4", "transcriptions/"])
@@ -895,7 +901,13 @@ def main():
                                 
                                 if success:
                                     # 100%完了を表示
-                                    show_progress(1.0, f"処理が完了しました！ 出力先: {project_path} | 📊 {len(keep_ranges)}個のセグメントを結合", progress_bar, status_text)
+                                    # Docker環境でのパス表示修正
+                                    if os.path.exists('/.dockerenv'):
+                                        host_videos_path = os.getenv('HOST_VIDEOS_PATH', '/path/to/videos')
+                                        display_path = os.path.join(host_videos_path, f"{safe_name}_TextffCut")
+                                    else:
+                                        display_path = project_path
+                                    show_progress(1.0, f"処理が完了しました！ 出力先: {display_path} | 📊 {len(keep_ranges)}個のセグメントを結合", progress_bar, status_text)
                                     
                                     # 動画プレビュー
                                     st.video(str(combined_path))
@@ -910,7 +922,13 @@ def main():
                                     
                             elif output_files:
                                 # 100%完了を表示
-                                show_progress(1.0, f"処理が完了しました！ 出力先: {project_path}", progress_bar, status_text)
+                                # Docker環境でのパス表示修正
+                                if os.path.exists('/.dockerenv'):
+                                    host_videos_path = os.getenv('HOST_VIDEOS_PATH', '/path/to/videos')
+                                    display_path = os.path.join(host_videos_path, f"{safe_name}_TextffCut")
+                                else:
+                                    display_path = project_path
+                                show_progress(1.0, f"処理が完了しました！ 出力先: {display_path}", progress_bar, status_text)
                                 
                                 # 動画プレビュー
                                 st.video(output_files[0])
