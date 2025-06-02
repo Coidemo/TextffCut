@@ -306,7 +306,7 @@ class XMEMLExporter:
 							<ntsc>FALSE</ntsc>
 						</rate>
 						<start>{timeline_start_frames}</start>
-						<end>{duration_frames}</end>
+						<end>{timeline_start_frames + duration_frames}</end>
 						<in>{start_frames}</in>
 						<out>{end_frames}</out>
 						<alphatype>none</alphatype>
