@@ -4,7 +4,7 @@ TextffCut コアモジュール
 from .transcription import Transcriber, TranscriptionResult, TranscriptionSegment
 from .video import VideoProcessor, VideoSegment, VideoInfo, SilenceInfo
 from .text_processor import TextProcessor, TextDifference, TextPosition
-from .export import FCPXMLExporter, EDLExporter, ExportSegment
+from .export import FCPXMLExporter, XMEMLExporter, EDLExporter, ExportSegment
 
 __all__ = [
     'Transcriber',
@@ -18,6 +18,7 @@ __all__ = [
     'TextDifference',
     'TextPosition',
     'FCPXMLExporter',
+    'XMEMLExporter',
     'EDLExporter',
     'ExportSegment'
 ]

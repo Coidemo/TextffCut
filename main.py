@@ -10,7 +10,7 @@ from datetime import datetime
 import os
 
 from config import config
-from core import Transcriber, TextProcessor, VideoProcessor, FCPXMLExporter, ExportSegment, VideoSegment
+from core import Transcriber, TextProcessor, VideoProcessor, FCPXMLExporter, XMEMLExporter, ExportSegment, VideoSegment
 from utils.file_utils import ensure_directory, get_safe_filename
 from utils.time_utils import format_time
 from utils import ProcessingContext, cleanup_intermediate_files
@@ -822,10 +822,18 @@ def main():
                             )
                         
                         # 出力形式に応じて処理
-                        if output_format == "FCPXMLファイル":
-                            # FCPXMLを生成（時間範囲から直接）
+                        if output_format in ["FCPXMLファイル", "Premiere Pro XML"]:
+                            # XMLを生成（時間範囲から直接）
                             from utils.file_utils import get_unique_path
-                            fcpxml_path = get_unique_path(project_path / f"{safe_name}_TextffCut_{type_suffix}.fcpxml")
+                            
+                            if output_format == "FCPXMLファイル":
+                                xml_ext = ".fcpxml"
+                                xml_exporter = fcpxml_exporter
+                            else:  # Premiere Pro XML
+                                xml_ext = ".xml"
+                                xml_exporter = XMEMLExporter(config)
+                            
+                            xml_path = get_unique_path(project_path / f"{safe_name}_TextffCut_{type_suffix}{xml_ext}")
                             
                             # エクスポート用セグメントを構築（隙間を詰めて配置）
                             export_segments = []
@@ -840,9 +848,9 @@ def main():
                                 ))
                                 timeline_pos += (end - start)  # 隙間を詰める
                             
-                            success = fcpxml_exporter.export(
+                            success = xml_exporter.export(
                                 export_segments,
-                                str(fcpxml_path),
+                                str(xml_path),
                                 timeline_fps,
                                 f"{safe_name} Project"
                             )
@@ -852,18 +860,18 @@ def main():
                                 # Docker環境でのパス表示修正
                                 if os.path.exists('/.dockerenv'):
                                     host_videos_path = os.getenv('HOST_VIDEOS_PATH', '/path/to/videos')
-                                    display_path = os.path.join(host_videos_path, fcpxml_path.name)
+                                    display_path = os.path.join(host_videos_path, xml_path.name)
                                 else:
-                                    display_path = fcpxml_path
+                                    display_path = xml_path
                                 show_progress(1.0, f"処理が完了しました！ 出力先: {display_path} | 📊 {len(keep_ranges)}個のクリップ、総時間: {timeline_pos:.1f}秒", progress_bar, status_text)
                                 
-                                # FCPXMLの場合は中間ファイルを削除（TextffCutファイルと文字起こしを保護）
-                                cleanup_intermediate_files(project_path, keep_patterns=[f"{safe_name}_TextffCut_*.fcpxml", f"{safe_name}_TextffCut_*.mp4", "transcriptions/"])
+                                # XMLの場合は中間ファイルを削除（TextffCutファイルと文字起こしを保護）
+                                cleanup_intermediate_files(project_path, keep_patterns=[f"{safe_name}_TextffCut_*.fcpxml", f"{safe_name}_TextffCut_*.xml", f"{safe_name}_TextffCut_*.mp4", "transcriptions/"])
                                 
                                 # 結果フォルダセクションを表示（Docker版のみ）
                                 # show_result_folder_section(project_path, safe_name)
                             else:
-                                st.error("FCPXMLファイルの生成に失敗しました。")
+                                st.error(f"{output_format}ファイルの生成に失敗しました。")
                         else:
                             # 動画ファイル出力（時間範囲から抽出）
                             show_progress(0.0, "動画セグメントを抽出中...", progress_bar, status_text)

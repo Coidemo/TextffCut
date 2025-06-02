@@ -166,6 +166,172 @@ class FCPXMLExporter:
 
 
 
+class XMEMLExporter:
+    """Premiere Pro用XMEML形式エクスポートクラス"""
+    
+    def __init__(self, config: Config):
+        self.config = config
+        
+    def export(
+        self,
+        segments: List[ExportSegment],
+        output_path: str,
+        timeline_fps: int = 30,
+        project_name: str = "TextffCut Project"
+    ) -> bool:
+        """
+        XMEMLファイルをエクスポート
+        
+        Args:
+            segments: エクスポートするセグメントのリスト
+            output_path: 出力ファイルパス
+            timeline_fps: タイムラインのFPS
+            project_name: プロジェクト名
+            
+        Returns:
+            成功したかどうか
+        """
+        try:
+            # 動画情報を取得
+            video_infos = {}
+            for seg in segments:
+                if seg.source_path not in video_infos:
+                    video_infos[seg.source_path] = VideoInfo.from_file(seg.source_path)
+            
+            # XMLを構築
+            xml_content = self._build_xmeml(
+                segments, video_infos, timeline_fps, project_name
+            )
+            
+            # ファイルに保存
+            Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+            with open(output_path, 'w', encoding='utf-8') as f:
+                f.write(xml_content)
+            
+            return True
+            
+        except OSError as e:
+            from utils.exceptions import FileNotFoundError as BuzzFileNotFoundError
+            raise BuzzFileNotFoundError(f"XMEML書き込みエラー: {str(e)}")
+        except PermissionError as e:
+            from utils.exceptions import VideoProcessingError
+            raise VideoProcessingError(f"XMEML書き込み権限エラー: {str(e)}")
+        except Exception as e:
+            from utils.exceptions import VideoProcessingError
+            raise VideoProcessingError(f"XMEMLエクスポートエラー: {str(e)}")
+    
+    def _build_xmeml(
+        self,
+        segments: List[ExportSegment],
+        video_infos: Dict[str, VideoInfo],
+        timeline_fps: int,
+        project_name: str
+    ) -> str:
+        """XMEMLコンテンツを構築"""
+        import uuid
+        
+        # 総時間を計算（フレーム数）
+        total_duration_frames = sum(int(seg.duration * timeline_fps) for seg in segments)
+        
+        # XMLヘッダー
+        xml_content = '''<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE xmeml>
+<xmeml version="4">
+    <project>
+        <name>''' + project_name + '''</name>
+        <children>
+            <sequence id="sequence-1">
+                <uuid>''' + str(uuid.uuid4()) + '''</uuid>
+                <duration>''' + str(total_duration_frames) + '''</duration>
+                <rate>
+                    <timebase>''' + str(timeline_fps) + '''</timebase>
+                    <ntsc>FALSE</ntsc>
+                </rate>
+                <name>''' + project_name + '''</name>
+                <media>
+                    <video>
+                        <format>
+                            <samplecharacteristics>
+                                <rate>
+                                    <timebase>''' + str(timeline_fps) + '''</timebase>
+                                    <ntsc>FALSE</ntsc>
+                                </rate>
+                                <width>1920</width>
+                                <height>1080</height>
+                                <anamorphic>FALSE</anamorphic>
+                                <pixelaspectratio>square</pixelaspectratio>
+                                <fielddominance>none</fielddominance>
+                            </samplecharacteristics>
+                        </format>
+                        <track>
+'''
+        
+        # クリップを追加
+        file_counter = 1
+        file_map = {}
+        
+        for i, seg in enumerate(segments, 1):
+            # ファイルIDを管理
+            if seg.source_path not in file_map:
+                file_map[seg.source_path] = f"file-{file_counter}"
+                file_counter += 1
+            
+            file_id = file_map[seg.source_path]
+            
+            # フレーム数で計算
+            start_frames = int(seg.start_time * timeline_fps)
+            end_frames = int(seg.end_time * timeline_fps)
+            duration_frames = end_frames - start_frames
+            
+            # タイムライン上の位置（前のクリップの終了位置）
+            timeline_start_frames = sum(int(s.duration * timeline_fps) for s in segments[:i-1])
+            timeline_end_frames = timeline_start_frames + duration_frames
+            
+            # URLエンコードされたファイルパス
+            from urllib.parse import quote
+            encoded_filename = quote(Path(seg.source_path).name.encode('utf-8'))
+            
+            # Docker環境の場合はホストパスに変換
+            if os.path.exists('/.dockerenv'):
+                host_videos_path = os.getenv('HOST_VIDEOS_PATH', '/path/to/videos')
+                file_url = f"file://localhost{host_videos_path}/{encoded_filename}"
+            else:
+                file_url = f"file://localhost{Path(seg.source_path).resolve()}".replace('\\', '/')
+            
+            xml_content += f'''                            <clipitem id="clipitem-{i}">
+                                <name>{Path(seg.source_path).stem}_segment{i}</name>
+                                <enabled>TRUE</enabled>
+                                <duration>{duration_frames}</duration>
+                                <rate>
+                                    <timebase>{timeline_fps}</timebase>
+                                    <ntsc>FALSE</ntsc>
+                                </rate>
+                                <start>{timeline_start_frames}</start>
+                                <end>{timeline_end_frames}</end>
+                                <in>{start_frames}</in>
+                                <out>{end_frames}</out>
+                                <file id="{file_id}">
+                                    <name>{Path(seg.source_path).name}</name>
+                                    <pathurl>{file_url}</pathurl>
+                                    <rate>
+                                        <timebase>{timeline_fps}</timebase>
+                                        <ntsc>FALSE</ntsc>
+                                    </rate>
+                                </file>
+                            </clipitem>
+'''
+        
+        xml_content += '''                        </track>
+                    </video>
+                </media>
+            </sequence>
+        </children>
+    </project>
+</xmeml>'''
+        
+        return xml_content
+
+
 class EDLExporter:
     """EDL（Edit Decision List）エクスポートクラス"""
     
