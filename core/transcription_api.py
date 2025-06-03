@@ -149,10 +149,22 @@ class APITranscriber:
         import soundfile as sf
         import numpy as np
         from concurrent.futures import ThreadPoolExecutor, as_completed
-        # 最適化された実装を使用
-        from .transcription_api_optimized import OptimizedAPITranscriber
-        optimized_transcriber = OptimizedAPITranscriber(self.config)
-        return optimized_transcriber._transcribe_with_chunks_optimized(client, audio, original_audio_path, progress_callback)
+        # システムスペックに基づいて最適化レベルを選択
+        from utils.system_resources import system_resource_manager
+        system_spec = system_resource_manager.get_system_spec()
+        
+        # 低スペックまたはメモリ圧迫時は超最適化版を使用
+        if system_spec.spec_level == 'low' or system_spec.available_memory_gb < 3:
+            from .transcription_api_ultra_optimized import UltraOptimizedAPITranscriber
+            logger.info("超最適化モード（ディスクキャッシュ）を使用")
+            ultra_transcriber = UltraOptimizedAPITranscriber(self.config)
+            return ultra_transcriber.transcribe_ultra_optimized(client, audio, original_audio_path, progress_callback)
+        else:
+            # 通常の最適化版を使用
+            from .transcription_api_optimized import OptimizedAPITranscriber
+            logger.info("最適化モードを使用")
+            optimized_transcriber = OptimizedAPITranscriber(self.config)
+            return optimized_transcriber._transcribe_with_chunks_optimized(client, audio, original_audio_path, progress_callback)
         
         # チャンクを作成
         chunks = []
