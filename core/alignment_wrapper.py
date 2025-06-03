@@ -25,16 +25,51 @@ def safe_load_align_model(language_code: str, device: str = "cpu") -> Tuple[Opti
         )
         
         # transformersのバージョン互換性修正
-        if hasattr(align_model, 'processor') and hasattr(align_model.processor, 'feature_extractor'):
-            # 新しいバージョンの場合
-            if not hasattr(align_model.processor, 'sampling_rate'):
-                # sampling_rateをfeature_extractorから取得して設定
-                if hasattr(align_model.processor.feature_extractor, 'sampling_rate'):
-                    align_model.processor.sampling_rate = align_model.processor.feature_extractor.sampling_rate
+        if hasattr(align_model, 'processor'):
+            processor = align_model.processor
+            
+            # sampling_rate属性を設定
+            if not hasattr(processor, 'sampling_rate'):
+                # 様々な場所から取得を試みる
+                sampling_rate = None
+                
+                # 1. feature_extractorから取得
+                if hasattr(processor, 'feature_extractor'):
+                    if hasattr(processor.feature_extractor, 'sampling_rate'):
+                        sampling_rate = processor.feature_extractor.sampling_rate
+                    elif hasattr(processor.feature_extractor, 'config'):
+                        if hasattr(processor.feature_extractor.config, 'sampling_rate'):
+                            sampling_rate = processor.feature_extractor.config.sampling_rate
+                
+                # 2. configから直接取得
+                if sampling_rate is None and hasattr(processor, 'config'):
+                    if hasattr(processor.config, 'sampling_rate'):
+                        sampling_rate = processor.config.sampling_rate
+                
+                # 3. モデル自体から取得
+                if sampling_rate is None and hasattr(align_model, 'config'):
+                    if hasattr(align_model.config, 'sampling_rate'):
+                        sampling_rate = align_model.config.sampling_rate
+                
+                # 設定または警告
+                if sampling_rate is not None:
+                    processor.sampling_rate = sampling_rate
+                    logger.info(f"sampling_rateを{sampling_rate}に設定しました")
                 else:
-                    # デフォルト値を設定
-                    align_model.processor.sampling_rate = 16000
+                    processor.sampling_rate = 16000
                     logger.warning("sampling_rateが見つからないため、デフォルト値16000を使用")
+            
+            # 追加の互換性処理
+            # processorに直接アクセスできるようにする
+            if hasattr(processor, '__call__'):
+                # 呼び出し可能な場合、ラップする
+                original_call = processor.__call__
+                def wrapped_call(*args, **kwargs):
+                    # sampling_rateをkwargsに追加
+                    if 'sampling_rate' not in kwargs and hasattr(processor, 'sampling_rate'):
+                        kwargs['sampling_rate'] = processor.sampling_rate
+                    return original_call(*args, **kwargs)
+                processor.__call__ = wrapped_call
         
         logger.info(f"アライメントモデルを読み込みました: {language_code}")
         return align_model, align_metadata
