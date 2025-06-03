@@ -158,6 +158,8 @@ def show_transcription_mode_selector():
     return use_api, model_size
 
 
+
+
 def show_transcription_controls(
     has_cache: bool = False,
     available_caches: List[Dict[str, Any]] = None

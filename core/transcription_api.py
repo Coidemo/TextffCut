@@ -252,10 +252,31 @@ class APITranscriber:
             completed_chunks = 0
             
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                # アライメントモデルを事前に読み込み（全チャンクで共有）
+                align_model = None
+                align_meta = None
+                try:
+                    import whisperx
+                    align_model, align_meta = whisperx.load_align_model(
+                        language_code=self.api_config.language,
+                        device="cpu"
+                    )
+                    logger.info("アライメントモデルを読み込みました")
+                except Exception as e:
+                    logger.warning(f"アライメントモデルの読み込みに失敗: {e}")
+                
                 # 各チャンクのAPI処理を送信
                 futures = []
                 for chunk_file, start_offset, chunk_idx in chunk_files:
-                    future = executor.submit(self._transcribe_chunk_api, client, chunk_file, start_offset, chunk_idx)
+                    future = executor.submit(
+                        self._transcribe_chunk_api, 
+                        client, 
+                        chunk_file, 
+                        start_offset, 
+                        chunk_idx,
+                        align_model,
+                        align_meta
+                    )
                     futures.append(future)
                 
                 # 完了したものから結果を取得
@@ -288,11 +309,11 @@ class APITranscriber:
             # セグメントをソート
             all_segments.sort(key=lambda x: x.start)
             
-            # アライメント処理を追加（ローカル版と同等の精度）
+            # アライメント処理はチャンクごとに実行済み
             if progress_callback:
-                progress_callback(0.95, "アライメント処理中...")
+                progress_callback(0.95, "結果を統合中...")
             
-            aligned_segments = self._perform_alignment(audio, all_segments, progress_callback)
+            aligned_segments = all_segments  # 既にアライメント済み
             
             if progress_callback:
                 progress_callback(1.0, "チャンク並列処理完了")
@@ -313,7 +334,8 @@ class APITranscriber:
             except:
                 pass
     
-    def _transcribe_chunk_api(self, client, chunk_file: str, start_offset: float, chunk_idx: int) -> List[TranscriptionSegment]:
+    def _transcribe_chunk_api(self, client, chunk_file: str, start_offset: float, chunk_idx: int,
+                             align_model=None, align_meta=None) -> List[TranscriptionSegment]:
         """単一チャンクのAPI処理"""
         try:
             with open(chunk_file, 'rb') as audio_file:
@@ -354,6 +376,57 @@ class APITranscriber:
                     words=None  # アライメント処理なしの場合は None に設定
                 )
                 segments.append(segment)
+            
+            # アライメント処理
+            if align_model and align_meta and len(segments) > 0:
+                try:
+                    # チャンクファイルから音声データを読み込み
+                    import whisperx
+                    chunk_audio = whisperx.load_audio(chunk_file)
+                    
+                    # API結果をWhisperX形式に変換
+                    whisperx_segments = []
+                    for seg in segments:
+                        whisperx_segments.append({
+                            "start": seg.start - start_offset,  # チャンク内の相対時間に戻す
+                            "end": seg.end - start_offset,
+                            "text": seg.text
+                        })
+                    
+                    # チャンクごとのアライメント
+                    aligned_result = whisperx.align(
+                        whisperx_segments,
+                        align_model,
+                        align_meta,
+                        chunk_audio,
+                        "cpu",
+                        return_char_alignments=True
+                    )
+                    
+                    # 結果を元の形式に戻す
+                    aligned_segments = []
+                    for seg in aligned_result["segments"]:
+                        aligned_seg = TranscriptionSegment(
+                            start=seg["start"] + start_offset,  # 絶対時間に戻す
+                            end=seg["end"] + start_offset,
+                            text=seg["text"],
+                            words=seg.get("words"),
+                            chars=seg.get("chars")
+                        )
+                        # wordsのタイムスタンプも調整
+                        if aligned_seg.words:
+                            for word in aligned_seg.words:
+                                if "start" in word:
+                                    word["start"] += start_offset
+                                if "end" in word:
+                                    word["end"] += start_offset
+                        aligned_segments.append(aligned_seg)
+                    
+                    logger.info(f"チャンク {chunk_idx} アライメント完了: {len(aligned_segments)}セグメント")
+                    return aligned_segments
+                    
+                except Exception as e:
+                    logger.warning(f"チャンク {chunk_idx} のアライメント処理に失敗: {e}")
             
             logger.info(f"チャンク {chunk_idx} 処理完了: {len(segments)}セグメント")
             return segments
