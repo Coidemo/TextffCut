@@ -389,14 +389,29 @@ class APITranscriber:
             if progress_callback:
                 progress_callback(0.9, "結果を統合中...")
             
+            # すべてのセグメントがTranscriptionSegmentオブジェクトであることを確認
+            validated_segments = []
+            for seg in all_segments:
+                if isinstance(seg, TranscriptionSegment):
+                    validated_segments.append(seg)
+                elif isinstance(seg, dict):
+                    # dictの場合はTranscriptionSegmentに変換
+                    validated_segments.append(TranscriptionSegment(
+                        start=seg.get('start', 0),
+                        end=seg.get('end', 0),
+                        text=seg.get('text', ''),
+                        words=seg.get('words'),
+                        chars=seg.get('chars')
+                    ))
+            
             # セグメントをソート
-            all_segments.sort(key=lambda x: x.start)
+            validated_segments.sort(key=lambda x: x.start)
             
             # アライメント処理はチャンクごとに実行済み
             if progress_callback:
                 progress_callback(0.95, "結果を統合中...")
             
-            aligned_segments = all_segments  # 既にアライメント済み
+            aligned_segments = validated_segments  # 既にアライメント済み
             
             if progress_callback:
                 progress_callback(1.0, "チャンク並列処理完了")
