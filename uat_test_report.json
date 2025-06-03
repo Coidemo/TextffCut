@@ -1,0 +1,164 @@
+{
+  "summary": {
+    "total": 22,
+    "passed": 19,
+    "failed": 0,
+    "skipped": 3
+  },
+  "results": [
+    {
+      "test_name": "モジュールインポート",
+      "status": "PASSED",
+      "details": "",
+      "error": null,
+      "timestamp": "2025-06-04 02:12:16"
+    },
+    {
+      "test_name": "設定ファイル読み込み",
+      "status": "PASSED",
+      "details": "",
+      "error": null,
+      "timestamp": "2025-06-04 02:12:16"
+    },
+    {
+      "test_name": "テスト動画確認: test.mp4",
+      "status": "PASSED",
+      "details": "",
+      "error": null,
+      "timestamp": "2025-06-04 02:12:16"
+    },
+    {
+      "test_name": "テスト動画確認: 001_AI活用の始めの一歩：お笑いAIから学ぶ発想術.mp4",
+      "status": "PASSED",
+      "details": "",
+      "error": null,
+      "timestamp": "2025-06-04 02:12:16"
+    },
+    {
+      "test_name": "WhisperX利用可能性",
+      "status": "PASSED",
+      "details": "",
+      "error": null,
+      "timestamp": "2025-06-04 02:12:16"
+    },
+    {
+      "test_name": "ローカルモード: キャッシュ読み込み",
+      "status": "SKIPPED",
+      "details": "キャッシュが存在しません",
+      "error": null,
+      "timestamp": "2025-06-04 02:12:16"
+    },
+    {
+      "test_name": "APIモード: 基本動作",
+      "status": "SKIPPED",
+      "details": "APIキーが設定されていません",
+      "error": null,
+      "timestamp": "2025-06-04 02:12:16"
+    },
+    {
+      "test_name": "テキスト処理: 差分検出",
+      "status": "PASSED",
+      "details": "5文字の追加を検出",
+      "error": null,
+      "timestamp": "2025-06-04 02:12:16"
+    },
+    {
+      "test_name": "動画処理: 情報取得",
+      "status": "PASSED",
+      "details": "動画長: 3930.0秒",
+      "error": null,
+      "timestamp": "2025-06-04 02:12:16"
+    },
+    {
+      "test_name": "エクスポート: FCPXML生成",
+      "status": "PASSED",
+      "details": "有効なFCPXMLファイルを生成",
+      "error": null,
+      "timestamp": "2025-06-04 02:12:16"
+    },
+    {
+      "test_name": "自動最適化: 低スペック検出",
+      "status": "PASSED",
+      "details": "推奨チャンクサイズ: 20秒",
+      "error": null,
+      "timestamp": "2025-06-04 02:12:16"
+    },
+    {
+      "test_name": "ディスクキャッシュ: 保存/読み込み",
+      "status": "PASSED",
+      "details": "",
+      "error": null,
+      "timestamp": "2025-06-04 02:12:16"
+    },
+    {
+      "test_name": "セグメント分割: 長いセグメント",
+      "status": "PASSED",
+      "details": "1セグメント → 5セグメント",
+      "error": null,
+      "timestamp": "2025-06-04 02:12:16"
+    },
+    {
+      "test_name": "システムリソース: メモリ監視",
+      "status": "PASSED",
+      "details": "現在の使用量: 0.5GB",
+      "error": null,
+      "timestamp": "2025-06-04 02:12:16"
+    },
+    {
+      "test_name": "システムリソース: メモリプレッシャー",
+      "status": "PASSED",
+      "details": "メモリプレッシャー: なし",
+      "error": null,
+      "timestamp": "2025-06-04 02:12:16"
+    },
+    {
+      "test_name": "エラーハンドリング: 無効なファイル",
+      "status": "PASSED",
+      "details": "例外が適切に発生: TypeError",
+      "error": null,
+      "timestamp": "2025-06-04 02:12:16"
+    },
+    {
+      "test_name": "エラーハンドリング: リトライ処理",
+      "status": "PASSED",
+      "details": "エラーが正しく処理されました",
+      "error": null,
+      "timestamp": "2025-06-04 02:12:17"
+    },
+    {
+      "test_name": "エラーハンドリング: メモリ調整",
+      "status": "PASSED",
+      "details": "ワーカー数: 10→10, 3→3",
+      "error": null,
+      "timestamp": "2025-06-04 02:12:17"
+    },
+    {
+      "test_name": "パフォーマンス: ディスクI/O",
+      "status": "PASSED",
+      "details": "書込: 0.006秒, 読込: 0.002秒 (100件)",
+      "error": null,
+      "timestamp": "2025-06-04 02:12:17"
+    },
+    {
+      "test_name": "UI: モジュールインポート",
+      "status": "PASSED",
+      "details": "",
+      "error": null,
+      "timestamp": "2025-06-04 02:12:17"
+    },
+    {
+      "test_name": "UI: メイン処理関数",
+      "status": "SKIPPED",
+      "details": "main.pyのインポートエラー（Streamlit依存）",
+      "error": null,
+      "timestamp": "2025-06-04 02:12:17"
+    },
+    {
+      "test_name": "UI: API/ローカル切り替え",
+      "status": "PASSED",
+      "details": "設定の切り替えが可能",
+      "error": null,
+      "timestamp": "2025-06-04 02:12:17"
+    }
+  ]
+}

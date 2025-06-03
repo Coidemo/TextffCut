@@ -100,16 +100,21 @@ class SystemResourceManager:
         # 高スペックPC（メモリ8GB以上）
         else:
             # パフォーマンス重視
-            api_workers = min(10, cpu_count * 2)  # APIは非同期なので多めに
-            align_workers = min(3, cpu_count // 2)
+            api_workers = min(15, cpu_count * 2)  # APIは非同期なので多めに（最大15に増加）
+            align_workers = min(5, cpu_count // 2)  # アライメントも最大5に増加
             chunk_seconds = 60  # 大きいチャンクで効率化
         
-        # 利用可能メモリに基づく調整
-        if available_memory_gb < 2:
-            # メモリが逼迫している場合は更に制限
-            api_workers = min(api_workers, 2)
+        # 利用可能メモリに基づく調整（閾値を緩和）
+        if available_memory_gb < 1:  # 2GB → 1GBに緩和
+            # メモリが本当に逼迫している場合のみ制限
+            api_workers = min(api_workers, 3)
             align_workers = 1
-            logger.warning(f"利用可能メモリが少ない({available_memory_gb:.1f}GB)ため、並列数を制限します")
+            logger.warning(f"利用可能メモリが非常に少ない({available_memory_gb:.1f}GB)ため、並列数を制限します")
+        elif available_memory_gb < 2:
+            # 軽い制限のみ
+            api_workers = min(api_workers, 5)
+            align_workers = min(align_workers, 2)
+            logger.info(f"利用可能メモリ({available_memory_gb:.1f}GB)に基づいて並列数を調整")
         
         return api_workers, align_workers, chunk_seconds
     

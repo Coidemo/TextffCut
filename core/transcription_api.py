@@ -233,6 +233,11 @@ class APITranscriber:
             
             return result
         
+        # チャンク処理のパラメータを設定
+        chunk_seconds = self.config.transcription.chunk_seconds
+        sample_rate = self.config.transcription.sample_rate
+        step = chunk_seconds * sample_rate
+        
         # チャンクを作成
         chunks = []
         MIN_CHUNK_DURATION = 1.0  # 1秒未満のチャンクは結合（安全性とコスト効率のため）
