@@ -340,13 +340,35 @@ class APITranscriber:
                 align_meta = None
                 try:
                     import whisperx
-                    align_model, align_meta = whisperx.load_align_model(
-                        language_code=self.api_config.language,
-                        device="cpu"
-                    )
-                    logger.info("アライメントモデルを読み込みました")
+                    
+                    # transformersのバージョンによる互換性問題を回避
+                    import transformers
+                    from packaging import version
+                    
+                    # transformersのバージョンをチェック
+                    transformers_version = version.parse(transformers.__version__)
+                    logger.info(f"transformersバージョン: {transformers.__version__}")
+                    
+                    # 新しいバージョンの場合、Wav2Vec2Processorのsampling_rate引数を回避
+                    if transformers_version >= version.parse("4.30.0"):
+                        logger.warning("新しいtransformersバージョンを検出。アライメント処理を無効化します")
+                        # アライメント機能を無効化
+                        align_model = None
+                        align_meta = None
+                    else:
+                        align_model, align_meta = whisperx.load_align_model(
+                            language_code=self.api_config.language,
+                            device="cpu"
+                        )
+                        logger.info("アライメントモデルを読み込みました")
+                except ImportError as e:
+                    logger.warning(f"必要なライブラリがインストールされていません: {e}")
+                    align_model = None
+                    align_meta = None
                 except Exception as e:
                     logger.warning(f"アライメントモデルの読み込みに失敗: {e}")
+                    align_model = None
+                    align_meta = None
                 
                 # 各チャンクのAPI処理を送信
                 futures = []
@@ -486,8 +508,8 @@ class APITranscriber:
                 )
                 segments.append(segment)
             
-            # アライメント処理
-            if align_model and align_meta and len(segments) > 0:
+            # アライメント処理（一時的に無効化 - WhisperX互換性問題のため）
+            if False and align_model and align_meta and len(segments) > 0:
                 try:
                     # チャンクファイルから音声データを読み込み
                     import whisperx
@@ -503,14 +525,31 @@ class APITranscriber:
                         })
                     
                     # チャンクごとのアライメント
-                    aligned_result = whisperx.align(
-                        whisperx_segments,
-                        align_model,
-                        align_meta,
-                        chunk_audio,
-                        "cpu",
-                        return_char_alignments=True
-                    )
+                    # エラーハンドリングを強化
+                    try:
+                        aligned_result = whisperx.align(
+                            whisperx_segments,
+                            align_model,
+                            align_meta,
+                            chunk_audio,
+                            "cpu",
+                            return_char_alignments=True
+                        )
+                    except TypeError as te:
+                        # sampling_rate引数エラーの場合
+                        if "sampling_rate" in str(te):
+                            logger.warning(f"チャンク {chunk_idx}: アライメント処理でsampling_rateエラー。return_char_alignmentsを無効化して再試行")
+                            # return_char_alignmentsを無効化して再試行
+                            aligned_result = whisperx.align(
+                                whisperx_segments,
+                                align_model,
+                                align_meta,
+                                chunk_audio,
+                                "cpu",
+                                return_char_alignments=False
+                            )
+                        else:
+                            raise te
                     
                     # 結果を元の形式に戻す
                     aligned_segments = []
