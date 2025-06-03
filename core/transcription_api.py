@@ -135,6 +135,15 @@ class APITranscriber:
                 raise TranscriptionError("ファイルサイズが上限（25MB）を超えています。動画を圧縮するか、ローカルモードを使用してください。")
             else:
                 raise TranscriptionError(f"APIリクエストエラー: {str(e)}")
+        except openai.BadRequestError as e:
+            from utils.exceptions import TranscriptionError
+            error_message = str(e)
+            if "Audio file is too short" in error_message:
+                raise TranscriptionError("動画ファイルが短すぎます。")
+            elif "larger than the maximum" in error_message:
+                raise TranscriptionError("ファイルサイズが上限（25MB）を超えています。動画を圧縮するか、ローカルモードを使用してください。")
+            else:
+                raise TranscriptionError(f"APIリクエストエラー: {error_message}")
         except Exception as e:
             from utils.exceptions import TranscriptionError
             raise TranscriptionError(f"文字起こしエラー: {str(e)}")
@@ -144,6 +153,7 @@ class APITranscriber:
         """ローカル版と同じチャンク分割並列処理"""
         import tempfile
         import soundfile as sf
+        import numpy as np
         from concurrent.futures import ThreadPoolExecutor, as_completed
         
         # ローカル版と同じ設定でチャンク分割
@@ -153,16 +163,33 @@ class APITranscriber:
         
         # チャンクを作成
         chunks = []
-        MIN_CHUNK_DURATION = 0.1  # OpenAI APIの最小要件
+        MIN_CHUNK_DURATION = 1.0  # 1秒未満のチャンクは結合（安全性とコスト効率のため）
+        
+        # 短いチャンクを一時保存する変数
+        pending_chunk = None
         
         for i in range(0, len(audio), step):
             chunk_audio = audio[i:i+step]
             start_time = i / sample_rate
             duration = len(chunk_audio) / sample_rate
             
-            # 0.1秒未満のチャンクは処理しない
+            # pending_chunkがある場合は先に結合を試みる
+            if pending_chunk is not None:
+                # 前の短いチャンクと現在のチャンクを結合
+                combined_audio = np.concatenate([pending_chunk["array"], chunk_audio])
+                combined_chunk = {
+                    "array": combined_audio,
+                    "start": pending_chunk["start"],
+                    "duration": len(combined_audio) / sample_rate
+                }
+                chunks.append(combined_chunk)
+                logger.info(f"短いチャンクを次のチャンクと結合しました (新しい長さ: {combined_chunk['duration']:.1f}秒)")
+                pending_chunk = None
+                continue
+            
+            # 1秒未満のチャンクは処理しない
             if duration < MIN_CHUNK_DURATION:
-                logger.warning(f"チャンクが短すぎます ({duration:.3f}秒) - スキップまたは結合します")
+                logger.warning(f"チャンクが短すぎます ({duration:.3f}秒) - 結合処理を行います")
                 # 前のチャンクがある場合は結合
                 if chunks:
                     last_chunk = chunks[-1]
@@ -175,8 +202,13 @@ class APITranscriber:
                     }
                     logger.info(f"短いチャンクを前のチャンクに結合しました (新しい長さ: {chunks[-1]['duration']:.1f}秒)")
                 else:
-                    # 最初のチャンクが短すぎる場合はスキップ
-                    logger.warning(f"最初のチャンクが短すぎるためスキップします ({duration:.3f}秒)")
+                    # 最初のチャンクが短すぎる場合は一時保存して次と結合
+                    pending_chunk = {
+                        "array": chunk_audio,
+                        "start": start_time,
+                        "duration": duration
+                    }
+                    logger.warning(f"最初のチャンクが短いため、次のチャンクと結合します ({duration:.3f}秒)")
                 continue
             
             chunks.append({
@@ -184,6 +216,11 @@ class APITranscriber:
                 "start": start_time,
                 "duration": duration
             })
+        
+        # 最後にpending_chunkが残っている場合（音声全体が短い場合）
+        if pending_chunk is not None:
+            chunks.append(pending_chunk)
+            logger.warning(f"最後の短いチャンクをそのまま追加します ({pending_chunk['duration']:.3f}秒)")
         
         total_chunks = len(chunks)
         logger.info(f"音声をチャンク分割: {total_chunks}個のチャンク（{chunk_seconds}秒ずつ）")
@@ -199,7 +236,7 @@ class APITranscriber:
             chunk_files = []
             for i, chunk in enumerate(chunks):
                 # duration再確認
-                if chunk["duration"] < 0.1:
+                if chunk["duration"] < 1.0:
                     logger.warning(f"チャンク {i} が短すぎるためスキップ: {chunk['duration']:.3f}秒")
                     continue
                 
@@ -295,7 +332,7 @@ class APITranscriber:
             audio_info = sf.info(chunk_file)
             duration = audio_info.duration
             
-            if duration < 0.1:
+            if duration < 1.0:
                 logger.warning(f"チャンク {chunk_idx} が短すぎます ({duration:.3f}秒) - スキップします")
                 return []
             
@@ -515,8 +552,8 @@ class APITranscriber:
                 remaining_time = total_duration - start_time
                 actual_chunk_duration = min(chunk_duration, remaining_time)
                 
-                # 0.1秒未満のチャンクはスキップ
-                if actual_chunk_duration < 0.1:
+                # 1秒未満のチャンクはスキップ
+                if actual_chunk_duration < 1.0:
                     logger.warning(f"チャンク {i} が短すぎるためスキップ: {actual_chunk_duration:.3f}秒")
                     continue
                 
@@ -542,7 +579,7 @@ class APITranscriber:
                     
                     try:
                         actual_duration = float(probe_result.stdout.strip())
-                        if actual_duration < 0.1:
+                        if actual_duration < 1.0:
                             logger.warning(f"チャンク {i} の実際の長さが短すぎます: {actual_duration:.3f}秒 - スキップ")
                             os.remove(chunk_file)
                             continue
