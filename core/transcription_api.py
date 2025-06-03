@@ -3,6 +3,7 @@ API版文字起こしモジュール
 """
 import os
 import json
+import time
 import tempfile
 from pathlib import Path
 from typing import Dict, Any, Optional, List
