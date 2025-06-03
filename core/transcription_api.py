@@ -349,18 +349,21 @@ class APITranscriber:
                     transformers_version = version.parse(transformers.__version__)
                     logger.info(f"transformersバージョン: {transformers.__version__}")
                     
-                    # 新しいバージョンの場合、Wav2Vec2Processorのsampling_rate引数を回避
-                    if transformers_version >= version.parse("4.30.0"):
-                        logger.warning("新しいtransformersバージョンを検出。アライメント処理を無効化します")
-                        # アライメント機能を無効化
-                        align_model = None
-                        align_meta = None
-                    else:
+                    # 新しいバージョンの場合でも、アライメントモデルを読み込む
+                    try:
                         align_model, align_meta = whisperx.load_align_model(
                             language_code=self.api_config.language,
                             device="cpu"
                         )
                         logger.info("アライメントモデルを読み込みました")
+                        
+                        # transformers 4.30.0以降の場合、互換性の警告を表示
+                        if transformers_version >= version.parse("4.30.0"):
+                            logger.warning(f"transformers {transformers.__version__} で実行中。エラーが発生する可能性があります")
+                    except Exception as e:
+                        logger.error(f"アライメントモデルの読み込みエラー: {e}")
+                        align_model = None
+                        align_meta = None
                 except ImportError as e:
                     logger.warning(f"必要なライブラリがインストールされていません: {e}")
                     align_model = None
@@ -508,8 +511,8 @@ class APITranscriber:
                 )
                 segments.append(segment)
             
-            # アライメント処理（一時的に無効化 - WhisperX互換性問題のため）
-            if False and align_model and align_meta and len(segments) > 0:
+            # アライメント処理
+            if align_model and align_meta and len(segments) > 0:
                 try:
                     # チャンクファイルから音声データを読み込み
                     import whisperx
