@@ -147,6 +147,7 @@ class APITranscriber:
         """ローカル版と同じチャンク分割並列処理"""
         import tempfile
         import soundfile as sf
+        import numpy as np
         from concurrent.futures import ThreadPoolExecutor, as_completed
         
         # ローカル版と同じ設定でチャンク分割
