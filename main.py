@@ -154,7 +154,7 @@ def main():
     
     # タイトル表示
     title_text = f'Text<span style="color: red; font-style: italic;">ff</span>Cut <span style="color: #666; font-size: 1rem;">{version}</span>'
-    subtitle_text = '【FCPXML対応】切り抜き動画編集支援ツール'
+    subtitle_text = '切り抜き動画編集支援ツール'
     
     st.markdown(f'{icon_svg}<span style="font-size: 3rem; font-weight: bold; vertical-align: middle;">{title_text}</span>', unsafe_allow_html=True)
     st.markdown(f'<p style="margin-top: -10px; margin-bottom: 20px; color: #666; font-size: 1.1rem;">{subtitle_text}</p>', unsafe_allow_html=True)
