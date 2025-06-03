@@ -366,25 +366,11 @@ class Transcriber:
                     progress_callback(1.0, "キャッシュから読み込み完了")
                 return cached_result
         
-        # 音声の読み込み
-        if progress_callback:
-            progress_callback(0.0, "音声を読み込み中...")
-        
-        # デバッグ情報
-        print(f"音声ファイルを読み込み中: {video_path}")
-        if not Path(video_path).exists():
-            print(f"警告: 音声ファイルが存在しません: {video_path}")
-        
-        audio = whisperx.load_audio(video_path)
-        
-        # モデルの読み込み
-        if progress_callback:
-            progress_callback(0.1, "モデルを読み込み中...")
-        asr_model = whisperx.load_model(
-            model_size,
-            self.device,
-            compute_type=self.config.transcription.compute_type,
-            language=self.config.transcription.language
+        # 最適化版を使用
+        from .transcription_optimized import OptimizedLocalTranscriber
+        optimized_transcriber = OptimizedLocalTranscriber(self.config, self.device)
+        return optimized_transcriber.transcribe_local_optimized(
+            video_path, model_size, progress_callback, save_cache, cache_path
         )
         
         # チャンク分割
