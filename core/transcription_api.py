@@ -131,12 +131,6 @@ class APITranscriber:
             raise TranscriptionError("API接続エラーです。ネットワーク接続を確認してください。")
         except openai.BadRequestError as e:
             from utils.exceptions import TranscriptionError
-            if "larger than the maximum" in str(e):
-                raise TranscriptionError("ファイルサイズが上限（25MB）を超えています。動画を圧縮するか、ローカルモードを使用してください。")
-            else:
-                raise TranscriptionError(f"APIリクエストエラー: {str(e)}")
-        except openai.BadRequestError as e:
-            from utils.exceptions import TranscriptionError
             error_message = str(e)
             if "Audio file is too short" in error_message:
                 raise TranscriptionError("動画ファイルが短すぎます。")
@@ -153,7 +147,6 @@ class APITranscriber:
         """ローカル版と同じチャンク分割並列処理"""
         import tempfile
         import soundfile as sf
-        import numpy as np
         from concurrent.futures import ThreadPoolExecutor, as_completed
         
         # ローカル版と同じ設定でチャンク分割
@@ -235,11 +228,6 @@ class APITranscriber:
             # 各チャンクをWAVファイルとして保存
             chunk_files = []
             for i, chunk in enumerate(chunks):
-                # duration再確認
-                if chunk["duration"] < 1.0:
-                    logger.warning(f"チャンク {i} が短すぎるためスキップ: {chunk['duration']:.3f}秒")
-                    continue
-                
                 chunk_file = os.path.join(temp_dir, f"chunk_{i:03d}.wav")
                 sf.write(chunk_file, chunk["array"], sample_rate)
                 
