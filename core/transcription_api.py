@@ -144,16 +144,15 @@ class APITranscriber:
     
     def _transcribe_with_chunks(self, client, audio, original_audio_path: str,
                                progress_callback: Optional[callable] = None) -> TranscriptionResult:
-        """ローカル版と同じチャンク分割並列処理"""
+        """Producer-Consumerパターンによる最適化されたチャンク並列処理"""
         import tempfile
         import soundfile as sf
         import numpy as np
         from concurrent.futures import ThreadPoolExecutor, as_completed
-        
-        # ローカル版と同じ設定でチャンク分割
-        chunk_seconds = self.api_config.chunk_seconds  # 30秒
-        sample_rate = 16000
-        step = chunk_seconds * sample_rate
+        # 最適化された実装を使用
+        from .transcription_api_optimized import OptimizedAPITranscriber
+        optimized_transcriber = OptimizedAPITranscriber(self.config)
+        return optimized_transcriber._transcribe_with_chunks_optimized(client, audio, original_audio_path, progress_callback)
         
         # チャンクを作成
         chunks = []

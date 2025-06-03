@@ -25,6 +25,16 @@ class TranscriptionConfig:
     api_key: Optional[str] = None
     api_models: List[str] = field(default_factory=lambda: ["whisper-1"])
     
+    # 適応的リソース管理
+    adaptive_workers: bool = True  # システムスペックに基づく自動調整
+    chunk_seconds_low_spec: int = 20  # 低スペック用
+    chunk_seconds_mid_spec: int = 30  # 中スペック用
+    chunk_seconds_high_spec: int = 60  # 高スペック用
+    min_api_workers: int = 1
+    max_api_workers: int = 20
+    min_align_workers: int = 1
+    max_align_workers: int = 5
+    
     def __post_init__(self):
         if self.num_workers is None:
             self.num_workers = os.cpu_count() // 2 or 4
