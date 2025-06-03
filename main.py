@@ -362,6 +362,64 @@ def main():
             # API利用時の注意事項をコンパクトに表示
             if use_api:
                 st.caption("⚠️ API料金: $0.006/分 | 為替変動あり | [最新料金](https://openai.com/pricing)を確認")
+                
+                # APIモードの詳細設定（エキスパンダー）
+                with st.expander("🔧 APIモード詳細設定", expanded=False):
+                    # パフォーマンス履歴の表示
+                    from utils.performance_tracker import PerformanceTracker
+                    perf_tracker = PerformanceTracker(video_path)
+                    mode_stats = perf_tracker.get_mode_statistics()
+                    
+                    if mode_stats:
+                        st.markdown("### 📊 過去の処理パフォーマンス")
+                        
+                        # モード別統計を表示
+                        cols = st.columns(len(mode_stats))
+                        for i, (mode, stats) in enumerate(mode_stats.items()):
+                            with cols[i]:
+                                st.metric(
+                                    label=f"モード: {mode}",
+                                    value=f"{stats['avg_realtime_factor']:.1f}倍速",
+                                    delta=f"実行回数: {stats['count']}回"
+                                )
+                                if stats['count'] > 0:
+                                    st.caption(f"最速: {stats['max_realtime_factor']:.1f}倍")
+                        
+                        # 最適なモードの推奨
+                        best_mode = perf_tracker.get_best_mode()
+                        if best_mode:
+                            st.info(f"💡 推奨モード: **{best_mode}** (平均速度が最も高速)")
+                    
+                    st.markdown("### 🎛️ 最適化モード選択")
+                    st.markdown("処理速度とメモリ使用量のバランスを選択できます")
+                    
+                    optimization_mode = st.radio(
+                        "最適化モード",
+                        options=["auto", "normal", "optimized", "ultra_optimized"],
+                        format_func=lambda x: {
+                            "auto": "🤖 自動選択（推奨）",
+                            "normal": "🚀 通常モード（高速・メモリ多）",
+                            "optimized": "⚡ 最適化モード（バランス）", 
+                            "ultra_optimized": "💎 超最適化モード（低速・メモリ少）"
+                        }[x],
+                        index=0,
+                        help="自動選択では、システムのメモリ状況に応じて最適なモードが選ばれます"
+                    )
+                    
+                    # モード説明
+                    mode_descriptions = {
+                        "auto": "システムメモリに応じて自動的に最適なモードを選択します",
+                        "normal": "メモリを多く使用しますが、最も高速に処理します（要8GB以上）",
+                        "optimized": "メモリ使用量と処理速度のバランスが取れたモードです",
+                        "ultra_optimized": "メモリ使用量を最小限に抑えますが、処理速度は遅くなります"
+                    }
+                    st.caption(mode_descriptions[optimization_mode])
+                    
+                    # セッションに保存
+                    st.session_state.optimization_mode = optimization_mode
+            else:
+                # ローカルモードの場合は自動選択のみ
+                st.session_state.optimization_mode = "auto"
             
             # GPU/CPU情報はタブ内で表示されるため、ここでは削除
             
@@ -480,17 +538,31 @@ def main():
                 
                 # 文字起こし実行（新規実行：キャッシュ読み込みせず、結果は保存）
                 model_to_use = confirmation_info.get('model_size', 'base')
+                optimization_mode = st.session_state.get('optimization_mode', 'auto')
                 result = transcriber.transcribe(
                     video_path, 
                     model_to_use,
                     progress_callback=progress_callback,
                     use_cache=False,
-                    save_cache=True
+                    save_cache=True,
+                    optimization_mode=optimization_mode
                 )
                 
                 if result:
                     st.session_state.transcription_result = result
                     st.session_state.transcription_in_progress = False
+                    
+                    # 処理統計情報を保存
+                    if hasattr(result, 'processing_time') and result.processing_time > 0:
+                        st.session_state.last_processing_stats = {
+                            'processing_time': result.processing_time,
+                            'video_duration': video_info.duration,
+                            'realtime_factor': video_info.duration / result.processing_time if result.processing_time > 0 else 0,
+                            'segments_count': len(result.segments),
+                            'mode': optimization_mode,
+                            'is_api': use_api
+                        }
+                    
                     # UI要素をクリーンアップ
                     cancel_placeholder.empty()
                     progress_bar.empty()
@@ -539,6 +611,49 @@ def main():
             model_text = model_info
         
         st.caption(f"📝 現在の文字起こし結果: {mode_text}モード・{model_text}")
+        
+        # 処理統計情報の表示
+        if 'last_processing_stats' in st.session_state:
+            stats = st.session_state.last_processing_stats
+            if stats.get('is_api'):
+                # APIモードの場合のみ統計情報を表示
+                with st.expander("📊 処理パフォーマンス", expanded=False):
+                    col_stat1, col_stat2, col_stat3, col_stat4 = st.columns(4)
+                    
+                    with col_stat1:
+                        st.metric(
+                            label="処理時間",
+                            value=f"{stats['processing_time']:.1f}秒"
+                        )
+                    
+                    with col_stat2:
+                        st.metric(
+                            label="処理速度",
+                            value=f"{stats['realtime_factor']:.1f}倍速"
+                        )
+                    
+                    with col_stat3:
+                        st.metric(
+                            label="セグメント数",
+                            value=f"{stats['segments_count']}個"
+                        )
+                    
+                    with col_stat4:
+                        st.metric(
+                            label="最適化モード",
+                            value=stats.get('mode', 'auto')
+                        )
+                    
+                    # 処理効率の説明
+                    if stats['realtime_factor'] > 10:
+                        st.success(f"⚡ 非常に高速に処理されました！（リアルタイムの{stats['realtime_factor']:.1f}倍速）")
+                    elif stats['realtime_factor'] > 5:
+                        st.info(f"✨ 高速に処理されました（リアルタイムの{stats['realtime_factor']:.1f}倍速）")
+                    else:
+                        st.caption(f"処理速度: リアルタイムの{stats['realtime_factor']:.1f}倍速")
+            
+            # 統計情報を表示後に削除（一度だけ表示）
+            del st.session_state.last_processing_stats
         
         # エラー表示（2カラムの上に表示）
         if st.session_state.get('show_error_and_delete', False):

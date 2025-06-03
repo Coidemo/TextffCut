@@ -19,6 +19,7 @@ except ImportError:
 
 from config import Config
 from utils.logging import get_logger
+from utils.performance_tracker import PerformanceTracker
 
 logger = get_logger(__name__)
 
@@ -295,7 +296,8 @@ class Transcriber:
         model_size: Optional[str] = None,
         progress_callback: Optional[Callable[[float, str], None]] = None,
         use_cache: bool = True,
-        save_cache: bool = True
+        save_cache: bool = True,
+        optimization_mode: str = "auto"
     ) -> TranscriptionResult:
         """
         動画の文字起こしを実行（API/ローカル自動切り替え）
@@ -306,13 +308,14 @@ class Transcriber:
             progress_callback: 進捗コールバック関数 (progress: 0.0-1.0, status: str)
             use_cache: キャッシュを読み込むか
             save_cache: キャッシュに保存するか
+            optimization_mode: 最適化モード ("auto", "normal", "optimized", "ultra_optimized")
             
         Returns:
             TranscriptionResult: 文字起こし結果
         """
         # APIモードの場合はAPITranscriberに委譲
         if self.config.transcription.use_api:
-            return self._transcribe_api(video_path, model_size, progress_callback, use_cache, save_cache)
+            return self._transcribe_api(video_path, model_size, progress_callback, use_cache, save_cache, optimization_mode)
         else:
             return self._transcribe_local(video_path, model_size, progress_callback, use_cache, save_cache)
     
@@ -322,7 +325,8 @@ class Transcriber:
         model_size: Optional[str] = None,
         progress_callback: Optional[Callable[[float, str], None]] = None,
         use_cache: bool = True,
-        save_cache: bool = True
+        save_cache: bool = True,
+        optimization_mode: str = "auto"
     ) -> TranscriptionResult:
         """API版の文字起こし"""
         model_size = model_size or self.config.transcription.model_size
@@ -336,8 +340,8 @@ class Transcriber:
                     progress_callback(1.0, "キャッシュから読み込み完了")
                 return cached_result
         
-        # APIで文字起こし実行
-        result = self.api_transcriber.transcribe(video_path, model_size, progress_callback)
+        # APIで文字起こし実行（最適化モードを渡す）
+        result = self.api_transcriber.transcribe(video_path, model_size, progress_callback, optimization_mode)
         
         # キャッシュに保存
         if save_cache:
