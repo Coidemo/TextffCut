@@ -315,15 +315,6 @@ class APITranscriber:
     def _transcribe_chunk_api(self, client, chunk_file: str, start_offset: float, chunk_idx: int) -> List[TranscriptionSegment]:
         """単一チャンクのAPI処理"""
         try:
-            # ファイルサイズとdurationチェック
-            import soundfile as sf
-            audio_info = sf.info(chunk_file)
-            duration = audio_info.duration
-            
-            if duration < 1.0:
-                logger.warning(f"チャンク {chunk_idx} が短すぎます ({duration:.3f}秒) - スキップします")
-                return []
-            
             with open(chunk_file, 'rb') as audio_file:
                 response = client.audio.transcriptions.create(
                     model="whisper-1",
@@ -540,11 +531,6 @@ class APITranscriber:
                 remaining_time = total_duration - start_time
                 actual_chunk_duration = min(chunk_duration, remaining_time)
                 
-                # 1秒未満のチャンクはスキップ
-                if actual_chunk_duration < 1.0:
-                    logger.warning(f"チャンク {i} が短すぎるためスキップ: {actual_chunk_duration:.3f}秒")
-                    continue
-                
                 chunk_file = os.path.join(temp_dir, f"chunk_{i:03d}.mp4")
                 
                 # FFmpegで分割
@@ -559,21 +545,6 @@ class APITranscriber:
                 subprocess.run(cmd, capture_output=True)
                 
                 if os.path.exists(chunk_file) and os.path.getsize(chunk_file) > 0:
-                    # チャンクの実際のdurationを確認
-                    probe_result = subprocess.run([
-                        'ffprobe', '-v', 'quiet', '-show_entries', 'format=duration',
-                        '-of', 'csv=p=0', chunk_file
-                    ], capture_output=True, text=True)
-                    
-                    try:
-                        actual_duration = float(probe_result.stdout.strip())
-                        if actual_duration < 1.0:
-                            logger.warning(f"チャンク {i} の実際の長さが短すぎます: {actual_duration:.3f}秒 - スキップ")
-                            os.remove(chunk_file)
-                            continue
-                    except:
-                        pass
-                    
                     chunk_files.append((chunk_file, start_time))
             
             if not chunk_files:
@@ -590,8 +561,7 @@ class APITranscriber:
                 # チャンクのサイズをチェック
                 chunk_size = os.path.getsize(chunk_file) / (1024 * 1024)
                 if chunk_size > 25:
-                    logger.warning(f"チャンク {i+1} がまだ大きすぎます: {chunk_size:.1f}MB")
-                    continue
+                    raise ValueError(f"チャンク {i+1} が大きすぎます: {chunk_size:.1f}MB。より短い時間で分割する必要があります。")
                 
                 try:
                     with open(chunk_file, 'rb') as audio_file:
