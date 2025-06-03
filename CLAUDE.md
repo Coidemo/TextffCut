@@ -246,31 +246,33 @@ python -c "from core.export import FCPXMLExporter; print('Export OK')"
 
 ## 📦 配布パッケージ作成
 
-### 配布パッケージ作成
+### 配布パッケージ作成（正式な方法）
 購入者向けのパッケージを作成するには：
 
 ```bash
-# プロジェクトルートから実行
-./scripts/create_release_package.sh
+# Docker版の配布用パッケージを作成
+./build_release.sh [バージョン番号]
+# 例: ./build_release.sh 0.9.6
+# バージョン番号を省略すると最新のGitタグを使用
 ```
 
-これにより `release/TextffCut-v1.1.0.zip` が作成されます。
+これにより `release/TextffCut_v[バージョン].zip` が作成されます。
 
 **パッケージ内容:**
-- Dockerイメージ（tar.gz形式、約800MB）
-- 起動スクリプト（START_GUI.command/bat）
-- アンインストールスクリプト（UNINSTALL.command/bat）
+- Dockerイメージ（tar.gz形式、約750MB）
+- 起動スクリプト（START.command/bat）
 - docker-compose-simple.yml
-- 使い方ドキュメント
+- README.txt
 
 **配布前の確認事項:**
 1. Docker Desktopでパッケージの動作確認
 2. Mac/Windows両方での起動確認
-3. アンインストールスクリプトの動作確認
 
-**注意**: requirements.txtで特定バージョンを指定しています（2025-06-01更新）。
-- torch 2.7.0: より小さいDockerイメージ（3.6GB vs 4.9GB）
-- 圧縮後: 約800MB（以前は1.5GB）
+### 使用しないスクリプト（廃止予定）
+以下のスクリプトは古い形式のため使用しません：
+- `scripts/create_release_package.sh` - 古い形式（アンインストール機能など）
+- `scripts/create_docker_release.sh` - 別の形式
+- `scripts/create_release.sh` - 用途不明
 
 ## 🐛 既知の問題
 
