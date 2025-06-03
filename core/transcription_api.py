@@ -153,10 +153,31 @@ class APITranscriber:
         
         # チャンクを作成
         chunks = []
+        MIN_CHUNK_DURATION = 0.1  # OpenAI APIの最小要件
+        
         for i in range(0, len(audio), step):
             chunk_audio = audio[i:i+step]
             start_time = i / sample_rate
             duration = len(chunk_audio) / sample_rate
+            
+            # 0.1秒未満のチャンクは処理しない
+            if duration < MIN_CHUNK_DURATION:
+                logger.warning(f"チャンクが短すぎます ({duration:.3f}秒) - スキップまたは結合します")
+                # 前のチャンクがある場合は結合
+                if chunks:
+                    last_chunk = chunks[-1]
+                    # 前のチャンクに結合
+                    combined_audio = np.concatenate([last_chunk["array"], chunk_audio])
+                    chunks[-1] = {
+                        "array": combined_audio,
+                        "start": last_chunk["start"],
+                        "duration": len(combined_audio) / sample_rate
+                    }
+                    logger.info(f"短いチャンクを前のチャンクに結合しました (新しい長さ: {chunks[-1]['duration']:.1f}秒)")
+                else:
+                    # 最初のチャンクが短すぎる場合はスキップ
+                    logger.warning(f"最初のチャンクが短すぎるためスキップします ({duration:.3f}秒)")
+                continue
             
             chunks.append({
                 "array": chunk_audio,
@@ -177,6 +198,11 @@ class APITranscriber:
             # 各チャンクをWAVファイルとして保存
             chunk_files = []
             for i, chunk in enumerate(chunks):
+                # duration再確認
+                if chunk["duration"] < 0.1:
+                    logger.warning(f"チャンク {i} が短すぎるためスキップ: {chunk['duration']:.3f}秒")
+                    continue
+                
                 chunk_file = os.path.join(temp_dir, f"chunk_{i:03d}.wav")
                 sf.write(chunk_file, chunk["array"], sample_rate)
                 
@@ -264,6 +290,15 @@ class APITranscriber:
     def _transcribe_chunk_api(self, client, chunk_file: str, start_offset: float, chunk_idx: int) -> List[TranscriptionSegment]:
         """単一チャンクのAPI処理"""
         try:
+            # ファイルサイズとdurationチェック
+            import soundfile as sf
+            audio_info = sf.info(chunk_file)
+            duration = audio_info.duration
+            
+            if duration < 0.1:
+                logger.warning(f"チャンク {chunk_idx} が短すぎます ({duration:.3f}秒) - スキップします")
+                return []
+            
             with open(chunk_file, 'rb') as audio_file:
                 response = client.audio.transcriptions.create(
                     model="whisper-1",
@@ -476,13 +511,22 @@ class APITranscriber:
                 if start_time >= total_duration:
                     break
                 
+                # 残り時間を計算
+                remaining_time = total_duration - start_time
+                actual_chunk_duration = min(chunk_duration, remaining_time)
+                
+                # 0.1秒未満のチャンクはスキップ
+                if actual_chunk_duration < 0.1:
+                    logger.warning(f"チャンク {i} が短すぎるためスキップ: {actual_chunk_duration:.3f}秒")
+                    continue
+                
                 chunk_file = os.path.join(temp_dir, f"chunk_{i:03d}.mp4")
                 
                 # FFmpegで分割
                 cmd = [
                     'ffmpeg', '-i', audio_path,
                     '-ss', str(start_time),
-                    '-t', str(chunk_duration),
+                    '-t', str(actual_chunk_duration),
                     '-c', 'copy',
                     '-y', chunk_file
                 ]
@@ -490,6 +534,21 @@ class APITranscriber:
                 subprocess.run(cmd, capture_output=True)
                 
                 if os.path.exists(chunk_file) and os.path.getsize(chunk_file) > 0:
+                    # チャンクの実際のdurationを確認
+                    probe_result = subprocess.run([
+                        'ffprobe', '-v', 'quiet', '-show_entries', 'format=duration',
+                        '-of', 'csv=p=0', chunk_file
+                    ], capture_output=True, text=True)
+                    
+                    try:
+                        actual_duration = float(probe_result.stdout.strip())
+                        if actual_duration < 0.1:
+                            logger.warning(f"チャンク {i} の実際の長さが短すぎます: {actual_duration:.3f}秒 - スキップ")
+                            os.remove(chunk_file)
+                            continue
+                    except:
+                        pass
+                    
                     chunk_files.append((chunk_file, start_time))
             
             if not chunk_files:
