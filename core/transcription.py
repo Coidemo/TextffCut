@@ -246,6 +246,49 @@ class Transcriber:
             
         return res["segments"]
     
+    def transcribe_and_align_chunk(self, chunk: Dict[str, Any], asr_model: Any, 
+                                  align_model: Any, align_meta: Any, chunk_idx: int) -> List[Dict[str, Any]]:
+        """チャンクを文字起こし＋アライメント処理"""
+        # まず文字起こし
+        segments = self.transcribe_chunk(chunk, asr_model)
+        
+        # アライメント処理が有効でモデルが読み込まれている場合
+        if align_model is not None and align_meta is not None and len(segments) > 0:
+            try:
+                # チャンクの音声データでアライメント
+                aligned_result = whisperx.align(
+                    segments,
+                    align_model,
+                    align_meta,
+                    chunk["array"],  # チャンクの音声データのみ使用
+                    self.device,
+                    return_char_alignments=True
+                )
+                
+                # アライメント結果のオフセットを調整
+                aligned_segments = aligned_result["segments"]
+                for seg in aligned_segments:
+                    # セグメントのタイムスタンプはalignで再計算されるので調整が必要
+                    seg["start"] += chunk["start"]
+                    seg["end"] += chunk["start"]
+                    # wordsのタイムスタンプも調整
+                    if "words" in seg and seg["words"]:
+                        for word in seg["words"]:
+                            if "start" in word:
+                                word["start"] += chunk["start"]
+                            if "end" in word:
+                                word["end"] += chunk["start"]
+                
+                logger.debug(f"チャンク {chunk_idx}: アライメント成功 ({len(aligned_segments)}セグメント)")
+                return aligned_segments
+                
+            except Exception as e:
+                logger.warning(f"チャンク {chunk_idx} のアライメント処理に失敗: {e}")
+                # アライメント失敗時は元のセグメントを返す
+                return segments
+        
+        return segments
+    
     def transcribe(
         self, 
         video_path: str, 
@@ -421,8 +464,31 @@ class Transcriber:
         total_chunks = len(chunks)
         completed_chunks = 0
         
+        # アライメント処理の準備（事前にモデルを読み込み）
+        align_model = None
+        align_meta = None
+        try:
+            align_model, align_meta = whisperx.load_align_model(
+                self.config.transcription.language, 
+                device=self.device
+            )
+            logger.info("アライメントモデルを読み込みました")
+        except Exception as e:
+            logger.warning(f"アライメントモデルの読み込みに失敗: {e}")
+        
         with ThreadPoolExecutor(max_workers=num_workers) as executor:
-            futures = [executor.submit(self.transcribe_chunk, chunk, asr_model) for chunk in chunks]
+            # チャンクごとに文字起こし＋アライメント処理
+            futures = []
+            for i, chunk in enumerate(chunks):
+                future = executor.submit(
+                    self.transcribe_and_align_chunk, 
+                    chunk, 
+                    asr_model, 
+                    align_model, 
+                    align_meta,
+                    i
+                )
+                futures.append(future)
             
             for future in as_completed(futures):
                 segments = future.result()
@@ -430,49 +496,18 @@ class Transcriber:
                 completed_chunks += 1
                 
                 if progress_callback:
-                    progress = 0.1 + (0.6 * completed_chunks / total_chunks)
-                    status = f"文字起こし中... ({completed_chunks}/{total_chunks} チャンク)"
+                    progress = 0.1 + (0.8 * completed_chunks / total_chunks)
+                    status = f"文字起こし・アライメント処理中... ({completed_chunks}/{total_chunks} チャンク)"
                     progress_callback(progress, status)
         
         # セグメントをソート
         segments_all.sort(key=lambda x: x["start"])
         
         # デバッグ情報
-        print(f"文字起こし完了: 全セグメント数: {len(segments_all)}")
+        print(f"文字起こし・アライメント完了: 全セグメント数: {len(segments_all)}")
         if segments_all:
             print(f"最初のセグメント: {segments_all[0]['start']:.1f}秒 - {segments_all[0]['end']:.1f}秒")
             print(f"最後のセグメント: {segments_all[-1]['start']:.1f}秒 - {segments_all[-1]['end']:.1f}秒")
-        
-        # アライメント処理
-        try:
-            if progress_callback:
-                progress_callback(0.7, "アライメント処理中...")
-                
-            align_model, meta = whisperx.load_align_model(
-                self.config.transcription.language, 
-                device=self.device
-            )
-            
-            aligned_result = whisperx.align(
-                segments_all,
-                align_model,
-                meta,
-                audio,
-                self.device,
-                return_char_alignments=True
-            )
-            
-            segments_all = aligned_result["segments"]
-            
-        except RuntimeError as e:
-            if "CUDA" in str(e) or "memory" in str(e):
-                logger.warning(f"メモリ不足でアライメント失敗、スキップ: {e}")
-            else:
-                logger.warning(f"ランタイムエラーでアライメント失敗、スキップ: {e}")
-        except ImportError as e:
-            logger.warning(f"アライメントモジュール不足、スキップ: {e}")
-        except Exception as e:
-            logger.warning(f"アライメント処理に失敗、スキップ: {e}")
         
         # 結果を構築
         segments = [
