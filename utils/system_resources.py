@@ -45,13 +45,20 @@ class SystemResourceManager:
         cpu_count = os.cpu_count() or 4
         cpu_physical_count = psutil.cpu_count(logical=False) or cpu_count // 2
         
-        # スペックレベルの判定
-        if total_memory_gb < self.LOW_SPEC_MEMORY:
+        # 強制低スペックモード（テスト用）
+        if os.environ.get("TEXTFFCUT_FORCE_LOW_SPEC") == "true":
             spec_level = 'low'
-        elif total_memory_gb < self.MID_SPEC_MEMORY:
-            spec_level = 'mid'
+            total_memory_gb = 3.0  # 3GBと偽装
+            available_memory_gb = min(available_memory_gb, 2.0)  # 最大2GB
+            logger.info("強制低スペックモードが有効です（テスト用）")
         else:
-            spec_level = 'high'
+            # スペックレベルの判定
+            if total_memory_gb < self.LOW_SPEC_MEMORY:
+                spec_level = 'low'
+            elif total_memory_gb < self.MID_SPEC_MEMORY:
+                spec_level = 'mid'
+            else:
+                spec_level = 'high'
         
         # 推奨並列数の計算
         api_workers, align_workers, chunk_seconds = self._calculate_optimal_workers(

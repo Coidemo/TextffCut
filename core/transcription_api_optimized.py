@@ -16,6 +16,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import time
 
 from .transcription import TranscriptionResult, TranscriptionSegment
+from .alignment_wrapper import safe_load_align_model, safe_align_segments, validate_segments_for_alignment
 from config import Config
 from utils.logging import get_logger
 from utils.system_resources import system_resource_manager
@@ -198,17 +199,12 @@ class OptimizedAPITranscriber:
     
     def _load_alignment_model(self):
         """アライメントモデルを読み込み"""
-        try:
-            import whisperx
-            align_model, align_meta = whisperx.load_align_model(
-                language_code=self.api_config.language,
-                device="cpu"
-            )
-            logger.info("アライメントモデルを読み込みました")
-            return align_model, align_meta
-        except Exception as e:
-            logger.warning(f"アライメントモデルの読み込みに失敗: {e}")
-            return None, None
+        # alignment_wrapperの安全な読み込み関数を使用
+        align_model, align_meta = safe_load_align_model(
+            language_code=self.api_config.language,
+            device="cpu"
+        )
+        return align_model, align_meta
     
     def _call_api_and_split_segments(self, client, chunk_file: str, start_offset: float, 
                                     chunk_idx: int, chunk_duration: float) -> List[Dict[str, Any]]:
@@ -278,6 +274,9 @@ class OptimizedAPITranscriber:
             import whisperx
             chunk_audio = whisperx.load_audio(chunk_file)
             
+            # チャンクの音声長を取得
+            chunk_duration = len(chunk_audio) / 16000  # 16kHz前提
+            
             # WhisperX形式に変換（チャンク内相対時間）
             whisperx_segments = []
             for seg in segments:
@@ -287,8 +286,24 @@ class OptimizedAPITranscriber:
                     "text": seg["text"]
                 })
             
-            # アライメント実行
-            aligned_result = whisperx.align(
+            # セグメントを検証
+            whisperx_segments = validate_segments_for_alignment(whisperx_segments, chunk_duration)
+            
+            if not whisperx_segments:
+                logger.warning(f"チャンク {chunk_idx}: 有効なセグメントがありません")
+                return [
+                    TranscriptionSegment(
+                        start=seg["start"],
+                        end=seg["end"],
+                        text=seg["text"],
+                        words=None,
+                        chars=None
+                    )
+                    for seg in segments
+                ]
+            
+            # 安全なアライメント実行
+            aligned_result = safe_align_segments(
                 whisperx_segments,
                 align_model,
                 align_meta,
@@ -296,6 +311,19 @@ class OptimizedAPITranscriber:
                 "cpu",
                 return_char_alignments=True
             )
+            
+            if not aligned_result or "segments" not in aligned_result:
+                logger.warning(f"チャンク {chunk_idx}: アライメント結果が無効")
+                return [
+                    TranscriptionSegment(
+                        start=seg["start"],
+                        end=seg["end"],
+                        text=seg["text"],
+                        words=None,
+                        chars=None
+                    )
+                    for seg in segments
+                ]
             
             # 結果を変換
             aligned_segments = []
@@ -318,7 +346,7 @@ class OptimizedAPITranscriber:
                 
                 aligned_segments.append(aligned_seg)
             
-            logger.debug(f"チャンク {chunk_idx}: アライメント成功")
+            logger.debug(f"チャンク {chunk_idx}: アライメント成功 ({len(aligned_segments)}セグメント)")
             return aligned_segments
             
         except Exception as e:

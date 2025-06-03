@@ -14,6 +14,8 @@ import numpy as np
 
 from .transcription import TranscriptionResult, TranscriptionSegment
 from .disk_cache_manager import DiskCacheManager
+from .alignment_wrapper import safe_load_align_model, safe_align_segments, validate_segments_for_alignment
+from .timeout_handler import TimeoutHandler
 from config import Config
 from utils.logging import get_logger
 from utils.system_resources import system_resource_manager
@@ -120,35 +122,69 @@ class UltraOptimizedAPITranscriber:
         
         logger.info(f"Phase 1: API呼び出し開始 (並列数: {api_workers})")
         
+        # タイムアウトハンドラーを初期化
+        timeout_handler = TimeoutHandler(
+            max_retries=3,
+            initial_timeout=30.0,  # 30秒のタイムアウト
+            rate_limit_sleep=5.0   # レート制限時は5秒待機
+        )
+        
         completed = 0
+        failed = 0
         total = len(chunks_info)
+        
+        # API呼び出しの処理関数
+        def process_chunk_with_timeout(chunk_info):
+            return timeout_handler.with_timeout_and_retry(
+                self._call_api_single,
+                client, chunk_info,
+                task_name=f"チャンク {chunk_info['idx']}"
+            )
         
         with ThreadPoolExecutor(max_workers=api_workers) as executor:
             futures = {}
             
-            for chunk_info in chunks_info:
-                future = executor.submit(
-                    self._call_api_single,
-                    client, chunk_info
-                )
-                futures[future] = chunk_info["idx"]
+            # チャンクを順次投入（レート制限対策）
+            for i, chunk_info in enumerate(chunks_info):
+                # 初期のチャンクは一気に投入
+                if i < api_workers:
+                    future = executor.submit(process_chunk_with_timeout, chunk_info)
+                    futures[future] = chunk_info["idx"]
+                else:
+                    # 残りは少し間隔を空けて投入
+                    time.sleep(0.1)
+                    future = executor.submit(process_chunk_with_timeout, chunk_info)
+                    futures[future] = chunk_info["idx"]
             
             for future in as_completed(futures):
                 chunk_idx = futures[future]
                 try:
-                    segments = future.result()
-                    # 結果をディスクに保存（メモリ解放）
-                    disk_cache.save_api_result(chunk_idx, segments)
-                    completed += 1
+                    result = future.result()
+                    if result is not None:
+                        # 結果をディスクに保存（メモリ解放）
+                        disk_cache.save_api_result(chunk_idx, result)
+                        completed += 1
+                    else:
+                        # リトライ失敗
+                        logger.warning(f"チャンク {chunk_idx} のAPI呼び出しが失敗（リトライ後）")
+                        disk_cache.save_api_result(chunk_idx, [])  # 空の結果を保存
+                        failed += 1
                     
                     if progress_callback:
-                        progress = 0.05 + (0.3 * completed / total)
-                        progress_callback(progress, f"API呼び出し: {completed}/{total}")
+                        progress = 0.05 + (0.3 * (completed + failed) / total)
+                        status = f"Phase 1: API呼び出し {completed}/{total} 完了"
+                        if failed > 0:
+                            status += f" ({failed} 失敗)"
+                        progress_callback(progress, status)
                         
                 except Exception as e:
-                    logger.error(f"API呼び出しエラー (チャンク {chunk_idx}): {e}")
+                    logger.error(f"予期しないエラー (チャンク {chunk_idx}): {e}")
                     disk_cache.save_api_result(chunk_idx, [])  # 空の結果を保存
-                    completed += 1
+                    failed += 1
+        
+        # 統計情報をログ
+        stats = timeout_handler.get_stats()
+        logger.info(f"Phase 1 完了: 成功 {completed}, 失敗 {failed}, API呼び出し数 {stats['api_call_count']}")
     
     def _phase2_segment_splitting(self, chunks_info, chunk_seconds, disk_cache, progress_callback):
         """Phase 2: セグメント分割（中並列）"""
@@ -179,54 +215,99 @@ class UltraOptimizedAPITranscriber:
             return self._collect_results_without_alignment(chunks_info, disk_cache)
         
         # アライメント並列数（メモリ制約）
-        align_workers = system_spec.recommended_align_workers
+        initial_align_workers = system_spec.recommended_align_workers
         if system_spec.available_memory_gb < 4:
-            align_workers = 1  # 低メモリでは1つのみ
+            initial_align_workers = 1  # 低メモリでは1つのみ
         
-        logger.info(f"Phase 3: アライメント開始 (並列数: {align_workers})")
+        logger.info(f"Phase 3: アライメント開始 (初期並列数: {initial_align_workers})")
         
         completed = 0
+        failed = 0
         total = len(chunks_info)
+        current_align_workers = initial_align_workers
         
-        with ThreadPoolExecutor(max_workers=align_workers) as executor:
-            futures = {}
+        # メモリ監視用
+        memory_check_interval = 10  # 10チャンクごとにメモリチェック
+        
+        # バッチ処理でメモリ管理を改善
+        batch_size = 20  # 20チャンクずつ処理
+        
+        for batch_start in range(0, total, batch_size):
+            batch_end = min(batch_start + batch_size, total)
+            batch_chunks = chunks_info[batch_start:batch_end]
             
-            for chunk_info in chunks_info:
-                future = executor.submit(
-                    self._align_single_chunk,
-                    chunk_info, disk_cache, align_model, align_meta
-                )
-                futures[future] = chunk_info["idx"]
+            # メモリチェックと並列数調整
+            if batch_start % (batch_size * 2) == 0:
+                if system_resource_manager.check_memory_pressure():
+                    current_align_workers = 1
+                    logger.warning(f"メモリプレッシャー検出: アライメント並列数を1に削減")
+                    # ガベージコレクション実行
+                    import gc
+                    gc.collect()
+                else:
+                    current_align_workers = initial_align_workers
             
-            for future in as_completed(futures):
-                chunk_idx = futures[future]
-                try:
-                    aligned_segments = future.result()
-                    # アライメント結果を保存
-                    disk_cache.save_aligned_result(chunk_idx, aligned_segments)
-                    completed += 1
+            with ThreadPoolExecutor(max_workers=current_align_workers) as executor:
+                futures = {}
+                
+                # バッチ内のチャンクを処理
+                for chunk_info in batch_chunks:
+                    # メモリ使用量をログ
+                    if completed % memory_check_interval == 0:
+                        mem_usage = system_resource_manager.get_memory_usage()
+                        logger.debug(f"メモリ使用量: {mem_usage:.1f}GB")
                     
-                    if progress_callback:
-                        progress = 0.5 + (0.45 * completed / total)
-                        progress_callback(progress, f"アライメント: {completed}/{total}")
+                    future = executor.submit(
+                        self._align_single_chunk_safe,
+                        chunk_info, disk_cache, align_model, align_meta
+                    )
+                    futures[future] = chunk_info["idx"]
+                
+                # バッチ内の結果を収集
+                for future in as_completed(futures):
+                    chunk_idx = futures[future]
+                    try:
+                        result = future.result()
+                        if result is not None:
+                            # アライメント結果を保存
+                            disk_cache.save_aligned_result(chunk_idx, result)
+                            completed += 1
+                        else:
+                            failed += 1
                         
-                except Exception as e:
-                    logger.warning(f"アライメントエラー (チャンク {chunk_idx}): {e}")
-                    # 失敗時は元のセグメントを使用
-                    segments = disk_cache.load_api_result(chunk_idx)
-                    if segments:
-                        aligned_segments = [
-                            TranscriptionSegment(
-                                start=seg["start"],
-                                end=seg["end"],
-                                text=seg["text"],
-                                words=None,
-                                chars=None
-                            )
-                            for seg in segments
-                        ]
-                        disk_cache.save_aligned_result(chunk_idx, aligned_segments)
-                    completed += 1
+                        if progress_callback:
+                            progress = 0.5 + (0.45 * (completed + failed) / total)
+                            status = f"Phase 3: アライメント {completed}/{total} 完了"
+                            if failed > 0:
+                                status += f" ({failed} 失敗)"
+                            progress_callback(progress, status)
+                            
+                    except Exception as e:
+                        logger.warning(f"アライメントエラー (チャンク {chunk_idx}): {e}")
+                        failed += 1
+                        # 失敗時は元のセグメントを使用
+                        segments = disk_cache.load_api_result(chunk_idx)
+                        if segments:
+                            aligned_segments = [
+                                TranscriptionSegment(
+                                    start=seg["start"],
+                                    end=seg["end"],
+                                    text=seg["text"],
+                                    words=None,
+                                    chars=None
+                                )
+                                for seg in segments
+                            ]
+                            disk_cache.save_aligned_result(chunk_idx, aligned_segments)
+            
+            # バッチ間でメモリ解放
+            if batch_end < total:
+                logger.debug(f"バッチ {batch_start//batch_size + 1} 完了、メモリ解放中...")
+                import gc
+                gc.collect()
+                time.sleep(0.5)  # 少し待機
+        
+        logger.info(f"Phase 3 完了: 成功 {completed}, 失敗 {failed}")
         
         # 全結果を収集
         return self._collect_all_results(chunks_info, disk_cache)
@@ -268,6 +349,27 @@ class UltraOptimizedAPITranscriber:
         
         return segments
     
+    def _align_single_chunk_safe(self, chunk_info, disk_cache, align_model, align_meta):
+        """単一チャンクの安全なアライメント（エラーハンドリング付き）"""
+        try:
+            return self._align_single_chunk(chunk_info, disk_cache, align_model, align_meta)
+        except Exception as e:
+            logger.error(f"アライメント失敗 (チャンク {chunk_info['idx']}): {e}")
+            # 失敗時は元のセグメントをアライメントなしで返す
+            segments = disk_cache.load_api_result(chunk_info["idx"])
+            if segments:
+                return [
+                    TranscriptionSegment(
+                        start=seg["start"],
+                        end=seg["end"],
+                        text=seg["text"],
+                        words=None,
+                        chars=None
+                    )
+                    for seg in segments
+                ]
+            return None
+    
     def _align_single_chunk(self, chunk_info, disk_cache, align_model, align_meta):
         """単一チャンクのアライメント"""
         # セグメントを読み込み
@@ -291,7 +393,8 @@ class UltraOptimizedAPITranscriber:
             ]
         
         try:
-            import whisperx
+            # チャンクの音声長を取得
+            chunk_duration = len(chunk_audio) / 16000  # 16kHz前提
             
             # WhisperX形式に変換（チャンク内相対時間）
             whisperx_segments = []
@@ -302,8 +405,24 @@ class UltraOptimizedAPITranscriber:
                     "text": seg["text"]
                 })
             
-            # アライメント実行
-            aligned_result = whisperx.align(
+            # セグメントを検証
+            whisperx_segments = validate_segments_for_alignment(whisperx_segments, chunk_duration)
+            
+            if not whisperx_segments:
+                logger.warning(f"チャンク {chunk_info['idx']}: 有効なセグメントがありません")
+                return [
+                    TranscriptionSegment(
+                        start=seg["start"],
+                        end=seg["end"],
+                        text=seg["text"],
+                        words=None,
+                        chars=None
+                    )
+                    for seg in segments
+                ]
+            
+            # 安全なアライメント実行
+            aligned_result = safe_align_segments(
                 whisperx_segments,
                 align_model,
                 align_meta,
@@ -311,6 +430,19 @@ class UltraOptimizedAPITranscriber:
                 "cpu",
                 return_char_alignments=True
             )
+            
+            if not aligned_result or "segments" not in aligned_result:
+                logger.warning(f"チャンク {chunk_info['idx']}: アライメント結果が無効")
+                return [
+                    TranscriptionSegment(
+                        start=seg["start"],
+                        end=seg["end"],
+                        text=seg["text"],
+                        words=None,
+                        chars=None
+                    )
+                    for seg in segments
+                ]
             
             # 結果を変換
             aligned_segments = []
@@ -337,21 +469,26 @@ class UltraOptimizedAPITranscriber:
             
         except Exception as e:
             logger.warning(f"アライメント失敗: {e}")
-            raise
+            # エラー時はアライメントなしのセグメントを返す
+            return [
+                TranscriptionSegment(
+                    start=seg["start"],
+                    end=seg["end"],
+                    text=seg["text"],
+                    words=None,
+                    chars=None
+                )
+                for seg in segments
+            ]
     
     def _load_alignment_model(self):
         """アライメントモデルを読み込み"""
-        try:
-            import whisperx
-            align_model, align_meta = whisperx.load_align_model(
-                language_code=self.api_config.language,
-                device="cpu"
-            )
-            logger.info("アライメントモデルを読み込みました")
-            return align_model, align_meta
-        except Exception as e:
-            logger.warning(f"アライメントモデルの読み込みに失敗: {e}")
-            return None, None
+        # alignment_wrapperの安全な読み込み関数を使用
+        align_model, align_meta = safe_load_align_model(
+            language_code=self.api_config.language,
+            device="cpu"
+        )
+        return align_model, align_meta
     
     def _collect_results_without_alignment(self, chunks_info, disk_cache):
         """アライメントなしで結果を収集"""
