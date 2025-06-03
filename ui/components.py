@@ -716,9 +716,9 @@ def show_help():
     st.markdown("#### ❓ ヘルプ")
     
     st.markdown("""
-    詳しい使い方は note で公開予定です：
+    詳しい使い方はこちら：
     
-    📖 **[Coidemo - note](https://note.com/coidemo)**
+    📖 **[TextffCutの使い方 - note](https://note.com/coidemo/n/n8250e4b95daa)**
     """)
 
 
