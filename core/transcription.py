@@ -8,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Callable
+import numpy as np
 
 try:
     import whisperx
@@ -349,14 +350,67 @@ class Transcriber:
         num_workers = self.config.transcription.num_workers
         
         step = chunk_sec * sr
-        chunks = [
-            {
-                "array": audio[i:i+step],
-                "start": i / sr,
-                "duration": min(step, len(audio)-i) / sr
-            }
-            for i in range(0, len(audio), step)
-        ]
+        
+        # チャンクを作成（APIモードと同じ処理）
+        chunks = []
+        MIN_CHUNK_DURATION = 1.0  # 1秒未満のチャンクは結合（品質向上のため）
+        
+        # 短いチャンクを一時保存する変数
+        pending_chunk = None
+        
+        for i in range(0, len(audio), step):
+            chunk_audio = audio[i:i+step]
+            start_time = i / sr
+            duration = len(chunk_audio) / sr
+            
+            # pending_chunkがある場合は先に結合を試みる
+            if pending_chunk is not None:
+                # 前の短いチャンクと現在のチャンクを結合
+                combined_audio = np.concatenate([pending_chunk["array"], chunk_audio])
+                combined_chunk = {
+                    "array": combined_audio,
+                    "start": pending_chunk["start"],
+                    "duration": len(combined_audio) / sr
+                }
+                chunks.append(combined_chunk)
+                logger.info(f"短いチャンクを次のチャンクと結合しました (新しい長さ: {combined_chunk['duration']:.1f}秒)")
+                pending_chunk = None
+                continue
+            
+            # 1秒未満のチャンクは処理しない
+            if duration < MIN_CHUNK_DURATION:
+                logger.warning(f"チャンクが短すぎます ({duration:.3f}秒) - 結合処理を行います")
+                # 前のチャンクがある場合は結合
+                if chunks:
+                    last_chunk = chunks[-1]
+                    # 前のチャンクに結合
+                    combined_audio = np.concatenate([last_chunk["array"], chunk_audio])
+                    chunks[-1] = {
+                        "array": combined_audio,
+                        "start": last_chunk["start"],
+                        "duration": len(combined_audio) / sr
+                    }
+                    logger.info(f"短いチャンクを前のチャンクに結合しました (新しい長さ: {chunks[-1]['duration']:.1f}秒)")
+                else:
+                    # 最初のチャンクが短すぎる場合は一時保存して次と結合
+                    pending_chunk = {
+                        "array": chunk_audio,
+                        "start": start_time,
+                        "duration": duration
+                    }
+                    logger.warning(f"最初のチャンクが短いため、次のチャンクと結合します ({duration:.3f}秒)")
+                continue
+            
+            chunks.append({
+                "array": chunk_audio,
+                "start": start_time,
+                "duration": duration
+            })
+        
+        # 最後にpending_chunkが残っている場合（音声全体が短い場合）
+        if pending_chunk is not None:
+            chunks.append(pending_chunk)
+            logger.warning(f"最後の短いチャンクをそのまま追加します ({pending_chunk['duration']:.3f}秒)")
         
         # デバッグ情報
         total_audio_duration = len(audio) / sr
