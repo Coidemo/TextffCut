@@ -23,6 +23,7 @@ class APITranscriber:
     def __init__(self, config: Config):
         self.config = config
         self.api_config = config.transcription
+        self.skip_alignment = False  # アライメント処理をスキップするフラグ
     
     def transcribe(self, audio_path: str, model_size: str = None, 
                   progress_callback: Optional[callable] = None) -> TranscriptionResult:
@@ -288,13 +289,19 @@ class APITranscriber:
             all_segments.sort(key=lambda x: x.start)
             
             # アライメント処理を追加（ローカル版と同等の精度）
-            if progress_callback:
-                progress_callback(0.95, "アライメント処理中...")
-            
-            aligned_segments = self._perform_alignment(audio, all_segments, progress_callback)
-            
-            if progress_callback:
-                progress_callback(1.0, "チャンク並列処理完了")
+            if self.skip_alignment:
+                # アライメントをスキップ
+                aligned_segments = all_segments
+                if progress_callback:
+                    progress_callback(1.0, "チャンク並列処理完了（アライメントスキップ）")
+            else:
+                if progress_callback:
+                    progress_callback(0.95, "アライメント処理中...")
+                
+                aligned_segments = self._perform_alignment(audio, all_segments, progress_callback)
+                
+                if progress_callback:
+                    progress_callback(1.0, "チャンク並列処理完了")
             
             return TranscriptionResult(
                 language=self.api_config.language,

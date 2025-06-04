@@ -11,6 +11,7 @@ import os
 
 from config import config
 from core import Transcriber, TextProcessor, VideoProcessor, FCPXMLExporter, XMEMLExporter, ExportSegment, VideoSegment
+from core.transcription_smart_split import SmartSplitTranscriber
 from utils.file_utils import ensure_directory, get_safe_filename
 from utils.time_utils import format_time
 from utils import ProcessingContext, cleanup_intermediate_files
@@ -257,7 +258,7 @@ def main():
     # st.session_state.previous_transcription_mode = current_mode
     # st.session_state.previous_transcription_model = current_model
     
-    transcriber = Transcriber(config)
+    transcriber = SmartSplitTranscriber(config)
     
     # 利用可能なキャッシュを取得
     available_caches = transcriber.get_available_caches(video_path)
@@ -463,7 +464,7 @@ def main():
                     config.transcription.use_api = False
                 
                 # 設定を反映したTranscriberを再初期化
-                transcriber = Transcriber(config)
+                transcriber = SmartSplitTranscriber(config)
                 
                 # シンプルなプログレスコールバック
                 progress_bar = st.progress(0)
