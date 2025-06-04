@@ -8,7 +8,7 @@ set -e  # エラーが発生したら即座に終了
 
 # スクリプトのディレクトリを基準に移動
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-cd "$SCRIPT_DIR/.."
+cd "$SCRIPT_DIR"
 
 # バージョン番号の取得
 if [ -n "$1" ]; then
