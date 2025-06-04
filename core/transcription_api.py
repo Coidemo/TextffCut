@@ -28,8 +28,7 @@ class APITranscriber:
         self.skip_alignment = False  # アライメント処理をスキップするフラグ
     
     def transcribe(self, audio_path: str, model_size: str = None, 
-                  progress_callback: Optional[callable] = None,
-                  optimization_mode: str = "auto") -> TranscriptionResult:
+                  progress_callback: Optional[callable] = None) -> TranscriptionResult:
         """
         APIを使用して音声ファイルを文字起こし
         
@@ -37,7 +36,6 @@ class APITranscriber:
             audio_path: 音声ファイルパス
             model_size: モデルサイズ（API版では一部のみ有効）
             progress_callback: 進捗コールバック
-            optimization_mode: 最適化モード ("auto", "normal", "optimized", "ultra")
             
         Returns:
             TranscriptionResult: 文字起こし結果
@@ -47,7 +45,7 @@ class APITranscriber:
         
         # OpenAI API専用
         if self.api_config.api_provider == "openai":
-            result = self._transcribe_openai(audio_path, progress_callback, optimization_mode)
+            result = self._transcribe_openai(audio_path, progress_callback)
         else:
             raise ValueError(f"Unsupported API provider: {self.api_config.api_provider}. Only 'openai' is supported.")
         
@@ -57,8 +55,7 @@ class APITranscriber:
         return result
     
     def _transcribe_openai(self, audio_path: str, 
-                          progress_callback: Optional[callable] = None,
-                          optimization_mode: str = "auto") -> TranscriptionResult:
+                          progress_callback: Optional[callable] = None) -> TranscriptionResult:
         """OpenAI Whisper APIを使用（ローカル版と同じチャンク並列処理）"""
         # パフォーマンストラッキング開始
         from core.video import VideoInfo
@@ -124,7 +121,7 @@ class APITranscriber:
                     progress_callback(0.1, "音声データを最適化完了、チャンク分割中...")
                 
                 # ローカル版と同じチャンク分割処理
-                result = self._transcribe_with_chunks(client, audio, audio_path, progress_callback, optimization_mode, perf_tracker, video_info.duration)
+                result = self._transcribe_with_chunks(client, audio, audio_path, progress_callback, perf_tracker, video_info.duration)
                 return result
                         
             except ImportError:
@@ -163,7 +160,6 @@ class APITranscriber:
     
     def _transcribe_with_chunks(self, client, audio, original_audio_path: str,
                                progress_callback: Optional[callable] = None,
-                               optimization_mode: str = "auto",
                                perf_tracker: Optional[PerformanceTracker] = None,
                                video_duration: float = 0.0) -> TranscriptionResult:
         """Producer-Consumerパターンによる最適化されたチャンク並列処理"""
@@ -174,65 +170,11 @@ class APITranscriber:
         from concurrent.futures import ThreadPoolExecutor, as_completed
         
         start_time = time.time()
-        # 最適化モードの選択
-        from utils.system_resources import system_resource_manager
-        system_spec = system_resource_manager.get_system_spec()
+        logger.info("通常API処理を使用")
         
-        # 手動選択モードか自動選択かを判定
-        if optimization_mode == "auto":
-            # 自動選択：システムスペックに基づいて最適化レベルを選択
-            if system_spec.spec_level == 'low' or system_spec.available_memory_gb < 3:
-                selected_mode = "ultra_optimized"
-            elif system_spec.spec_level == 'high' and system_spec.available_memory_gb > 8:
-                selected_mode = "normal"
-            else:
-                selected_mode = "optimized"
-            logger.info(f"自動選択モード: {selected_mode} (利用可能メモリ: {system_spec.available_memory_gb:.1f}GB)")
-        else:
-            # 手動選択モード
-            selected_mode = optimization_mode
-            logger.info(f"手動選択モード: {selected_mode}")
-        
-        # 選択されたモードに応じて処理を分岐
-        if selected_mode == "ultra_optimized":
-            from .transcription_api_ultra_optimized import UltraOptimizedAPITranscriber
-            logger.info("超最適化モード（ディスクキャッシュ）を使用")
-            ultra_transcriber = UltraOptimizedAPITranscriber(self.config)
-            
-            # トラッキング開始
-            if perf_tracker:
-                metrics = perf_tracker.start_tracking(selected_mode, "whisper-1", True, video_duration)
-            
-            result = ultra_transcriber.transcribe_ultra_optimized(client, audio, original_audio_path, progress_callback)
-            
-            # トラッキング終了
-            if perf_tracker:
-                perf_tracker.end_tracking(len(result.segments) if result else 0)
-            
-            return result
-        elif selected_mode == "normal":
-            # 通常モード：このメソッドの残りの部分で処理
-            logger.info("通常モード（高速処理）を使用")
-            
-            # トラッキング開始
-            if perf_tracker:
-                metrics = perf_tracker.start_tracking(selected_mode, "whisper-1", True, video_duration)
-        else:  # optimized
-            from .transcription_api_optimized import OptimizedAPITranscriber
-            logger.info("最適化モードを使用")
-            optimized_transcriber = OptimizedAPITranscriber(self.config)
-            
-            # トラッキング開始
-            if perf_tracker:
-                metrics = perf_tracker.start_tracking(selected_mode, "whisper-1", True, video_duration)
-            
-            result = optimized_transcriber._transcribe_with_chunks_optimized(client, audio, original_audio_path, progress_callback)
-            
-            # トラッキング終了
-            if perf_tracker:
-                perf_tracker.end_tracking(len(result.segments) if result else 0)
-            
-            return result
+        # トラッキング開始
+        if perf_tracker:
+            metrics = perf_tracker.start_tracking("normal", "whisper-1", True, video_duration)
         
         # チャンク処理のパラメータを設定
         chunk_seconds = self.config.transcription.chunk_seconds
@@ -452,8 +394,8 @@ class APITranscriber:
             # 処理時間を計算
             processing_time = time.time() - start_time
             
-            # トラッキング終了（通常モードの場合）
-            if perf_tracker and selected_mode == "normal":
+            # トラッキング終了
+            if perf_tracker:
                 perf_tracker.end_tracking(
                     segments_processed=len(aligned_segments),
                     api_chunks=len(chunks),
