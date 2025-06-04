@@ -364,62 +364,10 @@ def main():
             if use_api:
                 st.caption("⚠️ API料金: $0.006/分 | 為替変動あり | [最新料金](https://openai.com/pricing)を確認")
                 
-                # APIモードの詳細設定（エキスパンダー）
-                with st.expander("🔧 APIモード詳細設定", expanded=False):
-                    # パフォーマンス履歴の表示
-                    from utils.performance_tracker import PerformanceTracker
-                    perf_tracker = PerformanceTracker(video_path)
-                    mode_stats = perf_tracker.get_mode_statistics()
-                    
-                    if mode_stats:
-                        st.markdown("### 📊 過去の処理パフォーマンス")
-                        
-                        # モード別統計を表示
-                        cols = st.columns(len(mode_stats))
-                        for i, (mode, stats) in enumerate(mode_stats.items()):
-                            with cols[i]:
-                                st.metric(
-                                    label=f"モード: {mode}",
-                                    value=f"{stats['avg_realtime_factor']:.1f}倍速",
-                                    delta=f"実行回数: {stats['count']}回"
-                                )
-                                if stats['count'] > 0:
-                                    st.caption(f"最速: {stats['max_realtime_factor']:.1f}倍")
-                        
-                        # 最適なモードの推奨
-                        best_mode = perf_tracker.get_best_mode()
-                        if best_mode:
-                            st.info(f"💡 推奨モード: **{best_mode}** (平均速度が最も高速)")
-                    
-                    st.markdown("### 🎛️ 最適化モード選択")
-                    st.markdown("処理速度とメモリ使用量のバランスを選択できます")
-                    
-                    optimization_mode = st.radio(
-                        "最適化モード",
-                        options=["auto", "normal", "optimized", "ultra_optimized"],
-                        format_func=lambda x: {
-                            "auto": "🤖 自動選択（推奨）",
-                            "normal": "🚀 通常モード（高速・メモリ多）",
-                            "optimized": "⚡ 最適化モード（バランス）", 
-                            "ultra_optimized": "💎 超最適化モード（低速・メモリ少）"
-                        }[x],
-                        index=0,
-                        help="自動選択では、システムのメモリ状況に応じて最適なモードが選ばれます"
-                    )
-                    
-                    # モード説明
-                    mode_descriptions = {
-                        "auto": "システムメモリに応じて自動的に最適なモードを選択します",
-                        "normal": "メモリを多く使用しますが、最も高速に処理します（要8GB以上）",
-                        "optimized": "メモリ使用量と処理速度のバランスが取れたモードです",
-                        "ultra_optimized": "メモリ使用量を最小限に抑えますが、処理速度は遅くなります"
-                    }
-                    st.caption(mode_descriptions[optimization_mode])
-                    
-                    # セッションに保存
-                    st.session_state.optimization_mode = optimization_mode
+                # 自動最適化モード（固定）
+                st.session_state.optimization_mode = "auto"
             else:
-                # ローカルモードの場合は自動選択のみ
+                # ローカルモードの場合も自動選択
                 st.session_state.optimization_mode = "auto"
             
             # GPU/CPU情報はタブ内で表示されるため、ここでは削除
