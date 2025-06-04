@@ -3,6 +3,7 @@ API版文字起こしモジュール
 """
 import os
 import json
+import time
 import tempfile
 from pathlib import Path
 from typing import Dict, Any, Optional, List
@@ -13,6 +14,7 @@ import openai
 from .transcription import TranscriptionResult, TranscriptionSegment
 from config import Config
 from utils.logging import get_logger
+from utils.performance_tracker import PerformanceTracker
 
 logger = get_logger(__name__)
 
@@ -26,7 +28,8 @@ class APITranscriber:
         self.skip_alignment = False  # アライメント処理をスキップするフラグ
     
     def transcribe(self, audio_path: str, model_size: str = None, 
-                  progress_callback: Optional[callable] = None) -> TranscriptionResult:
+                  progress_callback: Optional[callable] = None,
+                  optimization_mode: str = "auto") -> TranscriptionResult:
         """
         APIを使用して音声ファイルを文字起こし
         
@@ -34,6 +37,7 @@ class APITranscriber:
             audio_path: 音声ファイルパス
             model_size: モデルサイズ（API版では一部のみ有効）
             progress_callback: 進捗コールバック
+            optimization_mode: 最適化モード ("auto", "normal", "optimized", "ultra")
             
         Returns:
             TranscriptionResult: 文字起こし結果
@@ -43,7 +47,7 @@ class APITranscriber:
         
         # OpenAI API専用
         if self.api_config.api_provider == "openai":
-            result = self._transcribe_openai(audio_path, progress_callback)
+            result = self._transcribe_openai(audio_path, progress_callback, optimization_mode)
         else:
             raise ValueError(f"Unsupported API provider: {self.api_config.api_provider}. Only 'openai' is supported.")
         
@@ -53,8 +57,17 @@ class APITranscriber:
         return result
     
     def _transcribe_openai(self, audio_path: str, 
-                          progress_callback: Optional[callable] = None) -> TranscriptionResult:
+                          progress_callback: Optional[callable] = None,
+                          optimization_mode: str = "auto") -> TranscriptionResult:
         """OpenAI Whisper APIを使用（ローカル版と同じチャンク並列処理）"""
+        # パフォーマンストラッキング開始
+        from core.video import VideoInfo
+        video_info = VideoInfo.from_file(audio_path)
+        perf_tracker = PerformanceTracker(audio_path)
+        
+        # トラッキング開始（実際に使用されるモードは後で決定）
+        start_time = time.time()
+        
         try:
             from openai import OpenAI
             import tempfile
@@ -111,12 +124,17 @@ class APITranscriber:
                     progress_callback(0.1, "音声データを最適化完了、チャンク分割中...")
                 
                 # ローカル版と同じチャンク分割処理
-                return self._transcribe_with_chunks(client, audio, audio_path, progress_callback)
+                result = self._transcribe_with_chunks(client, audio, audio_path, progress_callback, optimization_mode, perf_tracker, video_info.duration)
+                return result
                         
             except ImportError:
                 # WhisperXが利用できない場合はFFmpegで変換
                 logger.warning("WhisperXが利用できないため、FFmpegで音声変換します")
-                return self._transcribe_with_ffmpeg(client, audio_path, progress_callback)
+                result = self._transcribe_with_ffmpeg(client, audio_path, progress_callback)
+                # FFmpegの場合もトラッキング
+                metrics = perf_tracker.start_tracking("normal", "whisper-1", True, video_info.duration)
+                perf_tracker.end_tracking(len(result.segments) if result else 0)
+                return result
             
         except ImportError as e:
             from utils.exceptions import TranscriptionError
@@ -144,15 +162,81 @@ class APITranscriber:
             raise TranscriptionError(f"文字起こしエラー: {str(e)}")
     
     def _transcribe_with_chunks(self, client, audio, original_audio_path: str,
-                               progress_callback: Optional[callable] = None) -> TranscriptionResult:
-        """ローカル版と同じチャンク分割並列処理"""
+                               progress_callback: Optional[callable] = None,
+                               optimization_mode: str = "auto",
+                               perf_tracker: Optional[PerformanceTracker] = None,
+                               video_duration: float = 0.0) -> TranscriptionResult:
+        """Producer-Consumerパターンによる最適化されたチャンク並列処理"""
         import tempfile
         import soundfile as sf
+        import numpy as np
+        import time
         from concurrent.futures import ThreadPoolExecutor, as_completed
         
-        # ローカル版と同じ設定でチャンク分割
-        chunk_seconds = self.api_config.chunk_seconds  # 30秒
-        sample_rate = 16000
+        start_time = time.time()
+        # 最適化モードの選択
+        from utils.system_resources import system_resource_manager
+        system_spec = system_resource_manager.get_system_spec()
+        
+        # 手動選択モードか自動選択かを判定
+        if optimization_mode == "auto":
+            # 自動選択：システムスペックに基づいて最適化レベルを選択
+            if system_spec.spec_level == 'low' or system_spec.available_memory_gb < 3:
+                selected_mode = "ultra_optimized"
+            elif system_spec.spec_level == 'high' and system_spec.available_memory_gb > 8:
+                selected_mode = "normal"
+            else:
+                selected_mode = "optimized"
+            logger.info(f"自動選択モード: {selected_mode} (利用可能メモリ: {system_spec.available_memory_gb:.1f}GB)")
+        else:
+            # 手動選択モード
+            selected_mode = optimization_mode
+            logger.info(f"手動選択モード: {selected_mode}")
+        
+        # 選択されたモードに応じて処理を分岐
+        if selected_mode == "ultra_optimized":
+            from .transcription_api_ultra_optimized import UltraOptimizedAPITranscriber
+            logger.info("超最適化モード（ディスクキャッシュ）を使用")
+            ultra_transcriber = UltraOptimizedAPITranscriber(self.config)
+            
+            # トラッキング開始
+            if perf_tracker:
+                metrics = perf_tracker.start_tracking(selected_mode, "whisper-1", True, video_duration)
+            
+            result = ultra_transcriber.transcribe_ultra_optimized(client, audio, original_audio_path, progress_callback)
+            
+            # トラッキング終了
+            if perf_tracker:
+                perf_tracker.end_tracking(len(result.segments) if result else 0)
+            
+            return result
+        elif selected_mode == "normal":
+            # 通常モード：このメソッドの残りの部分で処理
+            logger.info("通常モード（高速処理）を使用")
+            
+            # トラッキング開始
+            if perf_tracker:
+                metrics = perf_tracker.start_tracking(selected_mode, "whisper-1", True, video_duration)
+        else:  # optimized
+            from .transcription_api_optimized import OptimizedAPITranscriber
+            logger.info("最適化モードを使用")
+            optimized_transcriber = OptimizedAPITranscriber(self.config)
+            
+            # トラッキング開始
+            if perf_tracker:
+                metrics = perf_tracker.start_tracking(selected_mode, "whisper-1", True, video_duration)
+            
+            result = optimized_transcriber._transcribe_with_chunks_optimized(client, audio, original_audio_path, progress_callback)
+            
+            # トラッキング終了
+            if perf_tracker:
+                perf_tracker.end_tracking(len(result.segments) if result else 0)
+            
+            return result
+        
+        # チャンク処理のパラメータを設定
+        chunk_seconds = self.config.transcription.chunk_seconds
+        sample_rate = self.config.transcription.sample_rate
         step = chunk_seconds * sample_rate
         
         # チャンクを作成
@@ -252,10 +336,56 @@ class APITranscriber:
             completed_chunks = 0
             
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                # アライメントモデルを事前に読み込み（全チャンクで共有）
+                align_model = None
+                align_meta = None
+                try:
+                    import whisperx
+                    
+                    # transformersのバージョンによる互換性問題を回避
+                    import transformers
+                    from packaging import version
+                    
+                    # transformersのバージョンをチェック
+                    transformers_version = version.parse(transformers.__version__)
+                    logger.info(f"transformersバージョン: {transformers.__version__}")
+                    
+                    # 新しいバージョンの場合でも、アライメントモデルを読み込む
+                    try:
+                        align_model, align_meta = whisperx.load_align_model(
+                            language_code=self.api_config.language,
+                            device="cpu"
+                        )
+                        logger.info("アライメントモデルを読み込みました")
+                        
+                        # transformers 4.30.0以降の場合、互換性の警告を表示
+                        if transformers_version >= version.parse("4.30.0"):
+                            logger.warning(f"transformers {transformers.__version__} で実行中。エラーが発生する可能性があります")
+                    except Exception as e:
+                        logger.error(f"アライメントモデルの読み込みエラー: {e}")
+                        align_model = None
+                        align_meta = None
+                except ImportError as e:
+                    logger.warning(f"必要なライブラリがインストールされていません: {e}")
+                    align_model = None
+                    align_meta = None
+                except Exception as e:
+                    logger.warning(f"アライメントモデルの読み込みに失敗: {e}")
+                    align_model = None
+                    align_meta = None
+                
                 # 各チャンクのAPI処理を送信
                 futures = []
                 for chunk_file, start_offset, chunk_idx in chunk_files:
-                    future = executor.submit(self._transcribe_chunk_api, client, chunk_file, start_offset, chunk_idx)
+                    future = executor.submit(
+                        self._transcribe_chunk_api, 
+                        client, 
+                        chunk_file, 
+                        start_offset, 
+                        chunk_idx,
+                        align_model,
+                        align_meta
+                    )
                     futures.append(future)
                 
                 # 完了したものから結果を取得
@@ -285,30 +415,57 @@ class APITranscriber:
             if progress_callback:
                 progress_callback(0.9, "結果を統合中...")
             
+            # すべてのセグメントがTranscriptionSegmentオブジェクトであることを確認
+            validated_segments = []
+            for seg in all_segments:
+                if isinstance(seg, TranscriptionSegment):
+                    validated_segments.append(seg)
+                elif isinstance(seg, dict):
+                    # dictの場合はTranscriptionSegmentに変換
+                    validated_segments.append(TranscriptionSegment(
+                        start=seg.get('start', 0),
+                        end=seg.get('end', 0),
+                        text=seg.get('text', ''),
+                        words=seg.get('words'),
+                        chars=seg.get('chars')
+                    ))
+            
             # セグメントをソート
-            all_segments.sort(key=lambda x: x.start)
+            validated_segments.sort(key=lambda x: x.start)
             
             # アライメント処理を追加（ローカル版と同等の精度）
             if self.skip_alignment:
                 # アライメントをスキップ
-                aligned_segments = all_segments
+                aligned_segments = validated_segments
                 if progress_callback:
                     progress_callback(1.0, "チャンク並列処理完了（アライメントスキップ）")
             else:
+                # アライメント処理はチャンクごとに実行済み
                 if progress_callback:
-                    progress_callback(0.95, "アライメント処理中...")
+                    progress_callback(0.95, "結果を統合中...")
                 
-                aligned_segments = self._perform_alignment(audio, all_segments, progress_callback)
+                aligned_segments = validated_segments  # 既にアライメント済み
                 
                 if progress_callback:
                     progress_callback(1.0, "チャンク並列処理完了")
+            
+            # 処理時間を計算
+            processing_time = time.time() - start_time
+            
+            # トラッキング終了（通常モードの場合）
+            if perf_tracker and selected_mode == "normal":
+                perf_tracker.end_tracking(
+                    segments_processed=len(aligned_segments),
+                    api_chunks=len(chunks),
+                    alignment_chunks=len(aligned_segments)
+                )
             
             return TranscriptionResult(
                 language=self.api_config.language,
                 segments=aligned_segments,
                 original_audio_path=original_audio_path,
                 model_size="whisper-1_api",
-                processing_time=0.0
+                processing_time=processing_time
             )
         
         finally:
@@ -319,7 +476,8 @@ class APITranscriber:
             except:
                 pass
     
-    def _transcribe_chunk_api(self, client, chunk_file: str, start_offset: float, chunk_idx: int) -> List[TranscriptionSegment]:
+    def _transcribe_chunk_api(self, client, chunk_file: str, start_offset: float, chunk_idx: int,
+                             align_model=None, align_meta=None) -> List[TranscriptionSegment]:
         """単一チャンクのAPI処理"""
         try:
             with open(chunk_file, 'rb') as audio_file:
@@ -360,6 +518,74 @@ class APITranscriber:
                     words=None  # アライメント処理なしの場合は None に設定
                 )
                 segments.append(segment)
+            
+            # アライメント処理
+            if align_model and align_meta and len(segments) > 0:
+                try:
+                    # チャンクファイルから音声データを読み込み
+                    import whisperx
+                    chunk_audio = whisperx.load_audio(chunk_file)
+                    
+                    # API結果をWhisperX形式に変換
+                    whisperx_segments = []
+                    for seg in segments:
+                        whisperx_segments.append({
+                            "start": seg.start - start_offset,  # チャンク内の相対時間に戻す
+                            "end": seg.end - start_offset,
+                            "text": seg.text
+                        })
+                    
+                    # チャンクごとのアライメント
+                    # エラーハンドリングを強化
+                    try:
+                        aligned_result = whisperx.align(
+                            whisperx_segments,
+                            align_model,
+                            align_meta,
+                            chunk_audio,
+                            "cpu",
+                            return_char_alignments=True
+                        )
+                    except TypeError as te:
+                        # sampling_rate引数エラーの場合
+                        if "sampling_rate" in str(te):
+                            logger.warning(f"チャンク {chunk_idx}: アライメント処理でsampling_rateエラー。return_char_alignmentsを無効化して再試行")
+                            # return_char_alignmentsを無効化して再試行
+                            aligned_result = whisperx.align(
+                                whisperx_segments,
+                                align_model,
+                                align_meta,
+                                chunk_audio,
+                                "cpu",
+                                return_char_alignments=False
+                            )
+                        else:
+                            raise te
+                    
+                    # 結果を元の形式に戻す
+                    aligned_segments = []
+                    for seg in aligned_result["segments"]:
+                        aligned_seg = TranscriptionSegment(
+                            start=seg["start"] + start_offset,  # 絶対時間に戻す
+                            end=seg["end"] + start_offset,
+                            text=seg["text"],
+                            words=seg.get("words"),
+                            chars=seg.get("chars")
+                        )
+                        # wordsのタイムスタンプも調整
+                        if aligned_seg.words:
+                            for word in aligned_seg.words:
+                                if "start" in word:
+                                    word["start"] += start_offset
+                                if "end" in word:
+                                    word["end"] += start_offset
+                        aligned_segments.append(aligned_seg)
+                    
+                    logger.info(f"チャンク {chunk_idx} アライメント完了: {len(aligned_segments)}セグメント")
+                    return aligned_segments
+                    
+                except Exception as e:
+                    logger.warning(f"チャンク {chunk_idx} のアライメント処理に失敗: {e}")
             
             logger.info(f"チャンク {chunk_idx} 処理完了: {len(segments)}セグメント")
             return segments
