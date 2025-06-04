@@ -364,11 +364,11 @@ def main():
             if use_api:
                 st.caption("⚠️ API料金: $0.006/分 | 為替変動あり | [最新料金](https://openai.com/pricing)を確認")
                 
-                # 自動最適化モード（固定）
-                st.session_state.optimization_mode = "auto"
+                # 自動最適化モード（固定・内部処理）
+                pass
             else:
-                # ローカルモードの場合も自動選択
-                st.session_state.optimization_mode = "auto"
+                # ローカルモード（自動処理）
+                pass
             
             # GPU/CPU情報はタブ内で表示されるため、ここでは削除
             
@@ -487,14 +487,12 @@ def main():
                 
                 # 文字起こし実行（新規実行：キャッシュ読み込みせず、結果は保存）
                 model_to_use = confirmation_info.get('model_size', 'base')
-                optimization_mode = st.session_state.get('optimization_mode', 'auto')
                 result = transcriber.transcribe(
                     video_path, 
                     model_to_use,
                     progress_callback=progress_callback,
                     use_cache=False,
-                    save_cache=True,
-                    optimization_mode=optimization_mode
+                    save_cache=True
                 )
                 
                 if result:
@@ -508,7 +506,7 @@ def main():
                             'video_duration': video_info.duration,
                             'realtime_factor': video_info.duration / result.processing_time if result.processing_time > 0 else 0,
                             'segments_count': len(result.segments),
-                            'mode': optimization_mode,
+                            'mode': 'auto',
                             'is_api': use_api
                         }
                     
