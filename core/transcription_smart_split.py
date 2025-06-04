@@ -44,7 +44,8 @@ class SmartSplitTranscriber(Transcriber):
         model_size: Optional[str] = None,
         progress_callback: Optional[Callable[[float, str], None]] = None,
         use_cache: bool = True,
-        save_cache: bool = True
+        save_cache: bool = True,
+        optimization_mode: str = "auto"
     ) -> TranscriptionResult:
         """
         スマート分割文字起こしを実行
@@ -55,6 +56,7 @@ class SmartSplitTranscriber(Transcriber):
             progress_callback: 進捗コールバック関数
             use_cache: キャッシュを読み込むか
             save_cache: キャッシュに保存するか
+            optimization_mode: 最適化モード（APIモード時のみ使用）
             
         Returns:
             TranscriptionResult: 文字起こし結果
@@ -62,7 +64,7 @@ class SmartSplitTranscriber(Transcriber):
         # APIモードの場合は最適化されたチャンクサイズで処理
         if self.config.transcription.use_api:
             logger.info("APIモード：最適化されたチャンクサイズで処理")
-            return self._transcribe_api_optimized(video_path, model_size, progress_callback, use_cache, save_cache)
+            return self._transcribe_api_optimized(video_path, model_size, progress_callback, use_cache, save_cache, optimization_mode)
         
         # キャッシュ確認
         model_size = model_size or self.config.transcription.model_size
@@ -517,7 +519,8 @@ class SmartSplitTranscriber(Transcriber):
         model_size: Optional[str] = None,
         progress_callback: Optional[Callable] = None,
         use_cache: bool = True,
-        save_cache: bool = True
+        save_cache: bool = True,
+        optimization_mode: str = "auto"
     ) -> TranscriptionResult:
         """APIモード用の最適化された文字起こし"""
         # 動画情報を取得
@@ -534,7 +537,7 @@ class SmartSplitTranscriber(Transcriber):
             self.config.transcription.chunk_seconds = 5 * 60  # 5分
             
             try:
-                result = self.api_transcriber.transcribe(video_path, model_size, progress_callback)
+                result = self.api_transcriber.transcribe(video_path, model_size, progress_callback, optimization_mode)
                 return result
             finally:
                 self.config.transcription.chunk_seconds = original_chunk_seconds
@@ -567,7 +570,7 @@ class SmartSplitTranscriber(Transcriber):
                 progress_callback(0.1, "APIで文字起こし中（5分チャンク）...")
             
             # API処理（アライメントなしで高速）
-            api_result = self.api_transcriber.transcribe(video_path, model_size, None)
+            api_result = self.api_transcriber.transcribe(video_path, model_size, None, optimization_mode)
             
             if progress_callback:
                 progress_callback(0.5, "文字起こし完了、アライメント処理を準備中...")
