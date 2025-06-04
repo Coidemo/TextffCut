@@ -250,18 +250,19 @@ python -c "from core.export import FCPXMLExporter; print('Export OK')"
 購入者向けのパッケージを作成するには：
 
 ```bash
-# プロジェクトルートから実行
-./scripts/create_release_package.sh
+# Docker版の配布用パッケージを作成（メモリ最適化版）
+./build_release.sh [バージョン番号]
+# 例: ./build_release.sh 0.9.6
+# バージョン番号を省略すると最新のGitタグを使用
 ```
 
-これにより `release/TextffCut-v1.1.0.zip` が作成されます。
+これにより `release/TextffCut_v[バージョン].zip` が作成されます。
 
 **パッケージ内容:**
-- Dockerイメージ（tar.gz形式、約800MB）
-- 起動スクリプト（START_GUI.command/bat）
-- アンインストールスクリプト（UNINSTALL.command/bat）
+- Dockerイメージ（tar.gz形式、約750MB）
+- 起動スクリプト（START.command/bat）- メモリ自動最適化機能付き
 - docker-compose-simple.yml
-- 使い方ドキュメント
+- README.txt
 
 **配布前の確認事項:**
 1. Docker Desktopでパッケージの動作確認
