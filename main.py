@@ -499,17 +499,6 @@ def main():
                     st.session_state.transcription_result = result
                     st.session_state.transcription_in_progress = False
                     
-                    # 処理統計情報を保存
-                    if hasattr(result, 'processing_time') and result.processing_time > 0:
-                        st.session_state.last_processing_stats = {
-                            'processing_time': result.processing_time,
-                            'video_duration': video_info.duration,
-                            'realtime_factor': video_info.duration / result.processing_time if result.processing_time > 0 else 0,
-                            'segments_count': len(result.segments),
-                            'mode': 'auto',
-                            'is_api': use_api
-                        }
-                    
                     # UI要素をクリーンアップ
                     cancel_placeholder.empty()
                     progress_bar.empty()
@@ -558,49 +547,6 @@ def main():
             model_text = model_info
         
         st.caption(f"📝 現在の文字起こし結果: {mode_text}モード・{model_text}")
-        
-        # 処理統計情報の表示
-        if 'last_processing_stats' in st.session_state:
-            stats = st.session_state.last_processing_stats
-            if stats.get('is_api'):
-                # APIモードの場合のみ統計情報を表示
-                with st.expander("📊 処理パフォーマンス", expanded=False):
-                    col_stat1, col_stat2, col_stat3, col_stat4 = st.columns(4)
-                    
-                    with col_stat1:
-                        st.metric(
-                            label="処理時間",
-                            value=f"{stats['processing_time']:.1f}秒"
-                        )
-                    
-                    with col_stat2:
-                        st.metric(
-                            label="処理速度",
-                            value=f"{stats['realtime_factor']:.1f}倍速"
-                        )
-                    
-                    with col_stat3:
-                        st.metric(
-                            label="セグメント数",
-                            value=f"{stats['segments_count']}個"
-                        )
-                    
-                    with col_stat4:
-                        st.metric(
-                            label="最適化モード",
-                            value=stats.get('mode', 'auto')
-                        )
-                    
-                    # 処理効率の説明
-                    if stats['realtime_factor'] > 10:
-                        st.success(f"⚡ 非常に高速に処理されました！（リアルタイムの{stats['realtime_factor']:.1f}倍速）")
-                    elif stats['realtime_factor'] > 5:
-                        st.info(f"✨ 高速に処理されました（リアルタイムの{stats['realtime_factor']:.1f}倍速）")
-                    else:
-                        st.caption(f"処理速度: リアルタイムの{stats['realtime_factor']:.1f}倍速")
-            
-            # 統計情報を表示後に削除（一度だけ表示）
-            del st.session_state.last_processing_stats
         
         # エラー表示（2カラムの上に表示）
         if st.session_state.get('show_error_and_delete', False):
