@@ -250,7 +250,7 @@ python -c "from core.export import FCPXMLExporter; print('Export OK')"
 購入者向けのパッケージを作成するには：
 
 ```bash
-# Docker版の配布用パッケージを作成
+# Docker版の配布用パッケージを作成（メモリ最適化版）
 ./build_release.sh [バージョン番号]
 # 例: ./build_release.sh 0.9.6
 # バージョン番号を省略すると最新のGitタグを使用
@@ -260,7 +260,7 @@ python -c "from core.export import FCPXMLExporter; print('Export OK')"
 
 **パッケージ内容:**
 - Dockerイメージ（tar.gz形式、約750MB）
-- 起動スクリプト（START.command/bat）
+- 起動スクリプト（START.command/bat）- メモリ自動最適化機能付き
 - docker-compose-simple.yml
 - README.txt
 

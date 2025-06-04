@@ -8,7 +8,7 @@ set -e  # エラーが発生したら即座に終了
 
 # スクリプトのディレクトリを基準に移動
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-cd "$SCRIPT_DIR"
+cd "$SCRIPT_DIR/.."
 
 # バージョン番号の取得
 if [ -n "$1" ]; then
@@ -22,7 +22,7 @@ else
 fi
 
 echo "=========================================="
-echo "TextffCut リリースビルド"
+echo "TextffCut リリースビルド（メモリ最適化）"
 echo "バージョン: v${VERSION}"
 echo "=========================================="
 echo ""
@@ -60,7 +60,7 @@ echo ""
 # 4. 配布用ファイルの作成
 echo "4. 配布用ファイルを作成しています..."
 
-# START.bat の作成
+# START.bat の作成（Windows版もメモリ最適化対応）
 cat > release/START.bat <<EOF
 @echo off
 echo TextffCut v${VERSION} を起動します...
@@ -69,11 +69,88 @@ echo.
 REM 環境変数を設定
 set HOST_VIDEOS_PATH=%cd%\videos
 
-REM Docker Desktopが起動しているか確認
+REM ===========================================
+REM メモリ最適化設定
+REM ===========================================
+echo [メモリ] システムメモリを確認しています...
+
+REM Windowsでのメモリ取得（MB単位で取得してGB変換）
+for /f "tokens=2 delims==" %%i in ('wmic computersystem get TotalPhysicalMemory /value ^| findstr "="') do set TOTAL_MEM_BYTES=%%i
+set /a TOTAL_MEM_GB=%TOTAL_MEM_BYTES:~0,-9%+1
+
+REM 利用可能メモリを取得
+for /f "skip=1" %%i in ('wmic OS get FreePhysicalMemory') do (
+    set FREE_MEM_KB=%%i
+    goto :gotfreemem
+)
+:gotfreemem
+set /a AVAILABLE_MEM_GB=%FREE_MEM_KB%/1048576
+
+echo    総メモリ: %TOTAL_MEM_GB%GB
+echo    利用可能: %AVAILABLE_MEM_GB%GB
+
+REM 推奨メモリ設定を計算
+if %TOTAL_MEM_GB% geq 32 (
+    set RECOMMENDED_MEM=16
+    set MIN_MEM=8
+    set MEMORY_MODE=高性能
+) else if %TOTAL_MEM_GB% geq 16 (
+    set RECOMMENDED_MEM=12
+    set MIN_MEM=6
+    set MEMORY_MODE=バランス
+) else if %TOTAL_MEM_GB% geq 12 (
+    set RECOMMENDED_MEM=8
+    set MIN_MEM=4
+    set MEMORY_MODE=標準
+) else if %TOTAL_MEM_GB% geq 8 (
+    set RECOMMENDED_MEM=6
+    set MIN_MEM=3
+    set MEMORY_MODE=省メモリ
+) else (
+    set RECOMMENDED_MEM=4
+    set MIN_MEM=2
+    set MEMORY_MODE=最小
+)
+
+REM 利用可能メモリが推奨値より少ない場合は調整
+if %AVAILABLE_MEM_GB% lss %RECOMMENDED_MEM% (
+    set /a ADJUSTED_MEM=%AVAILABLE_MEM_GB%*70/100
+    if %ADJUSTED_MEM% lss %MIN_MEM% (
+        set RECOMMENDED_MEM=%MIN_MEM%
+    ) else (
+        set RECOMMENDED_MEM=%ADJUSTED_MEM%
+    )
+    echo    ※ 利用可能メモリが少ないため、%RECOMMENDED_MEM%GBに調整しました
+)
+
+echo    推奨設定: %MEMORY_MODE%モード (%RECOMMENDED_MEM%GB)
+echo.
+
+REM docker-compose.override.ymlを生成
+echo version: '3.8' > docker-compose.override.yml
+echo services: >> docker-compose.override.yml
+echo   textffcut: >> docker-compose.override.yml
+echo     deploy: >> docker-compose.override.yml
+echo       resources: >> docker-compose.override.yml
+echo         limits: >> docker-compose.override.yml
+echo           memory: %RECOMMENDED_MEM%g >> docker-compose.override.yml
+echo         reservations: >> docker-compose.override.yml
+echo           memory: %MIN_MEM%g >> docker-compose.override.yml
+echo     environment: >> docker-compose.override.yml
+echo       - TEXTFFCUT_MEMORY_MODE=%MEMORY_MODE% >> docker-compose.override.yml
+echo       - TEXTFFCUT_MEMORY_LIMIT=%RECOMMENDED_MEM%g >> docker-compose.override.yml
+
+REM ===========================================
+REM Docker Desktop確認
+REM ===========================================
 docker version >nul 2>&1
 if %errorlevel% neq 0 (
     echo エラー: Docker Desktopが起動していません。
     echo Docker Desktopを起動してから、もう一度実行してください。
+    echo.
+    echo ヒント: Docker Desktopのメモリ設定を確認してください
+    echo         Settings → Resources → Memory を %RECOMMENDED_MEM%GB 以上に設定
+    echo.
     pause
     exit /b 1
 )
@@ -102,10 +179,12 @@ if %errorlevel% equ 0 (
     )
 )
 
-REM videosフォルダがなければ作成
-if not exist videos (
-    echo videosフォルダを作成しています...
-    mkdir videos
+REM 必要なフォルダを作成
+for %%f in (videos logs) do (
+    if not exist %%f (
+        echo [フォルダ] %%f フォルダを作成しています...
+        mkdir %%f
+    )
 )
 
 REM 既存のTextffCutコンテナを停止・削除
@@ -150,38 +229,137 @@ if %errorlevel% neq 0 (
     docker load -i textffcut_v${VERSION}_docker.tar.gz
 )
 
-echo アプリケーションを起動しています...
 echo.
+echo ===========================================
+echo 起動設定
+echo ===========================================
+echo    URL: http://localhost:8501
+echo    メモリ: %MEMORY_MODE%モード (%RECOMMENDED_MEM%GB)
+echo    動画フォルダ: %cd%\videos
+echo.
+
+REM メモリ不足の警告
+if %AVAILABLE_MEM_GB% lss 4 (
+    echo ※※※ 警告 ※※※
+    echo    利用可能メモリが4GB未満です
+    echo    大きな動画の処理に失敗する可能性があります
+    echo    他のアプリケーションを終了することを推奨します
+    echo.
+    echo    ヒント: 2時間以上の動画は12GB以上推奨
+    echo.
+)
+
+echo アプリケーションを起動しています...
 echo ブラウザで http://localhost:8501 を開いています...
 start http://localhost:8501
 
-docker-compose -f ./docker-compose-simple.yml up
+REM overrideファイルと一緒に起動
+docker-compose -f ./docker-compose-simple.yml -f ./docker-compose.override.yml up
+
+REM overrideファイルを削除
+del /f docker-compose.override.yml 2>nul
 
 pause
 EOF
 
-# START.command の作成
-cat > release/START.command <<EOF
+# START.command の作成（メモリ最適化版）
+cat > release/START.command <<'EOF'
 #!/bin/bash
 
 echo "TextffCut v${VERSION} を起動します..."
 echo ""
 
 # スクリプトの絶対パスを取得
-SCRIPT_DIR="\$( cd "\$( dirname "\${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
-cd "\$SCRIPT_DIR"
-
-# デバッグ情報（後で削除予定）
-# echo "スクリプトディレクトリ: \$SCRIPT_DIR"
-# echo "現在のディレクトリ: \$(pwd)"
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+cd "$SCRIPT_DIR"
 
 # 環境変数を設定
-export HOST_VIDEOS_PATH="\${SCRIPT_DIR}/videos"
+export HOST_VIDEOS_PATH="${SCRIPT_DIR}/videos"
 
-# Docker Desktopが起動しているか確認
+# ===========================================
+# メモリ最適化設定
+# ===========================================
+echo "💾 システムメモリを確認しています..."
+
+# macOSでのメモリ取得
+TOTAL_MEM_GB=$(( $(sysctl -n hw.memsize) / 1024 / 1024 / 1024 ))
+# 利用可能メモリを計算（ページ数 × ページサイズ）
+FREE_PAGES=$(vm_stat | grep "Pages free" | awk '{print $3}' | sed 's/\.//')
+INACTIVE_PAGES=$(vm_stat | grep "Pages inactive" | awk '{print $3}' | sed 's/\.//')
+PURGEABLE_PAGES=$(vm_stat | grep "Pages purgeable" | awk '{print $3}' | sed 's/\.//')
+AVAILABLE_PAGES=$((FREE_PAGES + INACTIVE_PAGES + PURGEABLE_PAGES))
+AVAILABLE_MEM_GB=$(( AVAILABLE_PAGES * 4096 / 1024 / 1024 / 1024 ))
+
+echo "   総メモリ: ${TOTAL_MEM_GB}GB"
+echo "   利用可能: ${AVAILABLE_MEM_GB}GB"
+
+# 推奨メモリ設定を計算（改訂版）
+if [ $TOTAL_MEM_GB -ge 32 ]; then
+    RECOMMENDED_MEM=16
+    MIN_MEM=8
+    MEMORY_MODE="高性能"
+elif [ $TOTAL_MEM_GB -ge 16 ]; then
+    RECOMMENDED_MEM=12
+    MIN_MEM=6
+    MEMORY_MODE="バランス"
+elif [ $TOTAL_MEM_GB -ge 12 ]; then
+    RECOMMENDED_MEM=8
+    MIN_MEM=4
+    MEMORY_MODE="標準"
+elif [ $TOTAL_MEM_GB -ge 8 ]; then
+    RECOMMENDED_MEM=6
+    MIN_MEM=3
+    MEMORY_MODE="省メモリ"
+else
+    RECOMMENDED_MEM=4
+    MIN_MEM=2
+    MEMORY_MODE="最小"
+fi
+
+# 利用可能メモリが推奨値より少ない場合は調整（70%を上限）
+if [ $AVAILABLE_MEM_GB -lt $RECOMMENDED_MEM ]; then
+    ADJUSTED_MEM=$(( AVAILABLE_MEM_GB * 70 / 100 ))
+    if [ $ADJUSTED_MEM -lt $MIN_MEM ]; then
+        RECOMMENDED_MEM=$MIN_MEM
+    else
+        RECOMMENDED_MEM=$ADJUSTED_MEM
+    fi
+    echo "   ⚠️  利用可能メモリが少ないため、${RECOMMENDED_MEM}GBに調整しました"
+fi
+
+echo "   推奨設定: ${MEMORY_MODE}モード (${RECOMMENDED_MEM}GB)"
+echo ""
+
+# docker-compose.override.ymlを生成（メモリ制限を追加）
+cat > docker-compose.override.yml <<OVERRIDE_EOF
+version: '3.8'
+services:
+  textffcut:
+    deploy:
+      resources:
+        limits:
+          memory: ${RECOMMENDED_MEM}g
+        reservations:
+          memory: ${MIN_MEM}g
+    environment:
+      - TEXTFFCUT_MEMORY_MODE=${MEMORY_MODE}
+      - TEXTFFCUT_MEMORY_LIMIT=${RECOMMENDED_MEM}g
+OVERRIDE_EOF
+
+# ===========================================
+# Docker Desktop確認
+# ===========================================
 if ! docker version &>/dev/null; then
     echo "エラー: Docker Desktopが起動していません。"
     echo "Docker Desktopを起動してから、もう一度実行してください。"
+    
+    # Docker Desktopのメモリ設定アドバイス
+    echo ""
+    echo "💡 Docker Desktopのメモリ設定を確認してください："
+    echo "   1. Docker Desktop → Settings → Resources"
+    echo "   2. Memory を ${RECOMMENDED_MEM}GB 以上に設定"
+    echo ""
+    
     read -p "Enterキーを押して終了..."
     exit 1
 fi
@@ -209,7 +387,7 @@ if lsof -ti:$PORT > /dev/null 2>&1; then
     
     if [ -n "$CONTAINER_USING_PORT" ]; then
         # TextffCutのコンテナかチェック
-        if [[ "$CONTAINER_USING_PORT" == textffcut* ]]; then
+        if [[ "$CONTAINER_USING_PORT" == textffcut* ]] || [[ "$CONTAINER_USING_PORT" == "TextffCut" ]]; then
             echo "既存のTextffCutコンテナ($CONTAINER_USING_PORT)が起動しています。"
             echo "自動的に停止して新しいコンテナを起動します..."
             docker stop "$CONTAINER_USING_PORT"
@@ -240,19 +418,13 @@ if lsof -ti:$PORT > /dev/null 2>&1; then
     fi
 fi
 
-# videosフォルダがなければ作成
-if [ ! -d "videos" ]; then
-    echo "videosフォルダを作成しています..."
-    mkdir -p videos
-fi
-
-# 既存のTextffCutコンテナをチェックして停止
-EXISTING_CONTAINER=\$(docker ps -a --format "{{.Names}}" | grep -E "^TextffCut\$" || true)
-if [ -n "\$EXISTING_CONTAINER" ]; then
-    echo "既存のTextffCutコンテナを停止・削除しています..."
-    docker stop "\$EXISTING_CONTAINER" 2>/dev/null || true
-    docker rm "\$EXISTING_CONTAINER" 2>/dev/null || true
-fi
+# 必要なフォルダを作成
+for folder in videos logs; do
+    if [ ! -d "$folder" ]; then
+        echo "📁 $folder フォルダを作成しています..."
+        mkdir -p "$folder"
+    fi
+done
 
 # 現在のバージョンのイメージが存在するかチェック
 if docker images | grep -q "textffcut.*${VERSION}"; then
@@ -264,19 +436,19 @@ else
     # まず古いバージョンのコンテナを全て削除
     echo "古いバージョンのコンテナを削除しています..."
     docker ps -a --format "{{.Names}} {{.Image}}" | grep "textffcut:" | grep -v ":${VERSION}" | while read name image; do
-        if [ -n "\$name" ]; then
-            echo "コンテナ削除中: \$name (\$image)"
-            docker rm -f "\$name" 2>/dev/null || true
+        if [ -n "$name" ]; then
+            echo "コンテナ削除中: $name ($image)"
+            docker rm -f "$name" 2>/dev/null || true
         fi
     done
     
     # 古いバージョンのイメージを削除（強制削除）
-    OLD_IMAGES=\$(docker images --format "{{.Repository}}:{{.Tag}}" | grep "^textffcut:" | grep -v ":${VERSION}\$" || true)
-    if [ -n "\$OLD_IMAGES" ]; then
-        echo "\$OLD_IMAGES" | while read image; do
-            if [ -n "\$image" ]; then
-                echo "削除中: \$image"
-                docker rmi -f "\$image" 2>/dev/null || true
+    OLD_IMAGES=$(docker images --format "{{.Repository}}:{{.Tag}}" | grep "^textffcut:" | grep -v ":${VERSION}$" || true)
+    if [ -n "$OLD_IMAGES" ]; then
+        echo "$OLD_IMAGES" | while read image; do
+            if [ -n "$image" ]; then
+                echo "削除中: $image"
+                docker rmi -f "$image" 2>/dev/null || true
             fi
         done
     else
@@ -290,26 +462,50 @@ if ! docker images | grep -q "textffcut.*${VERSION}"; then
     docker load -i textffcut_v${VERSION}_docker.tar.gz
 fi
 
-echo "アプリケーションを起動しています..."
-if [ -n "$TEXTFFCUT_PORT" ]; then
-    echo "URL: http://localhost:$TEXTFFCUT_PORT"
+echo ""
+echo "=== 起動設定 ==="
+echo "📍 URL: http://localhost:$PORT"
+echo "💾 メモリ: ${MEMORY_MODE}モード (${RECOMMENDED_MEM}GB)"
+echo "📁 動画フォルダ: ${SCRIPT_DIR}/videos"
+echo ""
+
+# メモリ不足の警告
+if [ $AVAILABLE_MEM_GB -lt 4 ]; then
+    echo "⚠️  警告: 利用可能メモリが4GB未満です"
+    echo "   大きな動画の処理に失敗する可能性があります"
+    echo "   他のアプリケーションを終了することを推奨します"
     echo ""
-    echo "ブラウザで http://localhost:$TEXTFFCUT_PORT を開いています..."
-    open "http://localhost:$TEXTFFCUT_PORT"
+    echo "   ヒント: 2時間以上の動画は12GB以上推奨"
+    echo ""
+fi
+
+echo "アプリケーションを起動しています..."
+echo "ブラウザで http://localhost:$PORT を開いています..."
+open "http://localhost:$PORT"
+
+if [ -n "$TEXTFFCUT_PORT" ]; then
     # docker-compose.ymlを一時的に作成（ポート変更対応）
     sed "s/8501:8501/$TEXTFFCUT_PORT:8501/g" ./docker-compose-simple.yml > ./docker-compose-temp.yml
-    docker-compose -f ./docker-compose-temp.yml up
+    
+    # overrideファイルと一緒に起動
+    docker-compose -f ./docker-compose-temp.yml -f ./docker-compose.override.yml up
+    
+    # 一時ファイルを削除
     rm -f ./docker-compose-temp.yml
+    rm -f ./docker-compose.override.yml
 else
-    echo "URL: http://localhost:8501"
-    echo ""
-    echo "ブラウザで http://localhost:8501 を開いています..."
-    open "http://localhost:8501"
-    docker-compose -f ./docker-compose-simple.yml up
+    # overrideファイルと一緒に起動
+    docker-compose -f ./docker-compose-simple.yml -f ./docker-compose.override.yml up
+    
+    # overrideファイルを削除
+    rm -f ./docker-compose.override.yml
 fi
 
 read -p "Enterキーを押して終了..."
 EOF
+
+# ${VERSION}を実際の値に置換
+sed -i '' "s/\${VERSION}/${VERSION}/g" release/START.command
 
 # docker-compose-simple.yml の作成
 cat > release/docker-compose-simple.yml <<EOF
@@ -324,6 +520,7 @@ services:
       - "8501:8501"
     volumes:
       - ./videos:/app/videos
+      - ./logs:/app/logs
     environment:
       - TZ=Asia/Tokyo
       - HOST_VIDEOS_PATH=\${HOST_VIDEOS_PATH}
@@ -336,6 +533,10 @@ TextffCut
 =====================================
 
 動画の文字起こしと切り抜きを効率化するツールです。
+
+【新機能】メモリ自動最適化
+- システムメモリに応じて自動的に最適な設定で起動します
+- メモリ不足の場合は警告が表示されます
 
 
 【クイックスタート】
@@ -360,6 +561,18 @@ TextffCut
    ターミナル/コマンドプロンプトで Ctrl+C を押す
 
 
+【メモリ推奨設定】
+
+動画の長さに応じて必要なメモリが変わります：
+- 30分以下: 4GB
+- 60分: 6-8GB
+- 90分: 8-10GB
+- 2時間以上: 12GB以上
+
+※Docker Desktopのメモリ設定も確認してください
+  Settings → Resources → Memory
+
+
 【詳しい使い方】
 
 スクリーンショット付きの詳しい説明は note をご覧ください：
@@ -368,7 +581,7 @@ https://note.com/coidemo
 
 【動作環境】
 - Docker Desktop 必須
-- メモリ 8GB以上推奨
+- メモリ 8GB以上推奨（16GB推奨）
 - 検証済み: macOS + MP4形式
 EOF
 
@@ -408,4 +621,9 @@ echo "生成されたファイル:"
 ls -lh TextffCut_v${VERSION}.zip
 echo ""
 echo "配布用ファイル: release/TextffCut_v${VERSION}.zip"
+echo ""
+echo "【主な改善点】"
+echo "- メモリ自動最適化機能を追加"
+echo "- システムメモリに応じた推奨設定"
+echo "- メモリ不足時の警告表示"
 echo ""
