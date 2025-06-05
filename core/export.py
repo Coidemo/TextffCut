@@ -114,7 +114,7 @@ class FCPXMLExporter:
             if os.path.exists('/.dockerenv'):
                 # /app/videos/xxx.mp4 -> HOST_VIDEOS_PATH/xxx.mp4
                 video_filename = Path(path).name
-                host_videos_path = os.getenv('HOST_VIDEOS_PATH', '/path/to/videos')
+                host_videos_path = os.getenv('HOST_VIDEOS_PATH', os.getenv('PWD', '') + '/videos')
                 file_url = f"file://{os.path.join(host_videos_path, video_filename)}"
             else:
                 # ローカル環境は通常通り
@@ -308,14 +308,27 @@ class XMEMLExporter:
             
             # URLエンコードされたファイルパス
             from urllib.parse import quote
-            encoded_filename = quote(Path(seg.source_path).name)
             
+            # ファイルパスを処理
             # Docker環境の場合はホストパスに変換
-            if os.path.exists('/.dockerenv'):
-                host_videos_path = os.getenv('HOST_VIDEOS_PATH', '/path/to/videos')
-                file_url = f"file://localhost{host_videos_path}/{encoded_filename}"
+            if os.path.exists('/.dockerenv') and str(seg.source_path).startswith('/app/videos/'):
+                # Docker環境: /app/videos/xxx.mp4 -> HOST_VIDEOS_PATH/xxx.mp4
+                host_videos_path = os.getenv('HOST_VIDEOS_PATH', os.getenv('PWD', '') + '/videos')
+                relative_path = str(seg.source_path).replace('/app/videos/', '')
+                source_path = os.path.join(host_videos_path, relative_path)
+                # Unix形式のパスに変換
+                file_url = f"file://localhost{source_path}".replace('\\', '/')
             else:
-                file_url = f"file://localhost{Path(seg.source_path).resolve()}".replace('\\', '/')
+                # ローカル環境: 実際のパスを使用
+                source_path = Path(seg.source_path).resolve()
+                
+                # Windowsの場合はドライブレターの処理
+                if os.name == 'nt':
+                    # C:\path\to\file -> /C:/path/to/file
+                    file_url = f"file://localhost/{str(source_path)}".replace('\\', '/')
+                else:
+                    # Unix系: /path/to/file -> file://localhost/path/to/file
+                    file_url = f"file://localhost{source_path}"
             
             # 総ファイルduration
             total_file_duration = int(video_infos[seg.source_path].duration * timeline_fps)

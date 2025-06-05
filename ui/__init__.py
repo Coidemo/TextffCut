@@ -15,11 +15,15 @@ from .components import (
     show_red_highlight_modal,
     show_segment_preview,
     show_help,
-    show_result_folder_section
+    show_result_folder_section,
+    show_advanced_settings
 )
 from .file_upload import (
     show_video_input,
     cleanup_temp_files
+)
+from .dark_mode_styles import (
+    apply_dark_mode_styles
 )
 
 __all__ = [
@@ -37,6 +41,8 @@ __all__ = [
     'show_segment_preview',
     'show_help',
     'show_result_folder_section',
+    'show_advanced_settings',
     'show_video_input',
-    'cleanup_temp_files'
+    'cleanup_temp_files',
+    'apply_dark_mode_styles'
 ]

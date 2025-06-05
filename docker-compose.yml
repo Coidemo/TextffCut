@@ -1,84 +1,33 @@
 version: '3.8'
 
-name: textffcut
-
 services:
-  app:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      cache_from:
-        - textffcut:latest
+  textffcut:
+    build: .
     image: textffcut:latest
-    container_name: textffcut_app
+    container_name: textffcut
     ports:
-      - "${TEXTFFCUT_PORT:-8501}:8501"
+      - "8501:8501"
     volumes:
-      # 動画ファイルと出力用ディレクトリをマウント
+      # 動画ファイルディレクトリをマウント
       - ./videos:/app/videos
-      # 文字起こし結果用ディレクトリをマウント
+      # 出力用ディレクトリをマウント（videosの下に作成）
+      - ./videos/output:/app/output
+      # 文字起こし結果用ディレクトリ
       - ./transcriptions:/app/transcriptions
-      # ログ用ディレクトリをマウント
+      # ログ用ディレクトリ
       - ./logs:/app/logs
-      # 開発用: アプリケーションコードをマウント
-      - ./main.py:/app/main.py
-      - ./ui:/app/ui
-      - ./core:/app/core
-      - ./utils:/app/utils
-      - ./config.py:/app/config.py
-      # ホストのホームディレクトリもマウント（読み書き可能）
-      - ${HOME}:${HOME}
     environment:
+      # サブプロセス分離を有効化（メモリリーク対策）
+      - TEXTFFCUT_ISOLATION_MODE=subprocess
       # API設定（.envファイルからも読み込み可能）
       - TEXTFFCUT_USE_API=${TEXTFFCUT_USE_API:-false}
       - TEXTFFCUT_API_KEY=${TEXTFFCUT_API_KEY:-}
-      
-      # ホスト側のvideosフォルダパス
+      # メモリ節約モード（無音検出をスキップ）
+      - SKIP_SILENCE_DETECTION=true
+      # 並列処理の閾値（GB）- Docker環境では低めに設定
+      - PARALLEL_MEMORY_THRESHOLD=${PARALLEL_MEMORY_THRESHOLD:-4}
+      # ホスト側のビデオパス（表示用）
       - HOST_VIDEOS_PATH=${PWD}/videos
-      
-      # ログレベル
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      
-      # タイムゾーン
-      - TZ=Asia/Tokyo
-      
     restart: unless-stopped
-    
-    # リソース制限（必要に応じて調整）
-    deploy:
-      resources:
-        limits:
-          cpus: '4'
-          memory: 8G
-        reservations:
-          cpus: '2'
-          memory: 4G
-    
-    # ネットワーク
-    networks:
-      - textffcut_net
-
-  # Nginx リバースプロキシ（オプション）
-  # 本番環境でHTTPS対応する場合に使用
-  # nginx:
-  #   image: nginx:alpine
-  #   container_name: textffcut_nginx
-  #   ports:
-  #     - "80:80"
-  #     - "443:443"
-  #   volumes:
-  #     - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-  #     - ./nginx/ssl:/etc/nginx/ssl:ro
-  #   depends_on:
-  #     - app
-  #   networks:
-  #     - textffcut_net
-
-networks:
-  textffcut_net:
-    driver: bridge
-
-# 永続化ボリューム（必要に応じて使用）
-volumes:
-  textffcut_data:
-    driver: local
+    # メモリ制限を増やす（または削除）
+    # mem_limit: 8g  # コメントアウトして制限を解除

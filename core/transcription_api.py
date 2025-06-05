@@ -2,14 +2,18 @@
 API版文字起こしモジュール
 """
 import os
+import sys
 import json
 import time
 import tempfile
+import subprocess
+import shutil
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 import requests
 from dataclasses import dataclass
 import openai
+import numpy as np
 
 from .transcription import TranscriptionResult, TranscriptionSegment
 from config import Config
@@ -26,10 +30,13 @@ class APITranscriber:
         self.config = config
         self.api_config = config.transcription
         self.skip_alignment = False  # アライメント処理をスキップするフラグ
+        
+        # 無音検出のパラメータ
+        self.SILENCE_THRESH = -40  # dB
+        self.MIN_SILENCE_LEN = 0.3  # 秒
     
     def transcribe(self, audio_path: str, model_size: str = None, 
-                  progress_callback: Optional[callable] = None,
-                  optimization_mode: str = "auto") -> TranscriptionResult:
+                  progress_callback: Optional[callable] = None) -> TranscriptionResult:
         """
         APIを使用して音声ファイルを文字起こし
         
@@ -37,7 +44,6 @@ class APITranscriber:
             audio_path: 音声ファイルパス
             model_size: モデルサイズ（API版では一部のみ有効）
             progress_callback: 進捗コールバック
-            optimization_mode: 最適化モード ("auto", "normal", "optimized", "ultra")
             
         Returns:
             TranscriptionResult: 文字起こし結果
@@ -47,18 +53,23 @@ class APITranscriber:
         
         # OpenAI API専用
         if self.api_config.api_provider == "openai":
-            result = self._transcribe_openai(audio_path, progress_callback, optimization_mode)
+            result = self._transcribe_openai(audio_path, progress_callback)
         else:
             raise ValueError(f"Unsupported API provider: {self.api_config.api_provider}. Only 'openai' is supported.")
         
         if progress_callback:
             progress_callback(1.0, "文字起こし完了")
         
+        logger.info(f"API文字起こし完了 - セグメント数: {len(result.segments) if result and result.segments else 0}")
+        if result and result.segments:
+            logger.info(f"最初のセグメント: {result.segments[0].text[:50] if result.segments[0].text else '(空)'}")
+        else:
+            logger.warning("文字起こし結果が空です")
+        
         return result
     
     def _transcribe_openai(self, audio_path: str, 
-                          progress_callback: Optional[callable] = None,
-                          optimization_mode: str = "auto") -> TranscriptionResult:
+                          progress_callback: Optional[callable] = None) -> TranscriptionResult:
         """OpenAI Whisper APIを使用（ローカル版と同じチャンク並列処理）"""
         # パフォーマンストラッキング開始
         from core.video import VideoInfo
@@ -124,7 +135,7 @@ class APITranscriber:
                     progress_callback(0.1, "音声データを最適化完了、チャンク分割中...")
                 
                 # ローカル版と同じチャンク分割処理
-                result = self._transcribe_with_chunks(client, audio, audio_path, progress_callback, optimization_mode, perf_tracker, video_info.duration)
+                result = self._transcribe_with_chunks(client, audio, audio_path, progress_callback, perf_tracker, video_info.duration)
                 return result
                         
             except ImportError:
@@ -163,10 +174,9 @@ class APITranscriber:
     
     def _transcribe_with_chunks(self, client, audio, original_audio_path: str,
                                progress_callback: Optional[callable] = None,
-                               optimization_mode: str = "auto",
                                perf_tracker: Optional[PerformanceTracker] = None,
                                video_duration: float = 0.0) -> TranscriptionResult:
-        """Producer-Consumerパターンによる最適化されたチャンク並列処理"""
+        """スマート境界検出を使用したチャンク並列処理"""
         import tempfile
         import soundfile as sf
         import numpy as np
@@ -174,131 +184,82 @@ class APITranscriber:
         from concurrent.futures import ThreadPoolExecutor, as_completed
         
         start_time = time.time()
-        # 最適化モードの選択
-        from utils.system_resources import system_resource_manager
-        system_spec = system_resource_manager.get_system_spec()
+        logger.info("スマート境界検出を使用したAPI処理")
         
-        # 手動選択モードか自動選択かを判定
-        if optimization_mode == "auto":
-            # 自動選択：システムスペックに基づいて最適化レベルを選択
-            if system_spec.spec_level == 'low' or system_spec.available_memory_gb < 3:
-                selected_mode = "ultra_optimized"
-            elif system_spec.spec_level == 'high' and system_spec.available_memory_gb > 8:
-                selected_mode = "normal"
-            else:
-                selected_mode = "optimized"
-            logger.info(f"自動選択モード: {selected_mode} (利用可能メモリ: {system_spec.available_memory_gb:.1f}GB)")
-        else:
-            # 手動選択モード
-            selected_mode = optimization_mode
-            logger.info(f"手動選択モード: {selected_mode}")
-        
-        # 選択されたモードに応じて処理を分岐
-        if selected_mode == "ultra_optimized":
-            from .transcription_api_ultra_optimized import UltraOptimizedAPITranscriber
-            logger.info("超最適化モード（ディスクキャッシュ）を使用")
-            ultra_transcriber = UltraOptimizedAPITranscriber(self.config)
-            
-            # トラッキング開始
-            if perf_tracker:
-                metrics = perf_tracker.start_tracking(selected_mode, "whisper-1", True, video_duration)
-            
-            result = ultra_transcriber.transcribe_ultra_optimized(client, audio, original_audio_path, progress_callback)
-            
-            # トラッキング終了
-            if perf_tracker:
-                perf_tracker.end_tracking(len(result.segments) if result else 0)
-            
-            return result
-        elif selected_mode == "normal":
-            # 通常モード：このメソッドの残りの部分で処理
-            logger.info("通常モード（高速処理）を使用")
-            
-            # トラッキング開始
-            if perf_tracker:
-                metrics = perf_tracker.start_tracking(selected_mode, "whisper-1", True, video_duration)
-        else:  # optimized
-            from .transcription_api_optimized import OptimizedAPITranscriber
-            logger.info("最適化モードを使用")
-            optimized_transcriber = OptimizedAPITranscriber(self.config)
-            
-            # トラッキング開始
-            if perf_tracker:
-                metrics = perf_tracker.start_tracking(selected_mode, "whisper-1", True, video_duration)
-            
-            result = optimized_transcriber._transcribe_with_chunks_optimized(client, audio, original_audio_path, progress_callback)
-            
-            # トラッキング終了
-            if perf_tracker:
-                perf_tracker.end_tracking(len(result.segments) if result else 0)
-            
-            return result
+        # トラッキング開始
+        if perf_tracker:
+            metrics = perf_tracker.start_tracking("normal", "whisper-1", True, video_duration)
         
         # チャンク処理のパラメータを設定
-        chunk_seconds = self.config.transcription.chunk_seconds
+        chunk_seconds = self.config.transcription.api_chunk_seconds
         sample_rate = self.config.transcription.sample_rate
-        step = chunk_seconds * sample_rate
         
-        # チャンクを作成
+        # 理想的な分割点を計算
+        ideal_boundaries = []
+        current_pos = 0
+        while current_pos < len(audio):
+            next_pos = current_pos + chunk_seconds * sample_rate
+            if next_pos < len(audio):
+                ideal_boundaries.append(next_pos / sample_rate)
+            current_pos = next_pos
+        
+        # 各境界で最適な分割点を探す
+        actual_boundaries = [0.0]  # 開始点
+        
+        for ideal_boundary in ideal_boundaries:
+            # 境界前後30秒の範囲で無音を検出
+            search_window = 30.0  # 秒
+            search_start = max(0, ideal_boundary - search_window)
+            search_end = min(len(audio) / sample_rate, ideal_boundary + search_window)
+            
+            # この範囲の無音を検出
+            silences = self._detect_silence_in_range(
+                audio, search_start, search_end, sample_rate
+            )
+            
+            if silences:
+                # 理想的な境界に最も近い無音の中心を選択
+                best_silence = min(silences, 
+                    key=lambda s: abs((s['start'] + s['end']) / 2 - ideal_boundary))
+                split_point = (best_silence['start'] + best_silence['end']) / 2
+                logger.info(f"境界 {ideal_boundary:.1f}s → 無音検出 {split_point:.1f}s")
+            else:
+                # 無音が見つからない場合は理想的な境界を使用
+                split_point = ideal_boundary
+                logger.info(f"境界 {ideal_boundary:.1f}s で無音なし、そのまま使用")
+            
+            actual_boundaries.append(split_point)
+        
+        # 最後まで含める
+        actual_boundaries.append(len(audio) / sample_rate)
+        
+        # 実際のチャンクを作成
         chunks = []
-        MIN_CHUNK_DURATION = 1.0  # 1秒未満のチャンクは結合（安全性とコスト効率のため）
+        MIN_CHUNK_DURATION = 1.0  # 1秒未満のチャンクは結合
         
-        # 短いチャンクを一時保存する変数
-        pending_chunk = None
-        
-        for i in range(0, len(audio), step):
-            chunk_audio = audio[i:i+step]
-            start_time = i / sample_rate
+        for i in range(len(actual_boundaries) - 1):
+            start_pos = int(actual_boundaries[i] * sample_rate)
+            end_pos = int(actual_boundaries[i + 1] * sample_rate)
+            
+            chunk_audio = audio[start_pos:end_pos]
             duration = len(chunk_audio) / sample_rate
             
-            # pending_chunkがある場合は先に結合を試みる
-            if pending_chunk is not None:
-                # 前の短いチャンクと現在のチャンクを結合
-                combined_audio = np.concatenate([pending_chunk["array"], chunk_audio])
-                combined_chunk = {
+            # 短すぎるチャンクは前のチャンクと結合
+            if duration < MIN_CHUNK_DURATION and chunks:
+                last_chunk = chunks[-1]
+                combined_audio = np.concatenate([last_chunk["array"], chunk_audio])
+                chunks[-1] = {
                     "array": combined_audio,
-                    "start": pending_chunk["start"],
+                    "start": last_chunk["start"],
                     "duration": len(combined_audio) / sample_rate
                 }
-                chunks.append(combined_chunk)
-                logger.info(f"短いチャンクを次のチャンクと結合しました (新しい長さ: {combined_chunk['duration']:.1f}秒)")
-                pending_chunk = None
-                continue
-            
-            # 1秒未満のチャンクは処理しない
-            if duration < MIN_CHUNK_DURATION:
-                logger.warning(f"チャンクが短すぎます ({duration:.3f}秒) - 結合処理を行います")
-                # 前のチャンクがある場合は結合
-                if chunks:
-                    last_chunk = chunks[-1]
-                    # 前のチャンクに結合
-                    combined_audio = np.concatenate([last_chunk["array"], chunk_audio])
-                    chunks[-1] = {
-                        "array": combined_audio,
-                        "start": last_chunk["start"],
-                        "duration": len(combined_audio) / sample_rate
-                    }
-                    logger.info(f"短いチャンクを前のチャンクに結合しました (新しい長さ: {chunks[-1]['duration']:.1f}秒)")
-                else:
-                    # 最初のチャンクが短すぎる場合は一時保存して次と結合
-                    pending_chunk = {
-                        "array": chunk_audio,
-                        "start": start_time,
-                        "duration": duration
-                    }
-                    logger.warning(f"最初のチャンクが短いため、次のチャンクと結合します ({duration:.3f}秒)")
-                continue
-            
-            chunks.append({
-                "array": chunk_audio,
-                "start": start_time,
-                "duration": duration
-            })
-        
-        # 最後にpending_chunkが残っている場合（音声全体が短い場合）
-        if pending_chunk is not None:
-            chunks.append(pending_chunk)
-            logger.warning(f"最後の短いチャンクをそのまま追加します ({pending_chunk['duration']:.3f}秒)")
+                logger.info(f"短いチャンク({duration:.1f}秒)を前のチャンクと結合")
+            else:
+                chunks.append({
+                    "array": chunk_audio,
+                    "start": actual_boundaries[i],
+                    "duration": duration
+                })
         
         total_chunks = len(chunks)
         logger.info(f"音声をチャンク分割: {total_chunks}個のチャンク（{chunk_seconds}秒ずつ）")
@@ -306,7 +267,14 @@ class APITranscriber:
         if progress_callback:
             progress_callback(0.15, f"チャンク分割完了: {total_chunks}個のチャンク")
         
-        # 一時ディレクトリを作成
+        # アライメント処理を分離するかどうか
+        if self.config.transcription.api_align_in_subprocess:
+            return self._transcribe_with_separated_alignment(
+                client, audio, original_audio_path, chunks,
+                progress_callback, perf_tracker, start_time
+            )
+        
+        # 従来の処理（API+アライメントを同時実行）
         temp_dir = tempfile.mkdtemp(prefix="textffcut_api_chunks_")
         
         try:
@@ -330,8 +298,8 @@ class APITranscriber:
             if progress_callback:
                 progress_callback(0.2, f"チャンクファイル作成完了: {len(chunk_files)}個")
             
-            # 並列でAPI処理（レート制限考慮で3並列）
-            max_workers = min(3, len(chunk_files))
+            # 並列でAPI処理（設定値を使用）
+            max_workers = min(self.config.transcription.api_max_workers, len(chunk_files))
             all_segments = []
             completed_chunks = 0
             
@@ -452,8 +420,12 @@ class APITranscriber:
             # 処理時間を計算
             processing_time = time.time() - start_time
             
-            # トラッキング終了（通常モードの場合）
-            if perf_tracker and selected_mode == "normal":
+            logger.info(f"_transcribe_with_chunks完了 - 最終セグメント数: {len(aligned_segments)}")
+            if aligned_segments:
+                logger.info(f"最初のセグメント: {aligned_segments[0].text[:50] if aligned_segments[0].text else '(空)'}")
+            
+            # トラッキング終了
+            if perf_tracker:
                 perf_tracker.end_tracking(
                     segments_processed=len(aligned_segments),
                     api_chunks=len(chunks),
@@ -588,6 +560,8 @@ class APITranscriber:
                     logger.warning(f"チャンク {chunk_idx} のアライメント処理に失敗: {e}")
             
             logger.info(f"チャンク {chunk_idx} 処理完了: {len(segments)}セグメント")
+            if segments:
+                logger.info(f"チャンク {chunk_idx} 最初のテキスト: {segments[0].text[:30] if segments[0].text else '(空)'}")
             return segments
         
         except openai.RateLimitError as e:
@@ -885,4 +859,344 @@ class APITranscriber:
             processing_time=0.0
         )
     
+    def _transcribe_with_separated_alignment(
+        self, client, audio, original_audio_path: str,
+        chunks: List[Dict], progress_callback: Optional[callable],
+        perf_tracker: Optional, start_time: float
+    ) -> TranscriptionResult:
+        """API処理とアライメント処理を分離した文字起こし"""
+        import soundfile as sf
+        import numpy as np
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        
+        logger.info("分離型処理モード: API処理とアライメントを別々に実行")
+        
+        # Step 1: API処理（メインプロセスで並列実行）
+        temp_dir = tempfile.mkdtemp(prefix="textffcut_api_separated_")
+        
+        try:
+            # チャンクファイルを作成
+            chunk_files = []
+            for i, chunk in enumerate(chunks):
+                chunk_file = os.path.join(temp_dir, f"chunk_{i:03d}.wav")
+                sf.write(chunk_file, chunk["array"], self.config.transcription.sample_rate)
+                
+                chunk_size = os.path.getsize(chunk_file) / (1024 * 1024)
+                if chunk_size > 25:
+                    logger.warning(f"チャンク {i} がサイズ制限を超過: {chunk_size:.1f}MB")
+                    continue
+                
+                chunk_files.append((chunk_file, chunk["start"], i))
+            
+            if progress_callback:
+                progress_callback(0.2, f"API処理開始: {len(chunk_files)}個のチャンク")
+            
+            # API並列処理（アライメントなし）
+            api_segments = []
+            completed_chunks = 0
+            max_workers = min(self.config.transcription.api_max_workers, len(chunk_files))
+            
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = []
+                for chunk_file, start_offset, chunk_idx in chunk_files:
+                    future = executor.submit(
+                        self._transcribe_chunk_api_only,  # アライメントなしのAPI処理
+                        client, chunk_file, start_offset, chunk_idx
+                    )
+                    futures.append(future)
+                
+                for future in as_completed(futures):
+                    try:
+                        segments = future.result()
+                        api_segments.extend(segments)
+                        completed_chunks += 1
+                        
+                        if progress_callback:
+                            progress = 0.2 + (0.4 * completed_chunks / len(chunk_files))
+                            progress_callback(progress, f"API処理: {completed_chunks}/{len(chunk_files)} 完了")
+                    
+                    except Exception as e:
+                        logger.error(f"APIチャンク処理エラー: {e}")
+                        completed_chunks += 1
+            
+            # API結果をソート
+            api_segments.sort(key=lambda s: s['start'])
+            
+            logger.info(f"API処理完了: {len(api_segments)}セグメント")
+            
+            if not api_segments:
+                raise ValueError("API処理結果が空です")
+            
+            # Step 2: アライメント処理（サブプロセスで実行）
+            if progress_callback:
+                progress_callback(0.6, "アライメント処理を開始...")
+            
+            aligned_segments = self._align_in_subprocess(
+                original_audio_path,
+                api_segments,
+                progress_callback
+            )
+            
+            # TranscriptionSegmentオブジェクトに変換
+            final_segments = []
+            for seg in aligned_segments:
+                segment = TranscriptionSegment(
+                    start=seg['start'],
+                    end=seg['end'],
+                    text=seg['text'],
+                    words=seg.get('words'),
+                    chars=seg.get('chars')
+                )
+                final_segments.append(segment)
+            
+            # 処理時間を計算
+            processing_time = time.time() - start_time
+            
+            # トラッキング終了
+            if perf_tracker:
+                perf_tracker.end_tracking(
+                    segments_processed=len(final_segments),
+                    api_chunks=len(chunks),
+                    alignment_chunks=len(final_segments)
+                )
+            
+            if progress_callback:
+                progress_callback(1.0, "処理完了")
+            
+            return TranscriptionResult(
+                language=self.api_config.language,
+                segments=final_segments,
+                original_audio_path=original_audio_path,
+                model_size="whisper-1_api",
+                processing_time=processing_time
+            )
+            
+        finally:
+            # クリーンアップ
+            try:
+                shutil.rmtree(temp_dir)
+            except:
+                pass
     
+    def _transcribe_chunk_api_only(
+        self, client, chunk_file: str, start_offset: float, chunk_idx: int
+    ) -> List[Dict[str, Any]]:
+        """APIのみでチャンク処理（アライメントなし）"""
+        try:
+            with open(chunk_file, 'rb') as audio_file:
+                response = client.audio.transcriptions.create(
+                    model="whisper-1",
+                    file=audio_file,
+                    language=self.api_config.language,
+                    response_format="verbose_json",
+                    timestamp_granularities=["segment"]
+                )
+            
+            segments = []
+            if hasattr(response, 'segments') and response.segments:
+                for seg in response.segments:
+                    if isinstance(seg, dict):
+                        segment = {
+                            'start': seg['start'] + start_offset,
+                            'end': seg['end'] + start_offset,
+                            'text': seg['text']
+                        }
+                    else:
+                        segment = {
+                            'start': seg.start + start_offset,
+                            'end': seg.end + start_offset,
+                            'text': seg.text
+                        }
+                    segments.append(segment)
+            elif response.text.strip():
+                # セグメント情報がない場合
+                estimated_duration = len(response.text) / 20
+                segment = {
+                    'start': start_offset,
+                    'end': start_offset + estimated_duration,
+                    'text': response.text
+                }
+                segments.append(segment)
+            
+            logger.info(f"APIチャンク {chunk_idx} 完了: {len(segments)}セグメント")
+            return segments
+            
+        except Exception as e:
+            logger.error(f"APIチャンク {chunk_idx} エラー: {e}")
+            return []
+    
+    def _align_in_subprocess(
+        self, audio_path: str, api_segments: List[Dict],
+        progress_callback: Optional[callable] = None
+    ) -> List[Dict[str, Any]]:
+        """サブプロセスでアライメント処理を実行"""
+        work_dir = tempfile.mkdtemp(prefix="textffcut_align_")
+        
+        try:
+            # 設定をJSON形式で保存
+            config_data = {
+                'audio_path': audio_path,
+                'api_segments': api_segments,
+                'language': self.api_config.language,
+                'chunk_seconds': self.config.transcription.api_align_chunk_seconds
+            }
+            
+            config_path = os.path.join(work_dir, 'config.json')
+            with open(config_path, 'w', encoding='utf-8') as f:
+                json.dump(config_data, f, ensure_ascii=False, indent=2)
+            
+            result_path = os.path.join(work_dir, 'result.json')
+            
+            # ワーカープロセスを実行
+            cmd = [
+                sys.executable,
+                os.path.join(os.path.dirname(__file__), '..', 'worker_align.py'),
+                config_path
+            ]
+            
+            logger.info(f"アライメントワーカーを起動: {' '.join(cmd)}")
+            
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1,
+                universal_newlines=True
+            )
+            
+            # プログレス監視
+            try:
+                for line in process.stdout:
+                    line = line.strip()
+                    
+                    if line.startswith('PROGRESS:'):
+                        try:
+                            parts = line.split('|', 1)
+                            progress = float(parts[0].split(':')[1])
+                            message = parts[1] if len(parts) > 1 else ""
+                            
+                            if progress_callback:
+                                # アライメントは全体の40%を占める（0.6-1.0）
+                                adjusted_progress = 0.6 + (progress * 0.4)
+                                progress_callback(adjusted_progress, message)
+                                
+                        except Exception as e:
+                            logger.warning(f"プログレス解析エラー: {e}")
+                    
+                    elif line.startswith('ERROR:'):
+                        logger.error(f"アライメントワーカーエラー: {line}")
+                
+                # プロセス終了を待つ
+                return_code = process.wait()
+                
+                if return_code != 0:
+                    stderr = process.stderr.read()
+                    logger.error(f"アライメントワーカーが異常終了: {stderr}")
+                    # エラー時は元のセグメントを返す
+                    return api_segments
+                
+                # 結果を読み込み
+                if os.path.exists(result_path):
+                    with open(result_path, 'r', encoding='utf-8') as f:
+                        result_data = json.load(f)
+                    
+                    if result_data.get('status') == 'success':
+                        return result_data.get('segments', api_segments)
+                    else:
+                        logger.error(f"アライメントエラー: {result_data.get('error')}")
+                        return api_segments
+                else:
+                    logger.error("アライメント結果ファイルが見つかりません")
+                    return api_segments
+                    
+            except subprocess.TimeoutExpired:
+                logger.error("アライメントプロセスがタイムアウトしました")
+                process.kill()
+                return api_segments
+                
+        except Exception as e:
+            logger.error(f"アライメントサブプロセスエラー: {e}")
+            return api_segments
+            
+        finally:
+            # クリーンアップ
+            try:
+                shutil.rmtree(work_dir)
+            except:
+                pass
+    
+    
+    def _detect_silence_in_range(self, audio: np.ndarray, start: float, end: float, sample_rate: int) -> List[Dict[str, float]]:
+        """指定範囲の無音を検出"""
+        import numpy as np
+        
+        # 範囲を切り出し
+        start_sample = int(start * sample_rate)
+        end_sample = int(end * sample_rate)
+        audio_range = audio[start_sample:end_sample]
+        
+        if len(audio_range) == 0:
+            return []
+        
+        # RMSエネルギーを計算（ウィンドウサイズ: 10ms）
+        window_size = int(0.01 * sample_rate)  # 10ms
+        hop_size = window_size // 2
+        
+        # パディング
+        pad_size = window_size - (len(audio_range) % window_size)
+        if pad_size < window_size:
+            audio_range = np.pad(audio_range, (0, pad_size))
+        
+        # RMS計算
+        rms_values = []
+        for i in range(0, len(audio_range) - window_size, hop_size):
+            window = audio_range[i:i + window_size]
+            rms = np.sqrt(np.mean(window ** 2))
+            rms_values.append(rms)
+        
+        if not rms_values:
+            return []
+        
+        # dBに変換
+        rms_values = np.array(rms_values)
+        # ゼロ除算を避ける
+        rms_values = np.where(rms_values > 0, rms_values, 1e-10)
+        db_values = 20 * np.log10(rms_values)
+        
+        # 無音区間を検出
+        is_silent = db_values < self.SILENCE_THRESH
+        
+        # 連続する無音区間をグループ化
+        silences = []
+        in_silence = False
+        silence_start = 0
+        
+        for i, silent in enumerate(is_silent):
+            time_pos = start + (i * hop_size / sample_rate)
+            
+            if silent and not in_silence:
+                # 無音開始
+                in_silence = True
+                silence_start = time_pos
+            elif not silent and in_silence:
+                # 無音終了
+                in_silence = False
+                silence_duration = time_pos - silence_start
+                if silence_duration >= self.MIN_SILENCE_LEN:
+                    silences.append({
+                        'start': silence_start,
+                        'end': time_pos
+                    })
+        
+        # 最後が無音の場合
+        if in_silence:
+            time_pos = start + (len(is_silent) * hop_size / sample_rate)
+            silence_duration = time_pos - silence_start
+            if silence_duration >= self.MIN_SILENCE_LEN:
+                silences.append({
+                    'start': silence_start,
+                    'end': time_pos
+                })
+        
+        return silences

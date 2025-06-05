@@ -15,7 +15,7 @@ class TranscriptionConfig:
     chunk_seconds: int = 30
     sample_rate: int = 16000
     num_workers: Optional[int] = None  # Noneの場合は自動計算
-    batch_size: int = 16
+    batch_size: int = 8  # メモリ使用量を削減
     language: str = "ja"
     compute_type: str = "int8"
     
@@ -35,6 +35,23 @@ class TranscriptionConfig:
     min_align_workers: int = 1
     max_align_workers: int = 5
     
+    # プロセス分離設定
+    isolation_mode: str = "subprocess"  # subprocess, process, none
+    # subprocess: サブプロセス分離（推奨、メモリリーク対策）
+    # process: マルチプロセス分離（互換性）
+    # none: 分離なし（開発・デバッグ用）
+    
+    # API用設定（高度な設定）
+    api_chunk_seconds: int = 120  # APIチャンクサイズ（秒）
+    api_max_workers: int = 3      # API並列リクエスト数
+    api_retry_count: int = 3      # APIリトライ回数
+    api_align_chunk_seconds: int = 300  # APIモードでのアライメント用チャンクサイズ（秒）
+    api_align_in_subprocess: bool = True  # アライメント処理をサブプロセスで実行
+    
+    # ローカル処理の高度な設定
+    # max_workers: 並列処理数（Noneの場合は自動計算）
+    max_workers: Optional[int] = None
+    
     def __post_init__(self):
         if self.num_workers is None:
             self.num_workers = os.cpu_count() // 2 or 4
@@ -45,6 +62,11 @@ class TranscriptionConfig:
         if api_key := os.getenv('TEXTFFCUT_API_KEY'):
             self.api_key = api_key
         # APIプロバイダーはOpenAI固定（環境変数での変更不要）
+        
+        # 環境変数から分離モード設定を読み込み
+        if isolation_mode := os.getenv('TEXTFFCUT_ISOLATION_MODE'):
+            if isolation_mode in ['subprocess', 'process', 'none']:
+                self.isolation_mode = isolation_mode
 
 
 @dataclass

@@ -473,7 +473,7 @@ def show_edited_text_with_highlights(
         return
     
     # 編集テキストベースで赤ハイライトを生成
-    html_content = f'<div style="height: {height}px; overflow-y: auto; padding: 10px; border: 1px solid #ddd; border-radius: 5px; background-color: #f9f9f9;">'
+    html_content = f'<div class="edited-text-viewer" style="height: {height}px; overflow-y: auto; padding: 10px; border: 1px solid #ddd; border-radius: 5px; background-color: #f9f9f9;">'
     
     # シンプルな文字列検索ベースの方法
     # 既存の共通部分の情報を使用
@@ -503,7 +503,7 @@ def show_edited_text_with_highlights(
         if i in covered_positions:
             html_content += char  # 元テキストに存在
         else:
-            html_content += f'<span style="background-color: #ffe6e6; color: #d00;">{char}</span>'  # 追加文字
+            html_content += f'<span class="highlight-addition" style="background-color: #ffe6e6; color: #d00;">{char}</span>'  # 追加文字
     
     html_content += '</div>'
     
@@ -532,7 +532,7 @@ def show_edited_text_with_separators_highlights(
         full_text = st.session_state.transcription_result.get_full_text()
     
     # 編集テキストベースで赤ハイライトを生成
-    html_content = f'<div style="height: {height}px; overflow-y: auto; padding: 10px; border: 1px solid #ddd; border-radius: 5px; background-color: #f9f9f9; white-space: pre-wrap; font-family: monospace;">'
+    html_content = f'<div class="edited-text-viewer" style="height: {height}px; overflow-y: auto; padding: 10px; border: 1px solid #ddd; border-radius: 5px; background-color: #f9f9f9; white-space: pre-wrap; font-family: monospace;">'
     
     # セクションに分割
     sections = text_processor.split_text_by_separator(edited_text, separator)
@@ -564,7 +564,7 @@ def show_edited_text_with_separators_highlights(
             if j in covered_positions:
                 html_content += char  # 元テキストに存在
             else:
-                html_content += f'<span style="background-color: #ffe6e6; color: #d00;">{char}</span>'  # 追加文字
+                html_content += f'<span class="highlight-addition" style="background-color: #ffe6e6; color: #d00;">{char}</span>'  # 追加文字
         
         # 区切り文字を追加（最後のセクション以外）
         if i < len(sections) - 1:
@@ -660,10 +660,10 @@ def show_diff_viewer(
     """
     if diff is None:
         # 差分がない場合は元のテキストを表示
-        html_content = f'<div style="height: {height}px; overflow-y: auto; padding: 10px; border: 1px solid #ddd; border-radius: 5px;">{original_text}</div>'
+        html_content = f'<div class="diff-viewer" style="height: {height}px; overflow-y: auto; padding: 10px; border: 1px solid #ddd; border-radius: 5px;">{original_text}</div>'
     else:
         # 差分をHTML形式で生成（従来通りシンプル版）
-        html_content = '<div style="height: ' + str(height) + 'px; overflow-y: auto; padding: 10px; border: 1px solid #ddd; border-radius: 5px;">'
+        html_content = '<div class="diff-viewer" style="height: ' + str(height) + 'px; overflow-y: auto; padding: 10px; border: 1px solid #ddd; border-radius: 5px;">'
         
         current_pos = 0
         for pos in diff.common_positions:
@@ -671,8 +671,8 @@ def show_diff_viewer(
             if current_pos < pos.start:
                 html_content += original_text[current_pos:pos.start]
             
-            # 共通部分（緑でハイライト）
-            html_content += f'<span style="background-color: #e6ffe6;">{pos.text}</span>'
+            # 共通部分（緑でハイライト - クラス名を追加）
+            html_content += f'<span class="highlight-match" style="background-color: #e6ffe6;">{pos.text}</span>'
             current_pos = pos.end
         
         # 最後の部分
@@ -724,6 +724,230 @@ def show_help():
     """)
 
 
+def show_advanced_settings():
+    """高度な設定UI"""
+    from config import config
+    from utils import settings_manager
+    
+    st.markdown("#### ⚡ 高度な設定")
+    st.caption("メモリとパフォーマンスに関する詳細設定")
+    
+    # 環境情報を取得
+    try:
+        import psutil
+        mem_gb = psutil.virtual_memory().total / (1024**3)
+        cpu_count = psutil.cpu_count(logical=False) or 4
+        
+        # メモリ容量による環境判定
+        if mem_gb >= 64:
+            env_type = "エンタープライズ環境"
+        elif mem_gb >= 32:
+            env_type = "プロ環境"
+        elif mem_gb >= 16:
+            env_type = "高性能環境"
+        elif mem_gb >= 8:
+            env_type = "標準環境"
+        else:
+            env_type = "軽量環境"
+            
+        st.info(f"💻 検出された環境: メモリ{mem_gb:.0f}GB / CPU {cpu_count}コア ({env_type})")
+    except:
+        mem_gb = 16
+        cpu_count = 4
+        st.info("💻 環境情報を取得できませんでした")
+    
+    # 操作ボタン
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if st.button("🚀 環境に合わせて自動最適化", use_container_width=True):
+            # メモリ容量に基づく最適化
+            if mem_gb >= 64:  # エンタープライズ
+                api_chunk_opt = 300  # 5分
+                api_workers_opt = 5
+                local_chunk_opt = 90  # 90秒（安定性重視）
+                local_workers_opt = min(cpu_count - 2, 8)
+                batch_size_opt = 8  # CPU環境では8が上限
+            elif mem_gb >= 32:  # プロ
+                api_chunk_opt = 240  # 4分
+                api_workers_opt = 4
+                local_chunk_opt = 60  # 60秒
+                local_workers_opt = min(cpu_count - 2, 6)
+                batch_size_opt = 8
+            elif mem_gb >= 16:  # 高性能
+                api_chunk_opt = 180  # 3分
+                api_workers_opt = 3
+                local_chunk_opt = 45  # 45秒
+                local_workers_opt = min(cpu_count - 1, 4)
+                batch_size_opt = 6
+            elif mem_gb >= 8:  # 標準
+                api_chunk_opt = 120  # 2分
+                api_workers_opt = 2
+                local_chunk_opt = 30  # 30秒
+                local_workers_opt = 2
+                batch_size_opt = 4
+            else:  # 軽量
+                api_chunk_opt = 60  # 1分
+                api_workers_opt = 1
+                local_chunk_opt = 20  # 20秒
+                local_workers_opt = 1
+                batch_size_opt = 2  # メモリ不足対策
+            
+            # 設定を保存
+            settings_manager.set('api_chunk_seconds', api_chunk_opt)
+            settings_manager.set('api_max_workers', api_workers_opt)
+            settings_manager.set('api_retry_count', 3)
+            settings_manager.set('api_align_chunk_seconds', min(api_chunk_opt * 2, 600))
+            settings_manager.set('chunk_seconds', local_chunk_opt)
+            settings_manager.set('max_workers', local_workers_opt)
+            settings_manager.set('batch_size', batch_size_opt)
+            
+            st.success(f"{env_type}に最適化された設定を適用しました")
+            st.rerun()
+    
+    with col2:
+        if st.button("🛡️ 最も安定した設定にする", use_container_width=True):
+            # 最も保守的な設定
+            settings_manager.set('api_chunk_seconds', 60)  # 1分
+            settings_manager.set('api_max_workers', 1)
+            settings_manager.set('api_retry_count', 3)
+            settings_manager.set('api_align_chunk_seconds', 120)
+            settings_manager.set('chunk_seconds', 20)
+            settings_manager.set('max_workers', 1)
+            settings_manager.set('batch_size', 2)  # 最小値で安定性重視
+            
+            st.success("最も安定した設定（メモリ使用量最小）を適用しました")
+            st.rerun()
+    
+    # APIモードとローカルモードの両方の設定を表示
+    st.markdown("##### 🌐 APIモード設定")
+    st.caption("APIを使用する場合の詳細設定")
+    
+    # 保存された設定を読み込み
+    saved_api_chunk = settings_manager.get('api_chunk_seconds', config.transcription.api_chunk_seconds)
+    saved_api_workers = settings_manager.get('api_max_workers', config.transcription.api_max_workers)
+    saved_api_retry = settings_manager.get('api_retry_count', config.transcription.api_retry_count)
+    saved_api_align_chunk = settings_manager.get('api_align_chunk_seconds', config.transcription.api_align_chunk_seconds)
+    
+    # APIチャンクサイズ（安全な範囲に制限）
+    api_chunk = st.slider(
+        "APIチャンクサイズ（秒）",
+        min_value=30,
+        max_value=480,  # 8分に制限（安全マージン）
+        value=min(saved_api_chunk, 480),
+        step=30,
+        help="音声を分割する単位。OpenAI APIの25MB制限により最大8分に制限。推奨: 2-5分。"
+    )
+    
+    # API並列リクエスト数（安全な範囲に制限）
+    api_workers = st.slider(
+        "API並列リクエスト数",
+        min_value=1,
+        max_value=5,  # 5に制限
+        value=min(saved_api_workers, 5),
+        step=1,
+        help="同時にAPIに送信するリクエスト数。OpenAIのレート制限を考慮して最大5に制限。"
+    )
+    
+    # リトライ回数
+    retry_count = st.slider(
+        "APIリトライ回数",
+        min_value=0,
+        max_value=5,
+        value=saved_api_retry,
+        step=1,
+        help="APIエラー時の再試行回数。"
+    )
+    
+    # アライメント処理のチャンクサイズ
+    api_align_chunk = st.slider(
+        "アライメントチャンクサイズ（秒）",
+        min_value=60,
+        max_value=600,
+        value=saved_api_align_chunk,
+        step=60,
+        help="APIで取得した文字と音声の同期処理時の分割単位。大きいほど効率的ですが、メモリを多く使用します。"
+    )
+    
+    # アライメント処理は常にサブプロセスで実行（メモリリーク対策）
+    api_align_subprocess = True
+    
+    # 設定を保存
+    config.transcription.api_chunk_seconds = api_chunk
+    config.transcription.api_max_workers = api_workers
+    config.transcription.api_retry_count = retry_count
+    config.transcription.api_align_chunk_seconds = api_align_chunk
+    config.transcription.api_align_in_subprocess = api_align_subprocess
+    
+    # 設定が変更されたら保存
+    if api_chunk != saved_api_chunk:
+        settings_manager.set('api_chunk_seconds', api_chunk)
+    if api_workers != saved_api_workers:
+        settings_manager.set('api_max_workers', api_workers)
+    if retry_count != saved_api_retry:
+        settings_manager.set('api_retry_count', retry_count)
+    if api_align_chunk != saved_api_align_chunk:
+        settings_manager.set('api_align_chunk_seconds', api_align_chunk)
+    
+    st.markdown("---")
+    
+    # ローカルモードの設定
+    st.markdown("##### 🖥️ ローカルモード設定")
+    st.caption("ローカルで処理する場合の詳細設定")
+    
+    # 保存された設定を読み込み
+    saved_chunk_seconds = settings_manager.get('chunk_seconds', config.transcription.chunk_seconds)
+    saved_max_workers = settings_manager.get('max_workers', config.transcription.max_workers)
+    saved_batch_size = settings_manager.get('batch_size', config.transcription.batch_size)
+    
+    # チャンクサイズ（現実的な範囲に調整）
+    chunk_seconds = st.slider(
+        "ローカルチャンクサイズ（秒）",
+        min_value=10,
+        max_value=300,  # 5分まで（メモリと処理のバランス）
+        value=saved_chunk_seconds,
+        step=10,
+        help="文字起こしと音声同期処理を行う単位。Whisperモデルで音声認識とアライメントの両方を実行するため、メモリを多く使用します。推奨: 30-60秒。"
+    )
+    
+    # 並列処理数（現実的な範囲に調整）
+    max_workers = st.slider(
+        "並列処理数",
+        min_value=1,
+        max_value=16,  # 16コアまで（多くの環境で十分）
+        value=saved_max_workers or 2,
+        step=1,
+        help=f"同時に処理するプロセス数（CPUコア単位）。この環境のCPU: {cpu_count}コア。推奨: {max(1, cpu_count//2)}〜{cpu_count}。各プロセスがメモリを使用するため、メモリ容量も考慮してください。"
+    )
+    config.transcription.max_workers = max_workers
+    
+    # バッチサイズ（CPU環境用に範囲を制限）
+    batch_size = st.slider(
+        "バッチサイズ",
+        min_value=1,
+        max_value=8,  # CPU環境では8まで
+        value=min(saved_batch_size, 8),
+        step=1,
+        help="WhisperXの内部バッチサイズ。CPU環境では大きな効果はありません。推奨: 4-8。メモリが少ない場合は1-4に下げてください。"
+    )
+    
+    # 設定を保存
+    config.transcription.chunk_seconds = chunk_seconds
+    config.transcription.batch_size = batch_size
+    
+    # 設定が変更されたら保存
+    if chunk_seconds != saved_chunk_seconds:
+        settings_manager.set('chunk_seconds', chunk_seconds)
+    if max_workers != saved_max_workers:
+        settings_manager.set('max_workers', max_workers)
+    if batch_size != saved_batch_size:
+        settings_manager.set('batch_size', batch_size)
+    
+    # 共通の注意事項
+    st.caption("⚠️ これらの設定はメモリ使用量とパフォーマンスに大きく影響します。")
+    st.caption("💡 メモリ不足エラーが発生する場合は、値を小さくしてください。")
+
+
 def show_result_folder_section(project_path: Path, project_name: str):
     """
     Docker版用の結果フォルダ表示セクション
@@ -765,7 +989,8 @@ def show_result_folder_section(project_path: Path, project_name: str):
     if st.button("📂 フォルダパス表示", key="show_result_path", help="結果フォルダのパスを表示します"):
             # ホスト側の結果フォルダパス
             # project_pathは /app/videos/project_name_TextffCut の形式
-            host_result_path = str(project_path).replace("/app/videos", "/Users/naoki/myProject/TextffCut/videos")
+            host_videos_path = os.getenv('HOST_VIDEOS_PATH', os.getenv('PWD', '') + '/videos')
+            host_result_path = str(project_path).replace("/app/videos", host_videos_path)
             st.code(host_result_path, language=None)
             st.info("上記のパスをコピーして、Finderの「移動」>「フォルダへ移動」で開いてください")
             st.markdown("**または:** Finderで `⌘+Shift+G` を押してパスを貼り付け")
