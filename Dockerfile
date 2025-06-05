@@ -1,35 +1,15 @@
-# TextffCut - Docker版
-# マルチステージビルドで最適化
+# TextffCut - Docker版（シンプル版）
+# サブプロセス分離によるメモリリーク対策を含む
 
-# ステージ1: ビルド環境
-FROM python:3.10-slim AS builder
+FROM python:3.11
 
-# ビルドに必要なパッケージをインストール
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    git \
-    libffi-dev \
-    libssl-dev \
-    python3-dev \
-    cargo \
-    && rm -rf /var/lib/apt/lists/*
+# 作業ディレクトリ
+WORKDIR /app
 
-# Pythonパッケージをインストール
-WORKDIR /build
-COPY requirements.txt ./
-RUN pip install --user --no-cache-dir -r requirements.txt
-
-# ステージ2: 実行環境
-FROM python:3.10-slim
-
-# メタデータ
-LABEL maintainer="TextffCut Development Team" \
-      version="1.1.0-dev" \
-      description="TextffCut - 動画の文字起こしと切り抜きを効率化するツール"
-
-# 実行に必要なパッケージのみインストール
-RUN apt-get update && apt-get install -y \
+# システム依存関係のインストール
+RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
+    git \
     curl \
     locales \
     && rm -rf /var/lib/apt/lists/* \
@@ -41,44 +21,33 @@ ENV LANG=ja_JP.UTF-8 \
     LC_ALL=ja_JP.UTF-8 \
     TZ=Asia/Tokyo
 
-# ユーザー作成（セキュリティ向上）
-RUN useradd -m -u 1000 textffcut
+# Pythonパッケージのインストール
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-# 作業ディレクトリを設定
-WORKDIR /app
-
-# ステージ1からPythonパッケージをコピー
-COPY --from=builder /root/.local /home/textffcut/.local
-
-# アプリケーションのソースコードをコピー
-COPY --chown=textffcut:textffcut . .
+# アプリケーションのコピー
+COPY . .
 
 # 必要なディレクトリを作成
-RUN mkdir -p videos output logs temp && \
-    chown -R textffcut:textffcut /app
+RUN mkdir -p /app/videos /app/output /app/transcriptions /app/logs
 
-# ユーザーを切り替え
-USER textffcut
+# WhisperXモデルを事前ダウンロード（baseモデル）
+RUN python -c "import whisperx; whisperx.load_model('base', 'cpu', language='ja', compute_type='int8')"
 
-# PATHを更新
-ENV PATH=/home/textffcut/.local/bin:$PATH
+# Streamlit設定
+RUN mkdir -p ~/.streamlit
+RUN echo '[server]\nheadless = true\nport = 8501\naddress = "0.0.0.0"\n' > ~/.streamlit/config.toml
 
-# ポート8501を公開（Streamlitのデフォルトポート）
-EXPOSE 8501
+# 環境変数
+ENV PYTHONUNBUFFERED=1
+ENV TEXTFFCUT_ISOLATION_MODE=subprocess
 
 # ヘルスチェック
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:8501/_stcore/health || exit 1
 
-# Streamlitの設定を環境変数で制御
-ENV STREAMLIT_SERVER_HEADLESS=true \
-    STREAMLIT_SERVER_ADDRESS=0.0.0.0 \
-    STREAMLIT_SERVER_PORT=8501 \
-    STREAMLIT_BROWSER_SERVER_ADDRESS=localhost
+# ポート公開
+EXPOSE 8501
 
-# エントリーポイントスクリプト
-COPY --chown=textffcut:textffcut scripts/docker-entrypoint.sh /usr/local/bin/
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
-
-ENTRYPOINT ["docker-entrypoint.sh"]
+# 起動コマンド
 CMD ["streamlit", "run", "main.py"]
