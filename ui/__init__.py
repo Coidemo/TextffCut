@@ -22,6 +22,9 @@ from .file_upload import (
     show_video_input,
     cleanup_temp_files
 )
+from .dark_mode_styles import (
+    apply_dark_mode_styles
+)
 
 __all__ = [
     'show_video_selector',
@@ -40,5 +43,6 @@ __all__ = [
     'show_result_folder_section',
     'show_advanced_settings',
     'show_video_input',
-    'cleanup_temp_files'
+    'cleanup_temp_files',
+    'apply_dark_mode_styles'
 ]

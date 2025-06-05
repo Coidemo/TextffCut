@@ -473,7 +473,7 @@ def show_edited_text_with_highlights(
         return
     
     # 編集テキストベースで赤ハイライトを生成
-    html_content = f'<div style="height: {height}px; overflow-y: auto; padding: 10px; border: 1px solid #ddd; border-radius: 5px; background-color: #f9f9f9;">'
+    html_content = f'<div class="edited-text-viewer" style="height: {height}px; overflow-y: auto; padding: 10px; border: 1px solid #ddd; border-radius: 5px; background-color: #f9f9f9;">'
     
     # シンプルな文字列検索ベースの方法
     # 既存の共通部分の情報を使用
@@ -503,7 +503,7 @@ def show_edited_text_with_highlights(
         if i in covered_positions:
             html_content += char  # 元テキストに存在
         else:
-            html_content += f'<span style="background-color: #ffe6e6; color: #d00;">{char}</span>'  # 追加文字
+            html_content += f'<span class="highlight-addition" style="background-color: #ffe6e6; color: #d00;">{char}</span>'  # 追加文字
     
     html_content += '</div>'
     
@@ -532,7 +532,7 @@ def show_edited_text_with_separators_highlights(
         full_text = st.session_state.transcription_result.get_full_text()
     
     # 編集テキストベースで赤ハイライトを生成
-    html_content = f'<div style="height: {height}px; overflow-y: auto; padding: 10px; border: 1px solid #ddd; border-radius: 5px; background-color: #f9f9f9; white-space: pre-wrap; font-family: monospace;">'
+    html_content = f'<div class="edited-text-viewer" style="height: {height}px; overflow-y: auto; padding: 10px; border: 1px solid #ddd; border-radius: 5px; background-color: #f9f9f9; white-space: pre-wrap; font-family: monospace;">'
     
     # セクションに分割
     sections = text_processor.split_text_by_separator(edited_text, separator)
@@ -564,7 +564,7 @@ def show_edited_text_with_separators_highlights(
             if j in covered_positions:
                 html_content += char  # 元テキストに存在
             else:
-                html_content += f'<span style="background-color: #ffe6e6; color: #d00;">{char}</span>'  # 追加文字
+                html_content += f'<span class="highlight-addition" style="background-color: #ffe6e6; color: #d00;">{char}</span>'  # 追加文字
         
         # 区切り文字を追加（最後のセクション以外）
         if i < len(sections) - 1:
@@ -660,10 +660,10 @@ def show_diff_viewer(
     """
     if diff is None:
         # 差分がない場合は元のテキストを表示
-        html_content = f'<div style="height: {height}px; overflow-y: auto; padding: 10px; border: 1px solid #ddd; border-radius: 5px;">{original_text}</div>'
+        html_content = f'<div class="diff-viewer" style="height: {height}px; overflow-y: auto; padding: 10px; border: 1px solid #ddd; border-radius: 5px;">{original_text}</div>'
     else:
         # 差分をHTML形式で生成（従来通りシンプル版）
-        html_content = '<div style="height: ' + str(height) + 'px; overflow-y: auto; padding: 10px; border: 1px solid #ddd; border-radius: 5px;">'
+        html_content = '<div class="diff-viewer" style="height: ' + str(height) + 'px; overflow-y: auto; padding: 10px; border: 1px solid #ddd; border-radius: 5px;">'
         
         current_pos = 0
         for pos in diff.common_positions:
@@ -671,8 +671,8 @@ def show_diff_viewer(
             if current_pos < pos.start:
                 html_content += original_text[current_pos:pos.start]
             
-            # 共通部分（緑でハイライト）
-            html_content += f'<span style="background-color: #e6ffe6;">{pos.text}</span>'
+            # 共通部分（緑でハイライト - クラス名を追加）
+            html_content += f'<span class="highlight-match" style="background-color: #e6ffe6;">{pos.text}</span>'
             current_pos = pos.end
         
         # 最後の部分
