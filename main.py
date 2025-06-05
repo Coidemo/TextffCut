@@ -743,17 +743,19 @@ def main():
             video_name = Path(video_path).stem
             safe_name = get_safe_filename(video_name)
             
-            # Docker環境でのパス表示を修正
-            if os.path.exists('/.dockerenv'):
-                # Docker環境：ホストパスを表示
-                host_videos_path = os.getenv('HOST_VIDEOS_PATH', '/path/to/videos')
-                output_full_path = os.path.join(host_videos_path, f"{safe_name}_TextffCut")
-            else:
-                # ローカル環境：通常のパス
-                video_parent = Path(video_path).parent
-                output_full_path = str(video_parent / f"{safe_name}_TextffCut")
+            # 出力パスを表示（Docker環境ではホストパスに変換）
+            video_parent = Path(video_path).parent
+            project_path = video_parent / f"{safe_name}_TextffCut"
             
-            st.code(output_full_path, language=None)
+            if os.path.exists('/.dockerenv'):
+                # Docker環境：ホストパスに変換して表示
+                host_videos_path = os.getenv('HOST_VIDEOS_PATH', str(video_parent))
+                display_path = os.path.join(host_videos_path, f"{safe_name}_TextffCut")
+            else:
+                # ローカル環境：そのまま表示
+                display_path = str(project_path)
+            
+            st.code(display_path, language=None)
             
             # 処理実行ボタン
             if st.button("🚀 処理を実行", type="primary", use_container_width=True):
@@ -893,10 +895,13 @@ def main():
                             
                             if success:
                                 # 100%完了を表示
-                                # Docker環境でのパス表示修正
+                                # パス表示（Docker環境ではホストパスに変換）
                                 if os.path.exists('/.dockerenv'):
-                                    host_videos_path = os.getenv('HOST_VIDEOS_PATH', '/path/to/videos')
-                                    display_path = os.path.join(host_videos_path, xml_path.name)
+                                    # Docker環境：ホストパスに変換
+                                    host_base = os.getenv('HOST_VIDEOS_PATH', os.getenv('PWD', '/app') + '/videos')
+                                    # /app/videos/xxx を host_path/xxx に変換
+                                    relative_path = str(xml_path).replace('/app/videos/', '')
+                                    display_path = os.path.join(host_base, relative_path)
                                 else:
                                     display_path = xml_path
                                 show_progress(1.0, f"処理が完了しました！ 出力先: {display_path} | 📊 {len(keep_ranges)}個のクリップ、総時間: {timeline_pos:.1f}秒", progress_bar, status_text)
@@ -945,10 +950,13 @@ def main():
                                 
                                 if success:
                                     # 100%完了を表示
-                                    # Docker環境でのパス表示修正
+                                    # パス表示（Docker環境ではホストパスに変換）
                                     if os.path.exists('/.dockerenv'):
-                                        host_videos_path = os.getenv('HOST_VIDEOS_PATH', '/path/to/videos')
-                                        display_path = os.path.join(host_videos_path, f"{safe_name}_TextffCut")
+                                        # Docker環境：ホストパスに変換
+                                        host_base = os.getenv('HOST_VIDEOS_PATH', os.getenv('PWD', '/app') + '/videos')
+                                        # /app/videos/xxx を host_path/xxx に変換
+                                        relative_path = str(project_path).replace('/app/videos/', '')
+                                        display_path = os.path.join(host_base, relative_path)
                                     else:
                                         display_path = project_path
                                     show_progress(1.0, f"処理が完了しました！ 出力先: {display_path} | 📊 {len(keep_ranges)}個のセグメントを結合", progress_bar, status_text)
@@ -966,10 +974,13 @@ def main():
                                     
                             elif output_files:
                                 # 100%完了を表示
-                                # Docker環境でのパス表示修正
+                                # パス表示（Docker環境ではホストパスに変換）
                                 if os.path.exists('/.dockerenv'):
-                                    host_videos_path = os.getenv('HOST_VIDEOS_PATH', '/path/to/videos')
-                                    display_path = os.path.join(host_videos_path, f"{safe_name}_TextffCut")
+                                    # Docker環境：ホストパスに変換
+                                    host_base = os.getenv('HOST_VIDEOS_PATH', os.getenv('PWD', '/app') + '/videos')
+                                    # /app/videos/xxx を host_path/xxx に変換
+                                    relative_path = str(project_path).replace('/app/videos/', '')
+                                    display_path = os.path.join(host_base, relative_path)
                                 else:
                                     display_path = project_path
                                 show_progress(1.0, f"処理が完了しました！ 出力先: {display_path}", progress_bar, status_text)

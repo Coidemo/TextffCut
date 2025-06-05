@@ -26,6 +26,8 @@ services:
       - SKIP_SILENCE_DETECTION=true
       # 並列処理の閾値（GB）- Docker環境では低めに設定
       - PARALLEL_MEMORY_THRESHOLD=${PARALLEL_MEMORY_THRESHOLD:-4}
+      # ホスト側のビデオパス（表示用）
+      - HOST_VIDEOS_PATH=${PWD}/videos
     restart: unless-stopped
     # メモリ制限を増やす（または削除）
     # mem_limit: 8g  # コメントアウトして制限を解除

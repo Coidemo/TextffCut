@@ -989,7 +989,8 @@ def show_result_folder_section(project_path: Path, project_name: str):
     if st.button("📂 フォルダパス表示", key="show_result_path", help="結果フォルダのパスを表示します"):
             # ホスト側の結果フォルダパス
             # project_pathは /app/videos/project_name_TextffCut の形式
-            host_result_path = str(project_path).replace("/app/videos", "/Users/naoki/myProject/TextffCut/videos")
+            host_videos_path = os.getenv('HOST_VIDEOS_PATH', os.getenv('PWD', '') + '/videos')
+            host_result_path = str(project_path).replace("/app/videos", host_videos_path)
             st.code(host_result_path, language=None)
             st.info("上記のパスをコピーして、Finderの「移動」>「フォルダへ移動」で開いてください")
             st.markdown("**または:** Finderで `⌘+Shift+G` を押してパスを貼り付け")
