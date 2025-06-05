@@ -35,6 +35,12 @@ class TranscriptionConfig:
     min_align_workers: int = 1
     max_align_workers: int = 5
     
+    # プロセス分離設定
+    isolation_mode: str = "subprocess"  # subprocess, process, none
+    # subprocess: サブプロセス分離（推奨、メモリリーク対策）
+    # process: マルチプロセス分離（互換性）
+    # none: 分離なし（開発・デバッグ用）
+    
     def __post_init__(self):
         if self.num_workers is None:
             self.num_workers = os.cpu_count() // 2 or 4
@@ -45,6 +51,11 @@ class TranscriptionConfig:
         if api_key := os.getenv('TEXTFFCUT_API_KEY'):
             self.api_key = api_key
         # APIプロバイダーはOpenAI固定（環境変数での変更不要）
+        
+        # 環境変数から分離モード設定を読み込み
+        if isolation_mode := os.getenv('TEXTFFCUT_ISOLATION_MODE'):
+            if isolation_mode in ['subprocess', 'process', 'none']:
+                self.isolation_mode = isolation_mode
 
 
 @dataclass
