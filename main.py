@@ -30,6 +30,7 @@ from ui import (
     show_red_highlight_modal,
     show_help,
     show_result_folder_section,
+    show_advanced_settings,
     cleanup_temp_files
 )
 
@@ -166,7 +167,7 @@ def main():
         st.subheader("⚙️ 設定")
         
         # タブで設定を整理
-        tab1, tab2, tab3 = st.tabs(["🔑 APIキー", "🔇 無音検出", "❓ ヘルプ"])
+        tab1, tab2, tab3, tab4 = st.tabs(["🔑 APIキー", "🔇 無音検出", "⚡ 高度な設定", "❓ ヘルプ"])
         
         with tab1:
             # APIキー管理のみ
@@ -177,6 +178,10 @@ def main():
             noise_threshold, min_silence_duration, min_segment_duration, padding_start, padding_end = show_silence_settings()
         
         with tab3:
+            # 高度な設定
+            show_advanced_settings()
+        
+        with tab4:
             show_help()
     
     # 動画ファイル選択（新しい入力方式）

@@ -41,6 +41,17 @@ class TranscriptionConfig:
     # process: マルチプロセス分離（互換性）
     # none: 分離なし（開発・デバッグ用）
     
+    # API用設定（高度な設定）
+    api_chunk_seconds: int = 120  # APIチャンクサイズ（秒）
+    api_max_workers: int = 3      # API並列リクエスト数
+    api_retry_count: int = 3      # APIリトライ回数
+    api_align_chunk_seconds: int = 300  # APIモードでのアライメント用チャンクサイズ（秒）
+    api_align_in_subprocess: bool = True  # アライメント処理をサブプロセスで実行
+    
+    # ローカル処理の高度な設定
+    # max_workers: 並列処理数（Noneの場合は自動計算）
+    max_workers: Optional[int] = None
+    
     def __post_init__(self):
         if self.num_workers is None:
             self.num_workers = os.cpu_count() // 2 or 4
