@@ -56,6 +56,16 @@ def main():
         logger.info(f"ワーカー処理を開始: {video_path}")
         send_progress(0.0, "処理を開始しています...")
         
+        # 初期メモリ使用量を記録
+        try:
+            import psutil
+            process = psutil.Process()
+            mem_info = process.memory_info()
+            mem_mb = mem_info.rss / 1024 / 1024
+            logger.info(f"初期メモリ使用量: {mem_mb:.1f}MB")
+        except:
+            pass
+        
         # 設定を復元
         from config import Config
         config = Config()
@@ -75,8 +85,32 @@ def main():
         config.transcription.isolation_mode = transcription_config.get('isolation_mode', 'none')
         
         # Transcriberを作成（分離モードは'none'に設定されているので再帰しない）
-        from core.transcription_smart_split import SmartSplitTranscriber
-        transcriber = SmartSplitTranscriber(config)
+        # APIモードかローカルモードかで処理を分ける
+        if config.transcription.use_api:
+            # APIモードの場合は直接Transcriberを使用（並列処理はAPITranscriber内で実装済み）
+            from core.transcription import Transcriber
+            transcriber = Transcriber(config)
+            logger.info("APIモードで処理")
+        else:
+            # ローカルモードの場合はメモリに応じて最適な実装を選択
+            try:
+                import psutil
+                mem_gb = psutil.virtual_memory().available / (1024 ** 3)
+                logger.info(f"利用可能メモリ: {mem_gb:.1f}GB")
+                
+                threshold = float(os.environ.get('PARALLEL_MEMORY_THRESHOLD', '8'))
+                if mem_gb > threshold:  # 閾値以上なら並列処理
+                    from core.transcription_parallel import ParallelTranscriber
+                    transcriber = ParallelTranscriber(config)
+                    logger.info("並列処理モードを使用")
+                else:  # それ以下ならスマート境界検出
+                    from core.transcription_smart_boundary import SmartBoundaryTranscriber
+                    transcriber = SmartBoundaryTranscriber(config)
+                    logger.info("スマート境界検出モードを使用")
+            except Exception as e:
+                logger.warning(f"最適化選択エラー: {e}")
+                from core.transcription_smart_boundary import SmartBoundaryTranscriber
+                transcriber = SmartBoundaryTranscriber(config)
         
         # プログレスコールバック
         def progress_callback(progress: float, message: str):
@@ -96,6 +130,10 @@ def main():
         
         # 結果を保存
         result_data = result.to_dict()
+        
+        logger.info(f"文字起こし結果 - セグメント数: {len(result.segments) if result.segments else 0}")
+        if result.segments:
+            logger.info(f"最初のセグメント: {result.segments[0].text[:50] if result.segments[0].text else '(空)'}")
         
         # 結果ファイルのパスを設定ファイルと同じディレクトリに
         result_path = os.path.join(os.path.dirname(config_path), 'result.json')

@@ -3,6 +3,7 @@
 動画を20分前後で分割してWhisperXのFull VAD処理を適用
 """
 import math
+import os
 import time
 from pathlib import Path
 from typing import List, Tuple, Optional, Dict, Any, Callable
@@ -27,11 +28,11 @@ logger = get_logger(__name__)
 class SmartSplitTranscriber(Transcriber):
     """スマート分割文字起こしクラス"""
     
-    # 分割設定
-    TARGET_DURATION = 20 * 60  # 20分を目標
-    MIN_DURATION = 15 * 60     # 最小15分
-    MAX_DURATION = 25 * 60     # 最大25分
-    MIN_SPLIT_DURATION = 25 * 60  # 25分以下は分割しない
+    # 分割設定（メモリ削減のため小さく設定）
+    TARGET_DURATION = 10 * 60  # 10分を目標
+    MIN_DURATION = 5 * 60      # 最小5分
+    MAX_DURATION = 15 * 60     # 最大15分
+    MIN_SPLIT_DURATION = 15 * 60  # 15分以下は分割しない
     
     def __init__(self, config: Config):
         """初期化"""
@@ -242,6 +243,11 @@ class SmartSplitTranscriber(Transcriber):
     
     def _detect_silence_regions(self, video_path: str) -> List[SilenceInfo]:
         """無音部分を検出"""
+        # メモリ不足対策: 無音検出をスキップするオプション
+        if os.environ.get('SKIP_SILENCE_DETECTION', 'false').lower() == 'true':
+            logger.warning("無音検出をスキップします（メモリ節約モード）")
+            return []
+        
         # 一時WAVファイルを作成して無音検出
         temp_wav = Path(video_path).parent / f"temp_silence_{Path(video_path).stem}.wav"
         

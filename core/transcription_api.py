@@ -52,6 +52,12 @@ class APITranscriber:
         if progress_callback:
             progress_callback(1.0, "文字起こし完了")
         
+        logger.info(f"API文字起こし完了 - セグメント数: {len(result.segments) if result and result.segments else 0}")
+        if result and result.segments:
+            logger.info(f"最初のセグメント: {result.segments[0].text[:50] if result.segments[0].text else '(空)'}")
+        else:
+            logger.warning("文字起こし結果が空です")
+        
         return result
     
     def _transcribe_openai(self, audio_path: str, 
@@ -394,6 +400,10 @@ class APITranscriber:
             # 処理時間を計算
             processing_time = time.time() - start_time
             
+            logger.info(f"_transcribe_with_chunks完了 - 最終セグメント数: {len(aligned_segments)}")
+            if aligned_segments:
+                logger.info(f"最初のセグメント: {aligned_segments[0].text[:50] if aligned_segments[0].text else '(空)'}")
+            
             # トラッキング終了
             if perf_tracker:
                 perf_tracker.end_tracking(
@@ -530,6 +540,8 @@ class APITranscriber:
                     logger.warning(f"チャンク {chunk_idx} のアライメント処理に失敗: {e}")
             
             logger.info(f"チャンク {chunk_idx} 処理完了: {len(segments)}セグメント")
+            if segments:
+                logger.info(f"チャンク {chunk_idx} 最初のテキスト: {segments[0].text[:30] if segments[0].text else '(空)'}")
             return segments
         
         except openai.RateLimitError as e:

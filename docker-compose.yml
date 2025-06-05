@@ -22,6 +22,10 @@ services:
       # API設定（.envファイルからも読み込み可能）
       - TEXTFFCUT_USE_API=${TEXTFFCUT_USE_API:-false}
       - TEXTFFCUT_API_KEY=${TEXTFFCUT_API_KEY:-}
+      # メモリ節約モード（無音検出をスキップ）
+      - SKIP_SILENCE_DETECTION=true
+      # 並列処理の閾値（GB）- Docker環境では低めに設定
+      - PARALLEL_MEMORY_THRESHOLD=${PARALLEL_MEMORY_THRESHOLD:-4}
     restart: unless-stopped
-    # メモリ制限（必要に応じて調整）
-    mem_limit: 6g
+    # メモリ制限を増やす（または削除）
+    # mem_limit: 8g  # コメントアウトして制限を解除

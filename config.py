@@ -15,7 +15,7 @@ class TranscriptionConfig:
     chunk_seconds: int = 30
     sample_rate: int = 16000
     num_workers: Optional[int] = None  # Noneの場合は自動計算
-    batch_size: int = 16
+    batch_size: int = 8  # メモリ使用量を削減
     language: str = "ja"
     compute_type: str = "int8"
     
