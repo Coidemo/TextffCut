@@ -28,19 +28,39 @@ RUN pip install --no-cache-dir -r requirements.txt
 # アプリケーションのコピー
 COPY . .
 
-# 必要なディレクトリを作成
-RUN mkdir -p /app/videos /app/output /app/transcriptions /app/logs
+# アプリケーション用ユーザーを作成
+RUN useradd -m -s /bin/bash appuser
+
+# 必要なディレクトリを作成（root権限で）
+RUN mkdir -p /app/videos /app/output /app/transcriptions /app/logs /app/temp
 
 # WhisperXモデルを事前ダウンロード（baseモデル）
-RUN python -c "import whisperx; whisperx.load_model('base', 'cpu', language='ja', compute_type='int8')"
+# rootユーザーでダウンロードしてから、appuserがアクセスできるようにする
+RUN python -c "import whisperx; whisperx.load_model('base', 'cpu', language='ja', compute_type='int8')" && \
+    mkdir -p /home/appuser/.cache /home/appuser/.cache/matplotlib && \
+    cp -r /root/.cache/whisperx /home/appuser/.cache/ 2>/dev/null || true && \
+    cp -r /root/.cache/huggingface /home/appuser/.cache/ 2>/dev/null || true && \
+    chown -R appuser:appuser /home/appuser/.cache
 
-# Streamlit設定
-RUN mkdir -p ~/.streamlit
-RUN echo '[server]\nheadless = true\nport = 8501\naddress = "0.0.0.0"\n' > ~/.streamlit/config.toml
+# アプリケーションディレクトリの所有権を変更
+# videosとlogsは書き込み可能にする必要がある
+RUN chown -R appuser:appuser /app && \
+    chmod -R 755 /app && \
+    chmod -R 777 /app/videos /app/output /app/transcriptions /app/logs /app/temp
+
+# Streamlit設定（appuserのホームディレクトリに）
+USER appuser
+RUN mkdir -p /home/appuser/.streamlit && \
+    echo '[server]\nheadless = true\nport = 8501\naddress = "0.0.0.0"\n' > /home/appuser/.streamlit/config.toml
+
+# 権限テスト（ビルド時に実行して問題を早期発見）
+# test_docker_permissions.pyがある場合のみ実行
+RUN if [ -f test_docker_permissions.py ]; then python test_docker_permissions.py; fi
 
 # 環境変数
 ENV PYTHONUNBUFFERED=1
 ENV TEXTFFCUT_ISOLATION_MODE=subprocess
+ENV MPLCONFIGDIR=/home/appuser/.cache/matplotlib
 
 # ヘルスチェック
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
