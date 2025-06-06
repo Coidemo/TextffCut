@@ -10,7 +10,7 @@ import streamlit as st
 
 
 class BuzzClipLogger:
-    """Buzz Clip用のロガークラス"""
+    """TextffCut用のロガークラス"""
     
     _instance: Optional['BuzzClipLogger'] = None
     
@@ -33,7 +33,7 @@ class BuzzClipLogger:
         log_dir.mkdir(exist_ok=True)
         
         # ファイルハンドラー（詳細ログ）
-        log_file = log_dir / f'buzz_clip_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log'
+        log_file = log_dir / f'textffcut_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log'
         file_handler = logging.FileHandler(log_file, encoding='utf-8')
         file_handler.setLevel(logging.DEBUG)
         file_formatter = logging.Formatter(
