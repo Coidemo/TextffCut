@@ -107,9 +107,9 @@ def main():
                 duration_minutes = video_info.duration / 60
                 logger.info(f"動画時間: {duration_minutes:.1f}分")
                 
-                # 分離モードの判定
+                # 分離モードの判定（デフォルトで有効）
                 should_separate = (
-                    config.transcription.force_separated_mode or  # 強制分離モード
+                    config.transcription.force_separated_mode or  # 強制分離モード（デフォルトTrue）
                     duration_minutes > 30 or  # 30分以上の動画
                     mem_gb < 6  # メモリ6GB未満
                 )

@@ -54,7 +54,7 @@ class TranscriptionConfig:
     
     # ローカルモードのアライメント設定
     local_align_chunk_seconds: int = 60  # ローカルモードでのアライメント用チャンクサイズ（秒）
-    force_separated_mode: bool = False  # 強制的に分離モードを使用（長時間動画の安定性重視）
+    force_separated_mode: bool = True  # 強制的に分離モードを使用（デフォルトで安定性重視）
     
     def __post_init__(self):
         if self.num_workers is None:
