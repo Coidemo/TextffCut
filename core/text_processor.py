@@ -40,6 +40,7 @@ class TextDifference:
     def get_time_ranges(self, transcription: TranscriptionResult) -> List[Tuple[float, float]]:
         """共通部分のタイムスタンプを取得"""
         time_ranges = []
+        not_found_positions = []
         
         for pos in self.common_positions:
             start_time, end_time = self._get_timestamp_for_position(
@@ -49,6 +50,50 @@ class TextDifference:
             )
             if start_time is not None and end_time is not None:
                 time_ranges.append((start_time, end_time))
+            else:
+                # 見つからなかった位置の詳細を記録
+                not_found_info = {
+                    'text': pos.text[:50] + ('...' if len(pos.text) > 50 else ''),
+                    'position': f"{pos.start}-{pos.end}",
+                    'start_found': start_time is not None,
+                    'end_found': end_time is not None
+                }
+                not_found_positions.append(not_found_info)
+                logger.warning(
+                    f"タイムスタンプが見つかりません: '{not_found_info['text']}' "
+                    f"(位置: {not_found_info['position']}, "
+                    f"開始: {'✓' if not_found_info['start_found'] else '✗'}, "
+                    f"終了: {'✓' if not_found_info['end_found'] else '✗'})"
+                )
+        
+        # 見つからなかった位置が多い場合は詳細なエラーを表示
+        if len(not_found_positions) > 0:
+            total_positions = len(self.common_positions)
+            not_found_count = len(not_found_positions)
+            not_found_ratio = not_found_count / total_positions if total_positions > 0 else 0
+            
+            if not_found_ratio > 0.1:  # 10%以上が見つからない場合
+                from utils.exceptions import VideoProcessingError
+                error_msg = (
+                    f"多くのテキスト位置でタイムスタンプが見つかりません。\n"
+                    f"見つからなかった箇所: {not_found_count}/{total_positions} ({not_found_ratio:.1%})\n\n"
+                )
+                
+                # 最初の3つの例を表示
+                for i, info in enumerate(not_found_positions[:3]):
+                    error_msg += f"例{i+1}: {info['text']} (位置: {info['position']})\n"
+                
+                if not_found_count > 3:
+                    error_msg += f"...他{not_found_count - 3}件\n"
+                
+                error_msg += "\n文字起こしを再実行するか、テキストの編集内容を確認してください。"
+                
+                raise VideoProcessingError(error_msg)
+            elif not_found_count > 0:
+                logger.info(
+                    f"一部のテキスト位置でタイムスタンプが見つかりませんでした "
+                    f"({not_found_count}/{total_positions})。処理を続行します。"
+                )
         
         return time_ranges
     
@@ -59,6 +104,19 @@ class TextDifference:
         end_pos: int
     ) -> Tuple[Optional[float], Optional[float]]:
         """文字位置からタイムスタンプを取得"""
+        # デバッグ情報の収集
+        target_text = ""
+        if hasattr(self, 'original_text'):
+            target_text = self.original_text[start_pos:min(end_pos, start_pos + 50)]
+        
+        debug_info = {
+            'target_position': f"{start_pos}-{end_pos}",
+            'target_text': target_text,
+            'segments_checked': 0,
+            'words_checked': 0,
+            'words_without_timestamp': 0
+        }
+        
         try:
             start_time = None
             end_time = None
@@ -69,15 +127,20 @@ class TextDifference:
             next_valid_timestamp = None
             
             for seg_idx, seg in enumerate(segments):
+                debug_info['segments_checked'] += 1
+                
                 # wordsが必須 - ない場合はエラー
                 if not seg.words or len(seg.words) == 0:
                     from utils.exceptions import VideoProcessingError
                     raise VideoProcessingError(
                         f"検索に必要な詳細な文字位置情報がありません。"
                         f"文字起こしを再実行してください。"
+                        f"\n(セグメント{seg_idx}: {seg.text[:30]}...)"
                     )
                 
                 for word_idx, word in enumerate(seg.words):
+                    debug_info['words_checked'] += 1
+                    
                     try:
                         # WordInfoオブジェクトか辞書かを判定
                         if hasattr(word, 'word'):
@@ -95,68 +158,89 @@ class TextDifference:
                         
                         # タイムスタンプが欠落している場合
                         if word_start is None or word_end is None:
+                            debug_info['words_without_timestamp'] += 1
                             logger.warning(f"タイムスタンプが欠落しているword: {word_text}")
                             
-                            # 開始位置がこのwordの範囲内の場合
-                            if start_time is None and current_pos <= start_pos < current_pos + word_len:
-                                # 前後の有効なタイムスタンプを探す
-                                # 前方検索
-                                for prev_idx in range(word_idx - 1, -1, -1):
-                                    prev_word = seg.words[prev_idx]
-                                    if hasattr(prev_word, 'end'):
-                                        if prev_word.end is not None:
-                                            last_valid_timestamp = prev_word.end
-                                            break
-                                    elif 'end' in prev_word and prev_word['end'] is not None:
-                                        last_valid_timestamp = prev_word['end']
-                                        break
-                                else:
-                                    # 前のセグメントの最後を使用
-                                    if seg_idx > 0:
-                                        last_valid_timestamp = segments[seg_idx - 1].end
-                                
-                                # 後方検索
-                                for next_idx in range(word_idx + 1, len(seg.words)):
-                                    next_word = seg.words[next_idx]
-                                    if hasattr(next_word, 'start'):
-                                        if next_word.start is not None:
-                                            next_valid_timestamp = next_word.start
-                                            break
-                                    elif 'start' in next_word and next_word['start'] is not None:
-                                        next_valid_timestamp = next_word['start']
-                                        break
-                                else:
-                                    # セグメントの終了時間を使用
-                                    next_valid_timestamp = seg.end
-                                
-                                # 推定値を使用
-                                if last_valid_timestamp is not None:
-                                    start_time = last_valid_timestamp
-                                    logger.info(f"開始時間を推定: {start_time}秒 (前のタイムスタンプから)")
+                            # より精密な推定処理
+                            # 前後の有効なタイムスタンプを収集（より広い範囲）
+                            prev_timestamps = []
+                            next_timestamps = []
                             
-                            # 終了位置がこのwordの範囲内の場合
-                            if end_time is None and current_pos < end_pos <= current_pos + word_len:
-                                # 後方の有効なタイムスタンプを探す
-                                for next_idx in range(word_idx + 1, len(seg.words)):
-                                    next_word = seg.words[next_idx]
-                                    if hasattr(next_word, 'start'):
-                                        if next_word.start is not None:
-                                            next_valid_timestamp = next_word.start
-                                            break
-                                    elif 'start' in next_word and next_word['start'] is not None:
-                                        next_valid_timestamp = next_word['start']
-                                        break
-                                else:
-                                    # 次のセグメントの開始を使用
-                                    if seg_idx < len(segments) - 1:
-                                        next_valid_timestamp = segments[seg_idx + 1].start
-                                    else:
-                                        next_valid_timestamp = seg.end
+                            # 前方検索（最大5つ前まで）
+                            for prev_idx in range(max(0, word_idx - 5), word_idx):
+                                prev_word = seg.words[prev_idx]
+                                if hasattr(prev_word, 'start') and hasattr(prev_word, 'end'):
+                                    if prev_word.start is not None and prev_word.end is not None:
+                                        prev_timestamps.append((prev_idx, prev_word.start, prev_word.end))
+                                elif isinstance(prev_word, dict):
+                                    if prev_word.get('start') is not None and prev_word.get('end') is not None:
+                                        prev_timestamps.append((prev_idx, prev_word['start'], prev_word['end']))
+                            
+                            # 後方検索（最大5つ後まで）
+                            for next_idx in range(word_idx + 1, min(len(seg.words), word_idx + 6)):
+                                next_word = seg.words[next_idx]
+                                if hasattr(next_word, 'start') and hasattr(next_word, 'end'):
+                                    if next_word.start is not None and next_word.end is not None:
+                                        next_timestamps.append((next_idx, next_word.start, next_word.end))
+                                elif isinstance(next_word, dict):
+                                    if next_word.get('start') is not None and next_word.get('end') is not None:
+                                        next_timestamps.append((next_idx, next_word['start'], next_word['end']))
+                            
+                            # 線形補間による推定
+                            estimated_start = None
+                            estimated_end = None
+                            
+                            if prev_timestamps and next_timestamps:
+                                # 最も近い前後のタイムスタンプを使用
+                                prev_idx, prev_start, prev_end = prev_timestamps[-1]
+                                next_idx, next_start, next_end = next_timestamps[0]
                                 
-                                # 推定値を使用
-                                if next_valid_timestamp is not None:
-                                    end_time = next_valid_timestamp
-                                    logger.info(f"終了時間を推定: {end_time}秒 (次のタイムスタンプから)")
+                                # インデックスの差による重み付け補間
+                                total_gap = next_idx - prev_idx
+                                current_gap = word_idx - prev_idx
+                                ratio = current_gap / total_gap if total_gap > 0 else 0.5
+                                
+                                # 開始時間の推定
+                                estimated_start = prev_end + (next_start - prev_end) * ratio
+                                
+                                # 終了時間の推定（平均的な発話速度を考慮）
+                                avg_duration = (prev_end - prev_start + next_end - next_start) / 2
+                                estimated_end = estimated_start + avg_duration * 0.8  # 少し短めに見積もる
+                                
+                                logger.info(f"タイムスタンプを線形補間で推定: {word_text} ({estimated_start:.2f}秒 - {estimated_end:.2f}秒)")
+                            
+                            elif prev_timestamps:
+                                # 前のタイムスタンプのみある場合
+                                prev_idx, prev_start, prev_end = prev_timestamps[-1]
+                                avg_duration = prev_end - prev_start
+                                estimated_start = prev_end + 0.1  # 小さなギャップを仮定
+                                estimated_end = estimated_start + avg_duration
+                                
+                                logger.info(f"タイムスタンプを前方から推定: {word_text} ({estimated_start:.2f}秒 - {estimated_end:.2f}秒)")
+                            
+                            elif next_timestamps:
+                                # 後のタイムスタンプのみある場合
+                                next_idx, next_start, next_end = next_timestamps[0]
+                                avg_duration = next_end - next_start
+                                estimated_end = next_start - 0.1  # 小さなギャップを仮定
+                                estimated_start = estimated_end - avg_duration
+                                
+                                logger.info(f"タイムスタンプを後方から推定: {word_text} ({estimated_start:.2f}秒 - {estimated_end:.2f}秒)")
+                            
+                            else:
+                                # セグメントのタイムスタンプを使用（最終手段）
+                                segment_duration = seg.end - seg.start
+                                word_ratio = word_idx / len(seg.words)
+                                estimated_start = seg.start + segment_duration * word_ratio
+                                estimated_end = estimated_start + segment_duration / len(seg.words)
+                                
+                                logger.warning(f"タイムスタンプをセグメントから推定: {word_text} ({estimated_start:.2f}秒 - {estimated_end:.2f}秒)")
+                            
+                            # 推定値を使用して処理を続行
+                            if start_time is None and current_pos <= start_pos < current_pos + word_len:
+                                start_time = estimated_start
+                            if end_time is None and current_pos < end_pos <= current_pos + word_len:
+                                end_time = estimated_end
                             
                             current_pos += word_len
                             continue
@@ -183,9 +267,19 @@ class TextDifference:
             
         except Exception as e:
             from utils.exceptions import VideoProcessingError
+            
+            # デバッグ情報をログに出力
+            logger.error(f"タイムスタンプ取得エラー - デバッグ情報: {debug_info}")
+            
             if isinstance(e, VideoProcessingError):
                 raise
-            raise VideoProcessingError(f"タイムスタンプ取得エラー: {str(e)}")
+            raise VideoProcessingError(
+                f"タイムスタンプ取得エラー: {str(e)}\n"
+                f"対象テキスト: '{debug_info['target_text']}'\n"
+                f"確認したセグメント数: {debug_info['segments_checked']}\n"
+                f"確認したword数: {debug_info['words_checked']}\n"
+                f"タイムスタンプ欠落word数: {debug_info['words_without_timestamp']}"
+            )
 
 
 class TextProcessor:
@@ -194,12 +288,34 @@ class TextProcessor:
     DEFAULT_SEPARATOR = "---"
     
     @staticmethod
-    def normalize_text(text: str) -> str:
-        """テキストを正規化（空白の統一など）"""
+    def normalize_text(text: str, preserve_newlines: bool = False) -> str:
+        """テキストを正規化（空白の統一など）
+        
+        Args:
+            text: 正規化するテキスト
+            preserve_newlines: 改行を保持するかどうか
+        """
         # 全角スペースを半角に変換
         text = text.replace('　', ' ')
-        # 連続する空白を1つに
-        text = re.sub(r'\s+', ' ', text)
+        
+        if preserve_newlines:
+            # 改行を一時的にマーカーに置換
+            text = text.replace('\r\n', '\n')  # Windows改行を統一
+            text = text.replace('\r', '\n')    # Mac改行を統一
+            lines = text.split('\n')
+            
+            # 各行内の連続する空白を1つに
+            normalized_lines = []
+            for line in lines:
+                line = re.sub(r'[ \t]+', ' ', line.strip())
+                normalized_lines.append(line)
+            
+            # 空行を除去して結合
+            text = '\n'.join(line for line in normalized_lines if line)
+        else:
+            # 連続する空白（改行含む）を1つのスペースに
+            text = re.sub(r'\s+', ' ', text)
+        
         # 前後の空白を削除
         return text.strip()
     
@@ -207,6 +323,37 @@ class TextProcessor:
     def remove_spaces(text: str) -> str:
         """テキストから空白を除去"""
         return re.sub(r'\s+', '', text)
+    
+    @staticmethod
+    def normalize_for_matching(text: str, language: str = 'ja') -> str:
+        """マッチング用のテキスト正規化（言語対応）
+        
+        Args:
+            text: 正規化するテキスト
+            language: 言語コード（'ja', 'en'など）
+        """
+        # 全角スペースを半角に変換
+        text = text.replace('　', ' ')
+        
+        if language == 'ja':
+            # 日本語の場合：単語間のスペースは基本的に削除
+            # ただし、英数字の前後のスペースは保持
+            
+            # 英数字と日本語文字の境界にマーカーを挿入
+            text = re.sub(r'([a-zA-Z0-9]+)([\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF])', r'\1 \2', text)
+            text = re.sub(r'([\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF])([a-zA-Z0-9]+)', r'\1 \2', text)
+            
+            # 連続するスペースを1つに
+            text = re.sub(r'\s+', ' ', text)
+            
+            # 記号の前後のスペースを削除（句読点など）
+            text = re.sub(r'\s*([。、！？])\s*', r'\1', text)
+            
+        else:
+            # 英語の場合：連続するスペースのみ正規化
+            text = re.sub(r'\s+', ' ', text)
+        
+        return text.strip()
     
     def find_differences(self, original: str, edited: str) -> TextDifference:
         """
