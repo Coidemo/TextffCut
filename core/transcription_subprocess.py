@@ -140,7 +140,24 @@ class SubprocessTranscriber(Transcriber):
                     stderr = process.stderr.read()
                     logger.error(f"ワーカープロセスが異常終了 (exit code: {return_code})")
                     logger.error(f"エラー出力:\n{stderr}")
-                    raise RuntimeError(f"ワーカープロセスが異常終了しました (exit code: {return_code})")
+                    
+                    # エラー結果ファイルがある場合は読み込む
+                    error_details = f"Exit code: {return_code}\n"
+                    if os.path.exists(result_path):
+                        try:
+                            with open(result_path, 'r') as f:
+                                error_result = json.load(f)
+                            if not error_result.get('success', True):
+                                error_msg = error_result.get('error', '不明なエラー')
+                                error_traceback = error_result.get('traceback', '')
+                                error_details += f"エラー詳細: {error_msg}\n"
+                                if error_traceback:
+                                    error_details += f"トレースバック:\n{error_traceback}"
+                                logger.error(f"ワーカーエラー詳細:\n{error_details}")
+                        except Exception as e:
+                            logger.error(f"エラー結果の読み込みに失敗: {e}")
+                    
+                    raise RuntimeError(f"ワーカープロセスが異常終了しました (exit code: {return_code})\n{error_details}")
                 
                 # 結果を読み込み
                 if os.path.exists(result_path):

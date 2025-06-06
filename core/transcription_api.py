@@ -19,6 +19,7 @@ from .transcription import TranscriptionResult, TranscriptionSegment
 from config import Config
 from utils.logging import get_logger
 from utils.performance_tracker import PerformanceTracker
+from utils.exceptions import TranscriptionError
 
 logger = get_logger(__name__)
 
@@ -547,17 +548,20 @@ class APITranscriber:
                         # wordsのタイムスタンプも調整
                         if aligned_seg.words:
                             for word in aligned_seg.words:
-                                if "start" in word:
-                                    word["start"] += start_offset
-                                if "end" in word:
-                                    word["end"] += start_offset
+                                # wordsは辞書のリストなので、直接アクセス可能
+                                if isinstance(word, dict):
+                                    if "start" in word and word["start"] is not None:
+                                        word["start"] += start_offset
+                                    if "end" in word and word["end"] is not None:
+                                        word["end"] += start_offset
                         aligned_segments.append(aligned_seg)
                     
                     logger.info(f"チャンク {chunk_idx} アライメント完了: {len(aligned_segments)}セグメント")
                     return aligned_segments
                     
                 except Exception as e:
-                    logger.warning(f"チャンク {chunk_idx} のアライメント処理に失敗: {e}")
+                    logger.error(f"チャンク {chunk_idx} のアライメント処理に失敗: {e}")
+                    raise RuntimeError(f"文字位置情報の取得に失敗しました。アライメント処理でエラーが発生しました: {str(e)}")
             
             logger.info(f"チャンク {chunk_idx} 処理完了: {len(segments)}セグメント")
             if segments:
@@ -940,6 +944,13 @@ class APITranscriber:
             # TranscriptionSegmentオブジェクトに変換
             final_segments = []
             for seg in aligned_segments:
+                # wordsフィールドの検証
+                if not seg.get('words'):
+                    raise TranscriptionError(
+                        f"アライメント処理に失敗しました。文字位置情報（words）が生成されませんでした。\n"
+                        f"セグメント: {seg.get('text', '')[:50]}..."
+                    )
+                
                 segment = TranscriptionSegment(
                     start=seg['start'],
                     end=seg['end'],
@@ -963,13 +974,24 @@ class APITranscriber:
             if progress_callback:
                 progress_callback(1.0, "処理完了")
             
-            return TranscriptionResult(
+            # 最終的な結果の作成
+            result = TranscriptionResult(
                 language=self.api_config.language,
                 segments=final_segments,
                 original_audio_path=original_audio_path,
                 model_size="whisper-1_api",
                 processing_time=processing_time
             )
+            
+            # wordsフィールドの最終確認
+            is_valid, errors = result.validate_has_words()
+            if not is_valid:
+                raise TranscriptionError(
+                    "文字起こしは完了しましたが、文字位置情報（words）の生成に失敗しました。\n"
+                    + "\n".join(errors)
+                )
+            
+            return result
             
         finally:
             # クリーンアップ
@@ -1033,19 +1055,43 @@ class APITranscriber:
         work_dir = tempfile.mkdtemp(prefix="textffcut_align_")
         
         try:
+            # APIセグメントをV2形式に変換
+            v2_segments = []
+            for i, seg in enumerate(api_segments):
+                v2_segment = {
+                    'id': f'seg_{i:03d}',  # IDを生成
+                    'text': seg['text'],
+                    'start': seg['start'],
+                    'end': seg['end'],
+                    'words': None,  # アライメント前なのでNone
+                    'chars': None,
+                    'transcription_completed': True,
+                    'alignment_completed': False,
+                    'alignment_error': None,
+                    'metadata': {}
+                }
+                v2_segments.append(v2_segment)
+            
             # 設定をJSON形式で保存
             config_data = {
                 'audio_path': audio_path,
-                'api_segments': api_segments,
+                'segments': v2_segments,  # V2形式のセグメント
                 'language': self.api_config.language,
-                'chunk_seconds': self.config.transcription.api_align_chunk_seconds
+                'chunk_seconds': self.config.transcription.api_align_chunk_seconds,
+                'config': {
+                    'transcription': {
+                        'language': self.config.transcription.language,
+                        'compute_type': self.config.transcription.compute_type,
+                        'batch_size': self.config.transcription.batch_size
+                    }
+                }
             }
             
             config_path = os.path.join(work_dir, 'config.json')
             with open(config_path, 'w', encoding='utf-8') as f:
                 json.dump(config_data, f, ensure_ascii=False, indent=2)
             
-            result_path = os.path.join(work_dir, 'result.json')
+            result_path = os.path.join(work_dir, 'align_result.json')
             
             # ワーカープロセスを実行
             cmd = [
@@ -1067,8 +1113,13 @@ class APITranscriber:
             
             # プログレス監視
             try:
+                # stdoutとstderrの両方を読み取る
+                stdout_lines = []
+                stderr_lines = []
+                
                 for line in process.stdout:
                     line = line.strip()
+                    stdout_lines.append(line)
                     
                     if line.startswith('PROGRESS:'):
                         try:
@@ -1086,6 +1137,9 @@ class APITranscriber:
                     
                     elif line.startswith('ERROR:'):
                         logger.error(f"アライメントワーカーエラー: {line}")
+                    
+                    elif line.startswith('TRACEBACK:'):
+                        logger.error(f"アライメントワーカートレースバック: {line}")
                 
                 # プロセス終了を待つ
                 return_code = process.wait()
@@ -1093,31 +1147,57 @@ class APITranscriber:
                 if return_code != 0:
                     stderr = process.stderr.read()
                     logger.error(f"アライメントワーカーが異常終了: {stderr}")
-                    # エラー時は元のセグメントを返す
-                    return api_segments
+                    
+                    # エラー出力を詳細に記録
+                    error_details = f"Exit code: {return_code}\nStderr: {stderr}"
+                    
+                    # 結果ファイルが部分的に作成されている可能性をチェック
+                    if os.path.exists(result_path):
+                        try:
+                            with open(result_path, 'r', encoding='utf-8') as f:
+                                error_result = json.load(f)
+                            if not error_result.get('success'):
+                                error_msg = error_result.get('error', '不明なエラー')
+                                error_details += f"\n詳細エラー: {error_msg}"
+                        except:
+                            pass
+                    
+                    # エラー時は例外を発生させる
+                    raise RuntimeError(f"アライメント処理に失敗しました: ワーカープロセスが異常終了しました。\n{error_details}")
                 
                 # 結果を読み込み
                 if os.path.exists(result_path):
                     with open(result_path, 'r', encoding='utf-8') as f:
                         result_data = json.load(f)
                     
-                    if result_data.get('status') == 'success':
-                        return result_data.get('segments', api_segments)
+                    if result_data.get('success'):
+                        aligned_segments = result_data.get('segments', [])
+                        # wordsが正しく生成されているか確認
+                        for seg in aligned_segments:
+                            if not seg.get('words'):
+                                logger.error(f"アライメント結果にwordsがありません: {seg.get('text', '')[:50]}...")
+                                raise RuntimeError("アライメント処理は成功しましたが、文字位置情報（words）が生成されませんでした")
+                        return aligned_segments
                     else:
-                        logger.error(f"アライメントエラー: {result_data.get('error')}")
-                        return api_segments
+                        error_msg = result_data.get('error', '不明なエラー')
+                        logger.error(f"アライメントエラー: {error_msg}")
+                        raise RuntimeError(f"アライメント処理に失敗しました: {error_msg}")
                 else:
                     logger.error("アライメント結果ファイルが見つかりません")
-                    return api_segments
+                    raise RuntimeError("アライメント結果ファイルが見つかりません")
                     
             except subprocess.TimeoutExpired:
                 logger.error("アライメントプロセスがタイムアウトしました")
                 process.kill()
-                return api_segments
+                raise RuntimeError("アライメント処理がタイムアウトしました。処理時間が長すぎる可能性があります。")
                 
         except Exception as e:
             logger.error(f"アライメントサブプロセスエラー: {e}")
-            return api_segments
+            # RuntimeErrorはそのまま再発生させる
+            if isinstance(e, RuntimeError):
+                raise
+            # その他の例外も詳細なエラーメッセージと共に発生させる
+            raise RuntimeError(f"アライメント処理中に予期しないエラーが発生しました: {str(e)}")
             
         finally:
             # クリーンアップ

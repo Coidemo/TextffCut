@@ -1,0 +1,26 @@
+#!/bin/bash
+
+# Docker再ビルドコマンド（新しいアーキテクチャのテスト用）
+
+echo "=== TextffCut Docker環境の再ビルド ==="
+echo ""
+echo "1. Dockerコンテナを停止:"
+echo "   docker-compose down"
+echo ""
+echo "2. Dockerイメージを再ビルド:"
+echo "   docker-compose build --no-cache"
+echo ""
+echo "3. Dockerコンテナを起動:"
+echo "   docker-compose up -d"
+echo ""
+echo "4. ログを確認:"
+echo "   docker-compose logs -f"
+echo ""
+echo "=== 実行コマンド（コピー＆ペースト用） ==="
+echo ""
+echo "docker-compose down && docker-compose build --no-cache && docker-compose up -d"
+echo ""
+echo "=== 注意事項 ==="
+echo "- 新しいファイル（core/exceptions.py, core/models.py等）が追加されています"
+echo "- wordsフィールドの必須化により、古い文字起こし結果はエラーになる可能性があります"
+echo "- エラーが発生した場合は、文字起こしを再実行してください"

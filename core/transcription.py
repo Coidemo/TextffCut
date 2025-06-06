@@ -84,16 +84,106 @@ class TranscriptionResult:
         )
     
     def get_full_text(self) -> str:
-        """全セグメントのテキストを結合"""
+        """全セグメントのテキストを結合（wordsベース必須）"""
         full_text = ""
         for seg in self.segments:
-            # words が存在し、かつ空でない場合のみ words を使用
+            # words が必須 - ない場合はエラー
+            if not seg.words or len(seg.words) == 0:
+                from utils.exceptions import VideoProcessingError
+                raise VideoProcessingError(
+                    f"文字起こし結果に詳細な文字位置情報がありません。"
+                    f"文字起こしを再実行してください。"
+                )
+            # wordsが辞書のリストかWordInfoオブジェクトのリストかを判定
             if seg.words and len(seg.words) > 0:
-                text = "".join(word['word'] for word in seg.words)
+                if hasattr(seg.words[0], 'word'):
+                    # WordInfoオブジェクトの場合
+                    text = "".join(word.word for word in seg.words)
+                else:
+                    # 辞書の場合
+                    text = "".join(word['word'] for word in seg.words)
             else:
-                text = seg.text
+                text = ""
             full_text += text
         return full_text.strip()
+    
+    def validate_has_words(self) -> tuple[bool, List[str]]:
+        """
+        全セグメントがwords情報を持っているか検証
+        
+        Returns:
+            (有効かどうか, エラーメッセージのリスト)
+        """
+        errors = []
+        segments_without_words = []
+        
+        for i, seg in enumerate(self.segments):
+            if not seg.words or len(seg.words) == 0:
+                segments_without_words.append(i)
+                errors.append(f"セグメント {i+1}: '{seg.text[:30]}...' にwords情報がありません")
+        
+        if segments_without_words:
+            errors.insert(0, f"{len(segments_without_words)}個のセグメントでwords情報が欠落しています")
+            return False, errors
+        
+        return True, []
+    
+    def to_v2_format(self) -> 'TranscriptionResultV2':
+        """
+        新しいV2形式に変換
+        
+        Returns:
+            TranscriptionResultV2インスタンス
+        """
+        from .models import TranscriptionResultV2, TranscriptionSegmentV2, ProcessingMetadata, ProcessingStatus, WordInfo
+        
+        # メタデータの作成
+        metadata = ProcessingMetadata(
+            video_path=self.original_audio_path,
+            video_duration=sum(seg.end - seg.start for seg in self.segments) if self.segments else 0,
+            processing_mode="local",  # 既存の結果はローカルモードと仮定
+            model_size=self.model_size,
+            language=self.language,
+            total_processing_time=self.processing_time
+        )
+        
+        # セグメントの変換
+        v2_segments = []
+        for i, seg in enumerate(self.segments):
+            # Word情報の変換
+            words = None
+            if seg.words:
+                words = [
+                    WordInfo(
+                        word=w.get("word", ""),
+                        start=w.get("start"),
+                        end=w.get("end"),
+                        confidence=w.get("score")
+                    )
+                    for w in seg.words
+                ]
+            
+            v2_segment = TranscriptionSegmentV2(
+                id=f"seg_{i}",
+                text=seg.text,
+                start=seg.start,
+                end=seg.end,
+                words=words,
+                language=self.language,
+                transcription_completed=True,
+                alignment_completed=bool(words and len(words) > 0)
+            )
+            v2_segments.append(v2_segment)
+        
+        # 結果の作成
+        result = TranscriptionResultV2(
+            segments=v2_segments,
+            metadata=metadata,
+            transcription_status=ProcessingStatus.COMPLETED,
+            alignment_status=ProcessingStatus.COMPLETED if all(s.alignment_completed for s in v2_segments) else ProcessingStatus.FAILED
+        )
+        
+        return result
 
 
 class Transcriber:
@@ -527,6 +617,17 @@ class Transcriber:
             model_size=model_size,
             processing_time=processing_time
         )
+        
+        # wordsフィールドの検証（厳密なチェック）
+        is_valid, errors = result.validate_has_words()
+        if not is_valid:
+            # V2形式に変換して詳細なエラーを生成
+            v2_result = result.to_v2_format()
+            try:
+                v2_result.require_valid_words()
+            except Exception as e:
+                logger.error(f"文字起こし結果の検証に失敗: {str(e)}")
+                raise
         
         # キャッシュに保存
         if save_cache:

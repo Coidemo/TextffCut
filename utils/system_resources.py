@@ -142,3 +142,15 @@ class SystemResourceManager:
 
 # グローバルインスタンス
 system_resource_manager = SystemResourceManager()
+
+
+# 互換性のための関数
+def get_memory_info() -> dict:
+    """メモリ情報を取得（互換性のため）"""
+    memory = psutil.virtual_memory()
+    return {
+        'total_gb': memory.total / (1024**3),
+        'available_gb': memory.available / (1024**3),
+        'used_gb': memory.used / (1024**3),
+        'percent': memory.percent
+    }

@@ -52,8 +52,9 @@ def main():
         use_cache = config_data.get('use_cache', False)
         save_cache = config_data.get('save_cache', False)
         config_dict = config_data['config']
+        task_type = config_data.get('task_type', 'full')  # デフォルトはフル処理
         
-        logger.info(f"ワーカー処理を開始: {video_path}")
+        logger.info(f"ワーカー処理を開始: {video_path} (タスク: {task_type})")
         send_progress(0.0, "処理を開始しています...")
         
         # 初期メモリ使用量を記録
@@ -120,13 +121,71 @@ def main():
         # 文字起こし実行
         logger.info("文字起こし処理を実行中...")
         
-        result = transcriber.transcribe(
-            video_path=video_path,
-            model_size=model_size,
-            progress_callback=progress_callback,
-            use_cache=use_cache,
-            save_cache=save_cache
-        )
+        # タスクタイプに応じて処理を分岐
+        if task_type == 'transcribe_only':
+            # 文字起こしのみ（アライメントなし）
+            logger.info("文字起こしのみモード（アライメントなし）")
+            
+            # 一時的にローカルモードの設定を変更してアライメントをスキップ
+            # ※将来的には専用のフラグを追加する方が良い
+            result = transcriber.transcribe(
+                video_path=video_path,
+                model_size=model_size,
+                progress_callback=progress_callback,
+                use_cache=False,  # 文字起こしのみの場合はキャッシュを使わない
+                save_cache=False   # 中間結果は保存しない
+            )
+            
+            # wordsフィールドの検証をスキップ（文字起こしのみなので）
+            logger.info("文字起こしのみ完了（アライメント処理は別途実行）")
+            
+        else:
+            # 通常の処理（文字起こし＋アライメント）
+            result = transcriber.transcribe(
+                video_path=video_path,
+                model_size=model_size,
+                progress_callback=progress_callback,
+                use_cache=use_cache,
+                save_cache=save_cache
+            )
+        
+        # デバッグ: APIモードの状態を出力
+        logger.info(f"検証前の状態 - task_type: {task_type}, use_api: {config.transcription.use_api}, segments: {len(result.segments) if result.segments else 0}")
+        
+        # デバッグ: 最初のセグメントのwords情報を確認
+        if result.segments and len(result.segments) > 0:
+            first_seg = result.segments[0]
+            logger.info(f"最初のセグメントの詳細 - text: '{first_seg.text[:50]}...', words: {len(first_seg.words) if first_seg.words else 'None'}")
+            if first_seg.words and len(first_seg.words) > 0:
+                first_word = first_seg.words[0]
+                logger.info(f"最初のwordの型: {type(first_word)}, 内容: {first_word}")
+        
+        # APIモードの場合は検証を完全にスキップ
+        if config.transcription.use_api:
+            logger.info("APIモード: wordsフィールドの検証をスキップします")
+        # wordsフィールドの厳密な検証（transcribe_onlyモードまたはAPIモードではスキップ）
+        elif task_type != 'transcribe_only' and result.segments:
+            logger.info("ローカルモード: wordsフィールドの検証を開始します")
+            # 検証を実行（ローカルモードのみ）
+            is_valid, errors = result.validate_has_words()
+            if not is_valid:
+                logger.error("文字起こし結果の検証に失敗しました:")
+                for error in errors:
+                    logger.error(f"  - {error}")
+                
+                # デバッグ: 各セグメントの詳細を出力
+                for i, seg in enumerate(result.segments[:5]):  # 最初の5セグメントのみ
+                    logger.error(f"セグメント {i}: text='{seg.text[:30]}...', words={seg.words is not None}, words_count={len(seg.words) if seg.words else 0}")
+                
+                # V2形式での詳細なエラー生成
+                try:
+                    v2_result = result.to_v2_format()
+                    v2_result.require_valid_words()
+                except Exception as e:
+                    logger.error(f"V2形式でのエラー: {str(e)}")
+                    # エラーメッセージを親プロセスに送信
+                    print(f"ERROR:{str(e)}", flush=True)
+                    sys.exit(1)
         
         # 結果を保存
         result_data = result.to_dict()
@@ -156,8 +215,27 @@ def main():
         sys.exit(0)
         
     except Exception as e:
-        logger.error(f"ワーカー処理でエラー: {str(e)}", exc_info=True)
-        print(f"ERROR:{str(e)}", flush=True)
+        import traceback
+        error_traceback = traceback.format_exc()
+        logger.error(f"ワーカー処理でエラー: {str(e)}\n{error_traceback}")
+        
+        # エラー詳細を標準エラー出力にも出力
+        print(f"ERROR:ワーカー処理エラー: {str(e)}", file=sys.stderr, flush=True)
+        print(f"TRACEBACK:\n{error_traceback}", file=sys.stderr, flush=True)
+        
+        # エラー結果を保存
+        error_result = {
+            "success": False,
+            "error": str(e),
+            "traceback": error_traceback
+        }
+        
+        # 結果ファイルパスを取得
+        if 'config_path' in locals():
+            result_path = os.path.join(os.path.dirname(config_path), 'result.json')
+            with open(result_path, 'w', encoding='utf-8') as f:
+                json.dump(error_result, f, ensure_ascii=False, indent=2)
+        
         sys.exit(1)
 
 

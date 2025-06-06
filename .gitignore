@@ -216,3 +216,13 @@ streamlit.log
 
 # リリースパッケージ
 release/
+
+# モデルファイル
+models/
+*.pkl
+*.pt
+*.pth
+*.bin
+*.h5
+*.onnx
+*.safetensors

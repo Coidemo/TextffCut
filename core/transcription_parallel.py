@@ -138,7 +138,9 @@ class ParallelTranscriber(SmartBoundaryTranscriber):
                     segment = TranscriptionSegment(
                         start=seg_dict['start'],
                         end=seg_dict['end'],
-                        text=seg_dict['text']
+                        text=seg_dict['text'],
+                        words=seg_dict.get('words'),  # wordsフィールドを追加
+                        chars=seg_dict.get('chars')    # charsフィールドも追加
                     )
                     merged_segments.append(segment)
             
@@ -273,8 +275,28 @@ def process_segment_worker(segment_data: Dict) -> Tuple[int, List[dict]]:
             language=config['language']
         )
         
-        # アライメント処理（オプション）
+        # アライメント処理（必須）
         segments_data = result.get("segments", [])
+        
+        # アライメント処理を実行
+        try:
+            align_model, metadata = whisperx.load_align_model(
+                language_code=config['language'],
+                device=config['device']
+            )
+            
+            aligned_result = whisperx.align(
+                segments_data,
+                align_model,
+                metadata,
+                audio,
+                config['device'],
+                return_char_alignments=True
+            )
+            segments_data = aligned_result["segments"]
+        except Exception as e:
+            # アライメント失敗時はエラーを発生させる
+            raise RuntimeError(f"アライメント処理に失敗しました: {str(e)}")
         
         # セグメントを変換（オフセット適用）
         segments = []
@@ -282,8 +304,19 @@ def process_segment_worker(segment_data: Dict) -> Tuple[int, List[dict]]:
             segment = {
                 'start': seg["start"] + start,
                 'end': seg["end"] + start,
-                'text': seg["text"]
+                'text': seg["text"],
+                'words': seg.get("words"),  # wordsフィールドを含める
+                'chars': seg.get("chars")   # charsフィールドも含める
             }
+            
+            # wordsのタイムスタンプも調整
+            if segment['words']:
+                for word in segment['words']:
+                    if 'start' in word:
+                        word['start'] += start
+                    if 'end' in word:
+                        word['end'] += start
+            
             segments.append(segment)
         
         return (index, segments)
