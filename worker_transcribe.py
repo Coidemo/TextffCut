@@ -94,48 +94,35 @@ def main():
             logger.info("APIモードで処理")
         else:
             # ローカルモードの場合は動画の長さとメモリに応じて処理方法を選択
-            try:
-                import psutil
-                from core.video import VideoInfo
-                
-                # メモリ情報取得
-                mem_gb = psutil.virtual_memory().available / (1024 ** 3)
-                logger.info(f"利用可能メモリ: {mem_gb:.1f}GB")
-                
-                # 動画情報取得
-                video_info = VideoInfo.from_file(video_path)
-                duration_minutes = video_info.duration / 60
-                logger.info(f"動画時間: {duration_minutes:.1f}分")
-                
-                # 分離モードの判定（デフォルトで有効）
-                should_separate = (
-                    config.transcription.force_separated_mode or  # 強制分離モード（デフォルトTrue）
-                    duration_minutes > 30 or  # 30分以上の動画
-                    mem_gb < 6  # メモリ6GB未満
-                )
-                
-                if should_separate:
-                    logger.info("分離モードを使用（文字起こし→アライメント）")
-                    task_type = 'separated_mode'
-                    # 分離モードでは常にSmartBoundaryTranscriberを使用（安定性重視）
-                    from core.transcription_smart_boundary import SmartBoundaryTranscriber
-                    transcriber = SmartBoundaryTranscriber(config)
-                else:
-                    # 通常の選択ロジック
-                    threshold = float(os.environ.get('PARALLEL_MEMORY_THRESHOLD', '8'))
-                    if mem_gb > threshold and duration_minutes < 20:  # 短時間＋高メモリのみ並列
-                        from core.transcription_parallel import ParallelTranscriber
-                        transcriber = ParallelTranscriber(config)
-                        logger.info("並列処理モードを使用")
-                    else:
-                        from core.transcription_smart_boundary import SmartBoundaryTranscriber
-                        transcriber = SmartBoundaryTranscriber(config)
-                        logger.info("スマート境界検出モードを使用")
-                        
-            except Exception as e:
-                logger.warning(f"最適化選択エラー: {e}")
+            # 分離モードの判定（ユーザー設定のみに従う）
+            if config.transcription.force_separated_mode:
+                logger.info("分離モードを使用（文字起こし→アライメント）")
+                task_type = 'separated_mode'
+                # 分離モードでは常にSmartBoundaryTranscriberを使用（安定性重視）
                 from core.transcription_smart_boundary import SmartBoundaryTranscriber
                 transcriber = SmartBoundaryTranscriber(config)
+            else:
+                # 通常モード：メモリに応じて最適な処理方法を選択
+                try:
+                    import psutil
+                    mem_gb = psutil.virtual_memory().available / (1024 ** 3)
+                    threshold = float(os.environ.get('PARALLEL_MEMORY_THRESHOLD', '8'))
+                    
+                    if mem_gb > threshold:
+                        # 高メモリ環境では並列処理
+                        from core.transcription_parallel import ParallelTranscriber
+                        transcriber = ParallelTranscriber(config)
+                        logger.info(f"並列処理モードを使用（メモリ: {mem_gb:.1f}GB）")
+                    else:
+                        # 低メモリ環境ではスマート境界検出
+                        from core.transcription_smart_boundary import SmartBoundaryTranscriber
+                        transcriber = SmartBoundaryTranscriber(config)
+                        logger.info(f"スマート境界検出モードを使用（メモリ: {mem_gb:.1f}GB）")
+                        
+                except Exception as e:
+                    logger.warning(f"最適化選択エラー: {e}")
+                    from core.transcription_smart_boundary import SmartBoundaryTranscriber
+                    transcriber = SmartBoundaryTranscriber(config)
         
         # プログレスコールバック
         def progress_callback(progress: float, message: str):
