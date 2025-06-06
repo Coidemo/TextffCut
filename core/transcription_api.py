@@ -557,7 +557,8 @@ class APITranscriber:
                     return aligned_segments
                     
                 except Exception as e:
-                    logger.warning(f"チャンク {chunk_idx} のアライメント処理に失敗: {e}")
+                    logger.error(f"チャンク {chunk_idx} のアライメント処理に失敗: {e}")
+                    raise RuntimeError(f"文字位置情報の取得に失敗しました。アライメント処理でエラーが発生しました: {str(e)}")
             
             logger.info(f"チャンク {chunk_idx} 処理完了: {len(segments)}セグメント")
             if segments:

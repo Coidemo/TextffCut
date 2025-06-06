@@ -128,6 +128,20 @@ def main():
             save_cache=save_cache
         )
         
+        # wordsフィールドの検証
+        if result.segments:
+            words_missing = False
+            for seg in result.segments:
+                if not seg.words or len(seg.words) == 0:
+                    words_missing = True
+                    logger.error(f"wordsフィールドが欠落しているセグメント: {seg.text[:50] if seg.text else '(空)'}")
+                    break
+            
+            if words_missing:
+                logger.error("アライメント処理が失敗しました。wordsフィールドが欠落しています。")
+                print("ERROR:アライメント処理に失敗しました。文字位置情報が取得できませんでした。", flush=True)
+                sys.exit(1)
+        
         # 結果を保存
         result_data = result.to_dict()
         

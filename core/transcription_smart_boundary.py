@@ -274,7 +274,7 @@ class SmartBoundaryTranscriber(Transcriber):
                 language=self.config.transcription.language
             )
             
-            # アライメント処理
+            # アライメント処理（必須）
             try:
                 align_model, metadata = whisperx.load_align_model(
                     language_code=self.config.transcription.language,
@@ -289,9 +289,9 @@ class SmartBoundaryTranscriber(Transcriber):
                     self.device
                 )
                 segments_data = aligned_result["segments"]
-            except:
-                logger.warning("アライメント失敗、元の結果を使用")
-                segments_data = result.get("segments", [])
+            except Exception as e:
+                logger.error(f"アライメント処理に失敗しました: {str(e)}")
+                raise RuntimeError(f"文字位置情報の取得に失敗しました。アライメント処理でエラーが発生しました: {str(e)}")
             
             # セグメントを変換（オフセット適用）
             segments = []
