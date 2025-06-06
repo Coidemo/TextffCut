@@ -23,6 +23,8 @@ services:
       - STREAMLIT_SERVER_HEADLESS=true
       - STREAMLIT_SERVER_PORT=8501
       - STREAMLIT_SERVER_ADDRESS=0.0.0.0
+      # ホスト側のパス表示用
+      - HOST_VIDEOS_PATH=${PWD}/videos
       # デバッグ用環境変数
       - DEBUG=1
     command: ["streamlit", "run", "main.py", "--server.runOnSave", "true"]
