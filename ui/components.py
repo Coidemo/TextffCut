@@ -669,7 +669,7 @@ def show_advanced_settings():
             settings_manager.set('max_workers', local_workers_opt)
             settings_manager.set('batch_size', batch_size_opt)
             
-            st.success(f"{env_type}に最適化された設定を適用しました")
+            st.success(f"メモリ{mem_gb:.0f}GBの環境に最適化された設定を適用しました")
             st.rerun()
     
     with col2:
