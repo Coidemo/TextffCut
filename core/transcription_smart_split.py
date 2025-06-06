@@ -45,7 +45,8 @@ class SmartSplitTranscriber(Transcriber):
         model_size: Optional[str] = None,
         progress_callback: Optional[Callable[[float, str], None]] = None,
         use_cache: bool = True,
-        save_cache: bool = True
+        save_cache: bool = True,
+        skip_alignment: bool = False
     ) -> TranscriptionResult:
         """
         スマート分割文字起こしを実行
@@ -63,7 +64,7 @@ class SmartSplitTranscriber(Transcriber):
         # APIモードの場合は最適化されたチャンクサイズで処理
         if self.config.transcription.use_api:
             logger.info("APIモード：最適化されたチャンクサイズで処理")
-            return self._transcribe_api_optimized(video_path, model_size, progress_callback, use_cache, save_cache)
+            return self._transcribe_api_optimized(video_path, model_size, progress_callback, use_cache, save_cache, skip_alignment)
         
         # キャッシュ確認
         model_size = model_size or self.config.transcription.model_size
@@ -523,7 +524,8 @@ class SmartSplitTranscriber(Transcriber):
         model_size: Optional[str] = None,
         progress_callback: Optional[Callable] = None,
         use_cache: bool = True,
-        save_cache: bool = True
+        save_cache: bool = True,
+        skip_alignment: bool = False
     ) -> TranscriptionResult:
         """APIモード用の最適化された文字起こし"""
         # 動画情報を取得
@@ -540,21 +542,22 @@ class SmartSplitTranscriber(Transcriber):
             self.config.transcription.chunk_seconds = 5 * 60  # 5分
             
             try:
-                result = self.api_transcriber.transcribe(video_path, model_size, progress_callback)
+                result = self.api_transcriber.transcribe(video_path, model_size, progress_callback, use_cache, save_cache, skip_alignment)
                 return result
             finally:
                 self.config.transcription.chunk_seconds = original_chunk_seconds
         
         # 25分以上の場合は20分ごとに分割してアライメント処理
         logger.info("25分以上なので20分ごとに分割してアライメント処理")
-        return self._transcribe_api_with_split_alignment(video_path, model_size, duration, progress_callback)
+        return self._transcribe_api_with_split_alignment(video_path, model_size, duration, progress_callback, skip_alignment)
     
     def _transcribe_api_with_split_alignment(
         self,
         video_path: str,
         model_size: str,
         duration: float,
-        progress_callback: Optional[Callable] = None
+        progress_callback: Optional[Callable] = None,
+        skip_alignment: bool = False
     ) -> TranscriptionResult:
         """APIモードで20分ごとに分割してアライメント処理"""
         start_time = time.time()
@@ -573,7 +576,7 @@ class SmartSplitTranscriber(Transcriber):
                 progress_callback(0.1, "APIで文字起こし中（5分チャンク）...")
             
             # API処理（アライメントなしで高速）
-            api_result = self.api_transcriber.transcribe(video_path, model_size, None)
+            api_result = self.api_transcriber.transcribe(video_path, model_size, None, True, True, True)
             
             if progress_callback:
                 progress_callback(0.5, "文字起こし完了、アライメント処理を準備中...")

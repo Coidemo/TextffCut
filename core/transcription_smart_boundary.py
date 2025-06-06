@@ -38,14 +38,15 @@ class SmartBoundaryTranscriber(Transcriber):
         model_size: Optional[str] = None,
         progress_callback: Optional[Callable[[float, str], None]] = None,
         use_cache: bool = True,
-        save_cache: bool = True
+        save_cache: bool = True,
+        skip_alignment: bool = False
     ) -> TranscriptionResult:
         """
         スマート境界検出による文字起こし
         """
         # APIモードの場合は親クラスの処理
         if self.config.transcription.use_api:
-            return super().transcribe(video_path, model_size, progress_callback, use_cache, save_cache)
+            return super().transcribe(video_path, model_size, progress_callback, use_cache, save_cache, skip_alignment)
         
         # キャッシュ確認
         model_size = model_size or self.config.transcription.model_size

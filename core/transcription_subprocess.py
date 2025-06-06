@@ -40,7 +40,8 @@ class SubprocessTranscriber(Transcriber):
         model_size: Optional[str] = None,
         progress_callback: Optional[Callable[[float, str], None]] = None,
         use_cache: bool = True,
-        save_cache: bool = True
+        save_cache: bool = True,
+        skip_alignment: bool = False
     ) -> TranscriptionResult:
         """
         サブプロセス分離された文字起こし処理
@@ -49,7 +50,7 @@ class SubprocessTranscriber(Transcriber):
         # サブプロセス分離が無効な場合は親クラスの処理を実行
         if not self.enable_subprocess_isolation:
             return super().transcribe(
-                video_path, model_size, progress_callback, use_cache, save_cache
+                video_path, model_size, progress_callback, use_cache, save_cache, skip_alignment
             )
         
         logger.info("サブプロセス分離による文字起こし処理を開始")

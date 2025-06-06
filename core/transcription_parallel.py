@@ -78,7 +78,8 @@ class ParallelTranscriber(SmartBoundaryTranscriber):
         model_size: Optional[str] = None,
         progress_callback: Optional[Callable[[float, str], None]] = None,
         use_cache: bool = True,
-        save_cache: bool = True
+        save_cache: bool = True,
+        skip_alignment: bool = False
     ) -> TranscriptionResult:
         """
         並列処理による文字起こし

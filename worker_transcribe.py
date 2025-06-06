@@ -206,7 +206,8 @@ def main():
                 model_size=model_size,
                 progress_callback=progress_callback,
                 use_cache=use_cache,
-                save_cache=save_cache
+                save_cache=save_cache,
+                skip_alignment=False  # 通常モードではアライメントを実行
             )
         
         # デバッグ: APIモードの状態を出力
