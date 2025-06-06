@@ -84,14 +84,17 @@ class TranscriptionResult:
         )
     
     def get_full_text(self) -> str:
-        """全セグメントのテキストを結合"""
+        """全セグメントのテキストを結合（wordsベース必須）"""
         full_text = ""
         for seg in self.segments:
-            # words が存在し、かつ空でない場合のみ words を使用
-            if seg.words and len(seg.words) > 0:
-                text = "".join(word['word'] for word in seg.words)
-            else:
-                text = seg.text
+            # words が必須 - ない場合はエラー
+            if not seg.words or len(seg.words) == 0:
+                from utils.exceptions import VideoProcessingError
+                raise VideoProcessingError(
+                    f"文字起こし結果に詳細な文字位置情報がありません。"
+                    f"文字起こしを再実行してください。"
+                )
+            text = "".join(word['word'] for word in seg.words)
             full_text += text
         return full_text.strip()
 

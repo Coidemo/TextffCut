@@ -62,29 +62,29 @@ class TextDifference:
             current_pos = 0
             
             for seg in segments:
-                if seg.words:
-                    for word in seg.words:
-                        try:
-                            word_len = len(word['word'])
-                            if start_time is None and current_pos <= start_pos < current_pos + word_len:
-                                start_time = word['start']
-                            if end_time is None and current_pos < end_pos <= current_pos + word_len:
-                                end_time = word['end']
-                            current_pos += word_len
-                        except (KeyError, TypeError) as e:
-                            # 不正なword形式の場合はスキップ
-                            continue
-                else:
+                # wordsが必須 - ない場合はエラー
+                if not seg.words or len(seg.words) == 0:
+                    from utils.exceptions import VideoProcessingError
+                    raise VideoProcessingError(
+                        f"検索に必要な詳細な文字位置情報がありません。"
+                        f"文字起こしを再実行してください。"
+                    )
+                
+                for word in seg.words:
                     try:
-                        text = seg.text
-                        if start_time is None and current_pos <= start_pos < current_pos + len(text):
-                            start_time = seg.start
-                        if end_time is None and current_pos < end_pos <= current_pos + len(text):
-                            end_time = seg.end
-                        current_pos += len(text)
-                    except AttributeError as e:
-                        # seg.textが存在しない場合はスキップ
-                        continue
+                        word_len = len(word['word'])
+                        if start_time is None and current_pos <= start_pos < current_pos + word_len:
+                            start_time = word['start']
+                        if end_time is None and current_pos < end_pos <= current_pos + word_len:
+                            end_time = word['end']
+                        current_pos += word_len
+                    except (KeyError, TypeError) as e:
+                        # 不正なword形式の場合はエラー
+                        from utils.exceptions import VideoProcessingError
+                        raise VideoProcessingError(
+                            f"文字位置情報の形式が不正です。"
+                            f"文字起こしを再実行してください。"
+                        )
                 
                 if start_time is not None and end_time is not None:
                     break
@@ -93,6 +93,8 @@ class TextDifference:
             
         except Exception as e:
             from utils.exceptions import VideoProcessingError
+            if isinstance(e, VideoProcessingError):
+                raise
             raise VideoProcessingError(f"タイムスタンプ取得エラー: {str(e)}")
 
 

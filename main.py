@@ -16,6 +16,7 @@ from core.transcription_subprocess import SubprocessTranscriber
 from utils.file_utils import ensure_directory, get_safe_filename
 from utils.time_utils import format_time
 from utils import ProcessingContext, cleanup_intermediate_files
+from utils.exceptions import BuzzClipError, VideoProcessingError
 from ui import (
     show_video_input,
     show_api_key_manager,
@@ -580,8 +581,13 @@ def main():
         if st.session_state.get('show_error_and_delete', False):
             st.error("⚠️ 元動画に存在しない文字が切り抜き箇所に入力されています。削除してください。")
         
-        # 全テキストを取得
-        full_text = transcription.get_full_text()
+        # 全テキストを取得（wordsベース必須）
+        try:
+            full_text = transcription.get_full_text()
+        except VideoProcessingError as e:
+            st.error(f"⚠️ {e.get_user_message()}")
+            st.info("💡 この動画の文字起こし結果は古い形式です。最新の機能を使用するには、文字起こしを再実行してください。")
+            return
         
         
         # 2カラムレイアウト
