@@ -335,6 +335,41 @@ def show_progress(
     return progress_bar, status_text
 
 
+def show_separated_mode_status(container: Any = None):
+    """
+    分離モード用のステータス表示UI
+    
+    Args:
+        container: 表示用コンテナ（Noneの場合は新規作成）
+        
+    Returns:
+        status_container: ステータス表示用コンテナ
+    """
+    if container is None:
+        container = st.container()
+    
+    with container:
+        col1, col2 = st.columns([1, 1])
+        
+        with col1:
+            st.markdown("### 📝 ステップ 1/2: 文字起こし")
+            transcribe_status = st.empty()
+            transcribe_progress = st.progress(0)
+            
+        with col2:
+            st.markdown("### 🔄 ステップ 2/2: アライメント")
+            align_status = st.empty()
+            align_progress = st.progress(0)
+    
+    return {
+        'container': container,
+        'transcribe_status': transcribe_status,
+        'transcribe_progress': transcribe_progress,
+        'align_status': align_status,
+        'align_progress': align_progress
+    }
+
+
 def show_text_editor(
     initial_text: str = "",
     height: int = 400

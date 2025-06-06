@@ -64,8 +64,8 @@ def main():
             mem_info = process.memory_info()
             mem_mb = mem_info.rss / 1024 / 1024
             logger.info(f"初期メモリ使用量: {mem_mb:.1f}MB")
-        except:
-            pass
+        except Exception:
+            logger.debug("メモリ情報取得をスキップ")
         
         # 設定を復元
         from config import Config
@@ -269,8 +269,8 @@ def main():
             mem_info = process.memory_info()
             mem_mb = mem_info.rss / 1024 / 1024
             logger.info(f"最終メモリ使用量: {mem_mb:.1f}MB")
-        except:
-            pass
+        except Exception:
+            logger.debug("メモリ情報取得をスキップ")
         
         sys.exit(0)
         

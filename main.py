@@ -26,6 +26,7 @@ from ui import (
     show_silence_settings,
     show_export_settings,
     show_progress,
+    show_separated_mode_status,
     show_text_editor,
     show_diff_viewer,
     show_edited_text_with_highlights,
