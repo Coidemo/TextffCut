@@ -16,7 +16,9 @@ from core.transcription_subprocess import SubprocessTranscriber
 from utils.file_utils import ensure_directory, get_safe_filename
 from utils.time_utils import format_time
 from utils import ProcessingContext, cleanup_intermediate_files
-from utils.exceptions import BuzzClipError, VideoProcessingError
+from utils.exceptions import BuzzClipError, VideoProcessingError, TranscriptionError
+from core.alignment_processor import AlignmentProcessor
+from core.exceptions import WordsFieldMissingError
 from ui import (
     show_video_input,
     show_api_key_manager,
@@ -131,6 +133,23 @@ st.markdown("""
 apply_dark_mode_styles()
 
 
+def debug_words_status(result):
+    """wordsフィールドの状態を詳細に出力（デバッグ用）"""
+    from utils.logging import get_logger
+    logger = get_logger(__name__)
+    
+    if hasattr(result, 'segments'):
+        total_segments = len(result.segments)
+        segments_with_words = sum(1 for seg in result.segments 
+                                 if hasattr(seg, 'words') and seg.words)
+        logger.info(f"Words状態: {segments_with_words}/{total_segments} セグメント")
+        
+        # 最初の数セグメントの詳細
+        for i, seg in enumerate(result.segments[:3]):
+            if hasattr(seg, 'words') and seg.words:
+                logger.info(f"  セグメント{i}: {len(seg.words)}words - {seg.text[:30]}...")
+            else:
+                logger.warning(f"  セグメント{i}: wordsなし! - {seg.text[:30]}...")
 
 
 def main():
@@ -525,6 +544,95 @@ def main():
                 )
                 
                 if result:
+                    # APIモードでwordsが欠落している場合、アライメント処理を実行
+                    if config.transcription.use_api:
+                        try:
+                            # wordsフィールドのチェック
+                            has_words = True
+                            if hasattr(result, 'segments'):
+                                segments_without_words = [
+                                    seg for seg in result.segments
+                                    if not hasattr(seg, 'words') or not seg.words or len(seg.words) == 0
+                                ]
+                                if segments_without_words:
+                                    has_words = False
+                            
+                            # wordsがない場合、アライメント処理を実行
+                            if not has_words:
+                                progress_text.info("🔄 文字位置情報を生成中...")
+                                progress_bar.progress(0.7)
+                                
+                                # アライメント処理
+                                alignment_processor = AlignmentProcessor(config)
+                                
+                                # アライメント用のプログレスコールバック
+                                def alignment_progress(progress: float, status: str):
+                                    # アライメントは全体の70-100%
+                                    overall_progress = 0.7 + (progress * 0.3)
+                                    progress_bar.progress(min(overall_progress, 1.0))
+                                    progress_text.info(f"🔄 {status}")
+                                
+                                # アライメント実行
+                                # resultオブジェクトからセグメントを取得
+                                segments = []
+                                if hasattr(result, 'segments'):
+                                    # V2形式に変換（必要な場合）
+                                    if hasattr(result, 'to_v2_format'):
+                                        v2_result = result.to_v2_format()
+                                        segments = v2_result.segments if hasattr(v2_result, 'segments') else []
+                                    else:
+                                        segments = result.segments
+                                
+                                # 言語情報を取得
+                                language = result.language if hasattr(result, 'language') else 'ja'
+                                
+                                # アライメント実行
+                                aligned_segments = alignment_processor.align(
+                                    segments,
+                                    video_path,
+                                    language,
+                                    progress_callback=alignment_progress
+                                )
+                                
+                                if aligned_segments:
+                                    # アライメント結果で元のセグメントを更新
+                                    if hasattr(result, 'segments'):
+                                        result.segments = aligned_segments
+                                    # V2形式の場合は新しいオブジェクトを作成
+                                    elif hasattr(result, 'to_v2_format'):
+                                        from core.models import TranscriptionResultV2
+                                        # 既存のresultからV2形式を作成し、セグメントを更新
+                                        v2_result = result.to_v2_format()
+                                        v2_result.segments = aligned_segments
+                                        result = v2_result
+                                    
+                                    progress_text.success("✅ 文字位置情報の生成完了！")
+                                else:
+                                    # アライメントが失敗した場合もエラーとして扱う
+                                    st.error("❌ 文字位置情報の生成に失敗しました。")
+                                    st.error("文字位置情報（words）は必須です。文字起こしを再実行してください。")
+                                    st.session_state.transcription_in_progress = False
+                                    cancel_placeholder.empty()
+                                    progress_bar.empty()
+                                    progress_text.empty()
+                                    return
+                        
+                        except Exception as e:
+                            # アライメントエラーは致命的なエラーとして扱う
+                            st.error(f"❌ 文字位置情報の生成に失敗しました: {str(e)}")
+                            st.error("文字位置情報（words）は必須です。文字起こしを再実行してください。")
+                            logger.error(f"アライメントエラー（致命的）: {str(e)}")
+                            # 処理を中止
+                            st.session_state.transcription_in_progress = False
+                            cancel_placeholder.empty()
+                            progress_bar.empty()
+                            progress_text.empty()
+                            return
+                    
+                    # デバッグ: wordsフィールドの状態を出力
+                    if os.environ.get('TEXTFFCUT_DEBUG'):
+                        debug_words_status(result)
+                    
                     st.session_state.transcription_result = result
                     st.session_state.transcription_in_progress = False
                     
@@ -560,6 +668,34 @@ def main():
     if 'transcription_result' in st.session_state and st.session_state.transcription_result:
         transcription = st.session_state.transcription_result
         
+        # 文字起こし結果の厳密な検証（表示前に必ず実行）
+        # wordsフィールドが必須
+        has_valid_words = True
+        segments_without_words = []
+        
+        for seg in transcription.segments:
+            if not seg.words or len(seg.words) == 0:
+                has_valid_words = False
+                segments_without_words.append(seg)
+        
+        if not has_valid_words:
+            from core.exceptions import WordsFieldMissingError
+            sample_texts = [
+                seg.text[:50] + "..." if seg.text and len(seg.text) > 50 else seg.text
+                for seg in segments_without_words[:3]
+            ]
+            error = WordsFieldMissingError(
+                segment_count=len(segments_without_words),
+                sample_segments=sample_texts
+            )
+            st.error(error.get_user_message())
+            
+            # APIモードの場合は追加情報を表示
+            if hasattr(transcription, 'model_size') and ('api' in str(transcription.model_size).lower() or 'whisper-1' in str(transcription.model_size)):
+                st.error("⚠️ APIモードでのアライメント処理が失敗しました。文字起こしを再実行してください。")
+            
+            return
+        
         st.markdown("---")
         st.subheader("✂️ 切り抜き箇所の指定")
         
@@ -584,8 +720,11 @@ def main():
         # 全テキストを取得（wordsベース必須）
         try:
             full_text = transcription.get_full_text()
-        except VideoProcessingError as e:
-            st.error(f"⚠️ {e.get_user_message()}")
+        except Exception as e:
+            if hasattr(e, 'get_user_message'):
+                st.error(f"⚠️ {e.get_user_message()}")
+            else:
+                st.error(f"⚠️ エラーが発生しました: {str(e)}")
             st.info("💡 この動画の文字起こし結果は古い形式です。最新の機能を使用するには、文字起こしを再実行してください。")
             return
         
@@ -1004,7 +1143,7 @@ def main():
                         
                         
                     except Exception as e:
-                        from utils.exceptions import BuzzClipError, VideoProcessingError
+                        from utils.exceptions import BuzzClipError, VideoProcessingError, TranscriptionError
                         if isinstance(e, VideoProcessingError):
                             st.error(e.get_user_message())
                         else:

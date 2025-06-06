@@ -1,10 +1,14 @@
 #!/usr/bin/env python
 """
-アライメント専用ワーカープロセス
+アライメント処理用ワーカープロセス
 
-APIで取得した文字起こし結果に対して、
-WhisperXでアライメント処理を行う。
-メモリリーク対策のため、処理完了後に自動終了。
+文字起こし結果に対してアライメント処理を実行し、
+処理完了後に自動的に終了してメモリを解放する。
+
+2段階処理アーキテクチャ対応:
+- TranscriptionSegmentV2形式のデータ処理
+- 堅牢なエラーハンドリング
+- 詳細な進捗報告
 """
 
 import json
@@ -31,131 +35,101 @@ def send_progress(progress: float, message: str = ""):
     print(f"PROGRESS:{progress}|{message}", flush=True)
 
 
-def process_alignment(
-    audio_path: str,
-    api_segments: List[Dict[str, Any]],
-    language: str,
-    chunk_seconds: int = 300
-) -> List[Dict[str, Any]]:
+def process_alignment(config_data: Dict[str, Any]) -> Dict[str, Any]:
     """
     アライメント処理を実行
     
     Args:
-        audio_path: 音声ファイルパス
-        api_segments: API結果のセグメントリスト
-        language: 言語コード
-        chunk_seconds: チャンクサイズ（秒）
+        config_data: 処理設定
     
     Returns:
-        アライメント済みセグメントリスト
+        処理結果
     """
-    import whisperx
-    import numpy as np
-    
-    logger.info(f"アライメント処理開始: {len(api_segments)}セグメント")
-    
-    # 音声を読み込み
-    audio = whisperx.load_audio(audio_path)
-    audio_duration = len(audio) / 16000  # 16kHz
-    
-    # アライメントモデルを読み込み
     try:
-        align_model, align_meta = whisperx.load_align_model(
-            language_code=language,
-            device="cpu"
+        # 設定の復元
+        from config import Config
+        from core.models import TranscriptionSegmentV2
+        from core.alignment_processor import AlignmentProcessor
+        
+        config = Config()
+        
+        # TranscriptionConfigを更新
+        transcription_config = config_data['config']['transcription']
+        config.transcription.language = transcription_config['language']
+        config.transcription.compute_type = transcription_config['compute_type']
+        config.transcription.batch_size = transcription_config['batch_size']
+        
+        # セグメントの復元
+        segments = []
+        for seg_data in config_data['segments']:
+            segment = TranscriptionSegmentV2.from_dict(seg_data)
+            segments.append(segment)
+        
+        audio_path = config_data['audio_path']
+        language = config_data['language']
+        
+        logger.info(f"アライメント処理開始: {len(segments)}セグメント")
+        send_progress(0.0, "アライメント処理を開始しています...")
+    
+        # アライメントプロセッサーの初期化
+        processor = AlignmentProcessor(config)
+        
+        # プログレスコールバック
+        def progress_callback(progress: float, message: str):
+            logger.info(f"進捗: {progress:.1%} - {message}")
+            send_progress(progress, message)
+        
+        # アライメント実行
+        aligned_segments = processor.align(
+            segments,
+            audio_path,
+            language,
+            progress_callback
         )
-        logger.info("アライメントモデル読み込み完了")
+        
+        # 結果の検証
+        success_count = sum(1 for s in aligned_segments if s.has_valid_alignment())
+        failed_count = sum(1 for s in aligned_segments if s.alignment_error is not None)
+        
+        logger.info(
+            f"アライメント完了: 成功={success_count}, "
+            f"失敗={failed_count}, 総数={len(aligned_segments)}"
+        )
+        
+        # 結果を辞書形式に変換
+        result_segments = []
+        for segment in aligned_segments:
+            result_segments.append(segment.to_dict())
+        
+        return {
+            "success": True,
+            "segments": result_segments,
+            "statistics": {
+                "total": len(aligned_segments),
+                "success": success_count,
+                "failed": failed_count
+            }
+        }
+        
     except Exception as e:
-        logger.error(f"アライメントモデル読み込みエラー: {e}")
-        # アライメントなしで返す
-        return api_segments
-    
-    # 大きなチャンクで処理
-    aligned_segments = []
-    chunk_size = chunk_seconds * 16000  # サンプル数
-    
-    for chunk_start in range(0, len(audio), chunk_size):
-        chunk_end = min(chunk_start + chunk_size, len(audio))
-        chunk_audio = audio[chunk_start:chunk_end]
+        import traceback
+        error_traceback = traceback.format_exc()
+        logger.error(f"アライメント処理エラー: {str(e)}\n{error_traceback}")
         
-        start_time = chunk_start / 16000
-        end_time = chunk_end / 16000
+        # エラー詳細を標準エラー出力にも出力
+        print(f"ERROR:アライメント処理エラー: {str(e)}", file=sys.stderr, flush=True)
+        print(f"TRACEBACK:\n{error_traceback}", file=sys.stderr, flush=True)
         
-        # このチャンクに含まれるセグメントを抽出
-        chunk_segments = []
-        for seg in api_segments:
-            seg_start = seg.get('start', 0)
-            seg_end = seg.get('end', 0)
-            
-            # セグメントがチャンクと重なる場合
-            if seg_start < end_time and seg_end > start_time:
-                # チャンク内での相対時間に変換
-                relative_seg = {
-                    'start': max(0, seg_start - start_time),
-                    'end': min(chunk_seconds, seg_end - start_time),
-                    'text': seg['text']
-                }
-                chunk_segments.append(relative_seg)
-        
-        if not chunk_segments:
-            continue
-        
-        logger.info(f"チャンク {start_time:.1f}s-{end_time:.1f}s: {len(chunk_segments)}セグメント")
-        
-        try:
-            # アライメント実行
-            aligned_result = whisperx.align(
-                chunk_segments,
-                align_model,
-                align_meta,
-                chunk_audio,
-                "cpu",
-                return_char_alignments=False
-            )
-            
-            # 結果を絶対時間に戻す
-            for seg in aligned_result.get("segments", []):
-                aligned_seg = {
-                    'start': seg['start'] + start_time,
-                    'end': seg['end'] + start_time,
-                    'text': seg['text']
-                }
-                
-                # 単語情報があれば追加
-                if 'words' in seg:
-                    aligned_seg['words'] = []
-                    for word in seg['words']:
-                        aligned_word = dict(word)
-                        if 'start' in aligned_word:
-                            aligned_word['start'] += start_time
-                        if 'end' in aligned_word:
-                            aligned_word['end'] += start_time
-                        aligned_seg['words'].append(aligned_word)
-                
-                aligned_segments.append(aligned_seg)
-                
-        except Exception as e:
-            logger.error(f"チャンクアライメントエラー: {e}")
-            # エラー時は元のセグメントを使用
-            for seg in chunk_segments:
-                aligned_segments.append({
-                    'start': seg['start'] + start_time,
-                    'end': seg['end'] + start_time,
-                    'text': seg['text']
-                })
-        
-        # プログレス更新
-        progress = (chunk_end / len(audio))
-        send_progress(progress, f"アライメント処理中... {progress:.1%}")
-    
-    # 時間順にソート
-    aligned_segments.sort(key=lambda x: x['start'])
-    
-    return aligned_segments
+        return {
+            "success": False,
+            "error": str(e),
+            "traceback": error_traceback,
+            "segments": []
+        }
 
 
 def main():
-    """メイン処理"""
+    """ワーカーメイン処理"""
     try:
         # コマンドライン引数から設定ファイルパスを取得
         if len(sys.argv) < 2:
@@ -169,18 +143,12 @@ def main():
             sys.exit(1)
         
         # 設定を読み込み
-        with open(config_path, 'r', encoding='utf-8') as f:
-            config = json.load(f)
+        with open(config_path, 'r') as f:
+            config_data = json.load(f)
         
-        audio_path = config['audio_path']
-        api_segments = config['api_segments']
-        language = config['language']
-        chunk_seconds = config.get('chunk_seconds', 300)
+        logger.info("アライメントワーカーを開始")
         
-        logger.info(f"アライメントワーカー開始: {audio_path}")
-        send_progress(0.0, "アライメント処理を開始しています...")
-        
-        # メモリ使用量を記録
+        # 初期メモリ使用量を記録
         try:
             import psutil
             process = psutil.Process()
@@ -190,54 +158,37 @@ def main():
         except:
             pass
         
-        # アライメント処理実行
-        aligned_segments = process_alignment(
-            audio_path,
-            api_segments,
-            language,
-            chunk_seconds
-        )
+        # アライメント処理を実行
+        result = process_alignment(config_data)
         
-        # 結果を保存
-        result_data = {
-            'segments': aligned_segments,
-            'status': 'success'
-        }
-        
-        result_path = os.path.join(os.path.dirname(config_path), 'result.json')
+        # 結果ファイルのパスを設定ファイルと同じディレクトリに
+        result_path = os.path.join(os.path.dirname(config_path), 'align_result.json')
         with open(result_path, 'w', encoding='utf-8') as f:
-            json.dump(result_data, f, ensure_ascii=False, indent=2)
+            json.dump(result, f, ensure_ascii=False, indent=2)
         
-        logger.info(f"アライメント完了: {len(aligned_segments)}セグメント")
-        send_progress(1.0, "アライメント処理が完了しました")
-        
-        # 最終メモリ使用量を記録
-        try:
-            import psutil
-            process = psutil.Process()
-            mem_info = process.memory_info()
-            mem_mb = mem_info.rss / 1024 / 1024
-            logger.info(f"最終メモリ使用量: {mem_mb:.1f}MB")
-        except:
-            pass
-        
-        sys.exit(0)
+        if result["success"]:
+            logger.info("アライメント処理が正常に完了しました")
+            send_progress(1.0, "アライメント処理が完了しました")
+            
+            # メモリ使用量を記録
+            try:
+                import psutil
+                process = psutil.Process()
+                mem_info = process.memory_info()
+                mem_mb = mem_info.rss / 1024 / 1024
+                logger.info(f"最終メモリ使用量: {mem_mb:.1f}MB")
+            except:
+                pass
+            
+            sys.exit(0)
+        else:
+            logger.error(f"アライメント処理に失敗: {result.get('error', '不明なエラー')}")
+            print(f"ERROR:{result.get('error', '不明なエラー')}", flush=True)
+            sys.exit(1)
         
     except Exception as e:
-        logger.error(f"アライメントワーカーエラー: {str(e)}", exc_info=True)
+        logger.error(f"ワーカー処理でエラー: {str(e)}", exc_info=True)
         print(f"ERROR:{str(e)}", flush=True)
-        
-        # エラー結果を保存
-        result_data = {
-            'segments': [],
-            'status': 'error',
-            'error': str(e)
-        }
-        
-        result_path = os.path.join(os.path.dirname(config_path), 'result.json')
-        with open(result_path, 'w', encoding='utf-8') as f:
-            json.dump(result_data, f, ensure_ascii=False, indent=2)
-        
         sys.exit(1)
 
 

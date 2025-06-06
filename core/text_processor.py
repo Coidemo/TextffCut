@@ -79,19 +79,36 @@ class TextDifference:
                 
                 for word_idx, word in enumerate(seg.words):
                     try:
-                        word_len = len(word.get('word', ''))
+                        # WordInfoオブジェクトか辞書かを判定
+                        if hasattr(word, 'word'):
+                            # WordInfoオブジェクトの場合
+                            word_text = word.word
+                            word_start = word.start
+                            word_end = word.end
+                        else:
+                            # 辞書の場合
+                            word_text = word.get('word', '')
+                            word_start = word.get('start')
+                            word_end = word.get('end')
+                        
+                        word_len = len(word_text)
                         
                         # タイムスタンプが欠落している場合
-                        if 'start' not in word or 'end' not in word:
-                            logger.warning(f"タイムスタンプが欠落しているword: {word.get('word', '')}")
+                        if word_start is None or word_end is None:
+                            logger.warning(f"タイムスタンプが欠落しているword: {word_text}")
                             
                             # 開始位置がこのwordの範囲内の場合
                             if start_time is None and current_pos <= start_pos < current_pos + word_len:
                                 # 前後の有効なタイムスタンプを探す
                                 # 前方検索
                                 for prev_idx in range(word_idx - 1, -1, -1):
-                                    if 'end' in seg.words[prev_idx]:
-                                        last_valid_timestamp = seg.words[prev_idx]['end']
+                                    prev_word = seg.words[prev_idx]
+                                    if hasattr(prev_word, 'end'):
+                                        if prev_word.end is not None:
+                                            last_valid_timestamp = prev_word.end
+                                            break
+                                    elif 'end' in prev_word and prev_word['end'] is not None:
+                                        last_valid_timestamp = prev_word['end']
                                         break
                                 else:
                                     # 前のセグメントの最後を使用
@@ -100,8 +117,13 @@ class TextDifference:
                                 
                                 # 後方検索
                                 for next_idx in range(word_idx + 1, len(seg.words)):
-                                    if 'start' in seg.words[next_idx]:
-                                        next_valid_timestamp = seg.words[next_idx]['start']
+                                    next_word = seg.words[next_idx]
+                                    if hasattr(next_word, 'start'):
+                                        if next_word.start is not None:
+                                            next_valid_timestamp = next_word.start
+                                            break
+                                    elif 'start' in next_word and next_word['start'] is not None:
+                                        next_valid_timestamp = next_word['start']
                                         break
                                 else:
                                     # セグメントの終了時間を使用
@@ -116,8 +138,13 @@ class TextDifference:
                             if end_time is None and current_pos < end_pos <= current_pos + word_len:
                                 # 後方の有効なタイムスタンプを探す
                                 for next_idx in range(word_idx + 1, len(seg.words)):
-                                    if 'start' in seg.words[next_idx]:
-                                        next_valid_timestamp = seg.words[next_idx]['start']
+                                    next_word = seg.words[next_idx]
+                                    if hasattr(next_word, 'start'):
+                                        if next_word.start is not None:
+                                            next_valid_timestamp = next_word.start
+                                            break
+                                    elif 'start' in next_word and next_word['start'] is not None:
+                                        next_valid_timestamp = next_word['start']
                                         break
                                 else:
                                     # 次のセグメントの開始を使用
@@ -135,11 +162,10 @@ class TextDifference:
                             continue
                             
                         # 通常の処理（タイムスタンプあり）
-                        word_len = len(word['word'])
                         if start_time is None and current_pos <= start_pos < current_pos + word_len:
-                            start_time = word['start']
+                            start_time = word_start
                         if end_time is None and current_pos < end_pos <= current_pos + word_len:
-                            end_time = word['end']
+                            end_time = word_end
                         current_pos += word_len
                         
                     except (KeyError, TypeError) as e:

@@ -52,8 +52,9 @@ def main():
         use_cache = config_data.get('use_cache', False)
         save_cache = config_data.get('save_cache', False)
         config_dict = config_data['config']
+        task_type = config_data.get('task_type', 'full')  # デフォルトはフル処理
         
-        logger.info(f"ワーカー処理を開始: {video_path}")
+        logger.info(f"ワーカー処理を開始: {video_path} (タスク: {task_type})")
         send_progress(0.0, "処理を開始しています...")
         
         # 初期メモリ使用量を記録
@@ -120,27 +121,57 @@ def main():
         # 文字起こし実行
         logger.info("文字起こし処理を実行中...")
         
-        result = transcriber.transcribe(
-            video_path=video_path,
-            model_size=model_size,
-            progress_callback=progress_callback,
-            use_cache=use_cache,
-            save_cache=save_cache
-        )
-        
-        # wordsフィールドの検証
-        if result.segments:
-            words_missing = False
-            for seg in result.segments:
-                if not seg.words or len(seg.words) == 0:
-                    words_missing = True
-                    logger.error(f"wordsフィールドが欠落しているセグメント: {seg.text[:50] if seg.text else '(空)'}")
-                    break
+        # タスクタイプに応じて処理を分岐
+        if task_type == 'transcribe_only':
+            # 文字起こしのみ（アライメントなし）
+            logger.info("文字起こしのみモード（アライメントなし）")
             
-            if words_missing:
-                logger.error("アライメント処理が失敗しました。wordsフィールドが欠落しています。")
-                print("ERROR:アライメント処理に失敗しました。文字位置情報が取得できませんでした。", flush=True)
-                sys.exit(1)
+            # 一時的にローカルモードの設定を変更してアライメントをスキップ
+            # ※将来的には専用のフラグを追加する方が良い
+            result = transcriber.transcribe(
+                video_path=video_path,
+                model_size=model_size,
+                progress_callback=progress_callback,
+                use_cache=False,  # 文字起こしのみの場合はキャッシュを使わない
+                save_cache=False   # 中間結果は保存しない
+            )
+            
+            # wordsフィールドの検証をスキップ（文字起こしのみなので）
+            logger.info("文字起こしのみ完了（アライメント処理は別途実行）")
+            
+        else:
+            # 通常の処理（文字起こし＋アライメント）
+            result = transcriber.transcribe(
+                video_path=video_path,
+                model_size=model_size,
+                progress_callback=progress_callback,
+                use_cache=use_cache,
+                save_cache=save_cache
+            )
+        
+        # デバッグ: APIモードの状態を出力
+        logger.info(f"検証前の状態 - task_type: {task_type}, use_api: {config.transcription.use_api}, segments: {len(result.segments) if result.segments else 0}")
+        
+        # APIモードの場合は検証を完全にスキップ
+        if config.transcription.use_api:
+            logger.info("APIモード: wordsフィールドの検証をスキップします")
+        # wordsフィールドの厳密な検証（transcribe_onlyモードまたはAPIモードではスキップ）
+        elif task_type != 'transcribe_only' and result.segments:
+            # 検証を実行（ローカルモードのみ）
+            is_valid, errors = result.validate_has_words()
+            if not is_valid:
+                logger.error("文字起こし結果の検証に失敗しました:")
+                for error in errors:
+                    logger.error(f"  - {error}")
+                
+                # V2形式での詳細なエラー生成
+                try:
+                    v2_result = result.to_v2_format()
+                    v2_result.require_valid_words()
+                except Exception as e:
+                    # エラーメッセージを親プロセスに送信
+                    print(f"ERROR:{str(e)}", flush=True)
+                    sys.exit(1)
         
         # 結果を保存
         result_data = result.to_dict()

@@ -25,6 +25,7 @@ output/*
 logs/*
 temp/*
 transcriptions/*
+models/*
 *.mp4
 *.mov
 *.avi
