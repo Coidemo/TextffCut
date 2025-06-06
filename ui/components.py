@@ -6,36 +6,11 @@ from pathlib import Path
 from typing import List, Tuple, Optional, Dict, Any, Callable
 
 from config import Config
-from utils.file_utils import get_video_files
 from utils.time_utils import format_time
 from core.transcription import TranscriptionResult
 from core.text_processor import TextDifference, TextProcessor
 
 
-def show_video_selector(video_dir: Path) -> Optional[Path]:
-    """
-    動画ファイル選択UI
-    
-    Args:
-        video_dir: 動画ディレクトリ
-        
-    Returns:
-        選択された動画ファイルのパス
-    """
-    video_files = get_video_files(video_dir)
-    
-    if not video_files:
-        st.warning(f"📁 {video_dir} に動画ファイルがありません。")
-        st.info("動画ファイルを以下のフォルダに配置してください: " + str(video_dir))
-        return None
-    
-    selected_video = st.selectbox(
-        "🎬 動画ファイルを選択",
-        options=video_files,
-        format_func=lambda x: x.name
-    )
-    
-    return selected_video
 
 
 def show_api_key_manager():
@@ -85,77 +60,6 @@ def show_api_key_manager():
         st.session_state.api_key = api_key if api_key else ""
 
 
-def show_transcription_mode_selector():
-    """
-    文字起こしモードとモデル選択UI（ラジオボタン版）
-    
-    Returns:
-        Tuple[bool, str]: (use_api, model_size)
-    """
-    from utils.api_key_manager import api_key_manager
-    
-    # 横並びレイアウトでモード選択とモデル選択を配置
-    mode_col, model_col = st.columns([1, 2])
-    
-    with mode_col:
-        st.markdown("**⚙️ 処理モード**")
-        mode_options = ["🖥️ ローカル", "🌐 API"]
-        previous_mode = st.session_state.get('use_api', False)
-        default_index = 1 if previous_mode else 0
-        
-        selected_mode = st.radio(
-            "処理モード",
-            mode_options,
-            index=default_index,
-            key="mode_radio_selector",
-            label_visibility="collapsed"
-        )
-        
-        use_api = selected_mode == "🌐 API"
-        st.session_state.use_api = use_api
-    
-    with model_col:
-        if use_api:
-            # APIモード
-            st.markdown("**🤖 モデル**")
-            st.markdown("whisper-1（固定）")
-            model_size = "whisper-1"
-            
-            # APIキーをセッションに保存（表示はしない）
-            saved_key = api_key_manager.load_api_key()
-            if saved_key:
-                st.session_state.api_key = saved_key
-        else:
-            # ローカルモード
-            st.markdown("**🤖 モデル選択**")
-            model_options = ["base (高速・低精度)", "small (高速・普通精度)", "medium (普通速度・高精度)", "large-v3 (低速・最高精度)"]
-            model_values = ["base", "small", "medium", "large-v3"]
-            default_local_index = 2  # medium
-            
-            # セッション状態から前回の選択を取得
-            previous_model = st.session_state.get('local_model_size', 'medium')
-            try:
-                default_local_index = model_values.index(previous_model)
-            except ValueError:
-                default_local_index = 2  # medium
-            
-            selected_option = st.selectbox(
-                "ローカルモデル",
-                model_options,
-                index=default_local_index,
-                key="local_model_radio_selector",
-                label_visibility="collapsed"
-            )
-            
-            # 選択されたオプションから実際のモデル名を取得
-            model_size = model_values[model_options.index(selected_option)]
-            st.session_state.local_model_size = model_size
-            
-            # large-v3モデル選択時のみ警告表示
-            if model_size == "large-v3":
-                st.caption("⚠️ large-v3モデルは処理に時間がかかります")
-    
-    return use_api, model_size
 
 
 
@@ -686,31 +590,6 @@ def show_diff_viewer(
 
 
 
-def show_segment_preview(
-    segments: List[Dict[str, Any]],
-    video_files: Optional[List[str]] = None
-):
-    """
-    セグメントプレビューUI
-    
-    Args:
-        segments: セグメント情報のリスト
-        video_files: 動画ファイルのリスト
-    """
-    with st.expander("抽出部分と生成された動画", expanded=False):
-        for i, segment in enumerate(segments):
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.markdown(f"**{segment['start']:.1f}s - {segment['end']:.1f}s**")
-                if 'text' in segment:
-                    st.markdown(segment['text'])
-            
-            with col2:
-                if video_files and i < len(video_files):
-                    st.video(video_files[i])
-            
-            st.markdown("---")
 
 
 def show_help():
@@ -948,49 +827,3 @@ def show_advanced_settings():
     st.caption("💡 メモリ不足エラーが発生する場合は、値を小さくしてください。")
 
 
-def show_result_folder_section(project_path: Path, project_name: str):
-    """
-    Docker版用の結果フォルダ表示セクション
-    
-    Args:
-        project_path: プロジェクトディレクトリのパス
-        project_name: プロジェクト名
-    """
-    import os
-    import subprocess
-    
-    # Docker環境の判定
-    is_docker = os.path.exists('/.dockerenv')
-    
-    if not is_docker or not project_path.exists():
-        return
-    
-    st.markdown("---")
-    st.subheader("📁 処理結果")
-    
-    # 出力ファイルを検索
-    output_files = []
-    for pattern in ["*.fcpxml", "*.mp4", "*.mov", "*.avi"]:
-        output_files.extend(list(project_path.glob(pattern)))
-    
-    if not output_files:
-        st.info("出力ファイルがありません。")
-        return
-    
-    # ファイル一覧表示
-    st.markdown("#### 📄 生成されたファイル")
-    for file_path in output_files:
-        if file_path.exists():
-            file_size = file_path.stat().st_size
-            file_size_mb = file_size / (1024 * 1024)
-            st.markdown(f"**{file_path.name}** ({file_size_mb:.1f} MB)")
-    
-    # フォルダパス表示
-    if st.button("📂 フォルダパス表示", key="show_result_path", help="結果フォルダのパスを表示します"):
-            # ホスト側の結果フォルダパス
-            # project_pathは /app/videos/project_name_TextffCut の形式
-            host_videos_path = os.getenv('HOST_VIDEOS_PATH', os.getenv('PWD', '') + '/videos')
-            host_result_path = str(project_path).replace("/app/videos", host_videos_path)
-            st.code(host_result_path, language=None)
-            st.info("上記のパスをコピーして、Finderの「移動」>「フォルダへ移動」で開いてください")
-            st.markdown("**または:** Finderで `⌘+Shift+G` を押してパスを貼り付け")
