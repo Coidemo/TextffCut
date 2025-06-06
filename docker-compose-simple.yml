@@ -11,6 +11,7 @@ services:
       - ./output:/app/output
       - ./transcriptions:/app/transcriptions
       - ./logs:/app/logs
+      - ./models:/home/appuser/.cache
     environment:
       - TZ=Asia/Tokyo
       - HOST_VIDEOS_PATH=${PWD}/videos

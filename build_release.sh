@@ -180,7 +180,7 @@ if %errorlevel% equ 0 (
 )
 
 REM 必要なフォルダを作成
-for %%f in (videos logs) do (
+for %%f in (videos logs models) do (
     if not exist %%f (
         echo [フォルダ] %%f フォルダを作成しています...
         mkdir %%f
@@ -419,7 +419,7 @@ if lsof -ti:$PORT > /dev/null 2>&1; then
 fi
 
 # 必要なフォルダを作成
-for folder in videos logs; do
+for folder in videos logs models; do
     if [ ! -d "$folder" ]; then
         echo "📁 $folder フォルダを作成しています..."
         mkdir -p "$folder"
@@ -521,6 +521,7 @@ services:
     volumes:
       - ./videos:/app/videos
       - ./logs:/app/logs
+      - ./models:/home/appuser/.cache
     environment:
       - TZ=Asia/Tokyo
       - HOST_VIDEOS_PATH=\${HOST_VIDEOS_PATH}

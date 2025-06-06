@@ -16,6 +16,8 @@ services:
       - ./transcriptions:/app/transcriptions
       # ログ用ディレクトリ
       - ./logs:/app/logs
+      # モデルキャッシュ用ディレクトリ（永続化）
+      - ./models:/home/appuser/.cache
     environment:
       # サブプロセス分離を有効化（メモリリーク対策）
       - TEXTFFCUT_ISOLATION_MODE=subprocess
