@@ -1,0 +1,78 @@
+{
+  "test_date": "2025-06-06T21:51:51.713076",
+  "tests": [
+    {
+      "name": "1. Streamlit起動テスト",
+      "status": "passed",
+      "duration": 5.045547008514404,
+      "details": {
+        "status": "Streamlitが正常に起動"
+      }
+    },
+    {
+      "name": "2. モジュールインポートテスト",
+      "status": "passed",
+      "duration": 0.509697675704956,
+      "details": {
+        "core.transcription": "OK",
+        "core.text_processor": "OK",
+        "core.video": "OK",
+        "core.export": "OK",
+        "core.alignment_processor": "OK",
+        "ui.components": "OK",
+        "utils.api_key_manager": "OK"
+      }
+    },
+    {
+      "name": "3. 文字起こしフローテスト",
+      "status": "failed",
+      "duration": 8.382854223251343,
+      "details": {},
+      "error": "wordsフィールド検証エラー: 'TranscriptionResult' object has no attribute 'require_valid_words'"
+    },
+    {
+      "name": "4. テキスト検索テスト",
+      "status": "passed",
+      "duration": 9.083747863769531e-05,
+      "details": {
+        "found_ranges": 1,
+        "first_range": [
+          0.5,
+          2.0
+        ],
+        "search_text": "テストです"
+      }
+    },
+    {
+      "name": "5. エラーハンドリングテスト",
+      "status": "failed",
+      "duration": 1.3113021850585938e-05,
+      "details": {},
+      "error": "'TranscriptionResult' object has no attribute 'require_valid_words'"
+    },
+    {
+      "name": "6. UIコンポーネントテスト",
+      "status": "passed",
+      "duration": 7.152557373046875e-06,
+      "details": {
+        "components_imported": true,
+        "component_count": 9
+      }
+    },
+    {
+      "name": "7. ブラウザUIテスト",
+      "status": "passed",
+      "duration": 5.207573890686035,
+      "details": {
+        "status": "UIが起動可能",
+        "note": "手動でのブラウザ確認を推奨"
+      }
+    }
+  ],
+  "summary": {
+    "total": 7,
+    "passed": 5,
+    "failed": 2,
+    "warnings": 0
+  }
+}

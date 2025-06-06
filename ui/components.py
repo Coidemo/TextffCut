@@ -617,19 +617,7 @@ def show_advanced_settings():
         mem_gb = psutil.virtual_memory().total / (1024**3)
         cpu_count = psutil.cpu_count(logical=False) or 4
         
-        # メモリ容量による環境判定
-        if mem_gb >= 64:
-            env_type = "エンタープライズ環境"
-        elif mem_gb >= 32:
-            env_type = "プロ環境"
-        elif mem_gb >= 16:
-            env_type = "高性能環境"
-        elif mem_gb >= 8:
-            env_type = "標準環境"
-        else:
-            env_type = "軽量環境"
-            
-        st.info(f"💻 検出された環境: メモリ{mem_gb:.0f}GB / CPU {cpu_count}コア ({env_type})")
+        st.info(f"💻 検出された環境: メモリ{mem_gb:.0f}GB / CPU {cpu_count}コア")
     except:
         mem_gb = 16
         cpu_count = 4

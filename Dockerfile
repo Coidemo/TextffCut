@@ -34,12 +34,9 @@ RUN useradd -m -s /bin/bash appuser
 # 必要なディレクトリを作成（root権限で）
 RUN mkdir -p /app/videos /app/output /app/transcriptions /app/logs /app/temp
 
-# WhisperXモデルを事前ダウンロード（baseモデル）
-# rootユーザーでダウンロードしてから、appuserがアクセスできるようにする
-RUN python -c "import whisperx; whisperx.load_model('base', 'cpu', language='ja', compute_type='int8')" && \
-    mkdir -p /home/appuser/.cache /home/appuser/.cache/matplotlib && \
-    cp -r /root/.cache/whisperx /home/appuser/.cache/ 2>/dev/null || true && \
-    cp -r /root/.cache/huggingface /home/appuser/.cache/ 2>/dev/null || true && \
+# キャッシュディレクトリを作成（モデルは初回実行時にダウンロード）
+RUN mkdir -p /home/appuser/.cache /home/appuser/.cache/matplotlib \
+    /home/appuser/.cache/whisperx /home/appuser/.cache/huggingface && \
     chown -R appuser:appuser /home/appuser/.cache
 
 # アプリケーションディレクトリの所有権を変更

@@ -1,0 +1,60 @@
+{
+  "test_date": "2025-06-06T21:58:05.990622",
+  "environment": "Docker",
+  "tests": [
+    {
+      "name": "1. Dockerコンテナ状態確認",
+      "status": "passed",
+      "duration": 0.02838420867919922,
+      "details": {
+        "container_id": "45780c02c491",
+        "status": "Up About a minute (healthy)",
+        "ports": "0.0.0.0:8501->8501/tcp"
+      }
+    },
+    {
+      "name": "2. WebUIアクセシビリティ",
+      "status": "passed",
+      "duration": 0.012042999267578125,
+      "details": {
+        "http_status": "200"
+      }
+    },
+    {
+      "name": "3. ボリュームマウント確認",
+      "status": "passed",
+      "duration": 0.00024509429931640625,
+      "details": {
+        "videos_path": "/Users/naoki/myProject/TextffCut/videos",
+        "writable": true
+      }
+    },
+    {
+      "name": "4. Dockerログ確認",
+      "status": "passed",
+      "duration": 0.015992164611816406,
+      "details": {
+        "has_errors": true,
+        "error_keywords": [
+          "Traceback"
+        ],
+        "log_sample": "ase use `backend` keyword with load/save/info function, instead of calling the udnerlying implementation directly.\n  lambda m: list(m.__path__._path),\n/usr/local/lib/python3.11/site-packages/streamlit/watcher/local_sources_watcher.py:195: UserWarning: Module 'speechbrain.pretrained' was deprecated, redirecting to 'speechbrain.inference'. Please update your script. This is a change from SpeechBrain 1.0. See: https://github.com/speechbrain/speechbrain/releases/tag/v1.0.0\n  lambda m: [m.__file__],\n"
+      }
+    },
+    {
+      "name": "5. ブラウザ機能テスト",
+      "status": "passed",
+      "duration": 3.0994415283203125e-06,
+      "details": {
+        "ui_accessible": true,
+        "test_note": "手動でのブラウザ確認を推奨"
+      }
+    }
+  ],
+  "summary": {
+    "total": 5,
+    "passed": 5,
+    "failed": 0,
+    "warnings": 1
+  }
+}
