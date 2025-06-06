@@ -152,11 +152,20 @@ def main():
         # デバッグ: APIモードの状態を出力
         logger.info(f"検証前の状態 - task_type: {task_type}, use_api: {config.transcription.use_api}, segments: {len(result.segments) if result.segments else 0}")
         
+        # デバッグ: 最初のセグメントのwords情報を確認
+        if result.segments and len(result.segments) > 0:
+            first_seg = result.segments[0]
+            logger.info(f"最初のセグメントの詳細 - text: '{first_seg.text[:50]}...', words: {len(first_seg.words) if first_seg.words else 'None'}")
+            if first_seg.words and len(first_seg.words) > 0:
+                first_word = first_seg.words[0]
+                logger.info(f"最初のwordの型: {type(first_word)}, 内容: {first_word}")
+        
         # APIモードの場合は検証を完全にスキップ
         if config.transcription.use_api:
             logger.info("APIモード: wordsフィールドの検証をスキップします")
         # wordsフィールドの厳密な検証（transcribe_onlyモードまたはAPIモードではスキップ）
         elif task_type != 'transcribe_only' and result.segments:
+            logger.info("ローカルモード: wordsフィールドの検証を開始します")
             # 検証を実行（ローカルモードのみ）
             is_valid, errors = result.validate_has_words()
             if not is_valid:
@@ -164,11 +173,16 @@ def main():
                 for error in errors:
                     logger.error(f"  - {error}")
                 
+                # デバッグ: 各セグメントの詳細を出力
+                for i, seg in enumerate(result.segments[:5]):  # 最初の5セグメントのみ
+                    logger.error(f"セグメント {i}: text='{seg.text[:30]}...', words={seg.words is not None}, words_count={len(seg.words) if seg.words else 0}")
+                
                 # V2形式での詳細なエラー生成
                 try:
                     v2_result = result.to_v2_format()
                     v2_result.require_valid_words()
                 except Exception as e:
+                    logger.error(f"V2形式でのエラー: {str(e)}")
                     # エラーメッセージを親プロセスに送信
                     print(f"ERROR:{str(e)}", flush=True)
                     sys.exit(1)
@@ -201,8 +215,27 @@ def main():
         sys.exit(0)
         
     except Exception as e:
-        logger.error(f"ワーカー処理でエラー: {str(e)}", exc_info=True)
-        print(f"ERROR:{str(e)}", flush=True)
+        import traceback
+        error_traceback = traceback.format_exc()
+        logger.error(f"ワーカー処理でエラー: {str(e)}\n{error_traceback}")
+        
+        # エラー詳細を標準エラー出力にも出力
+        print(f"ERROR:ワーカー処理エラー: {str(e)}", file=sys.stderr, flush=True)
+        print(f"TRACEBACK:\n{error_traceback}", file=sys.stderr, flush=True)
+        
+        # エラー結果を保存
+        error_result = {
+            "success": False,
+            "error": str(e),
+            "traceback": error_traceback
+        }
+        
+        # 結果ファイルパスを取得
+        if 'config_path' in locals():
+            result_path = os.path.join(os.path.dirname(config_path), 'result.json')
+            with open(result_path, 'w', encoding='utf-8') as f:
+                json.dump(error_result, f, ensure_ascii=False, indent=2)
+        
         sys.exit(1)
 
 

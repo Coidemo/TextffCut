@@ -286,7 +286,8 @@ class SmartBoundaryTranscriber(Transcriber):
                     align_model,
                     metadata,
                     audio,
-                    self.device
+                    self.device,
+                    return_char_alignments=True
                 )
                 segments_data = aligned_result["segments"]
             except Exception as e:
