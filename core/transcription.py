@@ -337,6 +337,14 @@ class Transcriber:
             
         return res["segments"]
     
+    def transcribe_chunk_without_alignment(self, chunk: Dict[str, Any], asr_model: Any, 
+                                          chunk_idx: int) -> List[Dict[str, Any]]:
+        """チャンクを文字起こしのみ（アライメントなし）"""
+        # 文字起こしのみ実行
+        segments = self.transcribe_chunk(chunk, asr_model)
+        logger.debug(f"チャンク {chunk_idx}: 文字起こし完了 ({len(segments)}セグメント)")
+        return segments
+    
     def transcribe_and_align_chunk(self, chunk: Dict[str, Any], asr_model: Any, 
                                   align_model: Any, align_meta: Any, chunk_idx: int) -> List[Dict[str, Any]]:
         """チャンクを文字起こし＋アライメント処理"""
@@ -386,7 +394,8 @@ class Transcriber:
         model_size: Optional[str] = None,
         progress_callback: Optional[Callable[[float, str], None]] = None,
         use_cache: bool = True,
-        save_cache: bool = True
+        save_cache: bool = True,
+        skip_alignment: bool = False
     ) -> TranscriptionResult:
         """
         動画の文字起こしを実行（API/ローカル自動切り替え）
@@ -405,7 +414,7 @@ class Transcriber:
         if self.config.transcription.use_api:
             return self._transcribe_api(video_path, model_size, progress_callback, use_cache, save_cache)
         else:
-            return self._transcribe_local(video_path, model_size, progress_callback, use_cache, save_cache)
+            return self._transcribe_local(video_path, model_size, progress_callback, use_cache, save_cache, skip_alignment)
     
     def _transcribe_api(
         self, 
@@ -442,7 +451,8 @@ class Transcriber:
         model_size: Optional[str] = None,
         progress_callback: Optional[Callable[[float, str], None]] = None,
         use_cache: bool = True,
-        save_cache: bool = True
+        save_cache: bool = True,
+        skip_alignment: bool = False
     ) -> TranscriptionResult:
         """ローカル版の文字起こし（既存の実装）"""
         start_time = time.time()
@@ -551,30 +561,41 @@ class Transcriber:
         total_chunks = len(chunks)
         completed_chunks = 0
         
-        # アライメント処理の準備（事前にモデルを読み込み）
+        # アライメント処理の準備（skip_alignmentがFalseの場合のみ）
         align_model = None
         align_meta = None
-        try:
-            align_model, align_meta = whisperx.load_align_model(
-                self.config.transcription.language, 
-                device=self.device
-            )
-            logger.info("アライメントモデルを読み込みました")
-        except Exception as e:
-            logger.warning(f"アライメントモデルの読み込みに失敗: {e}")
+        if not skip_alignment:
+            try:
+                align_model, align_meta = whisperx.load_align_model(
+                    self.config.transcription.language, 
+                    device=self.device
+                )
+                logger.info("アライメントモデルを読み込みました")
+            except Exception as e:
+                logger.warning(f"アライメントモデルの読み込みに失敗: {e}")
         
         with ThreadPoolExecutor(max_workers=num_workers) as executor:
-            # チャンクごとに文字起こし＋アライメント処理
+            # チャンクごとに文字起こし（＋アライメント処理）
             futures = []
             for i, chunk in enumerate(chunks):
-                future = executor.submit(
-                    self.transcribe_and_align_chunk, 
-                    chunk, 
-                    asr_model, 
-                    align_model, 
-                    align_meta,
-                    i
-                )
+                if skip_alignment:
+                    # アライメントをスキップして文字起こしのみ
+                    future = executor.submit(
+                        self.transcribe_chunk_without_alignment, 
+                        chunk, 
+                        asr_model, 
+                        i
+                    )
+                else:
+                    # 文字起こし＋アライメント
+                    future = executor.submit(
+                        self.transcribe_and_align_chunk, 
+                        chunk, 
+                        asr_model, 
+                        align_model, 
+                        align_meta,
+                        i
+                    )
                 futures.append(future)
             
             for future in as_completed(futures):
@@ -584,7 +605,10 @@ class Transcriber:
                 
                 if progress_callback:
                     progress = 0.1 + (0.8 * completed_chunks / total_chunks)
-                    status = f"文字起こし・アライメント処理中... ({completed_chunks}/{total_chunks} チャンク)"
+                    if skip_alignment:
+                        status = f"文字起こし処理中... ({completed_chunks}/{total_chunks} チャンク)"
+                    else:
+                        status = f"文字起こし・アライメント処理中... ({completed_chunks}/{total_chunks} チャンク)"
                     progress_callback(progress, status)
         
         # セグメントをソート
@@ -618,16 +642,17 @@ class Transcriber:
             processing_time=processing_time
         )
         
-        # wordsフィールドの検証（厳密なチェック）
-        is_valid, errors = result.validate_has_words()
-        if not is_valid:
-            # V2形式に変換して詳細なエラーを生成
-            v2_result = result.to_v2_format()
-            try:
-                v2_result.require_valid_words()
-            except Exception as e:
-                logger.error(f"文字起こし結果の検証に失敗: {str(e)}")
-                raise
+        # wordsフィールドの検証（skip_alignmentがFalseの場合のみ）
+        if not skip_alignment:
+            is_valid, errors = result.validate_has_words()
+            if not is_valid:
+                # V2形式に変換して詳細なエラーを生成
+                v2_result = result.to_v2_format()
+                try:
+                    v2_result.require_valid_words()
+                except Exception as e:
+                    logger.error(f"文字起こし結果の検証に失敗: {str(e)}")
+                    raise
         
         # キャッシュに保存
         if save_cache:

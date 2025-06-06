@@ -668,6 +668,8 @@ def show_advanced_settings():
             settings_manager.set('chunk_seconds', local_chunk_opt)
             settings_manager.set('max_workers', local_workers_opt)
             settings_manager.set('batch_size', batch_size_opt)
+            # ローカルアライメントチャンクサイズも設定（文字起こしチャンクの2倍、最大300秒）
+            settings_manager.set('local_align_chunk_seconds', min(local_chunk_opt * 2, 300))
             
             st.success(f"メモリ{mem_gb:.0f}GBの環境に最適化された設定を適用しました")
             st.rerun()
@@ -682,6 +684,7 @@ def show_advanced_settings():
             settings_manager.set('chunk_seconds', 20)
             settings_manager.set('max_workers', 1)
             settings_manager.set('batch_size', 2)  # 最小値で安定性重視
+            settings_manager.set('local_align_chunk_seconds', 60)  # 安定性重視で小さめ
             
             st.success("最も安定した設定（メモリ使用量最小）を適用しました")
             st.rerun()
@@ -766,15 +769,27 @@ def show_advanced_settings():
     saved_chunk_seconds = settings_manager.get('chunk_seconds', config.transcription.chunk_seconds)
     saved_max_workers = settings_manager.get('max_workers', config.transcription.max_workers)
     saved_batch_size = settings_manager.get('batch_size', config.transcription.batch_size)
+    saved_local_align_chunk = settings_manager.get('local_align_chunk_seconds', config.transcription.local_align_chunk_seconds)
+    saved_force_separated = settings_manager.get('force_separated_mode', config.transcription.force_separated_mode)
     
     # チャンクサイズ（現実的な範囲に調整）
     chunk_seconds = st.slider(
-        "ローカルチャンクサイズ（秒）",
+        "文字起こしチャンクサイズ（秒）",
         min_value=10,
         max_value=300,  # 5分まで（メモリと処理のバランス）
         value=saved_chunk_seconds,
         step=10,
-        help="文字起こしと音声同期処理を行う単位。Whisperモデルで音声認識とアライメントの両方を実行するため、メモリを多く使用します。推奨: 30-60秒。"
+        help="文字起こし処理を行う単位。長時間動画では分離モードが自動的に有効になり、文字起こしとアライメントを別々に処理します。推奨: 30-60秒。"
+    )
+    
+    # アライメントチャンクサイズ（ローカルモード用）
+    local_align_chunk = st.slider(
+        "アライメントチャンクサイズ（秒）",
+        min_value=30,
+        max_value=600,
+        value=saved_local_align_chunk,
+        step=30,
+        help="文字と音声の同期処理時の分割単位。文字起こしチャンクサイズより大きく設定することで、メモリ効率が向上します。推奨: 60-300秒。"
     )
     
     # 並列処理数（現実的な範囲に調整）
@@ -798,9 +813,18 @@ def show_advanced_settings():
         help="WhisperXの内部バッチサイズ。CPU環境では大きな効果はありません。推奨: 4-8。メモリが少ない場合は1-4に下げてください。"
     )
     
+    # 分離モードの強制設定
+    force_separated = st.checkbox(
+        "分離モードを強制的に使用",
+        value=saved_force_separated,
+        help="文字起こしとアライメントを常に分離して処理します。長時間動画や低メモリ環境で安定性が向上しますが、処理時間が長くなる場合があります。"
+    )
+    
     # 設定を保存
     config.transcription.chunk_seconds = chunk_seconds
     config.transcription.batch_size = batch_size
+    config.transcription.local_align_chunk_seconds = local_align_chunk
+    config.transcription.force_separated_mode = force_separated
     
     # 設定が変更されたら保存
     if chunk_seconds != saved_chunk_seconds:
@@ -809,6 +833,10 @@ def show_advanced_settings():
         settings_manager.set('max_workers', max_workers)
     if batch_size != saved_batch_size:
         settings_manager.set('batch_size', batch_size)
+    if local_align_chunk != saved_local_align_chunk:
+        settings_manager.set('local_align_chunk_seconds', local_align_chunk)
+    if force_separated != saved_force_separated:
+        settings_manager.set('force_separated_mode', force_separated)
     
     # 共通の注意事項
     st.caption("⚠️ これらの設定はメモリ使用量とパフォーマンスに大きく影響します。")

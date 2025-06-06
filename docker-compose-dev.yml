@@ -2,10 +2,10 @@ version: '3.8'
 
 services:
   textffcut-dev:
-    image: textffcut:1.0.2
+    image: textffcut:latest
     container_name: textffcut_dev
     ports:
-      - "8502:8501"
+      - "8503:8501"
     volumes:
       # コードをマウントしてリアルタイム編集可能に
       - ./main.py:/app/main.py

@@ -93,21 +93,45 @@ def main():
             transcriber = Transcriber(config)
             logger.info("APIモードで処理")
         else:
-            # ローカルモードの場合はメモリに応じて最適な実装を選択
+            # ローカルモードの場合は動画の長さとメモリに応じて処理方法を選択
             try:
                 import psutil
+                from core.video import VideoInfo
+                
+                # メモリ情報取得
                 mem_gb = psutil.virtual_memory().available / (1024 ** 3)
                 logger.info(f"利用可能メモリ: {mem_gb:.1f}GB")
                 
-                threshold = float(os.environ.get('PARALLEL_MEMORY_THRESHOLD', '8'))
-                if mem_gb > threshold:  # 閾値以上なら並列処理
-                    from core.transcription_parallel import ParallelTranscriber
-                    transcriber = ParallelTranscriber(config)
-                    logger.info("並列処理モードを使用")
-                else:  # それ以下ならスマート境界検出
+                # 動画情報取得
+                video_info = VideoInfo.from_file(video_path)
+                duration_minutes = video_info.duration / 60
+                logger.info(f"動画時間: {duration_minutes:.1f}分")
+                
+                # 分離モードの判定
+                should_separate = (
+                    config.transcription.force_separated_mode or  # 強制分離モード
+                    duration_minutes > 30 or  # 30分以上の動画
+                    mem_gb < 6  # メモリ6GB未満
+                )
+                
+                if should_separate:
+                    logger.info("分離モードを使用（文字起こし→アライメント）")
+                    task_type = 'separated_mode'
+                    # 分離モードでは常にSmartBoundaryTranscriberを使用（安定性重視）
                     from core.transcription_smart_boundary import SmartBoundaryTranscriber
                     transcriber = SmartBoundaryTranscriber(config)
-                    logger.info("スマート境界検出モードを使用")
+                else:
+                    # 通常の選択ロジック
+                    threshold = float(os.environ.get('PARALLEL_MEMORY_THRESHOLD', '8'))
+                    if mem_gb > threshold and duration_minutes < 20:  # 短時間＋高メモリのみ並列
+                        from core.transcription_parallel import ParallelTranscriber
+                        transcriber = ParallelTranscriber(config)
+                        logger.info("並列処理モードを使用")
+                    else:
+                        from core.transcription_smart_boundary import SmartBoundaryTranscriber
+                        transcriber = SmartBoundaryTranscriber(config)
+                        logger.info("スマート境界検出モードを使用")
+                        
             except Exception as e:
                 logger.warning(f"最適化選択エラー: {e}")
                 from core.transcription_smart_boundary import SmartBoundaryTranscriber
@@ -126,19 +150,68 @@ def main():
             # 文字起こしのみ（アライメントなし）
             logger.info("文字起こしのみモード（アライメントなし）")
             
-            # 一時的にローカルモードの設定を変更してアライメントをスキップ
-            # ※将来的には専用のフラグを追加する方が良い
             result = transcriber.transcribe(
                 video_path=video_path,
                 model_size=model_size,
                 progress_callback=progress_callback,
                 use_cache=False,  # 文字起こしのみの場合はキャッシュを使わない
-                save_cache=False   # 中間結果は保存しない
+                save_cache=False,  # 中間結果は保存しない
+                skip_alignment=True  # アライメントをスキップ
             )
             
             # wordsフィールドの検証をスキップ（文字起こしのみなので）
             logger.info("文字起こしのみ完了（アライメント処理は別途実行）")
             
+        elif task_type == 'separated_mode':
+            # 分離モード（文字起こし→アライメント）
+            logger.info("分離モード: 文字起こしフェーズ開始")
+            
+            # ステップ1: 文字起こしのみ
+            def transcribe_progress(progress: float, message: str):
+                # 文字起こしは全体の50%
+                progress_callback(progress * 0.5, f"[文字起こし] {message}")
+            
+            result = transcriber.transcribe(
+                video_path=video_path,
+                model_size=model_size,
+                progress_callback=transcribe_progress,
+                use_cache=False,
+                save_cache=False,
+                skip_alignment=True
+            )
+            
+            logger.info("分離モード: アライメントフェーズ開始")
+            
+            # ステップ2: アライメント処理
+            from core.alignment_processor import AlignmentProcessor
+            alignment_processor = AlignmentProcessor(config)
+            
+            def alignment_progress(progress: float, message: str):
+                # アライメントは全体の50-100%
+                progress_callback(0.5 + progress * 0.5, f"[アライメント] {message}")
+            
+            # V2形式に変換してアライメント実行
+            if hasattr(result, 'to_v2_format'):
+                v2_result = result.to_v2_format()
+                segments = v2_result.segments
+            else:
+                segments = result.segments
+            
+            aligned_segments = alignment_processor.align(
+                segments,
+                video_path,
+                result.language,
+                progress_callback=alignment_progress
+            )
+            
+            # アライメント結果で更新
+            if aligned_segments:
+                result.segments = aligned_segments
+                logger.info("分離モード: アライメント完了")
+            else:
+                logger.error("分離モード: アライメント失敗")
+                # アライメントが失敗してもエラーにはしない（文字起こし結果は有効）
+                
         else:
             # 通常の処理（文字起こし＋アライメント）
             result = transcriber.transcribe(
