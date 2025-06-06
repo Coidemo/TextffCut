@@ -70,12 +70,18 @@ def cleanup_intermediate_files(output_dir: Path, keep_patterns: Optional[List[st
     if not output_dir.exists():
         return
         
-    keep_patterns = keep_patterns or ["combined.mp4", "*.fcpxml", "*.srt", "*.edl"]
+    keep_patterns = keep_patterns or ["*_TextffCut_*.mp4", "*.fcpxml", "*.xml", "*.srt", "*.edl", "transcriptions/"]
     
-    # 保持するファイルを特定
+    # 保持するファイルとディレクトリを特定
     keep_files = set()
+    keep_dirs = set()
     for pattern in keep_patterns:
-        keep_files.update(output_dir.glob(pattern))
+        if pattern.endswith('/'):
+            # ディレクトリパターン
+            keep_dirs.add(output_dir / pattern.rstrip('/'))
+        else:
+            # ファイルパターン
+            keep_files.update(output_dir.glob(pattern))
     
     # 削除対象のパターン
     cleanup_patterns = [
@@ -92,7 +98,17 @@ def cleanup_intermediate_files(output_dir: Path, keep_patterns: Optional[List[st
     deleted_count = 0
     for pattern in cleanup_patterns:
         for file_path in output_dir.glob(pattern):
-            if file_path not in keep_files:
+            # 保護対象のディレクトリ内のファイルはスキップ
+            skip = False
+            for keep_dir in keep_dirs:
+                try:
+                    file_path.relative_to(keep_dir)
+                    skip = True
+                    break
+                except ValueError:
+                    pass
+            
+            if not skip and file_path not in keep_files:
                 try:
                     file_path.unlink()
                     logger.debug(f"中間ファイルを削除: {file_path}")

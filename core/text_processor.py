@@ -64,7 +64,11 @@ class TextDifference:
             end_time = None
             current_pos = 0
             
-            for seg in segments:
+            # タイムスタンプが欠落した場合の推定用
+            last_valid_timestamp = None
+            next_valid_timestamp = None
+            
+            for seg_idx, seg in enumerate(segments):
                 # wordsが必須 - ない場合はエラー
                 if not seg.words or len(seg.words) == 0:
                     from utils.exceptions import VideoProcessingError
@@ -73,22 +77,71 @@ class TextDifference:
                         f"文字起こしを再実行してください。"
                     )
                 
-                for word in seg.words:
+                for word_idx, word in enumerate(seg.words):
                     try:
-                        # タイムスタンプが欠落している場合はスキップ
+                        word_len = len(word.get('word', ''))
+                        
+                        # タイムスタンプが欠落している場合
                         if 'start' not in word or 'end' not in word:
                             logger.warning(f"タイムスタンプが欠落しているword: {word.get('word', '')}")
-                            # 文字位置はカウントするが、タイムスタンプは取得しない
-                            word_len = len(word.get('word', ''))
+                            
+                            # 開始位置がこのwordの範囲内の場合
+                            if start_time is None and current_pos <= start_pos < current_pos + word_len:
+                                # 前後の有効なタイムスタンプを探す
+                                # 前方検索
+                                for prev_idx in range(word_idx - 1, -1, -1):
+                                    if 'end' in seg.words[prev_idx]:
+                                        last_valid_timestamp = seg.words[prev_idx]['end']
+                                        break
+                                else:
+                                    # 前のセグメントの最後を使用
+                                    if seg_idx > 0:
+                                        last_valid_timestamp = segments[seg_idx - 1].end
+                                
+                                # 後方検索
+                                for next_idx in range(word_idx + 1, len(seg.words)):
+                                    if 'start' in seg.words[next_idx]:
+                                        next_valid_timestamp = seg.words[next_idx]['start']
+                                        break
+                                else:
+                                    # セグメントの終了時間を使用
+                                    next_valid_timestamp = seg.end
+                                
+                                # 推定値を使用
+                                if last_valid_timestamp is not None:
+                                    start_time = last_valid_timestamp
+                                    logger.info(f"開始時間を推定: {start_time}秒 (前のタイムスタンプから)")
+                            
+                            # 終了位置がこのwordの範囲内の場合
+                            if end_time is None and current_pos < end_pos <= current_pos + word_len:
+                                # 後方の有効なタイムスタンプを探す
+                                for next_idx in range(word_idx + 1, len(seg.words)):
+                                    if 'start' in seg.words[next_idx]:
+                                        next_valid_timestamp = seg.words[next_idx]['start']
+                                        break
+                                else:
+                                    # 次のセグメントの開始を使用
+                                    if seg_idx < len(segments) - 1:
+                                        next_valid_timestamp = segments[seg_idx + 1].start
+                                    else:
+                                        next_valid_timestamp = seg.end
+                                
+                                # 推定値を使用
+                                if next_valid_timestamp is not None:
+                                    end_time = next_valid_timestamp
+                                    logger.info(f"終了時間を推定: {end_time}秒 (次のタイムスタンプから)")
+                            
                             current_pos += word_len
                             continue
                             
+                        # 通常の処理（タイムスタンプあり）
                         word_len = len(word['word'])
                         if start_time is None and current_pos <= start_pos < current_pos + word_len:
                             start_time = word['start']
                         if end_time is None and current_pos < end_pos <= current_pos + word_len:
                             end_time = word['end']
                         current_pos += word_len
+                        
                     except (KeyError, TypeError) as e:
                         # 不正なword形式の場合はエラー
                         from utils.exceptions import VideoProcessingError
