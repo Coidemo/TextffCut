@@ -17,13 +17,12 @@ from config import Config
 from utils.logging import get_logger
 from .exceptions import AlignmentError
 
+from .interfaces import IAlignmentProcessor
 from .models import (
     TranscriptionSegmentV2,
     WordInfo,
     CharInfo
 )
-from .interfaces import IAlignmentProcessor
-
 logger = get_logger(__name__)
 
 

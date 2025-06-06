@@ -22,7 +22,6 @@ from core.exceptions import WordsFieldMissingError
 from ui import (
     show_video_input,
     show_api_key_manager,
-    show_transcription_mode_selector,
     show_transcription_controls,
     show_silence_settings,
     show_export_settings,
@@ -32,7 +31,6 @@ from ui import (
     show_edited_text_with_highlights,
     show_red_highlight_modal,
     show_help,
-    show_result_folder_section,
     show_advanced_settings,
     cleanup_temp_files,
     apply_dark_mode_styles
@@ -1054,8 +1052,6 @@ def main():
                                 # XMLの場合は中間ファイルを削除（TextffCutファイルと文字起こしを保護）
                                 cleanup_intermediate_files(project_path, keep_patterns=[f"{safe_name}_TextffCut_*.fcpxml", f"{safe_name}_TextffCut_*.xml", f"{safe_name}_TextffCut_*.mp4", "transcriptions/"])
                                 
-                                # 結果フォルダセクションを表示（Docker版のみ）
-                                # show_result_folder_section(project_path, safe_name)
                             else:
                                 st.error(f"{output_format}ファイルの生成に失敗しました。")
                         else:
@@ -1136,8 +1132,6 @@ def main():
                                 # 中間ファイルをクリーンアップ（TextffCutファイルと文字起こしは保持）
                                 cleanup_intermediate_files(project_path, keep_patterns=[f"{safe_name}_TextffCut_*.mp4", f"{safe_name}_TextffCut_*.fcpxml", "transcriptions/"])
                                 
-                                # 結果フォルダセクションを表示（Docker版のみ）
-                                # show_result_folder_section(project_path, safe_name)
                             else:
                                 st.error("動画の抽出に失敗しました")
                         
