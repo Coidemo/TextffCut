@@ -7,6 +7,9 @@ from difflib import SequenceMatcher
 from typing import List, Tuple, Set, Optional
 
 from .transcription import TranscriptionResult, TranscriptionSegment
+from utils.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -72,6 +75,14 @@ class TextDifference:
                 
                 for word in seg.words:
                     try:
+                        # タイムスタンプが欠落している場合はスキップ
+                        if 'start' not in word or 'end' not in word:
+                            logger.warning(f"タイムスタンプが欠落しているword: {word.get('word', '')}")
+                            # 文字位置はカウントするが、タイムスタンプは取得しない
+                            word_len = len(word.get('word', ''))
+                            current_pos += word_len
+                            continue
+                            
                         word_len = len(word['word'])
                         if start_time is None and current_pos <= start_pos < current_pos + word_len:
                             start_time = word['start']

@@ -994,8 +994,8 @@ def main():
                                 # 動画プレビュー
                                 st.video(output_files[0])
                                 
-                                # 中間ファイルをクリーンアップ
-                                cleanup_intermediate_files(project_path, keep_patterns=["*.mp4"])
+                                # 中間ファイルをクリーンアップ（TextffCutファイルと文字起こしは保持）
+                                cleanup_intermediate_files(project_path, keep_patterns=[f"{safe_name}_TextffCut_*.mp4", f"{safe_name}_TextffCut_*.fcpxml", "transcriptions/"])
                                 
                                 # 結果フォルダセクションを表示（Docker版のみ）
                                 # show_result_folder_section(project_path, safe_name)
