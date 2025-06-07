@@ -142,6 +142,11 @@ class SubprocessTranscriber(Transcriber):
                     logger.error(f"ワーカープロセスが異常終了 (exit code: {return_code})")
                     logger.error(f"エラー出力:\n{stderr}")
                     
+                    # Exit code -9はSIGKILL（通常OOM）
+                    if return_code == -9:
+                        error_details = "メモリ不足により処理が強制終了されました。\nより小さなモデル（medium等）の使用を推奨します。"
+                        raise MemoryError(error_details)
+                    
                     # エラー結果ファイルがある場合は読み込む
                     error_details = f"Exit code: {return_code}\n"
                     if os.path.exists(result_path):
@@ -198,6 +203,11 @@ class SubprocessTranscriber(Transcriber):
     
     def _serialize_config(self) -> Dict[str, Any]:
         """設定をシリアライズ"""
+        # デフォルト値
+        DEFAULT_SAMPLE_RATE = 16000
+        DEFAULT_NUM_WORKERS = 3
+        DEFAULT_BATCH_SIZE = 16
+        
         return {
             'transcription': {
                 'use_api': self.config.transcription.use_api,
@@ -206,11 +216,10 @@ class SubprocessTranscriber(Transcriber):
                 'model_size': self.config.transcription.model_size,
                 'language': self.config.transcription.language,
                 'compute_type': self.config.transcription.compute_type,
-                'chunk_seconds': self.config.transcription.chunk_seconds,
-                'sample_rate': self.config.transcription.sample_rate,
-                'num_workers': self.config.transcription.num_workers,
-                'batch_size': self.config.transcription.batch_size,
-                'adaptive_workers': self.config.transcription.adaptive_workers,
+                'sample_rate': DEFAULT_SAMPLE_RATE,
+                'num_workers': DEFAULT_NUM_WORKERS,
+                'batch_size': DEFAULT_BATCH_SIZE,
+                'adaptive_workers': True,  # デフォルトで有効
                 'isolation_mode': 'none'  # ワーカープロセス内では分離を無効化
             }
         }

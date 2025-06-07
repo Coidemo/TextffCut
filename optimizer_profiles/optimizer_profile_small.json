@@ -1,0 +1,19 @@
+{
+  "model_size": "small",
+  "last_updated": "2025-06-07T23:14:10.590488",
+  "successful_runs": 1,
+  "average_memory_usage": 60.0,
+  "optimal_params": {
+    "chunk_seconds": 999,
+    "max_workers": 3,
+    "batch_size": 16,
+    "align_chunk_seconds": 1200
+  },
+  "metrics": {
+    "completed": true,
+    "avg_memory": 60.0,
+    "processing_time": 300.0,
+    "segments_count": 50,
+    "successful_runs": 1
+  }
+}

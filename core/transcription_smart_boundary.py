@@ -8,12 +8,17 @@ import subprocess
 import tempfile
 import time
 from pathlib import Path
-from typing import List, Tuple, Optional, Callable
+from typing import List, Tuple, Optional, Callable, TYPE_CHECKING
 import json
 
 from .transcription import Transcriber, TranscriptionResult, TranscriptionSegment
 from .video import SilenceInfo, VideoProcessor
 from utils.logging import get_logger
+
+# 循環インポートを避けるため、型チェック時のみインポート
+if TYPE_CHECKING:
+    from .auto_optimizer import AutoOptimizer
+    from .memory_monitor import MemoryMonitor
 
 logger = get_logger(__name__)
 
@@ -27,10 +32,14 @@ class SmartBoundaryTranscriber(Transcriber):
     MIN_SILENCE_LEN = 0.5      # 最小無音長（秒）
     SILENCE_THRESH = -35       # 無音閾値（dB）
     
-    def __init__(self, config):
+    def __init__(self, config, optimizer: Optional['AutoOptimizer'] = None, 
+                 memory_monitor: Optional['MemoryMonitor'] = None):
         """初期化"""
         super().__init__(config)
         self.temp_dir = None
+        self.optimizer = optimizer
+        self.memory_monitor = memory_monitor
+        self._segment_count = 0  # 処理済みセグメント数
     
     def transcribe(
         self,
@@ -236,6 +245,38 @@ class SmartBoundaryTranscriber(Transcriber):
         segment_index: int
     ) -> List[TranscriptionSegment]:
         """セグメントを処理"""
+        # 動的メモリ最適化
+        if self.optimizer and self.memory_monitor:
+            try:
+                # 現在のメモリ使用率を取得
+                current_memory = self.memory_monitor.get_memory_usage()
+                logger.info(f"セグメント {segment_index} 処理前 - メモリ使用率: {current_memory:.1f}%")
+                
+                # 最適なパラメータを取得
+                optimal_params = self.optimizer.get_optimal_params(current_memory)
+                
+                # TARGET_DURATIONを動的に調整
+                old_duration = self.TARGET_DURATION
+                self.TARGET_DURATION = optimal_params['chunk_seconds']
+                
+                # バッチサイズも記録（後で使用）
+                self._dynamic_batch_size = optimal_params['batch_size']
+                
+                # 診断フェーズかどうかを確認
+                if hasattr(self.optimizer, 'diagnostic_mode') and self.optimizer.diagnostic_mode:
+                    logger.info(f"診断フェーズ {self.optimizer.diagnostic_chunks_processed + 1}/{self.optimizer.DIAGNOSTIC_CHUNKS_COUNT}: "
+                              f"チャンク={self.TARGET_DURATION}秒, バッチサイズ={self._dynamic_batch_size}")
+                else:
+                    logger.info(f"動的パラメータ調整: TARGET_DURATION {old_duration}秒 → {self.TARGET_DURATION}秒, バッチサイズ: {self._dynamic_batch_size}")
+                
+            except Exception as e:
+                logger.warning(f"動的最適化でエラー: {e}")
+                # エラーが発生してもデフォルト値で継続
+                self._dynamic_batch_size = 16
+        else:
+            # オプティマイザがない場合はデフォルト値
+            self._dynamic_batch_size = 16
+        
         # セグメントのWAVファイルを作成
         segment_wav = os.path.join(self.temp_dir, f"segment_{segment_index}.wav")
         
@@ -268,10 +309,13 @@ class SmartBoundaryTranscriber(Transcriber):
                 language=self.config.transcription.language
             )
             
+            # 動的バッチサイズを使用（設定されていない場合はデフォルト）
+            batch_size = getattr(self, '_dynamic_batch_size', 16)
+            
             # 文字起こし（VAD有効）
             result = model.transcribe(
                 audio,
-                batch_size=self.config.transcription.batch_size,
+                batch_size=batch_size,
                 language=self.config.transcription.language
             )
             
@@ -306,6 +350,32 @@ class SmartBoundaryTranscriber(Transcriber):
                     chars=seg.get("chars")
                 )
                 segments.append(segment)
+            
+            # メモリ使用状況を記録
+            if self.memory_monitor:
+                try:
+                    post_memory = self.memory_monitor.get_memory_usage()
+                    logger.info(f"セグメント {segment_index} 処理後 - メモリ使用率: {post_memory:.1f}%")
+                    
+                    # メモリ逼迫時の警告
+                    if post_memory > 85:
+                        logger.warning(f"メモリ使用率が高い状態です: {post_memory:.1f}%")
+                        # メモリが90%を超えたら緊急措置
+                        if post_memory > 90:
+                            logger.error(f"メモリ使用率が危険域に達しました: {post_memory:.1f}%")
+                            # ガベージコレクションを強制実行
+                            import gc
+                            gc.collect()
+                            # モデルをアンロード（次回読み込み直し）
+                            del model
+                            if 'align_model' in locals():
+                                del align_model
+                            
+                            # さらにメモリが逼迫している場合は処理を中断
+                            if post_memory > 95:
+                                raise MemoryError(f"メモリ使用率が限界に達しました: {post_memory:.1f}% - 処理を中断します")
+                except Exception as e:
+                    logger.warning(f"メモリ監視でエラー: {e}")
             
             return segments
             

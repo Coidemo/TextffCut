@@ -81,28 +81,25 @@ class SystemResourceManager:
         
         return spec
     
-    def _calculate_optimal_workers(self, available_memory_gb: float, cpu_count: int, spec_level: str) -> Tuple[int, int, int]:
-        """最適なワーカー数とチャンクサイズを計算"""
+    def _calculate_optimal_workers(self, available_memory_gb: float, cpu_count: int, spec_level: str) -> Tuple[int, int]:
+        """最適なワーカー数を計算"""
         # 低スペックPC（メモリ4GB未満）
         if spec_level == 'low':
             # メモリ制約が厳しいので並列数を抑える
             api_workers = min(3, cpu_count)
             align_workers = 1  # アライメントは1つのみ（メモリ節約）
-            chunk_seconds = 20  # 小さいチャンクでメモリ節約
             
         # 中スペックPC（メモリ4-8GB）
         elif spec_level == 'mid':
             # バランス重視
             api_workers = min(5, cpu_count)
             align_workers = min(2, cpu_count // 2)
-            chunk_seconds = 30
             
         # 高スペックPC（メモリ8GB以上）
         else:
             # パフォーマンス重視
             api_workers = min(15, cpu_count * 2)  # APIは非同期なので多めに（最大15に増加）
             align_workers = min(5, cpu_count // 2)  # アライメントも最大5に増加
-            chunk_seconds = 60  # 大きいチャンクで効率化
         
         # 利用可能メモリに基づく調整（閾値を緩和）
         if available_memory_gb < 1:  # 2GB → 1GBに緩和
@@ -116,7 +113,7 @@ class SystemResourceManager:
             align_workers = min(align_workers, 2)
             logger.info(f"利用可能メモリ({available_memory_gb:.1f}GB)に基づいて並列数を調整")
         
-        return api_workers, align_workers, chunk_seconds
+        return api_workers, align_workers
     
     def get_memory_usage(self) -> float:
         """現在のプロセスのメモリ使用量を取得（GB）"""

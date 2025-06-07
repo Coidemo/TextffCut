@@ -27,13 +27,9 @@ class ParallelTranscriber(SmartBoundaryTranscriber):
     def __init__(self, config):
         """初期化"""
         super().__init__(config)
-        # 手動設定がある場合はそれを使用、なければ自動計算
-        if config.transcription.max_workers is not None:
-            self.max_workers = config.transcription.max_workers
-            logger.info(f"並列処理ワーカー数（手動設定）: {self.max_workers}")
-        else:
-            self.max_workers = self._calculate_optimal_workers()
-            logger.info(f"並列処理ワーカー数（自動計算）: {self.max_workers}")
+        # max_workersは削除されたので、常に自動計算
+        self.max_workers = self._calculate_optimal_workers()
+        logger.info(f"並列処理ワーカー数（自動計算）: {self.max_workers}")
     
     def _calculate_optimal_workers(self) -> int:
         """最適なワーカー数を計算"""
@@ -56,8 +52,13 @@ class ParallelTranscriber(SmartBoundaryTranscriber):
         
         required_per_worker = mem_per_worker.get(model_size, 3.0)
         
-        # 利用可能メモリの70%を使用
-        max_workers_by_memory = int((available_gb * 0.7) / required_per_worker)
+        # 利用可能メモリの使用率（large-v3はより保守的に）
+        if model_size == 'large-v3':
+            memory_usage_ratio = 0.5  # 50%のみ使用
+        else:
+            memory_usage_ratio = 0.7  # 70%使用
+            
+        max_workers_by_memory = int((available_gb * memory_usage_ratio) / required_per_worker)
         
         # CPU数による制限
         cpu_count = os.cpu_count() or 4
@@ -216,10 +217,13 @@ class ParallelTranscriber(SmartBoundaryTranscriber):
     
     def _serialize_config(self) -> Dict:
         """設定をシリアライズ"""
+        # デフォルトバッチサイズ
+        DEFAULT_BATCH_SIZE = 4  # CPUでのデフォルト
+        
         return {
             'language': self.config.transcription.language,
             'compute_type': self.config.transcription.compute_type,
-            'batch_size': self.config.transcription.batch_size,
+            'batch_size': DEFAULT_BATCH_SIZE,
             'device': 'cpu'  # 並列処理ではCPU固定
         }
 

@@ -27,6 +27,10 @@ logger = get_logger(__name__)
 class APITranscriber:
     """API版文字起こしクラス"""
     
+    # デフォルト値（自動最適化で動的に変更される）
+    DEFAULT_API_CHUNK_SECONDS = 600  # 10分
+    DEFAULT_API_MAX_WORKERS = 3
+    
     def __init__(self, config: Config):
         self.config = config
         self.api_config = config.transcription
@@ -192,7 +196,7 @@ class APITranscriber:
             metrics = perf_tracker.start_tracking("normal", "whisper-1", True, video_duration)
         
         # チャンク処理のパラメータを設定
-        chunk_seconds = self.config.transcription.api_chunk_seconds
+        chunk_seconds = self.DEFAULT_API_CHUNK_SECONDS  # デフォルト値を使用
         sample_rate = self.config.transcription.sample_rate
         
         # 理想的な分割点を計算
@@ -300,7 +304,7 @@ class APITranscriber:
                 progress_callback(0.2, f"チャンクファイル作成完了: {len(chunk_files)}個")
             
             # 並列でAPI処理（設定値を使用）
-            max_workers = min(self.config.transcription.api_max_workers, len(chunk_files))
+            max_workers = min(self.DEFAULT_API_MAX_WORKERS, len(chunk_files))
             all_segments = []
             completed_chunks = 0
             
@@ -898,7 +902,7 @@ class APITranscriber:
             # API並列処理（アライメントなし）
             api_segments = []
             completed_chunks = 0
-            max_workers = min(self.config.transcription.api_max_workers, len(chunk_files))
+            max_workers = min(self.DEFAULT_API_MAX_WORKERS, len(chunk_files))
             
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 futures = []
@@ -1077,12 +1081,11 @@ class APITranscriber:
                 'audio_path': audio_path,
                 'segments': v2_segments,  # V2形式のセグメント
                 'language': self.api_config.language,
-                'chunk_seconds': self.config.transcription.api_align_chunk_seconds,
                 'config': {
                     'transcription': {
                         'language': self.config.transcription.language,
-                        'compute_type': self.config.transcription.compute_type,
-                        'batch_size': self.config.transcription.batch_size
+                        'compute_type': self.config.transcription.compute_type
+                        # batch_sizeは自動最適化で管理されるため削除
                     }
                 }
             }

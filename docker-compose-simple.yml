@@ -1,7 +1,7 @@
 services:
   textffcut:
     build: .
-    image: textffcut:0.9.3
+    image: textffcut:0.9.6
     container_name: textffcut_app
     restart: no  # 自動再起動しない
     ports:
@@ -12,6 +12,7 @@ services:
       - ./transcriptions:/app/transcriptions
       - ./logs:/app/logs
       - ./models:/home/appuser/.cache
+      - ./optimizer_profiles:/home/appuser/.textffcut
     environment:
       - TZ=Asia/Tokyo
       - HOST_VIDEOS_PATH=${PWD}/videos

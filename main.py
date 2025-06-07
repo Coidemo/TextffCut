@@ -32,7 +32,7 @@ from ui import (
     show_edited_text_with_highlights,
     show_red_highlight_modal,
     show_help,
-    show_advanced_settings,
+    show_optimization_status,
     cleanup_temp_files,
     apply_dark_mode_styles
 )
@@ -200,7 +200,7 @@ def main():
         st.subheader("⚙️ 設定")
         
         # タブで設定を整理
-        tab1, tab2, tab3, tab4 = st.tabs(["🔑 APIキー", "🔇 無音検出", "⚡ 高度な設定", "❓ ヘルプ"])
+        tab1, tab2, tab3 = st.tabs(["🔑 APIキー", "🔇 無音検出", "❓ ヘルプ"])
         
         with tab1:
             # APIキー管理のみ
@@ -211,10 +211,6 @@ def main():
             noise_threshold, min_silence_duration, min_segment_duration, padding_start, padding_end = show_silence_settings()
         
         with tab3:
-            # 高度な設定
-            show_advanced_settings()
-        
-        with tab4:
             show_help()
     
     # 動画ファイル選択（新しい入力方式）
@@ -388,6 +384,18 @@ def main():
                     
                     model_size = model_values[model_options.index(selected_option)]
                     st.session_state.local_model_size = model_size
+                    
+                    # large-v3選択時の警告
+                    if model_size == "large-v3":
+                        try:
+                            import psutil
+                            available_gb = psutil.virtual_memory().available / (1024 ** 3)
+                            if available_gb < 8:
+                                st.warning(f"⚠️ 利用可能メモリ: {available_gb:.1f}GB - large-v3は高メモリを必要とします。mediumモデルの使用を推奨します。")
+                            elif available_gb < 12:
+                                st.info(f"ℹ️ 利用可能メモリ: {available_gb:.1f}GB - 自動最適化により処理速度が制限される場合があります。")
+                        except:
+                            pass
             
             with time_col:
                 st.markdown("**📊 動画時間**")
@@ -649,6 +657,19 @@ def main():
                 progress_bar.empty()
                 progress_text.empty()
                 st.warning(f"⚠️ {str(e)}")
+            except MemoryError as e:
+                # メモリエラーの特別処理
+                st.session_state.transcription_in_progress = False
+                cancel_placeholder.empty()
+                progress_bar.empty()
+                progress_text.empty()
+                
+                st.error(f"❌ メモリ不足エラー: {str(e)}")
+                st.error("💡 対処法:")
+                st.error("1. より小さなモデル（medium等）を使用してください")
+                st.error("2. 他のアプリケーションを終了してメモリを解放してください")
+                st.error("3. システムのメモリを増設してください")
+                
             except Exception as e:
                 # その他のエラー
                 st.session_state.transcription_in_progress = False

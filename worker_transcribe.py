@@ -71,7 +71,7 @@ def main():
         from config import Config
         config = Config()
         
-        # TranscriptionConfigを更新
+        # TranscriptionConfigを更新（必要な項目のみ）
         transcription_config = config_dict['transcription']
         config.transcription.use_api = transcription_config['use_api']
         config.transcription.api_provider = transcription_config.get('api_provider', 'openai')
@@ -79,11 +79,18 @@ def main():
         config.transcription.model_size = transcription_config['model_size']
         config.transcription.language = transcription_config['language']
         config.transcription.compute_type = transcription_config['compute_type']
-        config.transcription.chunk_seconds = transcription_config['chunk_seconds']
         config.transcription.sample_rate = transcription_config['sample_rate']
-        config.transcription.num_workers = transcription_config['num_workers']
-        config.transcription.batch_size = transcription_config['batch_size']
         config.transcription.isolation_mode = transcription_config.get('isolation_mode', 'none')
+        
+        # 自動最適化エンジンとメモリモニターを初期化
+        from core.auto_optimizer import AutoOptimizer
+        from core.memory_monitor import MemoryMonitor
+        
+        optimizer = AutoOptimizer(model_size)
+        memory_monitor = MemoryMonitor()
+        
+        # 新しい処理の開始なので診断モードをリセット
+        optimizer.reset_diagnostic_mode()
         
         # Transcriberを作成（分離モードは'none'に設定されているので再帰しない）
         # APIモードかローカルモードかで処理を分ける
@@ -93,36 +100,18 @@ def main():
             transcriber = Transcriber(config)
             logger.info("APIモードで処理")
         else:
-            # ローカルモードの場合は動画の長さとメモリに応じて処理方法を選択
-            # 分離モードの判定（ユーザー設定のみに従う）
-            if config.transcription.force_separated_mode:
-                logger.info("分離モードを使用（文字起こし→アライメント）")
-                task_type = 'separated_mode'
-                # 分離モードでは常にSmartBoundaryTranscriberを使用（安定性重視）
-                from core.transcription_smart_boundary import SmartBoundaryTranscriber
-                transcriber = SmartBoundaryTranscriber(config)
-            else:
-                # 通常モード：メモリに応じて最適な処理方法を選択
-                try:
-                    import psutil
-                    mem_gb = psutil.virtual_memory().available / (1024 ** 3)
-                    threshold = float(os.environ.get('PARALLEL_MEMORY_THRESHOLD', '8'))
-                    
-                    if mem_gb > threshold:
-                        # 高メモリ環境では並列処理
-                        from core.transcription_parallel import ParallelTranscriber
-                        transcriber = ParallelTranscriber(config)
-                        logger.info(f"並列処理モードを使用（メモリ: {mem_gb:.1f}GB）")
-                    else:
-                        # 低メモリ環境ではスマート境界検出
-                        from core.transcription_smart_boundary import SmartBoundaryTranscriber
-                        transcriber = SmartBoundaryTranscriber(config)
-                        logger.info(f"スマート境界検出モードを使用（メモリ: {mem_gb:.1f}GB）")
-                        
-                except Exception as e:
-                    logger.warning(f"最適化選択エラー: {e}")
-                    from core.transcription_smart_boundary import SmartBoundaryTranscriber
-                    transcriber = SmartBoundaryTranscriber(config)
+            # ローカルモードでは常に分離モード + SmartBoundaryTranscriberを使用
+            logger.info("ローカルモード: 自動最適化による分離処理")
+            task_type = 'separated_mode'
+            
+            # SmartBoundaryTranscriberを動的パラメータで使用（optimizer, memory_monitorを渡す）
+            from core.transcription_smart_boundary import SmartBoundaryTranscriber
+            transcriber = SmartBoundaryTranscriber(config, optimizer=optimizer, memory_monitor=memory_monitor)
+            
+            # 初期パラメータを自動最適化エンジンから取得してログ
+            current_memory = memory_monitor.get_memory_usage()
+            optimal_params = optimizer.get_optimal_params(current_memory)
+            logger.info(f"自動最適化パラメータ（初期）: チャンク={optimal_params['chunk_seconds']}秒, ワーカー={optimal_params['max_workers']}")
         
         # プログレスコールバック
         def progress_callback(progress: float, message: str):
@@ -158,6 +147,9 @@ def main():
                 # 文字起こしは全体の50%
                 progress_callback(progress * 0.5, f"[文字起こし] {message}")
             
+            # パラメータ最適化はSmartBoundaryTranscriber内部で各セグメントごとに実行される
+            logger.info("文字起こしフェーズ: 動的最適化が有効です")
+            
             result = transcriber.transcribe(
                 video_path=video_path,
                 model_size=model_size,
@@ -176,6 +168,15 @@ def main():
             def alignment_progress(progress: float, message: str):
                 # アライメントは全体の50-100%
                 progress_callback(0.5 + progress * 0.5, f"[アライメント] {message}")
+            
+            # アライメント前に再度パラメータを最適化
+            current_memory = memory_monitor.get_memory_usage()
+            optimal_params = optimizer.get_optimal_params(current_memory)
+            
+            # アライメント用のパラメータを設定
+            alignment_processor.chunk_seconds = optimal_params['align_chunk_seconds']
+            
+            logger.info(f"アライメント用パラメータ: チャンク={optimal_params['align_chunk_seconds']}秒")
             
             # V2形式に変換してアライメント実行
             if hasattr(result, 'to_v2_format'):
@@ -263,6 +264,28 @@ def main():
         logger.info("処理が完了しました")
         send_progress(1.0, "処理が完了しました")
         
+        # ローカルモードの場合、成功した実行のパラメータを保存
+        if not config.transcription.use_api and hasattr(result, 'processing_time'):
+            try:
+                # 平均メモリ使用率を計算
+                avg_memory = memory_monitor.get_average_usage(seconds=int(result.processing_time))
+                
+                # 実行メトリクスを作成
+                metrics = {
+                    'completed': True,
+                    'avg_memory': avg_memory,
+                    'processing_time': result.processing_time,
+                    'segments_count': len(result.segments) if result.segments else 0,
+                    'successful_runs': 1
+                }
+                
+                # 最適化プロファイルを保存
+                optimizer.save_successful_run(optimal_params, metrics)
+                logger.info(f"実行プロファイルを保存しました（平均メモリ: {avg_memory:.1f}%）")
+                
+            except Exception as e:
+                logger.warning(f"プロファイル保存エラー: {e}")
+        
         # メモリ使用量を記録
         try:
             import psutil
@@ -274,6 +297,26 @@ def main():
             logger.debug("メモリ情報取得をスキップ")
         
         sys.exit(0)
+        
+    except MemoryError as e:
+        # メモリエラーの特別処理
+        logger.error(f"メモリ不足エラー: {str(e)}")
+        print(f"ERROR:メモリ不足により処理を中断しました: {str(e)}", file=sys.stderr, flush=True)
+        
+        # エラー結果を保存
+        error_result = {
+            "success": False,
+            "error": f"メモリ不足: {str(e)}",
+            "error_type": "MemoryError",
+            "suggestion": "より小さなモデル（medium等）を使用するか、システムメモリを増やしてください。"
+        }
+        
+        if 'config_path' in locals():
+            result_path = os.path.join(os.path.dirname(config_path), 'result.json')
+            with open(result_path, 'w', encoding='utf-8') as f:
+                json.dump(error_result, f, ensure_ascii=False, indent=2)
+        
+        sys.exit(1)
         
     except Exception as e:
         import traceback

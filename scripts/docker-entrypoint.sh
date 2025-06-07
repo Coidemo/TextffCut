@@ -4,6 +4,13 @@ set -e
 # TextffCut Docker エントリーポイント
 echo "Starting TextffCut..."
 
+# 自動最適化機能の情報を表示
+echo "===================================="
+echo "🤖 自動最適化機能: 有効"
+echo "メモリ使用状況に基づいて自動的に"
+echo "最適なパラメータが設定されます"
+echo "===================================="
+
 # 環境変数の確認
 if [ -n "$TEXTFFCUT_USE_API" ]; then
     echo "API mode enabled: $TEXTFFCUT_USE_API"

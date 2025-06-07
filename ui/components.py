@@ -638,243 +638,31 @@ def show_help():
     """)
 
 
-def show_advanced_settings():
-    """高度な設定UI"""
-    from config import config
-    from utils import settings_manager
+def show_optimization_status():
+    """自動最適化の状態表示（シンプル版）"""
+    # 自動最適化が有効であることだけを表示
+    st.info("🤖 自動最適化: 有効（診断フェーズ付き）")
     
-    st.markdown("#### ⚡ 高度な設定")
-    st.caption("メモリとパフォーマンスに関する詳細設定")
-    
-    # 環境情報を取得
-    try:
-        import psutil
-        mem_gb = psutil.virtual_memory().total / (1024**3)
-        cpu_count = psutil.cpu_count(logical=False) or 4
-        
-        st.info(f"💻 検出された環境: メモリ{mem_gb:.0f}GB / CPU {cpu_count}コア")
-    except:
-        mem_gb = 16
-        cpu_count = 4
-        st.info("💻 環境情報を取得できませんでした")
-    
-    # 操作ボタン
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        if st.button("🚀 環境に合わせて自動最適化", use_container_width=True):
-            # メモリ容量に基づく最適化
-            if mem_gb >= 64:  # エンタープライズ
-                api_chunk_opt = 300  # 5分
-                api_workers_opt = 5
-                local_chunk_opt = 90  # 90秒（安定性重視）
-                local_workers_opt = min(cpu_count - 2, 8)
-                batch_size_opt = 8  # CPU環境では8が上限
-            elif mem_gb >= 32:  # プロ
-                api_chunk_opt = 240  # 4分
-                api_workers_opt = 4
-                local_chunk_opt = 60  # 60秒
-                local_workers_opt = min(cpu_count - 2, 6)
-                batch_size_opt = 8
-            elif mem_gb >= 16:  # 高性能
-                api_chunk_opt = 180  # 3分
-                api_workers_opt = 3
-                local_chunk_opt = 45  # 45秒
-                local_workers_opt = min(cpu_count - 1, 4)
-                batch_size_opt = 6
-            elif mem_gb >= 8:  # 標準
-                api_chunk_opt = 120  # 2分
-                api_workers_opt = 2
-                local_chunk_opt = 30  # 30秒
-                local_workers_opt = 2
-                batch_size_opt = 4
-            else:  # 軽量
-                api_chunk_opt = 60  # 1分
-                api_workers_opt = 1
-                local_chunk_opt = 20  # 20秒
-                local_workers_opt = 1
-                batch_size_opt = 2  # メモリ不足対策
+    # 詳細を見たい人向け（折りたたみ、デフォルトで閉じている）
+    with st.expander("処理状況", expanded=False):
+        try:
+            from core.memory_monitor import MemoryMonitor
+            monitor = MemoryMonitor()
             
-            # 設定を保存
-            settings_manager.set('api_chunk_seconds', api_chunk_opt)
-            settings_manager.set('api_max_workers', api_workers_opt)
-            settings_manager.set('api_retry_count', 3)
-            settings_manager.set('api_align_chunk_seconds', min(api_chunk_opt * 2, 600))
-            settings_manager.set('chunk_seconds', local_chunk_opt)
-            settings_manager.set('max_workers', local_workers_opt)
-            settings_manager.set('batch_size', batch_size_opt)
-            # ローカルアライメントチャンクサイズも設定（文字起こしチャンクの2倍、最大300秒）
-            settings_manager.set('local_align_chunk_seconds', min(local_chunk_opt * 2, 300))
+            current_memory = monitor.get_memory_usage()
+            memory_stats = monitor.get_memory_stats()
             
-            st.success(f"メモリ{mem_gb:.0f}GBの環境に最適化された設定を適用しました")
-            st.rerun()
-    
-    with col2:
-        if st.button("🛡️ 最も安定した設定にする", use_container_width=True):
-            # 最も保守的な設定
-            settings_manager.set('api_chunk_seconds', 60)  # 1分
-            settings_manager.set('api_max_workers', 1)
-            settings_manager.set('api_retry_count', 3)
-            settings_manager.set('api_align_chunk_seconds', 120)
-            settings_manager.set('chunk_seconds', 20)
-            settings_manager.set('max_workers', 1)
-            settings_manager.set('batch_size', 2)  # 最小値で安定性重視
-            settings_manager.set('local_align_chunk_seconds', 60)  # 安定性重視で小さめ
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("メモリ使用率", f"{current_memory:.0f}%")
+            with col2:
+                # 処理速度は実際の処理中のみ表示されるため、ここでは表示しない
+                st.metric("利用可能メモリ", f"{memory_stats['available_gb']:.1f}GB")
             
-            st.success("最も安定した設定（メモリ使用量最小）を適用しました")
-            st.rerun()
-    
-    # APIモードとローカルモードの両方の設定を表示
-    st.markdown("##### 🌐 APIモード設定")
-    st.caption("APIを使用する場合の詳細設定")
-    
-    # 保存された設定を読み込み
-    saved_api_chunk = settings_manager.get('api_chunk_seconds', config.transcription.api_chunk_seconds)
-    saved_api_workers = settings_manager.get('api_max_workers', config.transcription.api_max_workers)
-    saved_api_retry = settings_manager.get('api_retry_count', config.transcription.api_retry_count)
-    saved_api_align_chunk = settings_manager.get('api_align_chunk_seconds', config.transcription.api_align_chunk_seconds)
-    
-    # APIチャンクサイズ（安全な範囲に制限）
-    api_chunk = st.slider(
-        "APIチャンクサイズ（秒）",
-        min_value=30,
-        max_value=480,  # 8分に制限（安全マージン）
-        value=min(saved_api_chunk, 480),
-        step=30,
-        help="音声を分割する単位。OpenAI APIの25MB制限により最大8分に制限。推奨: 2-5分。"
-    )
-    
-    # API並列リクエスト数（安全な範囲に制限）
-    api_workers = st.slider(
-        "API並列リクエスト数",
-        min_value=1,
-        max_value=5,  # 5に制限
-        value=min(saved_api_workers, 5),
-        step=1,
-        help="同時にAPIに送信するリクエスト数。OpenAIのレート制限を考慮して最大5に制限。"
-    )
-    
-    # リトライ回数
-    retry_count = st.slider(
-        "APIリトライ回数",
-        min_value=0,
-        max_value=5,
-        value=saved_api_retry,
-        step=1,
-        help="APIエラー時の再試行回数。"
-    )
-    
-    # アライメント処理のチャンクサイズ
-    api_align_chunk = st.slider(
-        "アライメントチャンクサイズ（秒）",
-        min_value=60,
-        max_value=600,
-        value=saved_api_align_chunk,
-        step=60,
-        help="APIで取得した文字と音声の同期処理時の分割単位。大きいほど効率的ですが、メモリを多く使用します。"
-    )
-    
-    # アライメント処理は常にサブプロセスで実行（メモリリーク対策）
-    api_align_subprocess = True
-    
-    # 設定を保存
-    config.transcription.api_chunk_seconds = api_chunk
-    config.transcription.api_max_workers = api_workers
-    config.transcription.api_retry_count = retry_count
-    config.transcription.api_align_chunk_seconds = api_align_chunk
-    config.transcription.api_align_in_subprocess = api_align_subprocess
-    
-    # 設定が変更されたら保存
-    if api_chunk != saved_api_chunk:
-        settings_manager.set('api_chunk_seconds', api_chunk)
-    if api_workers != saved_api_workers:
-        settings_manager.set('api_max_workers', api_workers)
-    if retry_count != saved_api_retry:
-        settings_manager.set('api_retry_count', retry_count)
-    if api_align_chunk != saved_api_align_chunk:
-        settings_manager.set('api_align_chunk_seconds', api_align_chunk)
-    
-    st.markdown("---")
-    
-    # ローカルモードの設定
-    st.markdown("##### 🖥️ ローカルモード設定")
-    st.caption("ローカルで処理する場合の詳細設定")
-    
-    # 保存された設定を読み込み
-    saved_chunk_seconds = settings_manager.get('chunk_seconds', config.transcription.chunk_seconds)
-    saved_max_workers = settings_manager.get('max_workers', config.transcription.max_workers)
-    saved_batch_size = settings_manager.get('batch_size', config.transcription.batch_size)
-    saved_local_align_chunk = settings_manager.get('local_align_chunk_seconds', config.transcription.local_align_chunk_seconds)
-    saved_force_separated = settings_manager.get('force_separated_mode', config.transcription.force_separated_mode)
-    
-    # チャンクサイズ（現実的な範囲に調整）
-    chunk_seconds = st.slider(
-        "文字起こしチャンクサイズ（秒）",
-        min_value=10,
-        max_value=300,  # 5分まで（メモリと処理のバランス）
-        value=saved_chunk_seconds,
-        step=10,
-        help="文字起こし処理を行う単位。長時間動画では分離モードが自動的に有効になり、文字起こしとアライメントを別々に処理します。推奨: 30-60秒。"
-    )
-    
-    # アライメントチャンクサイズ（ローカルモード用）
-    local_align_chunk = st.slider(
-        "アライメントチャンクサイズ（秒）",
-        min_value=30,
-        max_value=600,
-        value=saved_local_align_chunk,
-        step=30,
-        help="文字と音声の同期処理時の分割単位。文字起こしチャンクサイズより大きく設定することで、メモリ効率が向上します。推奨: 60-300秒。"
-    )
-    
-    # 並列処理数（現実的な範囲に調整）
-    max_workers = st.slider(
-        "並列処理数",
-        min_value=1,
-        max_value=16,  # 16コアまで（多くの環境で十分）
-        value=saved_max_workers or 2,
-        step=1,
-        help=f"同時に処理するプロセス数（CPUコア単位）。この環境のCPU: {cpu_count}コア。推奨: {max(1, cpu_count//2)}〜{cpu_count}。各プロセスがメモリを使用するため、メモリ容量も考慮してください。"
-    )
-    config.transcription.max_workers = max_workers
-    
-    # バッチサイズ（CPU環境用に範囲を制限）
-    batch_size = st.slider(
-        "バッチサイズ",
-        min_value=1,
-        max_value=8,  # CPU環境では8まで
-        value=min(saved_batch_size, 8),
-        step=1,
-        help="WhisperXの内部バッチサイズ。CPU環境では大きな効果はありません。推奨: 4-8。メモリが少ない場合は1-4に下げてください。"
-    )
-    
-    # 分離モードの強制設定
-    force_separated = st.checkbox(
-        "分離モードを使用（推奨）",
-        value=saved_force_separated,
-        help="文字起こしとアライメントを分離して処理します。メモリ使用量が抑えられ、安定性が向上します。処理速度を優先する場合はオフにしてください。"
-    )
-    
-    # 設定を保存
-    config.transcription.chunk_seconds = chunk_seconds
-    config.transcription.batch_size = batch_size
-    config.transcription.local_align_chunk_seconds = local_align_chunk
-    config.transcription.force_separated_mode = force_separated
-    
-    # 設定が変更されたら保存
-    if chunk_seconds != saved_chunk_seconds:
-        settings_manager.set('chunk_seconds', chunk_seconds)
-    if max_workers != saved_max_workers:
-        settings_manager.set('max_workers', max_workers)
-    if batch_size != saved_batch_size:
-        settings_manager.set('batch_size', batch_size)
-    if local_align_chunk != saved_local_align_chunk:
-        settings_manager.set('local_align_chunk_seconds', local_align_chunk)
-    if force_separated != saved_force_separated:
-        settings_manager.set('force_separated_mode', force_separated)
-    
-    # 共通の注意事項
-    st.caption("⚠️ これらの設定はメモリ使用量とパフォーマンスに大きく影響します。")
-    st.caption("💡 メモリ不足エラーが発生する場合は、値を小さくしてください。")
+            # 診断フェーズの説明
+            st.caption("💡 最初の3チャンク（各30秒）で環境を診断し、最適なパラメータを自動設定します")
+                
+        except Exception as e:
+            st.caption("メモリ情報を取得できませんでした")
 
 

@@ -189,6 +189,11 @@ class TranscriptionResult:
 class Transcriber:
     """文字起こし処理クラス（ローカル/API統合版）"""
     
+    # デフォルト値（自動最適化で動的に変更される）
+    DEFAULT_BATCH_SIZE = 8
+    DEFAULT_CHUNK_SECONDS = 600  # 10分
+    DEFAULT_NUM_WORKERS = 2
+    
     def __init__(self, config: Config):
         self.config = config
         
@@ -322,7 +327,7 @@ class Transcriber:
         """チャンク単位の文字起こし"""
         res = asr_model.transcribe(
             chunk["array"],
-            batch_size=self.config.transcription.batch_size,
+            batch_size=self.DEFAULT_BATCH_SIZE,  # デフォルト値を使用
             language=self.config.transcription.language
         )
         
@@ -485,9 +490,9 @@ class Transcriber:
         )
         
         # チャンク分割
-        chunk_sec = self.config.transcription.chunk_seconds
+        chunk_sec = self.DEFAULT_CHUNK_SECONDS  # デフォルト値を使用
         sr = self.config.transcription.sample_rate
-        num_workers = self.config.transcription.num_workers
+        num_workers = self.DEFAULT_NUM_WORKERS  # デフォルト値を使用
         
         step = chunk_sec * sr
         
