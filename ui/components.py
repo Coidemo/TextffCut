@@ -641,7 +641,7 @@ def show_help():
 def show_optimization_status():
     """自動最適化の状態表示（シンプル版）"""
     # 自動最適化が有効であることだけを表示
-    st.info("🤖 自動最適化: 有効")
+    st.info("🤖 自動最適化: 有効（診断フェーズ付き）")
     
     # 詳細を見たい人向け（折りたたみ、デフォルトで閉じている）
     with st.expander("処理状況", expanded=False):
@@ -658,6 +658,9 @@ def show_optimization_status():
             with col2:
                 # 処理速度は実際の処理中のみ表示されるため、ここでは表示しない
                 st.metric("利用可能メモリ", f"{memory_stats['available_gb']:.1f}GB")
+            
+            # 診断フェーズの説明
+            st.caption("💡 最初の3チャンク（各30秒）で環境を診断し、最適なパラメータを自動設定します")
                 
         except Exception as e:
             st.caption("メモリ情報を取得できませんでした")

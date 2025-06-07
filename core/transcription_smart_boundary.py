@@ -262,7 +262,12 @@ class SmartBoundaryTranscriber(Transcriber):
                 # バッチサイズも記録（後で使用）
                 self._dynamic_batch_size = optimal_params['batch_size']
                 
-                logger.info(f"動的パラメータ調整: TARGET_DURATION {old_duration}秒 → {self.TARGET_DURATION}秒, バッチサイズ: {self._dynamic_batch_size}")
+                # 診断フェーズかどうかを確認
+                if hasattr(self.optimizer, 'diagnostic_mode') and self.optimizer.diagnostic_mode:
+                    logger.info(f"診断フェーズ {self.optimizer.diagnostic_chunks_processed + 1}/{self.optimizer.DIAGNOSTIC_CHUNKS_COUNT}: "
+                              f"チャンク={self.TARGET_DURATION}秒, バッチサイズ={self._dynamic_batch_size}")
+                else:
+                    logger.info(f"動的パラメータ調整: TARGET_DURATION {old_duration}秒 → {self.TARGET_DURATION}秒, バッチサイズ: {self._dynamic_batch_size}")
                 
             except Exception as e:
                 logger.warning(f"動的最適化でエラー: {e}")

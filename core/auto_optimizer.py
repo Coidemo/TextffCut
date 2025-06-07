@@ -20,6 +20,10 @@ logger = get_logger(__name__)
 class AutoOptimizer:
     """自動最適化エンジン"""
     
+    # 診断フェーズの設定
+    DIAGNOSTIC_CHUNK_SECONDS = 30  # 最初の診断用チャンクサイズ
+    DIAGNOSTIC_CHUNKS_COUNT = 3    # 診断用チャンク数
+    
     # モデルサイズ別の基本設定
     MODEL_PROFILES = {
         'base': {
@@ -88,6 +92,16 @@ class AutoOptimizer:
         # 調整履歴
         self.adjustment_history = []
         self.last_memory_percent = 0.0
+        
+        # 診断フェーズ管理
+        self.diagnostic_mode = True
+        self.diagnostic_chunks_processed = 0
+        self.diagnostic_data = {
+            'memory_samples': [],
+            'processing_times': [],
+            'memory_growth_rate': 0.0,
+            'base_memory_usage': 0.0
+        }
         
         logger.info(f"AutoOptimizer initialized for {model_size} model, target memory: {self.target_memory_percent}%")
     
@@ -159,6 +173,11 @@ class AutoOptimizer:
             logger.error(f"Invalid memory percent: {current_memory_percent}, using 50.0")
             current_memory_percent = 50.0
         
+        # 診断フェーズの処理
+        if self.diagnostic_mode:
+            return self._handle_diagnostic_phase(current_memory_percent)
+        
+        # 通常の最適化処理
         # メモリ変化速度の計算
         memory_velocity = current_memory_percent - self.last_memory_percent
         self.last_memory_percent = current_memory_percent
@@ -292,6 +311,109 @@ class AutoOptimizer:
         logger.debug(f"Adjusted parameters: {adjustment_type} -> {params}")
         return params
     
+    def _handle_diagnostic_phase(self, current_memory_percent: float) -> Dict:
+        """診断フェーズの処理"""
+        import time
+        
+        # メモリサンプルを記録
+        self.diagnostic_data['memory_samples'].append({
+            'chunk_number': self.diagnostic_chunks_processed,
+            'memory_percent': current_memory_percent,
+            'timestamp': time.time()
+        })
+        
+        # 最初のチャンクでベースメモリを記録
+        if self.diagnostic_chunks_processed == 0:
+            self.diagnostic_data['base_memory_usage'] = current_memory_percent
+            logger.info(f"診断フェーズ開始 - ベースメモリ: {current_memory_percent:.1f}%")
+        
+        self.diagnostic_chunks_processed += 1
+        
+        # 診断フェーズ中は保守的なパラメータを使用
+        diagnostic_params = {
+            'chunk_seconds': self.DIAGNOSTIC_CHUNK_SECONDS,
+            'align_chunk_seconds': self.DIAGNOSTIC_CHUNK_SECONDS * 2,
+            'max_workers': 1,
+            'batch_size': min(4, self.current_params['batch_size'])  # 最大4
+        }
+        
+        # 診断フェーズ完了の判定
+        if self.diagnostic_chunks_processed >= self.DIAGNOSTIC_CHUNKS_COUNT:
+            self.diagnostic_mode = False
+            
+            # メモリ増加率を計算
+            if len(self.diagnostic_data['memory_samples']) >= 2:
+                first_sample = self.diagnostic_data['memory_samples'][0]
+                last_sample = self.diagnostic_data['memory_samples'][-1]
+                
+                memory_increase = last_sample['memory_percent'] - first_sample['memory_percent']
+                time_elapsed = last_sample['timestamp'] - first_sample['timestamp']
+                
+                # 1チャンクあたりのメモリ増加率
+                self.diagnostic_data['memory_growth_rate'] = memory_increase / self.diagnostic_chunks_processed
+                
+                logger.info(f"診断フェーズ完了:")
+                logger.info(f"  - ベースメモリ: {self.diagnostic_data['base_memory_usage']:.1f}%")
+                logger.info(f"  - メモリ増加率: {self.diagnostic_data['memory_growth_rate']:.2f}%/チャンク")
+                logger.info(f"  - 現在のメモリ: {current_memory_percent:.1f}%")
+                
+                # 診断結果に基づいて最適なパラメータを予測
+                predicted_params = self._predict_optimal_params()
+                self.current_params = predicted_params
+                
+                logger.info(f"予測された最適パラメータ:")
+                logger.info(f"  - チャンクサイズ: {predicted_params['chunk_seconds']}秒")
+                logger.info(f"  - バッチサイズ: {predicted_params['batch_size']}")
+                
+                return predicted_params
+        
+        logger.info(f"診断フェーズ {self.diagnostic_chunks_processed}/{self.DIAGNOSTIC_CHUNKS_COUNT} - メモリ: {current_memory_percent:.1f}%")
+        return diagnostic_params
+    
+    def _predict_optimal_params(self) -> Dict:
+        """診断結果から最適なパラメータを予測"""
+        base_memory = self.diagnostic_data['base_memory_usage']
+        growth_rate = self.diagnostic_data['memory_growth_rate']
+        
+        # 利用可能なメモリ容量を計算（目標使用率まで）
+        available_memory_headroom = self.target_memory_percent - base_memory
+        
+        # メモリ増加率が0または負の場合は、デフォルトパラメータを使用
+        if growth_rate <= 0:
+            logger.warning("メモリ増加率が異常です。デフォルトパラメータを使用します。")
+            return self._get_initial_params()
+        
+        # 最大チャンク数を予測（メモリ制限内で処理できるチャンク数）
+        max_chunks_within_memory = int(available_memory_headroom / growth_rate)
+        
+        # チャンクサイズを計算（30秒チャンクでの増加率から推定）
+        # 例: 3チャンクで5%増加した場合、15チャンク（450秒）まで安全
+        predicted_chunk_seconds = min(
+            max_chunks_within_memory * self.DIAGNOSTIC_CHUNK_SECONDS,
+            self.current_params['chunk_seconds']  # 初期値を上限とする
+        )
+        
+        # 最小値の保証
+        predicted_chunk_seconds = max(
+            self.CHUNK_LIMITS['absolute_minimum'],
+            predicted_chunk_seconds
+        )
+        
+        # バッチサイズの調整（メモリ余裕に応じて）
+        if available_memory_headroom > 40:  # 40%以上の余裕
+            batch_size = self.current_params['batch_size']
+        elif available_memory_headroom > 20:  # 20-40%の余裕
+            batch_size = max(1, self.current_params['batch_size'] // 2)
+        else:  # 20%未満の余裕
+            batch_size = 1
+        
+        return {
+            'chunk_seconds': int(predicted_chunk_seconds),
+            'align_chunk_seconds': int(predicted_chunk_seconds * 1.5),
+            'max_workers': 1 if growth_rate > 2 else self.current_params['max_workers'],
+            'batch_size': batch_size
+        }
+    
     def save_successful_run(self, params: Dict, metrics: Dict) -> None:
         """
         成功した実行のパラメータを保存
@@ -342,11 +464,29 @@ class AutoOptimizer:
             
         return True
     
+    def reset_diagnostic_mode(self) -> None:
+        """診断モードをリセット（新しい処理開始時）"""
+        self.diagnostic_mode = True
+        self.diagnostic_chunks_processed = 0
+        self.diagnostic_data = {
+            'memory_samples': [],
+            'processing_times': [],
+            'memory_growth_rate': 0.0,
+            'base_memory_usage': 0.0
+        }
+        logger.info("診断モードをリセットしました")
+    
     def get_status(self) -> Dict:
         """現在の最適化状態を取得"""
-        return {
+        status = {
             'model_size': self.model_size,
             'target_memory': self.target_memory_percent,
             'current_params': self.current_params.copy(),
-            'last_adjustment': self.adjustment_history[-1] if self.adjustment_history else None
+            'last_adjustment': self.adjustment_history[-1] if self.adjustment_history else None,
+            'diagnostic_mode': self.diagnostic_mode
         }
+        
+        if self.diagnostic_mode:
+            status['diagnostic_progress'] = f"{self.diagnostic_chunks_processed}/{self.DIAGNOSTIC_CHUNKS_COUNT}"
+        
+        return status

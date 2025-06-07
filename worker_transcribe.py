@@ -89,6 +89,9 @@ def main():
         optimizer = AutoOptimizer(model_size)
         memory_monitor = MemoryMonitor()
         
+        # 新しい処理の開始なので診断モードをリセット
+        optimizer.reset_diagnostic_mode()
+        
         # Transcriberを作成（分離モードは'none'に設定されているので再帰しない）
         # APIモードかローカルモードかで処理を分ける
         if config.transcription.use_api:
