@@ -52,8 +52,13 @@ class ParallelTranscriber(SmartBoundaryTranscriber):
         
         required_per_worker = mem_per_worker.get(model_size, 3.0)
         
-        # 利用可能メモリの70%を使用
-        max_workers_by_memory = int((available_gb * 0.7) / required_per_worker)
+        # 利用可能メモリの使用率（large-v3はより保守的に）
+        if model_size == 'large-v3':
+            memory_usage_ratio = 0.5  # 50%のみ使用
+        else:
+            memory_usage_ratio = 0.7  # 70%使用
+            
+        max_workers_by_memory = int((available_gb * memory_usage_ratio) / required_per_worker)
         
         # CPU数による制限
         cpu_count = os.cpu_count() or 4

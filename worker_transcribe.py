@@ -295,6 +295,26 @@ def main():
         
         sys.exit(0)
         
+    except MemoryError as e:
+        # メモリエラーの特別処理
+        logger.error(f"メモリ不足エラー: {str(e)}")
+        print(f"ERROR:メモリ不足により処理を中断しました: {str(e)}", file=sys.stderr, flush=True)
+        
+        # エラー結果を保存
+        error_result = {
+            "success": False,
+            "error": f"メモリ不足: {str(e)}",
+            "error_type": "MemoryError",
+            "suggestion": "より小さなモデル（medium等）を使用するか、システムメモリを増やしてください。"
+        }
+        
+        if 'config_path' in locals():
+            result_path = os.path.join(os.path.dirname(config_path), 'result.json')
+            with open(result_path, 'w', encoding='utf-8') as f:
+                json.dump(error_result, f, ensure_ascii=False, indent=2)
+        
+        sys.exit(1)
+        
     except Exception as e:
         import traceback
         error_traceback = traceback.format_exc()

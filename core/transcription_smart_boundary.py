@@ -365,6 +365,10 @@ class SmartBoundaryTranscriber(Transcriber):
                             del model
                             if 'align_model' in locals():
                                 del align_model
+                            
+                            # さらにメモリが逼迫している場合は処理を中断
+                            if post_memory > 95:
+                                raise MemoryError(f"メモリ使用率が限界に達しました: {post_memory:.1f}% - 処理を中断します")
                 except Exception as e:
                     logger.warning(f"メモリ監視でエラー: {e}")
             

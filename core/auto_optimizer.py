@@ -52,10 +52,10 @@ class AutoOptimizer:
         },
         'large-v3': {
             'base_memory_gb': 4.5,
-            'initial_chunk_seconds': 480,  # 8分
-            'initial_align_chunk_seconds': 600,  # 10分
+            'initial_chunk_seconds': 300,  # 5分（より保守的に）
+            'initial_align_chunk_seconds': 480,  # 8分
             'initial_max_workers': 1,
-            'initial_batch_size': 4,
+            'initial_batch_size': 2,  # 2に削減（メモリ節約）
         }
     }
     
@@ -116,6 +116,24 @@ class AutoOptimizer:
     def _get_initial_params(self) -> Dict:
         """モデルサイズに応じた初期パラメータ"""
         profile = self.MODEL_PROFILES[self.model_size]
+        
+        # メモリ状況を確認
+        try:
+            import psutil
+            available_gb = psutil.virtual_memory().available / (1024 ** 3)
+            
+            # large-v3の場合、利用可能メモリが少ない場合はさらに制限
+            if self.model_size == 'large-v3' and available_gb < 8:
+                logger.warning(f"Low memory detected for large-v3: {available_gb:.1f}GB available")
+                return {
+                    'chunk_seconds': min(180, profile['initial_chunk_seconds']),  # 最大3分
+                    'align_chunk_seconds': min(300, profile['initial_align_chunk_seconds']),  # 最大5分
+                    'max_workers': 1,
+                    'batch_size': 1,  # 最小値
+                }
+        except Exception as e:
+            logger.warning(f"Failed to check memory: {e}")
+        
         return {
             'chunk_seconds': profile['initial_chunk_seconds'],
             'align_chunk_seconds': profile['initial_align_chunk_seconds'],

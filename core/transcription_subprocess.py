@@ -142,6 +142,11 @@ class SubprocessTranscriber(Transcriber):
                     logger.error(f"ワーカープロセスが異常終了 (exit code: {return_code})")
                     logger.error(f"エラー出力:\n{stderr}")
                     
+                    # Exit code -9はSIGKILL（通常OOM）
+                    if return_code == -9:
+                        error_details = "メモリ不足により処理が強制終了されました。\nより小さなモデル（medium等）の使用を推奨します。"
+                        raise MemoryError(error_details)
+                    
                     # エラー結果ファイルがある場合は読み込む
                     error_details = f"Exit code: {return_code}\n"
                     if os.path.exists(result_path):
