@@ -93,23 +93,18 @@ REM 推奨メモリ設定を計算
 if %TOTAL_MEM_GB% geq 32 (
     set RECOMMENDED_MEM=16
     set MIN_MEM=8
-    set MEMORY_MODE=高性能
 ) else if %TOTAL_MEM_GB% geq 16 (
     set RECOMMENDED_MEM=12
     set MIN_MEM=6
-    set MEMORY_MODE=バランス
 ) else if %TOTAL_MEM_GB% geq 12 (
     set RECOMMENDED_MEM=8
     set MIN_MEM=4
-    set MEMORY_MODE=標準
 ) else if %TOTAL_MEM_GB% geq 8 (
     set RECOMMENDED_MEM=6
     set MIN_MEM=3
-    set MEMORY_MODE=省メモリ
 ) else (
     set RECOMMENDED_MEM=4
     set MIN_MEM=2
-    set MEMORY_MODE=最小
 )
 
 REM 利用可能メモリが推奨値より少ない場合は調整
@@ -123,7 +118,7 @@ if %AVAILABLE_MEM_GB% lss %RECOMMENDED_MEM% (
     echo    ※ 利用可能メモリが少ないため、%RECOMMENDED_MEM%GBに調整しました
 )
 
-echo    推奨設定: %MEMORY_MODE%モード (%RECOMMENDED_MEM%GB)
+echo    割り当てメモリ: %RECOMMENDED_MEM%GB
 echo.
 
 REM docker-compose.override.ymlを生成
@@ -137,7 +132,6 @@ echo           memory: %RECOMMENDED_MEM%g >> docker-compose.override.yml
 echo         reservations: >> docker-compose.override.yml
 echo           memory: %MIN_MEM%g >> docker-compose.override.yml
 echo     environment: >> docker-compose.override.yml
-echo       - TEXTFFCUT_MEMORY_MODE=%MEMORY_MODE% >> docker-compose.override.yml
 echo       - TEXTFFCUT_MEMORY_LIMIT=%RECOMMENDED_MEM%g >> docker-compose.override.yml
 
 REM ===========================================
@@ -234,7 +228,7 @@ echo ===========================================
 echo 起動設定
 echo ===========================================
 echo    URL: http://localhost:8501
-echo    メモリ: %MEMORY_MODE%モード (%RECOMMENDED_MEM%GB)
+echo    メモリ割り当て: %RECOMMENDED_MEM%GB
 echo    動画フォルダ: %cd%\videos
 echo.
 
@@ -297,23 +291,18 @@ echo "   利用可能: ${AVAILABLE_MEM_GB}GB"
 if [ $TOTAL_MEM_GB -ge 32 ]; then
     RECOMMENDED_MEM=16
     MIN_MEM=8
-    MEMORY_MODE="高性能"
 elif [ $TOTAL_MEM_GB -ge 16 ]; then
     RECOMMENDED_MEM=12
     MIN_MEM=6
-    MEMORY_MODE="バランス"
 elif [ $TOTAL_MEM_GB -ge 12 ]; then
     RECOMMENDED_MEM=8
     MIN_MEM=4
-    MEMORY_MODE="標準"
 elif [ $TOTAL_MEM_GB -ge 8 ]; then
     RECOMMENDED_MEM=6
     MIN_MEM=3
-    MEMORY_MODE="省メモリ"
 else
     RECOMMENDED_MEM=4
     MIN_MEM=2
-    MEMORY_MODE="最小"
 fi
 
 # 利用可能メモリが推奨値より少ない場合は調整（70%を上限）
@@ -327,7 +316,7 @@ if [ $AVAILABLE_MEM_GB -lt $RECOMMENDED_MEM ]; then
     echo "   ⚠️  利用可能メモリが少ないため、${RECOMMENDED_MEM}GBに調整しました"
 fi
 
-echo "   推奨設定: ${MEMORY_MODE}モード (${RECOMMENDED_MEM}GB)"
+echo "   割り当てメモリ: ${RECOMMENDED_MEM}GB"
 echo ""
 
 # docker-compose.override.ymlを生成（メモリ制限を追加）
@@ -342,7 +331,6 @@ services:
         reservations:
           memory: ${MIN_MEM}g
     environment:
-      - TEXTFFCUT_MEMORY_MODE=${MEMORY_MODE}
       - TEXTFFCUT_MEMORY_LIMIT=${RECOMMENDED_MEM}g
 OVERRIDE_EOF
 
@@ -465,7 +453,7 @@ fi
 echo ""
 echo "=== 起動設定 ==="
 echo "📍 URL: http://localhost:$PORT"
-echo "💾 メモリ: ${MEMORY_MODE}モード (${RECOMMENDED_MEM}GB)"
+echo "💾 メモリ割り当て: ${RECOMMENDED_MEM}GB"
 echo "📁 動画フォルダ: ${SCRIPT_DIR}/videos"
 echo ""
 
@@ -522,6 +510,7 @@ services:
       - ./videos:/app/videos
       - ./logs:/app/logs
       - ./models:/home/appuser/.cache
+      - ./optimizer_profiles:/home/appuser/.textffcut
     environment:
       - TZ=Asia/Tokyo
       - HOST_VIDEOS_PATH=\${HOST_VIDEOS_PATH}

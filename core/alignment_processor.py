@@ -37,6 +37,9 @@ class AlignmentProcessor(IAlignmentProcessor):
     - バッチ処理による効率化
     """
     
+    # デフォルト値
+    DEFAULT_BATCH_SIZE = 8
+    
     def __init__(self, config: Config):
         """初期化"""
         self.config = config
@@ -82,7 +85,7 @@ class AlignmentProcessor(IAlignmentProcessor):
             audio_data = self._load_audio(audio_path)
             
             # バッチ処理の準備
-            batch_size = self.config.transcription.batch_size
+            batch_size = self.DEFAULT_BATCH_SIZE  # デフォルト値を使用
             total_batches = (len(segments) + batch_size - 1) // batch_size
             
             aligned_segments = []

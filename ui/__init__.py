@@ -13,7 +13,7 @@ from .components import (
     show_edited_text_with_highlights,
     show_red_highlight_modal,
     show_help,
-    show_advanced_settings
+    show_optimization_status
 )
 from .file_upload import (
     show_video_input,
@@ -35,7 +35,7 @@ __all__ = [
     'show_edited_text_with_highlights',
     'show_red_highlight_modal',
     'show_help',
-    'show_advanced_settings',
+    'show_optimization_status',
     'show_video_input',
     'cleanup_temp_files',
     'apply_dark_mode_styles'

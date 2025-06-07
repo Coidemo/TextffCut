@@ -10,67 +10,39 @@ from typing import List, Optional
 @dataclass
 class TranscriptionConfig:
     """文字起こし関連の設定"""
+    # 基本設定（ユーザーが選択可能）
     model_size: str = "large-v3"
     whisper_models: List[str] = field(default_factory=lambda: ["large-v3", "medium", "small", "base"])
-    chunk_seconds: int = 30
-    sample_rate: int = 16000
-    num_workers: Optional[int] = None  # Noneの場合は自動計算
-    batch_size: int = 8  # メモリ使用量を削減
     language: str = "ja"
-    compute_type: str = "int8"
     
-    # API設定（OpenAI専用）
+    # API設定（ユーザーが選択可能）
     use_api: bool = False  # APIを使用するかどうか
     api_provider: str = "openai"  # 固定
     api_key: Optional[str] = None
     api_models: List[str] = field(default_factory=lambda: ["whisper-1"])
     
-    # 適応的リソース管理
-    adaptive_workers: bool = True  # システムスペックに基づく自動調整
-    chunk_seconds_low_spec: int = 20  # 低スペック用
-    chunk_seconds_mid_spec: int = 30  # 中スペック用
-    chunk_seconds_high_spec: int = 60  # 高スペック用
-    min_api_workers: int = 1
-    max_api_workers: int = 20
-    min_align_workers: int = 1
-    max_align_workers: int = 5
+    # 固定設定（自動最適化で管理されるため削除対象から除外）
+    sample_rate: int = 16000
+    compute_type: str = "int8"
+    isolation_mode: str = "subprocess"  # 常にサブプロセス分離
     
-    # プロセス分離設定
-    isolation_mode: str = "subprocess"  # subprocess, process, none
-    # subprocess: サブプロセス分離（推奨、メモリリーク対策）
-    # process: マルチプロセス分離（互換性）
-    # none: 分離なし（開発・デバッグ用）
-    
-    # API用設定（高度な設定）
-    api_chunk_seconds: int = 120  # APIチャンクサイズ（秒）
-    api_max_workers: int = 3      # API並列リクエスト数
-    api_retry_count: int = 3      # APIリトライ回数
-    api_align_chunk_seconds: int = 300  # APIモードでのアライメント用チャンクサイズ（秒）
+    # API用の固定設定
+    api_retry_count: int = 3  # APIリトライ回数
     api_align_in_subprocess: bool = True  # アライメント処理をサブプロセスで実行
     
-    # ローカル処理の高度な設定
-    # max_workers: 並列処理数（Noneの場合は自動計算）
-    max_workers: Optional[int] = None
-    
-    # ローカルモードのアライメント設定
-    local_align_chunk_seconds: int = 60  # ローカルモードでのアライメント用チャンクサイズ（秒）
-    force_separated_mode: bool = True  # 強制的に分離モードを使用（デフォルトで安定性重視）
+    # 以下は全て自動最適化により動的に決定されるため削除
+    # chunk_seconds, num_workers, batch_size, max_workers
+    # local_align_chunk_seconds, force_separated_mode
+    # adaptive_workers関連, chunk_seconds_*_spec
+    # api_chunk_seconds, api_max_workers, api_align_chunk_seconds
     
     def __post_init__(self):
-        if self.num_workers is None:
-            self.num_workers = os.cpu_count() // 2 or 4
-        
         # 環境変数からAPI設定を読み込み
         if os.getenv('TEXTFFCUT_USE_API', '').lower() == 'true':
             self.use_api = True
         if api_key := os.getenv('TEXTFFCUT_API_KEY'):
             self.api_key = api_key
         # APIプロバイダーはOpenAI固定（環境変数での変更不要）
-        
-        # 環境変数から分離モード設定を読み込み
-        if isolation_mode := os.getenv('TEXTFFCUT_ISOLATION_MODE'):
-            if isolation_mode in ['subprocess', 'process', 'none']:
-                self.isolation_mode = isolation_mode
 
 
 @dataclass

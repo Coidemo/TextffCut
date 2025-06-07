@@ -42,21 +42,14 @@ def test_imports():
             "ICacheManager",
             "IProgressReporter"
         ]),
-        ("core.unified_transcriber", [
-            "UnifiedTranscriber",
-            "DefaultProgressReporter"
-        ]),
         ("core.alignment_processor", [
             "AlignmentProcessor"
         ]),
-        ("core.retry_handler", [
-            "RetryStrategy",
-            "AdaptiveRetryStrategy",
-            "RetryHandler",
-            "with_retry"
+        ("core.auto_optimizer", [
+            "AutoOptimizer"
         ]),
-        ("core.transcription_worker", [
-            "LocalTranscriptionWorker"
+        ("core.memory_monitor", [
+            "MemoryMonitor"
         ]),
         
         # 既存モジュールの新機能
@@ -136,18 +129,17 @@ def test_cross_module_imports():
     print("\n=== モジュール間インポートテスト ===\n")
     
     test_cases = [
-        # unified_transcriberが他のモジュールを使えるか
+        # AutoOptimizerが他のモジュールを使えるか
         {
-            "name": "UnifiedTranscriberの依存関係",
+            "name": "AutoOptimizerの依存関係",
             "code": """
-from core.unified_transcriber import UnifiedTranscriber
-from core.models import ProcessingRequest, TranscriptionResultV2
+from core.auto_optimizer import AutoOptimizer
 from config import Config
 
 # インスタンス化テスト
 config = Config()
-transcriber = UnifiedTranscriber(config)
-print("✓ UnifiedTranscriberのインスタンス化成功")
+optimizer = AutoOptimizer(config)
+print("✓ AutoOptimizerのインスタンス化成功")
 """
         },
         

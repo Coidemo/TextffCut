@@ -57,7 +57,7 @@ def process_alignment(config_data: Dict[str, Any]) -> Dict[str, Any]:
         transcription_config = config_data['config']['transcription']
         config.transcription.language = transcription_config['language']
         config.transcription.compute_type = transcription_config['compute_type']
-        config.transcription.batch_size = transcription_config['batch_size']
+        # batch_sizeは自動最適化で管理されるため、ここでは設定しない
         
         # セグメントの復元
         segments = []

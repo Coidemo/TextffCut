@@ -503,6 +503,10 @@ class SmartSplitTranscriber(Transcriber):
     
     def _get_optimal_batch_size(self) -> int:
         """最適なバッチサイズを取得"""
+        # デフォルトバッチサイズ定数
+        DEFAULT_BATCH_SIZE_GPU = 16
+        DEFAULT_BATCH_SIZE_CPU = 4
+        
         # 利用可能メモリを取得
         available_memory_gb = psutil.virtual_memory().available / (1024**3)
         
@@ -516,7 +520,7 @@ class SmartSplitTranscriber(Transcriber):
                 return 8
         else:
             # CPU使用時
-            return 4
+            return DEFAULT_BATCH_SIZE_CPU
     
     def _transcribe_api_optimized(
         self,
@@ -538,14 +542,9 @@ class SmartSplitTranscriber(Transcriber):
         if duration <= self.MIN_SPLIT_DURATION:
             logger.info("25分以下なのでアライメント分割なしで処理")
             # 最適なチャンクサイズを設定（5分）
-            original_chunk_seconds = self.config.transcription.chunk_seconds
-            self.config.transcription.chunk_seconds = 5 * 60  # 5分
-            
-            try:
-                result = self.api_transcriber.transcribe(video_path, model_size, progress_callback, use_cache, save_cache, skip_alignment)
-                return result
-            finally:
-                self.config.transcription.chunk_seconds = original_chunk_seconds
+            # Note: chunk_seconds is now managed by AutoOptimizer in API transcriber
+            result = self.api_transcriber.transcribe(video_path, model_size, progress_callback, use_cache, save_cache, skip_alignment)
+            return result
         
         # 25分以上の場合は20分ごとに分割してアライメント処理
         logger.info("25分以上なので20分ごとに分割してアライメント処理")
@@ -563,12 +562,9 @@ class SmartSplitTranscriber(Transcriber):
         start_time = time.time()
         
         # まず5分チャンクでAPI処理（アライメントなし）
-        original_chunk_seconds = self.config.transcription.chunk_seconds
         original_use_alignment = getattr(self.api_transcriber, 'skip_alignment', False)
         
         try:
-            # 5分チャンクに設定
-            self.config.transcription.chunk_seconds = 5 * 60
             # 一時的にアライメントをスキップ
             self.api_transcriber.skip_alignment = True
             
@@ -604,7 +600,6 @@ class SmartSplitTranscriber(Transcriber):
             
         finally:
             # 設定を元に戻す
-            self.config.transcription.chunk_seconds = original_chunk_seconds
             if hasattr(self.api_transcriber, 'skip_alignment'):
                 self.api_transcriber.skip_alignment = original_use_alignment
     
