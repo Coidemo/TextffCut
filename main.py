@@ -10,6 +10,7 @@ from datetime import datetime
 import os
 
 from config import config
+from core.constants import MemoryEstimates, ErrorMessages
 from core import Transcriber, TextProcessor, VideoProcessor, FCPXMLExporter, XMEMLExporter, ExportSegment, VideoSegment
 from core.transcription_smart_split import SmartSplitTranscriber
 from core.transcription_subprocess import SubprocessTranscriber
@@ -390,10 +391,10 @@ def main():
                         try:
                             import psutil
                             available_gb = psutil.virtual_memory().available / (1024 ** 3)
-                            if available_gb < 8:
-                                st.warning(f"⚠️ 利用可能メモリ: {available_gb:.1f}GB - large-v3は高メモリを必要とします。mediumモデルの使用を推奨します。")
-                            elif available_gb < 12:
-                                st.info(f"ℹ️ 利用可能メモリ: {available_gb:.1f}GB - 自動最適化により処理速度が制限される場合があります。")
+                            if available_gb < MemoryEstimates.LOW_MEMORY_GB:
+                                st.warning(ErrorMessages.LOW_MEMORY_WARNING.format(available_gb))
+                            elif available_gb < MemoryEstimates.MINIMUM_MEMORY_GB:
+                                st.info(ErrorMessages.MEMORY_LIMIT_INFO.format(available_gb))
                         except:
                             pass
             

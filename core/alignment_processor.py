@@ -18,6 +18,10 @@ from config import Config
 from utils.logging import get_logger
 from .exceptions import AlignmentError
 from core.memory_monitor import MemoryMonitor
+from .constants import (
+    MemoryThresholds, BatchSizeLimits, AudioProcessing,
+    MemoryEstimates, TranscriptionSegments
+)
 
 from .interfaces import IAlignmentProcessor
 from .models import (
@@ -40,7 +44,7 @@ class AlignmentProcessor(IAlignmentProcessor):
     """
     
     # デフォルト値
-    DEFAULT_BATCH_SIZE = 8
+    DEFAULT_BATCH_SIZE = BatchSizeLimits.DEFAULT
     
     def __init__(self, config: Config, batch_size: Optional[int] = None):
         """初期化
@@ -115,8 +119,8 @@ class AlignmentProcessor(IAlignmentProcessor):
                 # 最初の60秒を抽出
                 cmd = [
                     "ffmpeg", "-y", "-i", audio_path,
-                    "-t", "60",  # 60秒
-                    "-ar", "16000", "-ac", "1",
+                    "-t", str(AudioProcessing.DIAGNOSTIC_DURATION),  # 60秒
+                    "-ar", str(AudioProcessing.SAMPLE_RATE), "-ac", str(AudioProcessing.CHANNELS),
                     "-f", "wav", temp_audio_path
                 ]
                 subprocess.run(cmd, capture_output=True, check=True)
@@ -134,7 +138,7 @@ class AlignmentProcessor(IAlignmentProcessor):
                      "-of", "csv=p=0", audio_path],
                     capture_output=True, text=True
                 )
-                total_duration = float(duration_result.stdout.strip()) if duration_result.stdout else 3600
+                total_duration = float(duration_result.stdout.strip()) if duration_result.stdout else AudioProcessing.DEFAULT_DURATION_ESTIMATE
                 
                 # 全音声データのメモリ使用量を推定
                 diagnostic_result['audio_memory'] = (audio_memory_60s * total_duration) / 60
@@ -149,7 +153,7 @@ class AlignmentProcessor(IAlignmentProcessor):
             except Exception as e:
                 logger.warning(f"音声メモリ推定エラー: {e}")
                 # エラー時は保守的な推定値を使用
-                diagnostic_result['audio_memory'] = 10.0  # 10%と仮定
+                diagnostic_result['audio_memory'] = MemoryEstimates.DEFAULT_AUDIO_MEMORY  # 10%と仮定
             
             # Step 3: バッチ処理のテスト
             if progress_callback:
@@ -157,7 +161,7 @@ class AlignmentProcessor(IAlignmentProcessor):
             
             # サンプルセグメントがない場合はダミーを生成
             if not sample_segments:
-                sample_segments = self._generate_dummy_segments(10)  # 10個のダミーセグメント
+                sample_segments = self._generate_dummy_segments(TranscriptionSegments.SAMPLE_SEGMENTS_COUNT)  # 10個のダミーセグメント
             
             # 小規模バッチでテスト（1, 2, 4セグメント）
             test_batch_sizes = [1, 2, 4]
@@ -189,7 +193,7 @@ class AlignmentProcessor(IAlignmentProcessor):
                     logger.info(f"バッチサイズ {test_size}: メモリ増加 {memory_increase:.1f}% ({memory_increase/test_size:.1f}%/セグメント)")
                     
                     # メモリが高すぎる場合は中断
-                    if end_memory > 85:
+                    if end_memory > MemoryThresholds.EMERGENCY:
                         logger.warning("メモリ使用率が高いため診断を中断")
                         break
                         
@@ -205,17 +209,17 @@ class AlignmentProcessor(IAlignmentProcessor):
                 current_total_memory = base_memory
                 
                 # 利用可能なメモリ（目標75%まで）
-                available_memory = 75.0 - current_total_memory
+                available_memory = MemoryThresholds.TARGET - current_total_memory
                 
                 # 最大安全バッチサイズを計算
                 if avg_memory_per_segment > 0:
                     max_safe_batch = int(available_memory / avg_memory_per_segment)
-                    max_safe_batch = max(1, min(max_safe_batch, 16))  # 1-16の範囲
+                    max_safe_batch = max(BatchSizeLimits.MINIMUM, min(max_safe_batch, BatchSizeLimits.LARGE))  # 1-16の範囲
                 else:
-                    max_safe_batch = 8
+                    max_safe_batch = BatchSizeLimits.DEFAULT
                 
                 # 最適バッチサイズ（安全マージンを考慮）
-                optimal_batch = max(1, max_safe_batch // 2)  # 50%マージン
+                optimal_batch = max(BatchSizeLimits.MINIMUM, int(max_safe_batch * MemoryEstimates.SAFETY_MARGIN))  # 50%マージン
                 
                 diagnostic_result['max_safe_batch_size'] = max_safe_batch
                 diagnostic_result['optimal_batch_size'] = optimal_batch
@@ -235,7 +239,7 @@ class AlignmentProcessor(IAlignmentProcessor):
         except Exception as e:
             logger.error(f"診断エラー: {e}")
             # エラー時は保守的なデフォルト値を使用
-            diagnostic_result['optimal_batch_size'] = 4
+            diagnostic_result['optimal_batch_size'] = MemoryEstimates.DEFAULT_OPTIMAL_BATCH
             diagnostic_result['diagnostic_completed'] = False
         
         finally:
@@ -263,9 +267,9 @@ class AlignmentProcessor(IAlignmentProcessor):
         for i in range(count):
             segment = TranscriptionSegmentV2(
                 id=f"dummy_{i}",
-                text=f"これはテスト用のダミーテキストです。セグメント番号{i}。" * 5,  # 適度な長さ
-                start=i * 10.0,
-                end=(i + 1) * 10.0
+                text=f"これはテスト用のダミーテキストです。セグメント番号{i}。" * TranscriptionSegments.DUMMY_SEGMENT_TEXT_REPEAT,  # 適度な長さ
+                start=i * TranscriptionSegments.SEGMENT_DURATION,
+                end=(i + 1) * TranscriptionSegments.SEGMENT_DURATION
             )
             segments.append(segment)
         return segments

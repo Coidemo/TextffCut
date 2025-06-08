@@ -17,6 +17,12 @@ from pathlib import Path
 # プロジェクトのルートディレクトリをパスに追加
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# 定数をインポート
+from core.constants import (
+    MemoryThresholds, BatchSizeLimits, ChunkSizeLimits,
+    TranscriptionSegments, ErrorMessages
+)
+
 # ログ設定
 logging.basicConfig(
     level=logging.INFO,
@@ -201,9 +207,9 @@ def main():
                 sample_segments = None
                 if hasattr(result, 'to_v2_format'):
                     v2_result = result.to_v2_format()
-                    sample_segments = v2_result.segments[:10] if len(v2_result.segments) >= 10 else v2_result.segments
+                    sample_segments = v2_result.segments[:TranscriptionSegments.SAMPLE_SEGMENTS_COUNT] if len(v2_result.segments) >= TranscriptionSegments.SAMPLE_SEGMENTS_COUNT else v2_result.segments
                 elif result.segments:
-                    sample_segments = result.segments[:10] if len(result.segments) >= 10 else result.segments
+                    sample_segments = result.segments[:TranscriptionSegments.SAMPLE_SEGMENTS_COUNT] if len(result.segments) >= TranscriptionSegments.SAMPLE_SEGMENTS_COUNT else result.segments
                 
                 # 診断を実行
                 diagnostic_result = diagnostic_processor.run_diagnostic(
@@ -237,19 +243,19 @@ def main():
                 logger.warning("診断が完了しなかったため、推定値を使用")
                 
                 # バッチサイズはチャンクサイズと相関させる（大きいチャンク = 小さいバッチ）
-                if optimal_params['align_chunk_seconds'] >= 540:
-                    optimal_batch_size = 4
-                elif optimal_params['align_chunk_seconds'] >= 360:
-                    optimal_batch_size = 6
-                elif optimal_params['align_chunk_seconds'] >= 240:
-                    optimal_batch_size = 8
+                if optimal_params['align_chunk_seconds'] >= ChunkSizeLimits.BATCH_SIZE_THRESHOLD_LARGE:
+                    optimal_batch_size = BatchSizeLimits.SMALL
+                elif optimal_params['align_chunk_seconds'] >= ChunkSizeLimits.BATCH_SIZE_THRESHOLD_MEDIUM:
+                    optimal_batch_size = 6  # TODO: 定数化検討
+                elif optimal_params['align_chunk_seconds'] >= ChunkSizeLimits.BATCH_SIZE_THRESHOLD_SMALL:
+                    optimal_batch_size = BatchSizeLimits.DEFAULT
                 else:
-                    optimal_batch_size = 12
+                    optimal_batch_size = BatchSizeLimits.MEDIUM
                 
                 # メモリ使用率が高い場合はさらに削減
                 current_memory = memory_monitor.get_memory_usage()
-                if current_memory > 70:
-                    optimal_batch_size = max(2, optimal_batch_size // 2)
+                if current_memory > MemoryThresholds.COMFORTABLE:
+                    optimal_batch_size = max(BatchSizeLimits.EMERGENCY, optimal_batch_size // 2)
             
             logger.info(f"アライメント用パラメータ: バッチサイズ={optimal_batch_size}")
             
@@ -392,7 +398,7 @@ def main():
             "success": False,
             "error": f"メモリ不足: {str(e)}",
             "error_type": "MemoryError",
-            "suggestion": "より小さなモデル（medium等）を使用するか、システムメモリを増やしてください。"
+            "suggestion": ErrorMessages.MEMORY_ERROR_SUGGESTION
         }
         
         if 'config_path' in locals():

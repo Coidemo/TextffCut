@@ -11,6 +11,11 @@ from typing import Dict, Optional, Tuple
 import logging
 
 from utils.logging import get_logger
+from .constants import (
+    MemoryThresholds, BatchSizeLimits, ChunkSizeLimits,
+    WorkerLimits, MemoryEstimates, AdjustmentFactors,
+    ErrorMessages
+)
 
 logger = get_logger(__name__)
 
@@ -19,8 +24,8 @@ class AutoOptimizer:
     """自動最適化エンジン"""
     
     # 診断フェーズの設定
-    DIAGNOSTIC_CHUNK_SECONDS = 30  # 最初の診断用チャンクサイズ
-    DIAGNOSTIC_CHUNKS_COUNT = 3    # 診断用チャンク数
+    DIAGNOSTIC_CHUNK_SECONDS = ChunkSizeLimits.DIAGNOSTIC_CHUNK  # 最初の診断用チャンクサイズ
+    DIAGNOSTIC_CHUNKS_COUNT = ChunkSizeLimits.DIAGNOSTIC_COUNT    # 診断用チャンク数
     
     # モデルサイズ別の基本設定
     MODEL_PROFILES = {
@@ -63,12 +68,12 @@ class AutoOptimizer:
     
     # チャンクサイズの制限
     CHUNK_LIMITS = {
-        'absolute_minimum': 180,  # 3分
-        'emergency_minimum': 300,  # 5分
-        'maximum': 1800,  # 30分
+        'absolute_minimum': ChunkSizeLimits.ABSOLUTE_MINIMUM,  # 3分
+        'emergency_minimum': ChunkSizeLimits.EMERGENCY_MINIMUM,  # 5分
+        'maximum': ChunkSizeLimits.MAXIMUM,  # 30分
     }
     
-    def __init__(self, model_size: str, target_memory_percent: float = 75.0):
+    def __init__(self, model_size: str, target_memory_percent: float = MemoryThresholds.TARGET):
         """
         初期化
         
@@ -120,13 +125,13 @@ class AutoOptimizer:
             available_gb = psutil.virtual_memory().available / (1024 ** 3)
             
             # large-v3の場合、利用可能メモリが少ない場合はさらに制限
-            if self.model_size == 'large-v3' and available_gb < 8:
+            if self.model_size == 'large-v3' and available_gb < MemoryEstimates.LOW_MEMORY_GB:
                 logger.warning(f"Low memory detected for large-v3: {available_gb:.1f}GB available")
                 return {
-                    'chunk_seconds': min(180, profile['initial_chunk_seconds']),  # 最大3分
-                    'align_chunk_seconds': min(300, profile['initial_align_chunk_seconds']),  # 最大5分
-                    'max_workers': 1,
-                    'batch_size': 1,  # 最小値
+                    'chunk_seconds': min(ChunkSizeLimits.ABSOLUTE_MINIMUM, profile['initial_chunk_seconds']),  # 最大3分
+                    'align_chunk_seconds': min(ChunkSizeLimits.EMERGENCY_MINIMUM, profile['initial_align_chunk_seconds']),  # 最大5分
+                    'max_workers': WorkerLimits.MINIMUM,
+                    'batch_size': BatchSizeLimits.MINIMUM,  # 最小値
                 }
         except Exception as e:
             logger.warning(f"Failed to check memory: {e}")
@@ -192,21 +197,21 @@ class AutoOptimizer:
         """調整タイプの決定"""
         
         # 緊急レベル
-        if memory_percent > 90:
+        if memory_percent > MemoryThresholds.CRITICAL:
             return 'emergency_decrease'
-        elif memory_percent > 85:
+        elif memory_percent > MemoryThresholds.EMERGENCY:
             return 'aggressive_decrease'
         
         # 警戒レベル
-        elif memory_percent > 80:
-            if velocity > 5:  # 急上昇中
+        elif memory_percent > MemoryThresholds.HIGH:
+            if velocity > MemoryThresholds.VELOCITY_THRESHOLD:  # 急上昇中
                 return 'moderate_decrease'
             else:
                 return 'slight_decrease'
         
         # 目標範囲付近
-        elif 70 <= memory_percent <= 80:
-            if abs(memory_percent - self.target_memory_percent) < 5:
+        elif MemoryThresholds.COMFORTABLE <= memory_percent <= MemoryThresholds.HIGH:
+            if abs(memory_percent - self.target_memory_percent) < MemoryThresholds.MAINTAIN_RANGE:
                 return 'maintain'
             elif memory_percent > self.target_memory_percent:
                 return 'slight_decrease'
@@ -214,7 +219,7 @@ class AutoOptimizer:
                 return 'slight_increase'
         
         # 余裕あり
-        elif memory_percent < 60:
+        elif memory_percent < MemoryThresholds.INCREASE_THRESHOLD:
             return 'moderate_increase'
         else:
             return 'slight_increase'
@@ -225,22 +230,22 @@ class AutoOptimizer:
         
         adjustments = {
             'emergency_decrease': {
-                'chunk_factor': 0.5,  # 半分に
-                'worker_change': -2,
-                'batch_factor': 0.25
+                'chunk_factor': AdjustmentFactors.EMERGENCY_CHUNK_FACTOR,  # 半分に
+                'worker_change': AdjustmentFactors.EMERGENCY_WORKER_CHANGE,
+                'batch_factor': AdjustmentFactors.EMERGENCY_BATCH_FACTOR
             },
             'aggressive_decrease': {
-                'chunk_factor': 0.7,
-                'worker_change': -1,
-                'batch_factor': 0.5
+                'chunk_factor': AdjustmentFactors.AGGRESSIVE_CHUNK_FACTOR,
+                'worker_change': AdjustmentFactors.AGGRESSIVE_WORKER_CHANGE,
+                'batch_factor': AdjustmentFactors.AGGRESSIVE_BATCH_FACTOR
             },
             'moderate_decrease': {
-                'chunk_seconds_change': -180,  # -3分
-                'worker_change': -1,
+                'chunk_seconds_change': -ChunkSizeLimits.LARGE_ADJUSTMENT,  # -3分
+                'worker_change': AdjustmentFactors.MODERATE_WORKER_CHANGE,
                 'batch_change': -4
             },
             'slight_decrease': {
-                'chunk_seconds_change': -60,  # -1分
+                'chunk_seconds_change': -ChunkSizeLimits.SMALL_ADJUSTMENT,  # -1分
                 'worker_change': 0,
                 'batch_change': -2
             },
@@ -248,12 +253,12 @@ class AutoOptimizer:
                 # 変更なし
             },
             'slight_increase': {
-                'chunk_seconds_change': 60,  # +1分
+                'chunk_seconds_change': ChunkSizeLimits.SMALL_ADJUSTMENT,  # +1分
                 'worker_change': 0,
                 'batch_change': 2
             },
             'moderate_increase': {
-                'chunk_seconds_change': 120,  # +2分
+                'chunk_seconds_change': ChunkSizeLimits.MEDIUM_ADJUSTMENT,  # +2分
                 'worker_change': 1,
                 'batch_change': 4
             }
@@ -281,14 +286,14 @@ class AutoOptimizer:
         
         # ワーカー数調整
         if 'worker_change' in adj:
-            params['max_workers'] = max(1, min(4, 
+            params['max_workers'] = max(WorkerLimits.MINIMUM, min(WorkerLimits.MAXIMUM, 
                 params['max_workers'] + adj['worker_change']))
         
         # バッチサイズ調整
         if 'batch_factor' in adj:
-            params['batch_size'] = max(1, int(params['batch_size'] * adj['batch_factor']))
+            params['batch_size'] = max(BatchSizeLimits.MINIMUM, int(params['batch_size'] * adj['batch_factor']))
         elif 'batch_change' in adj:
-            params['batch_size'] = max(1, min(32, 
+            params['batch_size'] = max(BatchSizeLimits.MINIMUM, min(BatchSizeLimits.MAXIMUM, 
                 params['batch_size'] + adj['batch_change']))
         
         logger.debug(f"Adjusted parameters: {adjustment_type} -> {params}")
