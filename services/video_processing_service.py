@@ -90,16 +90,23 @@ class VideoProcessingService(BaseService):
             ]
             
             # 無音検出と削除
-            keep_ranges = self.video_processor.remove_silence_new(
-                video_path=str(video_file),
+            keep_ranges_tuples = self.video_processor.remove_silence_new(
+                input_path=str(video_file),
                 time_ranges=time_ranges,
-                silence_threshold=threshold,
+                output_dir=str(self.temp_dir),
+                noise_threshold=threshold,
                 min_silence_duration=min_silence_duration,
-                pad_start=pad_start,
-                pad_end=pad_end,
+                padding_start=pad_start,
+                padding_end=pad_end,
                 min_segment_duration=min_segment_duration,
                 progress_callback=wrapped_callback
             )
+            
+            # タプルをTimeRangeオブジェクトに変換
+            keep_ranges = [
+                TimeRange(start=start, end=end)
+                for start, end in keep_ranges_tuples
+            ]
             
             # セグメントを調整
             adjusted_segments = self._adjust_segments_with_silence(
@@ -189,9 +196,9 @@ class VideoProcessingService(BaseService):
                 # セグメントを切り出し
                 success = self.video_processor.extract_segment(
                     input_path=str(video_file),
-                    output_path=str(output_file),
-                    start_time=segment.start,
-                    end_time=segment.end
+                    start=segment.start,
+                    end=segment.end,
+                    output_path=str(output_file)
                 )
                 
                 if success and output_file.exists():
@@ -268,7 +275,7 @@ class VideoProcessingService(BaseService):
             
             try:
                 # ffmpegで結合
-                success = self.video_processor.concatenate_videos(
+                success = self.video_processor.combine_videos(
                     list_file=list_file,
                     output_path=output_path
                 )

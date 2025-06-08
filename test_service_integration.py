@@ -1,211 +1,304 @@
 #!/usr/bin/env python3
 """
-サービス層統合テスト
+サービス層と実装層の統合テスト
 
-main.pyでのサービス層統合が正しく動作することを確認。
+パラメータ不一致やメソッド呼び出しの問題を検出します。
 """
-
 import sys
 import os
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import unittest
+from pathlib import Path
+from unittest.mock import Mock, patch, MagicMock
+import tempfile
 
-from config import Config
-from services import (
-    ConfigurationService,
-    TextEditingService,
-    VideoProcessingService,
-    ExportService,
-    WorkflowService
-)
-from core import TranscriptionSegment
-from core.models import WordInfo
-from ui import SessionStateAdapter
+# プロジェクトのルートディレクトリをパスに追加
+project_root = Path(__file__).parent
+sys.path.insert(0, str(project_root))
 
-
-def test_configuration_service():
-    """ConfigurationServiceのテスト"""
-    print("=== ConfigurationServiceテスト ===")
-    
-    config = Config()
-    service = ConfigurationService(config)
-    
-    # 料金計算テスト
-    print("\n1. 料金計算テスト")
-    result = service.calculate_api_cost(10.5)  # 10.5分
-    if result.success:
-        data = result.data
-        print(f"✅ 料金計算成功")
-        print(f"   USD: ${data['cost_usd']:.3f}")
-        print(f"   JPY: {data['cost_jpy']:.0f}円")
-    else:
-        print(f"❌ エラー: {result.error}")
-    
-    # モデル検証テスト
-    print("\n2. モデル検証テスト")
-    result = service.validate_model_settings(
-        model_size="large-v3",
-        use_api=False,
-        available_memory_gb=8.0  # 8GB（警告が出るはず）
-    )
-    if result.success:
-        data = result.data
-        print(f"✅ 検証成功")
-        print(f"   Valid: {data['valid']}")
-        print(f"   Warnings: {data['warnings']}")
-        print(f"   Memory Status: {data['memory_status']}")
-    else:
-        print(f"❌ エラー: {result.error}")
-    
-    # 出力パス生成テスト
-    print("\n3. 出力パス生成テスト")
-    result = service.get_output_path(
-        video_path="/Users/test/video.mp4",
-        process_type="clip",
-        output_format="fcpxml"
-    )
-    if result.success:
-        data = result.data
-        print(f"✅ パス生成成功")
-        print(f"   Output Path: {data['output_path']}")
-        print(f"   File Name: {data['file_name']}")
-    else:
-        print(f"❌ エラー: {result.error}")
+from config import config
+from services.video_processing_service import VideoProcessingService
+from services.transcription_service import TranscriptionService
+from services.export_service import ExportService
+from services.text_editing_service import TextEditingService
+from core.models import TranscriptionSegmentV2
 
 
-def test_session_state_adapter():
-    """SessionStateAdapterのテスト"""
-    print("\n\n=== SessionStateAdapterテスト ===")
+class TestServiceIntegration(unittest.TestCase):
+    """サービス層の統合テスト"""
     
-    # モックセッション状態
-    mock_session_state = {
-        'current_video_path': '/test/video.mp4',
-        'use_api': False,
-        'local_model_size': 'medium',
-        'remove_silence': True,
-        'silence_threshold': -35.0
-    }
+    def setUp(self):
+        """テストのセットアップ"""
+        self.config = config
+        self.temp_dir = tempfile.mkdtemp()
+        
+    def tearDown(self):
+        """テストのクリーンアップ"""
+        import shutil
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
     
-    adapter = SessionStateAdapter(mock_session_state)
-    
-    # ワークフロー設定の取得
-    print("\n1. ワークフロー設定の取得")
-    settings = adapter.get_workflow_settings()
-    print(f"✅ 設定取得成功")
-    print(f"   Model Size: {settings.model_size}")
-    print(f"   Use API: {settings.use_api}")
-    print(f"   Remove Silence: {settings.remove_silence}")
-    
-    # 処理状態の取得
-    print("\n2. 処理状態の取得")
-    processing_state = adapter.get_processing_state()
-    print(f"✅ 状態取得成功")
-    print(f"   Use API: {processing_state.use_api}")
-    print(f"   Model Size: {processing_state.local_model_size}")
-    print(f"   Silence Threshold: {processing_state.silence_threshold}")
-
-
-def test_imports():
-    """インポートテスト"""
-    print("=== インポートテスト ===")
-    
-    try:
-        # main.pyで使用される新しいインポートをテスト
-        from services import (
-            ConfigurationService,
-            TextEditingService,
-            VideoProcessingService,
-            ExportService,
-            WorkflowService
-        )
-        from ui import SessionStateAdapter
-        from core import TranscriptionSegment
-        print("✅ すべてのインポートが成功しました")
-        return True
-    except ImportError as e:
-        print(f"❌ インポートエラー: {e}")
-        return False
-
-
-def test_text_editing_service():
-    """TextEditingServiceのテスト"""
-    print("\n\n=== TextEditingServiceテスト ===")
-    
-    config = Config()
-    service = TextEditingService(config)
-    
-    # テストセグメント（wordsを含む）
-    segments = [
-        TranscriptionSegment(
-            start=0.0,
-            end=5.0,
-            text="これはテストです",
-            words=[
-                WordInfo(word="これは", start=0.0, end=1.0),
-                WordInfo(word="テスト", start=1.0, end=3.0),
-                WordInfo(word="です", start=3.0, end=5.0)
+    def test_video_processing_service_remove_silence_params(self):
+        """VideoProcessingService.remove_silence()のパラメータテスト"""
+        print("\n=== VideoProcessingService.remove_silence()パラメータテスト ===")
+        
+        service = VideoProcessingService(self.config)
+        
+        # VideoProcessor.remove_silence_newをモック
+        with patch.object(service.video_processor, 'remove_silence_new') as mock_method:
+            mock_method.return_value = [(0.0, 5.0), (10.0, 15.0)]
+            
+            # テスト用のセグメント
+            segments = [
+                TranscriptionSegmentV2(id=0, start=0.0, end=10.0, text="test", words=[]),
+                TranscriptionSegmentV2(id=1, start=10.0, end=20.0, text="test2", words=[])
             ]
-        ),
-        TranscriptionSegment(
-            start=5.0,
-            end=10.0,
-            text="サービス層のテスト",
-            words=[
-                WordInfo(word="サービス層の", start=5.0, end=7.0),
-                WordInfo(word="テスト", start=7.0, end=10.0)
+            
+            # サービスメソッドを呼び出し
+            result = service.remove_silence(
+                video_path="/tmp/test.mp4",
+                segments=segments,
+                threshold=-35.0,
+                min_silence_duration=0.3,
+                pad_start=0.1,
+                pad_end=0.2,
+                min_segment_duration=0.5
+            )
+            
+            # remove_silence_newが正しいパラメータで呼ばれたか確認
+            mock_method.assert_called_once()
+            call_args = mock_method.call_args[1]
+            
+            # パラメータ名の確認
+            self.assertIn('input_path', call_args)
+            self.assertIn('noise_threshold', call_args)
+            self.assertIn('padding_start', call_args)
+            self.assertIn('padding_end', call_args)
+            self.assertIn('output_dir', call_args)
+            
+            # 値の確認
+            self.assertEqual(call_args['input_path'], "/tmp/test.mp4")
+            self.assertEqual(call_args['noise_threshold'], -35.0)
+            self.assertEqual(call_args['padding_start'], 0.1)
+            self.assertEqual(call_args['padding_end'], 0.2)
+            
+            print("✓ パラメータマッピング: OK")
+    
+    def test_video_processing_service_extract_segments_params(self):
+        """VideoProcessingService.extract_segments()のパラメータテスト"""
+        print("\n=== VideoProcessingService.extract_segments()パラメータテスト ===")
+        
+        service = VideoProcessingService(self.config)
+        
+        # VideoProcessor.extract_segmentをモック
+        with patch.object(service.video_processor, 'extract_segment') as mock_method:
+            mock_method.return_value = True
+            
+            # テスト用のセグメント
+            segments = [
+                TranscriptionSegmentV2(id=0, start=0.0, end=5.0, text="test", words=[])
             ]
-        )
-    ]
+            
+            # サービスメソッドを呼び出し
+            with patch('pathlib.Path.exists', return_value=True):
+                result = service.extract_segments(
+                    video_path="/tmp/test.mp4",
+                    segments=segments,
+                    output_dir=self.temp_dir
+                )
+            
+            # extract_segmentが正しいパラメータで呼ばれたか確認
+            mock_method.assert_called_once()
+            call_args = mock_method.call_args[1]
+            
+            # パラメータ名の確認
+            self.assertIn('input_path', call_args)
+            self.assertIn('start', call_args)
+            self.assertIn('end', call_args)
+            self.assertIn('output_path', call_args)
+            
+            # 旧パラメータ名が使われていないことを確認
+            self.assertNotIn('start_time', call_args)
+            self.assertNotIn('end_time', call_args)
+            
+            print("✓ パラメータマッピング: OK")
     
-    # 差分検出テスト
-    print("\n1. 差分検出テスト")
-    result = service.find_differences(
-        segments,
-        "これはテストです"
-    )
-    if result.success:
-        print(f"✅ 差分検出成功")
-        print(f"   差分セグメント数: {len(result.data)}")
-        print(f"   メタデータ: {result.metadata}")
+    def test_video_processing_service_merge_videos_method(self):
+        """VideoProcessingService.merge_videos()のメソッド名テスト"""
+        print("\n=== VideoProcessingService.merge_videos()メソッド名テスト ===")
+        
+        service = VideoProcessingService(self.config)
+        
+        # VideoProcessor.combine_videosをモック
+        with patch.object(service.video_processor, 'combine_videos') as mock_method:
+            mock_method.return_value = True
+            
+            # 一時ファイルを作成
+            video_files = []
+            for i in range(2):
+                temp_file = os.path.join(self.temp_dir, f"test{i}.mp4")
+                Path(temp_file).touch()
+                video_files.append(temp_file)
+            
+            # サービスメソッドを呼び出し
+            with patch('pathlib.Path.exists', return_value=True):
+                result = service.merge_videos(
+                    video_files=video_files,
+                    output_path=os.path.join(self.temp_dir, "output.mp4")
+                )
+            
+            # combine_videosが呼ばれたことを確認
+            mock_method.assert_called_once()
+            
+            print("✓ メソッド名: OK (combine_videos)")
+    
+    def test_transcription_service_params(self):
+        """TranscriptionService.execute()のパラメータテスト"""
+        print("\n=== TranscriptionService.execute()パラメータテスト ===")
+        
+        service = TranscriptionService(self.config)
+        
+        # Transcriber.transcribeをモック
+        mock_result = MagicMock()
+        mock_result.segments = []
+        mock_result.to_dict.return_value = {'segments': []}
+        
+        # 検証をスキップするためにモック
+        with patch.object(service, 'validate_file_exists') as mock_validate:
+            mock_validate.return_value = Path("/tmp/test.mp4")
+            
+            with patch.object(service, '_create_transcriber') as mock_create:
+                mock_transcriber = MagicMock()
+                mock_transcriber.transcribe.return_value = mock_result
+                mock_create.return_value = mock_transcriber
+                
+                # サービスメソッドを呼び出し
+                result = service.execute(
+                    video_path="/tmp/test.mp4",
+                    model_size="base",
+                    language="ja"  # このパラメータは無視されるべき
+                )
+                
+                # transcribeが呼ばれた際のパラメータを確認
+                mock_transcriber.transcribe.assert_called_once()
+                call_args = mock_transcriber.transcribe.call_args[1]
+                
+                # languageパラメータが渡されていないことを確認
+                self.assertNotIn('language', call_args)
+                
+                print("✓ パラメータフィルタリング: OK")
+    
+    def test_export_service_fcpxml_params(self):
+        """ExportService.export_fcpxml()のパラメータテスト"""
+        print("\n=== ExportService.export_fcpxml()パラメータテスト ===")
+        
+        service = ExportService(self.config)
+        
+        # FCPXMLExporter.exportをモック
+        with patch.object(service.fcpxml_exporter, 'export') as mock_method:
+            
+            # テスト用のセグメント
+            segments = [
+                TranscriptionSegmentV2(id=0, start=0.0, end=5.0, text="test", words=[])
+            ]
+            
+            # サービスメソッドを呼び出し
+            result = service.export_fcpxml(
+                segments=segments,
+                video_path="/tmp/test.mp4",
+                output_path=os.path.join(self.temp_dir, "test.fcpxml"),
+                project_name="Test Project",
+                event_name="Test Event"
+            )
+            
+            # exportが正しいパラメータで呼ばれたか確認
+            mock_method.assert_called_once()
+            call_args = mock_method.call_args[1]
+            
+            # 期待されるパラメータのみが渡されていることを確認
+            self.assertIn('segments', call_args)
+            self.assertIn('output_path', call_args)
+            self.assertIn('project_name', call_args)
+            
+            # 不要なパラメータが渡されていないことを確認
+            self.assertNotIn('video_path', call_args)
+            self.assertNotIn('event_name', call_args)
+            self.assertNotIn('video_info', call_args)
+            
+            print("✓ パラメータフィルタリング: OK")
+    
+    def test_export_service_xmeml_params(self):
+        """ExportService.export_xmeml()のパラメータテスト"""
+        print("\n=== ExportService.export_xmeml()パラメータテスト ===")
+        
+        service = ExportService(self.config)
+        
+        # XMEMLExporter.exportをモック
+        with patch.object(service.xmeml_exporter, 'export') as mock_method:
+            
+            # テスト用のセグメント
+            segments = [
+                TranscriptionSegmentV2(id=0, start=0.0, end=5.0, text="test", words=[])
+            ]
+            
+            # サービスメソッドを呼び出し
+            result = service.export_xmeml(
+                segments=segments,
+                video_path="/tmp/test.mp4",
+                output_path=os.path.join(self.temp_dir, "test.xml"),
+                sequence_name="Test Sequence"
+            )
+            
+            # exportが正しいパラメータで呼ばれたか確認
+            mock_method.assert_called_once()
+            call_args = mock_method.call_args[1]
+            
+            # 期待されるパラメータのみが渡されていることを確認
+            self.assertIn('segments', call_args)
+            self.assertIn('output_path', call_args)
+            self.assertIn('project_name', call_args)
+            
+            # project_nameにsequence_nameが渡されていることを確認
+            self.assertEqual(call_args['project_name'], "Test Sequence")
+            
+            # 不要なパラメータが渡されていないことを確認
+            self.assertNotIn('video_path', call_args)
+            self.assertNotIn('sequence_name', call_args)
+            self.assertNotIn('video_info', call_args)
+            
+            print("✓ パラメータマッピング: OK")
+
+
+def run_service_integration_tests():
+    """サービス統合テストを実行"""
+    print("=" * 60)
+    print("サービス層統合テスト")
+    print("=" * 60)
+    
+    # テストスイートを作成
+    suite = unittest.TestLoader().loadTestsFromTestCase(TestServiceIntegration)
+    
+    # テストを実行
+    runner = unittest.TextTestRunner(verbosity=2)
+    result = runner.run(suite)
+    
+    # 結果サマリー
+    print("\n" + "=" * 60)
+    print("テスト結果サマリー")
+    print("=" * 60)
+    print(f"実行テスト数: {result.testsRun}")
+    print(f"成功: {result.testsRun - len(result.failures) - len(result.errors)}")
+    print(f"失敗: {len(result.failures)}")
+    print(f"エラー: {len(result.errors)}")
+    
+    if result.wasSuccessful():
+        print("\n✅ すべてのテストが成功しました！")
+        print("サービス層と実装層の統合は正しく動作しています。")
     else:
-        print(f"❌ エラー: {result.error}")
-
-
-def test_video_processing_service():
-    """VideoProcessingServiceのテスト（基本的な初期化のみ）"""
-    print("\n\n=== VideoProcessingServiceテスト ===")
+        print("\n❌ 一部のテストが失敗しました。")
+        print("上記のエラーを確認して修正してください。")
     
-    config = Config()
-    service = VideoProcessingService(config)
-    print("✅ VideoProcessingService初期化成功")
-
-
-def test_export_service():
-    """ExportServiceのテスト（基本的な初期化のみ）"""
-    print("\n\n=== ExportServiceテスト ===")
-    
-    config = Config()
-    service = ExportService(config)
-    print("✅ ExportService初期化成功")
-
-
-def main():
-    """メインテスト実行"""
-    print("=== サービス層統合テスト開始 ===\n")
-    
-    # インポートテスト
-    if not test_imports():
-        print("\nインポートに失敗したため、テストを中止します")
-        return
-    
-    # 各テストを実行
-    test_configuration_service()
-    test_session_state_adapter()
-    test_text_editing_service()
-    test_video_processing_service()
-    test_export_service()
-    
-    print("\n\n=== テスト完了 ===")
+    return result.wasSuccessful()
 
 
 if __name__ == "__main__":
-    main()
+    success = run_service_integration_tests()
+    sys.exit(0 if success else 1)
