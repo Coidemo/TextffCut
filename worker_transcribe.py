@@ -11,6 +11,7 @@ import os
 import sys
 import time
 import logging
+import gc
 from pathlib import Path
 
 # プロジェクトのルートディレクトリをパスに追加
@@ -163,20 +164,97 @@ def main():
             
             # ステップ2: アライメント処理
             from core.alignment_processor import AlignmentProcessor
-            alignment_processor = AlignmentProcessor(config)
             
             def alignment_progress(progress: float, message: str):
-                # アライメントは全体の50-100%
+                # アライメントは全体の50-100%（診断10% + 本番処理90%）
+                # 診断フェーズは0-10%、本番は10-100%
                 progress_callback(0.5 + progress * 0.5, f"[アライメント] {message}")
             
             # アライメント前に再度パラメータを最適化
             current_memory = memory_monitor.get_memory_usage()
             optimal_params = optimizer.get_optimal_params(current_memory)
             
-            # アライメント用のパラメータを設定
-            alignment_processor.chunk_seconds = optimal_params['align_chunk_seconds']
+            # アライメント診断を実行して最適なバッチサイズを決定
+            logger.info("アライメント用診断フェーズを開始")
             
-            logger.info(f"アライメント用パラメータ: チャンク={optimal_params['align_chunk_seconds']}秒")
+            # 診断結果のキャッシュキーを生成（ファイルパス + サイズ + セグメント数）
+            try:
+                file_stat = os.stat(video_path)
+                cache_key = f"{video_path}_{file_stat.st_size}_{len(result.segments)}"
+            except:
+                cache_key = None
+            
+            # キャッシュされた診断結果を確認
+            # 注: ユーザー環境は変わる可能性があるため、キャッシュは無効化
+            diagnostic_result = None
+            # if cache_key and hasattr(optimizer, '_alignment_diagnostic_cache'):
+            #     diagnostic_result = optimizer._alignment_diagnostic_cache.get(cache_key)
+            #     if diagnostic_result:
+            #         logger.info("キャッシュされた診断結果を使用")
+            
+            # キャッシュがない場合は診断を実行
+            if not diagnostic_result:
+                # まず診断用のAlignmentProcessorを作成
+                diagnostic_processor = AlignmentProcessor(config)
+                
+                # 診断用のサンプルセグメント（最初の10セグメント）を準備
+                sample_segments = None
+                if hasattr(result, 'to_v2_format'):
+                    v2_result = result.to_v2_format()
+                    sample_segments = v2_result.segments[:10] if len(v2_result.segments) >= 10 else v2_result.segments
+                elif result.segments:
+                    sample_segments = result.segments[:10] if len(result.segments) >= 10 else result.segments
+                
+                # 診断を実行
+                diagnostic_result = diagnostic_processor.run_diagnostic(
+                    audio_path=video_path,
+                    language=result.language,
+                    sample_segments=sample_segments,
+                    progress_callback=lambda p, m: alignment_progress(p * 0.2, f"[診断] {m}")  # 診断は全体の20%
+                )
+                
+                # 診断結果をキャッシュに保存
+                # 注: ユーザー環境は変わる可能性があるため、キャッシュは無効化
+                # if cache_key and diagnostic_result['diagnostic_completed']:
+                #     if not hasattr(optimizer, '_alignment_diagnostic_cache'):
+                #         optimizer._alignment_diagnostic_cache = {}
+                #     optimizer._alignment_diagnostic_cache[cache_key] = diagnostic_result
+                #     logger.info("診断結果をキャッシュに保存")
+                
+                # 診断用プロセッサをクリーンアップ
+                del diagnostic_processor
+                gc.collect()
+            
+            # 診断結果を使用
+            if diagnostic_result['diagnostic_completed']:
+                optimal_batch_size = diagnostic_result['optimal_batch_size']
+                logger.info(f"診断完了: 最適バッチサイズ={optimal_batch_size}")
+                logger.info(f"  - モデルメモリ: {diagnostic_result['model_memory']:.1f}%")
+                logger.info(f"  - 音声メモリ（推定）: {diagnostic_result['audio_memory']:.1f}%")
+                logger.info(f"  - バッチあたり: {diagnostic_result['batch_memory_per_segment']:.1f}%/セグメント")
+            else:
+                # 診断が失敗した場合は従来の推定ロジックを使用
+                logger.warning("診断が完了しなかったため、推定値を使用")
+                
+                # バッチサイズはチャンクサイズと相関させる（大きいチャンク = 小さいバッチ）
+                if optimal_params['align_chunk_seconds'] >= 540:
+                    optimal_batch_size = 4
+                elif optimal_params['align_chunk_seconds'] >= 360:
+                    optimal_batch_size = 6
+                elif optimal_params['align_chunk_seconds'] >= 240:
+                    optimal_batch_size = 8
+                else:
+                    optimal_batch_size = 12
+                
+                # メモリ使用率が高い場合はさらに削減
+                current_memory = memory_monitor.get_memory_usage()
+                if current_memory > 70:
+                    optimal_batch_size = max(2, optimal_batch_size // 2)
+            
+            logger.info(f"アライメント用パラメータ: バッチサイズ={optimal_batch_size}")
+            
+            # 最適化されたバッチサイズで本番用AlignmentProcessorを初期化
+            alignment_processor = AlignmentProcessor(config, batch_size=optimal_batch_size)
             
             # V2形式に変換してアライメント実行
             if hasattr(result, 'to_v2_format'):
@@ -185,11 +263,17 @@ def main():
             else:
                 segments = result.segments
             
+            # アライメント本体の実行（診断後なので進捗は20%から開始）
+            def main_alignment_progress(progress: float, message: str):
+                # 診断が20%まで使用、本体は20-100%
+                actual_progress = 0.2 + progress * 0.8
+                alignment_progress(actual_progress, message)
+            
             aligned_segments = alignment_processor.align(
                 segments,
                 video_path,
                 result.language,
-                progress_callback=alignment_progress
+                progress_callback=main_alignment_progress
             )
             
             # アライメント結果で更新

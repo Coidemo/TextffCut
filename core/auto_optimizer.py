@@ -5,10 +5,8 @@
 最適なパフォーマンスを実現する。
 """
 
-import json
 import os
 from datetime import datetime
-from pathlib import Path
 from typing import Dict, Optional, Tuple
 import logging
 
@@ -106,25 +104,10 @@ class AutoOptimizer:
         logger.info(f"AutoOptimizer initialized for {model_size} model, target memory: {self.target_memory_percent}%")
     
     def _load_or_create_profile(self) -> Dict:
-        """プロファイルの読み込みまたは作成"""
-        profile_dir = Path.home() / '.textffcut'
-        profile_path = profile_dir / f'optimizer_profile_{self.model_size}.json'
-        
-        try:
-            # ディレクトリ作成
-            profile_dir.mkdir(exist_ok=True)
-            
-            # 既存プロファイルの読み込み
-            if profile_path.exists():
-                with open(profile_path, 'r') as f:
-                    profile = json.load(f)
-                    logger.info(f"Loaded existing profile for {self.model_size}")
-                    return profile.get('optimal_params', self._get_initial_params())
-            
-        except Exception as e:
-            logger.warning(f"Failed to load profile: {e}")
-        
-        # デフォルトパラメータを返す
+        """初期パラメータを取得"""
+        # 常にデフォルトパラメータを返す
+        # ユーザー環境は実行のたびに変わる可能性があるため、
+        # 毎回診断フェーズから開始する
         return self._get_initial_params()
     
     def _get_initial_params(self) -> Dict:
@@ -416,42 +399,21 @@ class AutoOptimizer:
     
     def save_successful_run(self, params: Dict, metrics: Dict) -> None:
         """
-        成功した実行のパラメータを保存
+        成功した実行のパラメータをログに記録
         
         Args:
             params: 使用したパラメータ
             metrics: 実行メトリクス（完了時間、平均メモリ使用率等）
         """
-        try:
-            # 異常値の除外
-            if not self._is_valid_metrics(metrics):
-                logger.warning("Invalid metrics, not saving")
-                return
-            
-            profile_dir = Path.home() / '.textffcut'
-            profile_path = profile_dir / f'optimizer_profile_{self.model_size}.json'
-            
-            profile = {
-                'model_size': self.model_size,
-                'last_updated': datetime.now().isoformat(),
-                'successful_runs': metrics.get('successful_runs', 1),
-                'average_memory_usage': metrics.get('avg_memory', 0),
-                'optimal_params': params,
-                'metrics': metrics
-            }
-            
-            # ディレクトリ作成
-            profile_dir.mkdir(exist_ok=True)
-            
-            # 保存
-            with open(profile_path, 'w') as f:
-                json.dump(profile, f, indent=2)
-                
-            logger.info(f"Saved successful profile for {self.model_size}")
-            
-        except Exception as e:
-            logger.error(f"Failed to save profile: {e}")
-            # エラーでも処理は継続
+        # プロファイルの保存は行わず、ログに記録のみ
+        if not self._is_valid_metrics(metrics):
+            logger.warning("Invalid metrics, not logging")
+            return
+        
+        logger.info(f"Successful run completed for {self.model_size}:")
+        logger.info(f"  - Average memory: {metrics.get('avg_memory', 0):.1f}%")
+        logger.info(f"  - Processing time: {metrics.get('processing_time', 0):.1f}s")
+        logger.info(f"  - Optimal params: chunk={params['chunk_seconds']}s, batch={params['batch_size']}")
     
     def _is_valid_metrics(self, metrics: Dict) -> bool:
         """メトリクスの妥当性チェック"""

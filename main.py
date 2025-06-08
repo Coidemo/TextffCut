@@ -709,11 +709,6 @@ def main():
                 sample_segments=sample_texts
             )
             st.error(error.get_user_message())
-            
-            # APIモードの場合は追加情報を表示
-            if hasattr(transcription, 'model_size') and ('api' in str(transcription.model_size).lower() or 'whisper-1' in str(transcription.model_size)):
-                st.error("⚠️ APIモードでのアライメント処理が失敗しました。文字起こしを再実行してください。")
-            
             return
         
         st.markdown("---")
@@ -741,11 +736,7 @@ def main():
         try:
             full_text = transcription.get_full_text()
         except Exception as e:
-            if hasattr(e, 'get_user_message'):
-                st.error(f"⚠️ {e.get_user_message()}")
-            else:
-                st.error(f"⚠️ エラーが発生しました: {str(e)}")
-            st.info("💡 この動画の文字起こし結果は古い形式です。最新の機能を使用するには、文字起こしを再実行してください。")
+            st.error("❌ 文字位置情報（words）が見つかりません。文字起こしを再度実行して下さい。")
             return
         
         
