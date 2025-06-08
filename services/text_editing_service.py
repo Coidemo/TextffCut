@@ -11,8 +11,14 @@ import re
 from .base import BaseService, ServiceResult, ValidationError, ProcessingError
 from config import Config
 from core.text_processor import TextProcessor
-from core.models import Segment, TranscriptionResult, DiffSegment
-from utils.time_utils import format_time, parse_time
+from core import TranscriptionSegment
+from core.models import TranscriptionResultV2
+from core.text_processor import TextDifference
+
+# エイリアスを定義（互換性のため）
+Segment = TranscriptionSegment
+DiffSegment = TranscriptionSegment
+from utils.time_utils import format_time, time_to_seconds as parse_time
 
 
 class TextEditingService(BaseService):
@@ -60,10 +66,42 @@ class TextEditingService(BaseService):
             # 差分検出実行
             self.logger.info(f"差分検出開始: {len(original_segments)} セグメント")
             
-            diff_segments = self.text_processor.find_differences(
-                original_segments,
+            # セグメントから全テキストを生成
+            original_text = " ".join(seg.text for seg in original_segments)
+            
+            # 差分を検出
+            diff = self.text_processor.find_differences(
+                original_text,
                 edited_text
             )
+            
+            # 差分からセグメントを生成（time_rangesを使用）
+            from core.models import TranscriptionResultV2
+            # 仮の結果オブジェクトを作成してtime_rangesを取得
+            class MockResult:
+                def __init__(self, segments):
+                    self.segments = segments
+            
+            mock_result = MockResult(original_segments)
+            time_ranges = diff.get_time_ranges(mock_result)
+            
+            # time_rangesからセグメントを再構築
+            diff_segments = []
+            for start, end in time_ranges:
+                # 対応するセグメントを探す
+                for seg in original_segments:
+                    if seg.start <= start < seg.end or seg.start < end <= seg.end:
+                        # 部分的に重複するセグメントを追加
+                        overlap_start = max(seg.start, start)
+                        overlap_end = min(seg.end, end)
+                        if overlap_end > overlap_start:
+                            diff_segments.append(Segment(
+                                start=overlap_start,
+                                end=overlap_end,
+                                text=seg.text,
+                                words=seg.words
+                            ))
+                            break
             
             # 結果の分析
             stats = self._analyze_differences(original_segments, diff_segments)

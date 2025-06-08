@@ -12,7 +12,13 @@ import shutil
 from .base import BaseService, ServiceResult, ValidationError, ProcessingError
 from config import Config
 from core.video import VideoProcessor, VideoInfo, VideoSegment
-from core.models import Segment, TimeRange
+from core import TranscriptionSegment as Segment
+from typing import NamedTuple
+
+# TimeRangeの定義
+class TimeRange(NamedTuple):
+    start: float
+    end: float
 from core.constants import SilenceDetection
 from utils.file_utils import ensure_directory, get_safe_filename
 
@@ -29,7 +35,7 @@ class VideoProcessingService(BaseService):
     
     def _initialize(self):
         """サービス固有の初期化"""
-        self.video_processor = VideoProcessor()
+        self.video_processor = VideoProcessor(self.config)
         self.temp_dir = Path("temp")
         ensure_directory(self.temp_dir)
     

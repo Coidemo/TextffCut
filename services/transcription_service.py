@@ -15,7 +15,7 @@ from config import Config
 from core import Transcriber
 from core.transcription_smart_split import SmartSplitTranscriber
 from core.transcription_subprocess import SubprocessTranscriber
-from core.models import TranscriptionResult, TranscriptionResultV2
+from core.models import TranscriptionResultV2
 from core.constants import MemoryEstimates, ErrorMessages
 from utils.file_utils import ensure_directory
 
@@ -202,7 +202,7 @@ class TranscriptionService(BaseService):
             self.logger.error(f"キャッシュリスト取得エラー: {e}")
             return []
     
-    def load_from_cache(self, cache_path: str) -> Optional[TranscriptionResult]:
+    def load_from_cache(self, cache_path: str) -> Optional[TranscriptionResultV2]:
         """指定されたキャッシュファイルから結果を読み込み
         
         Args:
@@ -219,8 +219,8 @@ class TranscriptionService(BaseService):
             with open(cache_file, 'r', encoding='utf-8') as f:
                 data = json.load(f)
             
-            # TranscriptionResultオブジェクトに復元
-            return TranscriptionResult.from_dict(data)
+            # TranscriptionResultV2オブジェクトに復元
+            return TranscriptionResultV2.from_dict(data)
             
         except Exception as e:
             self.logger.error(f"キャッシュ読み込みエラー: {e}")
@@ -313,7 +313,7 @@ class TranscriptionService(BaseService):
         hash_input = f"{file_path.name}_{file_path.stat().st_size}_{file_path.stat().st_mtime}"
         return hashlib.md5(hash_input.encode()).hexdigest()[:8]
     
-    def _load_cache(self, cache_key: str) -> Optional[TranscriptionResult]:
+    def _load_cache(self, cache_key: str) -> Optional[TranscriptionResultV2]:
         """キャッシュを読み込み
         
         Args:
@@ -325,7 +325,7 @@ class TranscriptionService(BaseService):
         cache_file = self.cache_dir / f"{cache_key}.json"
         return self.load_from_cache(str(cache_file))
     
-    def _save_cache(self, cache_key: str, result: TranscriptionResult):
+    def _save_cache(self, cache_key: str, result: TranscriptionResultV2):
         """キャッシュを保存
         
         Args:

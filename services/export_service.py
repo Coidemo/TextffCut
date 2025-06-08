@@ -12,7 +12,7 @@ import xml.etree.ElementTree as ET
 from .base import BaseService, ServiceResult, ValidationError, ProcessingError
 from config import Config
 from core.export import FCPXMLExporter, XMEMLExporter, ExportSegment
-from core.models import Segment, VideoSegment
+from core import TranscriptionSegment as Segment, VideoSegment
 from core.video import VideoInfo
 from utils.file_utils import ensure_directory, get_safe_filename
 
@@ -29,8 +29,8 @@ class ExportService(BaseService):
     
     def _initialize(self):
         """サービス固有の初期化"""
-        self.fcpxml_exporter = FCPXMLExporter()
-        self.xmeml_exporter = XMEMLExporter()
+        self.fcpxml_exporter = FCPXMLExporter(self.config)
+        self.xmeml_exporter = XMEMLExporter(self.config)
     
     def execute(self, **kwargs) -> ServiceResult:
         """汎用実行メソッド（export_fcpxmlにデリゲート）"""

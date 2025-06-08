@@ -85,6 +85,15 @@ class AudioProcessing:
     DEFAULT_DURATION_ESTIMATE: Final[float] = 3600.0  # デフォルトの推定時間（1時間）
 
 
+class SilenceDetection:
+    """無音検出関連の定数"""
+    DEFAULT_THRESHOLD: Final[float] = -35.0  # デフォルトの無音判定閾値（dB）
+    MIN_SILENCE_DURATION: Final[float] = 0.3  # 最小無音時間（秒）
+    MIN_SEGMENT_DURATION: Final[float] = 0.3  # 最小セグメント時間（秒）
+    DEFAULT_PAD_START: Final[float] = 0.0  # デフォルトの開始パディング（秒）
+    DEFAULT_PAD_END: Final[float] = 0.0  # デフォルトの終了パディング（秒）
+
+
 class MemoryEstimates:
     """メモリ使用量の推定値"""
     # 利用可能メモリの計算

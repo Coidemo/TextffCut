@@ -15,7 +15,8 @@ from .text_editing_service import TextEditingService
 from .video_processing_service import VideoProcessingService
 from .export_service import ExportService
 from config import Config
-from core.models import TranscriptionResult, Segment
+from core.models import TranscriptionResultV2
+from core import TranscriptionSegment as Segment
 from utils.file_utils import ensure_directory, get_safe_filename
 
 
