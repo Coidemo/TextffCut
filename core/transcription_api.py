@@ -1081,6 +1081,7 @@ class APITranscriber:
                 'audio_path': audio_path,
                 'segments': v2_segments,  # V2形式のセグメント
                 'language': self.api_config.language,
+                'model_size': 'base',  # APIモードではbaseモデル相当のメモリ使用量を想定
                 'config': {
                     'transcription': {
                         'language': self.config.transcription.language,
