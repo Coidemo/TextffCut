@@ -10,12 +10,14 @@ import time
 import tempfile
 import subprocess
 from pathlib import Path
-from typing import List, Optional, Callable, Dict, Any
+from typing import List, Optional, Callable, Dict, Any, Tuple
 import numpy as np
+import gc
 
 from config import Config
 from utils.logging import get_logger
 from .exceptions import AlignmentError
+from core.memory_monitor import MemoryMonitor
 
 from .interfaces import IAlignmentProcessor
 from .models import (
@@ -40,15 +42,226 @@ class AlignmentProcessor(IAlignmentProcessor):
     # デフォルト値
     DEFAULT_BATCH_SIZE = 8
     
-    def __init__(self, config: Config):
-        """初期化"""
+    def __init__(self, config: Config, batch_size: Optional[int] = None):
+        """初期化
+        
+        Args:
+            config: 設定オブジェクト
+            batch_size: バッチサイズ（Noneの場合はデフォルト値を使用）
+        """
         self.config = config
         self.device = "cuda" if self._check_cuda_available() else "cpu"
         self.align_model = None
         self.metadata = None
         self.temp_dir = None
+        self.batch_size = batch_size if batch_size is not None else self.DEFAULT_BATCH_SIZE
         
-        logger.info(f"アライメントプロセッサー初期化: device={self.device}")
+        logger.info(f"アライメントプロセッサー初期化: device={self.device}, batch_size={self.batch_size}")
+    
+    def run_diagnostic(self, audio_path: str, language: str, 
+                       sample_segments: Optional[List[TranscriptionSegmentV2]] = None,
+                       progress_callback: Optional[Callable[[float, str], None]] = None) -> Dict[str, Any]:
+        """
+        アライメント処理の診断を実行し、最適なパラメータを推定
+        
+        Args:
+            audio_path: 音声ファイルのパス
+            language: 言語コード
+            sample_segments: テスト用のサンプルセグメント（Noneの場合はダミーを生成）
+            progress_callback: 進捗報告用コールバック
+            
+        Returns:
+            診断結果（最適バッチサイズ、メモリ使用量など）
+        """
+        logger.info("アライメント診断フェーズ開始")
+        memory_monitor = MemoryMonitor()
+        
+        # 初期メモリ
+        initial_memory = memory_monitor.get_memory_usage()
+        logger.info(f"診断開始時メモリ: {initial_memory:.1f}%")
+        
+        diagnostic_result = {
+            'initial_memory': initial_memory,
+            'model_memory': 0,
+            'audio_memory': 0,
+            'batch_memory_per_segment': 0,
+            'optimal_batch_size': self.DEFAULT_BATCH_SIZE,
+            'max_safe_batch_size': self.DEFAULT_BATCH_SIZE,
+            'diagnostic_completed': False
+        }
+        
+        try:
+            # Step 1: アライメントモデルのロード
+            if progress_callback:
+                progress_callback(0.2, "アライメントモデルを読み込み中...")
+            
+            self._load_align_model(language)
+            gc.collect()  # 明示的なガベージコレクション
+            
+            model_loaded_memory = memory_monitor.get_memory_usage()
+            diagnostic_result['model_memory'] = model_loaded_memory - initial_memory
+            logger.info(f"モデルロード後メモリ: {model_loaded_memory:.1f}% (増加: {diagnostic_result['model_memory']:.1f}%)")
+            
+            # Step 2: 音声データの読み込み（部分的）
+            if progress_callback:
+                progress_callback(0.4, "音声データを読み込み中...")
+            
+            # 最初の60秒分だけ読み込んでメモリ使用量を推定
+            try:
+                import subprocess
+                self.temp_dir = tempfile.mkdtemp(prefix="textffcut_align_diag_")
+                temp_audio_path = os.path.join(self.temp_dir, "diagnostic_audio.wav")
+                
+                # 最初の60秒を抽出
+                cmd = [
+                    "ffmpeg", "-y", "-i", audio_path,
+                    "-t", "60",  # 60秒
+                    "-ar", "16000", "-ac", "1",
+                    "-f", "wav", temp_audio_path
+                ]
+                subprocess.run(cmd, capture_output=True, check=True)
+                
+                # 部分音声を読み込み
+                test_audio = self._load_audio(temp_audio_path)
+                gc.collect()
+                
+                audio_loaded_memory = memory_monitor.get_memory_usage()
+                audio_memory_60s = audio_loaded_memory - model_loaded_memory
+                
+                # 全体の音声時間を取得して比率計算
+                duration_result = subprocess.run(
+                    ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
+                     "-of", "csv=p=0", audio_path],
+                    capture_output=True, text=True
+                )
+                total_duration = float(duration_result.stdout.strip()) if duration_result.stdout else 3600
+                
+                # 全音声データのメモリ使用量を推定
+                diagnostic_result['audio_memory'] = (audio_memory_60s * total_duration) / 60
+                logger.info(f"音声メモリ推定: {diagnostic_result['audio_memory']:.1f}% (60秒分: {audio_memory_60s:.1f}%)")
+                
+                # テスト用音声を削除してメモリ解放
+                del test_audio
+                if os.path.exists(temp_audio_path):
+                    os.unlink(temp_audio_path)
+                gc.collect()
+                
+            except Exception as e:
+                logger.warning(f"音声メモリ推定エラー: {e}")
+                # エラー時は保守的な推定値を使用
+                diagnostic_result['audio_memory'] = 10.0  # 10%と仮定
+            
+            # Step 3: バッチ処理のテスト
+            if progress_callback:
+                progress_callback(0.6, "バッチ処理をテスト中...")
+            
+            # サンプルセグメントがない場合はダミーを生成
+            if not sample_segments:
+                sample_segments = self._generate_dummy_segments(10)  # 10個のダミーセグメント
+            
+            # 小規模バッチでテスト（1, 2, 4セグメント）
+            test_batch_sizes = [1, 2, 4]
+            memory_increases = []
+            
+            # 全音声データを読み込み（実際の診断のため）
+            full_audio = self._load_audio(audio_path)
+            base_memory = memory_monitor.get_memory_usage()
+            
+            for test_size in test_batch_sizes:
+                if test_size > len(sample_segments):
+                    continue
+                    
+                try:
+                    # バッチ処理を実行
+                    test_batch = sample_segments[:test_size]
+                    start_memory = memory_monitor.get_memory_usage()
+                    
+                    # 実際にアライメント処理を実行（エラーは無視）
+                    try:
+                        self._process_batch(test_batch, full_audio, language)
+                    except Exception:
+                        pass  # アライメントエラーは無視（メモリ測定が目的）
+                    
+                    end_memory = memory_monitor.get_memory_usage()
+                    memory_increase = end_memory - start_memory
+                    memory_increases.append(memory_increase / test_size)  # 1セグメントあたり
+                    
+                    logger.info(f"バッチサイズ {test_size}: メモリ増加 {memory_increase:.1f}% ({memory_increase/test_size:.1f}%/セグメント)")
+                    
+                    # メモリが高すぎる場合は中断
+                    if end_memory > 85:
+                        logger.warning("メモリ使用率が高いため診断を中断")
+                        break
+                        
+                except Exception as e:
+                    logger.warning(f"バッチテストエラー (size={test_size}): {e}")
+            
+            # メモリ増加率から最適バッチサイズを計算
+            if memory_increases:
+                avg_memory_per_segment = sum(memory_increases) / len(memory_increases)
+                diagnostic_result['batch_memory_per_segment'] = avg_memory_per_segment
+                
+                # 現在のメモリ使用量
+                current_total_memory = base_memory
+                
+                # 利用可能なメモリ（目標75%まで）
+                available_memory = 75.0 - current_total_memory
+                
+                # 最大安全バッチサイズを計算
+                if avg_memory_per_segment > 0:
+                    max_safe_batch = int(available_memory / avg_memory_per_segment)
+                    max_safe_batch = max(1, min(max_safe_batch, 16))  # 1-16の範囲
+                else:
+                    max_safe_batch = 8
+                
+                # 最適バッチサイズ（安全マージンを考慮）
+                optimal_batch = max(1, max_safe_batch // 2)  # 50%マージン
+                
+                diagnostic_result['max_safe_batch_size'] = max_safe_batch
+                diagnostic_result['optimal_batch_size'] = optimal_batch
+                
+                logger.info(f"診断結果: 1セグメントあたり{avg_memory_per_segment:.1f}%のメモリ使用")
+                logger.info(f"推奨バッチサイズ: {optimal_batch} (最大安全: {max_safe_batch})")
+            
+            # クリーンアップ
+            del full_audio
+            gc.collect()
+            
+            diagnostic_result['diagnostic_completed'] = True
+            
+            if progress_callback:
+                progress_callback(1.0, "診断完了")
+                
+        except Exception as e:
+            logger.error(f"診断エラー: {e}")
+            # エラー時は保守的なデフォルト値を使用
+            diagnostic_result['optimal_batch_size'] = 4
+            diagnostic_result['diagnostic_completed'] = False
+        
+        finally:
+            # 一時ディレクトリのクリーンアップ
+            if self.temp_dir and os.path.exists(self.temp_dir):
+                import shutil
+                try:
+                    shutil.rmtree(self.temp_dir)
+                except:
+                    pass
+                self.temp_dir = None
+        
+        return diagnostic_result
+    
+    def _generate_dummy_segments(self, count: int) -> List[TranscriptionSegmentV2]:
+        """診断用のダミーセグメントを生成"""
+        segments = []
+        for i in range(count):
+            segment = TranscriptionSegmentV2(
+                id=f"dummy_{i}",
+                text=f"これはテスト用のダミーテキストです。セグメント番号{i}。" * 5,  # 適度な長さ
+                start=i * 10.0,
+                end=(i + 1) * 10.0
+            )
+            segments.append(segment)
+        return segments
     
     def align(
         self,
@@ -85,7 +298,7 @@ class AlignmentProcessor(IAlignmentProcessor):
             audio_data = self._load_audio(audio_path)
             
             # バッチ処理の準備
-            batch_size = self.DEFAULT_BATCH_SIZE  # デフォルト値を使用
+            batch_size = self.batch_size  # インスタンス変数を使用
             total_batches = (len(segments) + batch_size - 1) // batch_size
             
             aligned_segments = []
