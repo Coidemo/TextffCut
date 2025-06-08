@@ -98,23 +98,12 @@ if defined DOCKER_MEM_STR (
 
 echo    Docker Desktop割り当て: %DOCKER_MEM_GB%GB
 
-REM Docker Desktopの割り当てメモリに基づいて推奨値を計算（75%を基本）
-set /a RECOMMENDED_MEM=%DOCKER_MEM_GB%*75/100
+REM Docker Desktopの割り当てメモリに基づいて推奨値を計算（80%を基本）
+set /a RECOMMENDED_MEM=%DOCKER_MEM_GB%*80/100
 
-REM 最小値の設定（メモリサイズに応じて）
-if %DOCKER_MEM_GB% geq 16 (
-    set MIN_MEM=6
-) else if %DOCKER_MEM_GB% geq 8 (
-    set MIN_MEM=3
-) else if %DOCKER_MEM_GB% geq 4 (
-    set MIN_MEM=2
-) else (
-    set MIN_MEM=1
-)
-
-REM 最小値を下回らないように調整
-if %RECOMMENDED_MEM% lss %MIN_MEM% (
-    set RECOMMENDED_MEM=%MIN_MEM%
+REM 最低1GBは確保（極小環境用の安全策）
+if %RECOMMENDED_MEM% lss 1 (
+    set RECOMMENDED_MEM=1
 )
 
 REM 推奨値がDocker割り当てを超えないようにチェック（念のため）
@@ -134,8 +123,6 @@ echo     deploy: >> docker-compose.override.yml
 echo       resources: >> docker-compose.override.yml
 echo         limits: >> docker-compose.override.yml
 echo           memory: %RECOMMENDED_MEM%g >> docker-compose.override.yml
-echo         reservations: >> docker-compose.override.yml
-echo           memory: %MIN_MEM%g >> docker-compose.override.yml
 echo     environment: >> docker-compose.override.yml
 echo       - TEXTFFCUT_MEMORY_LIMIT=%RECOMMENDED_MEM%g >> docker-compose.override.yml
 
@@ -296,23 +283,12 @@ fi
 
 echo "   Docker Desktop割り当て: ${DOCKER_MEM_GB}GB"
 
-# Docker Desktopの割り当てメモリに基づいて推奨値を計算（75%を基本）
-RECOMMENDED_MEM=$(( DOCKER_MEM_GB * 75 / 100 ))
+# Docker Desktopの割り当てメモリに基づいて推奨値を計算（80%を基本）
+RECOMMENDED_MEM=$(( DOCKER_MEM_GB * 80 / 100 ))
 
-# 最小値の設定（メモリサイズに応じて）
-if [ $DOCKER_MEM_GB -ge 16 ]; then
-    MIN_MEM=6
-elif [ $DOCKER_MEM_GB -ge 8 ]; then
-    MIN_MEM=3
-elif [ $DOCKER_MEM_GB -ge 4 ]; then
-    MIN_MEM=2
-else
-    MIN_MEM=1
-fi
-
-# 最小値を下回らないように調整
-if [ $RECOMMENDED_MEM -lt $MIN_MEM ]; then
-    RECOMMENDED_MEM=$MIN_MEM
+# 最低1GBは確保（極小環境用の安全策）
+if [ $RECOMMENDED_MEM -lt 1 ]; then
+    RECOMMENDED_MEM=1
 fi
 
 # 推奨値がDocker割り当てを超えないようにチェック（念のため）
@@ -333,8 +309,6 @@ services:
       resources:
         limits:
           memory: ${RECOMMENDED_MEM}g
-        reservations:
-          memory: ${MIN_MEM}g
     environment:
       - TEXTFFCUT_MEMORY_LIMIT=${RECOMMENDED_MEM}g
 OVERRIDE_EOF
