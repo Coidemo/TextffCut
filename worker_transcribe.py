@@ -247,7 +247,7 @@ def main():
                     optimal_batch_size = 12
                 
                 # メモリ使用率が高い場合はさらに削減
-                current_memory = auto_optimizer.memory_monitor.get_memory_usage()
+                current_memory = memory_monitor.get_memory_usage()
                 if current_memory > 70:
                     optimal_batch_size = max(2, optimal_batch_size // 2)
             

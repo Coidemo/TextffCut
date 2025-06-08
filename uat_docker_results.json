@@ -1,21 +1,18 @@
 {
-  "test_date": "2025-06-07T23:10:42.356619",
+  "test_date": "2025-06-08T11:10:39.347668",
   "environment": "Docker",
   "tests": [
     {
       "name": "1. Dockerコンテナ状態確認",
-      "status": "passed",
-      "duration": 0.024369001388549805,
-      "details": {
-        "container_id": "0cc40fc897f6",
-        "status": "Up 23 seconds (healthy)",
-        "ports": "0.0.0.0:8501->8501/tcp"
-      }
+      "status": "failed",
+      "duration": 0.016775131225585938,
+      "details": {},
+      "error": "TextffCutコンテナが見つかりません"
     },
     {
       "name": "2. WebUIアクセシビリティ",
       "status": "passed",
-      "duration": 0.011482000350952148,
+      "duration": 0.012454748153686523,
       "details": {
         "http_status": "200"
       }
@@ -23,7 +20,7 @@
     {
       "name": "3. ボリュームマウント確認",
       "status": "passed",
-      "duration": 0.0002579689025878906,
+      "duration": 0.00023293495178222656,
       "details": {
         "videos_path": "/Users/naoki/myProject/TextffCut/videos",
         "writable": true
@@ -32,7 +29,7 @@
     {
       "name": "4. Dockerログ確認",
       "status": "passed",
-      "duration": 0.012247085571289062,
+      "duration": 0.015540838241577148,
       "details": {
         "has_errors": false,
         "healthy": true
@@ -41,7 +38,7 @@
     {
       "name": "5. ブラウザ機能テスト",
       "status": "passed",
-      "duration": 3.814697265625e-06,
+      "duration": 4.0531158447265625e-06,
       "details": {
         "ui_accessible": true,
         "test_note": "手動でのブラウザ確認を推奨"
@@ -50,8 +47,8 @@
   ],
   "summary": {
     "total": 5,
-    "passed": 5,
-    "failed": 0,
+    "passed": 4,
+    "failed": 1,
     "warnings": 0
   }
 }

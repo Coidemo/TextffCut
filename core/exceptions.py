@@ -106,25 +106,7 @@ class WordsFieldMissingError(TranscriptionValidationError):
     
     def get_user_message(self) -> str:
         """ユーザー向けメッセージを取得"""
-        messages = [
-            "❌ 文字位置情報（words）が取得できませんでした",
-            "",
-            "この情報は動画の正確な切り抜きに必須です。",
-            f"問題のあるセグメント数: {self.segment_count}個",
-            "",
-            "📝 解決方法:",
-            "1. 文字起こしを再実行してください",
-            "2. APIモードの場合は、アライメント処理が必要です",
-            "3. ローカルモードの場合は、メモリ不足の可能性があります"
-        ]
-        
-        if self.details.get("invalid_segments"):
-            messages.append("")
-            messages.append("サンプル:")
-            for i, text in enumerate(self.details["invalid_segments"][:3]):
-                messages.append(f"  - {text[:50]}...")
-        
-        return "\n".join(messages)
+        return "❌ 文字位置情報（words）が見つかりません。文字起こしを再度実行して下さい。"
 
 
 class AlignmentError(ProcessingError):
