@@ -239,6 +239,13 @@ class AlignmentProcessor(IAlignmentProcessor):
             diagnostic_result['diagnostic_completed'] = False
         
         finally:
+            # 音声データのクリーンアップ
+            if 'full_audio' in locals():
+                del full_audio
+            if 'test_audio' in locals():
+                del test_audio
+            gc.collect()
+            
             # 一時ディレクトリのクリーンアップ
             if self.temp_dir and os.path.exists(self.temp_dir):
                 import shutil

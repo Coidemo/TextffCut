@@ -186,8 +186,8 @@ def main():
             
             # キャッシュされた診断結果を確認
             diagnostic_result = None
-            if cache_key and hasattr(auto_optimizer, '_alignment_diagnostic_cache'):
-                diagnostic_result = auto_optimizer._alignment_diagnostic_cache.get(cache_key)
+            if cache_key and hasattr(optimizer, '_alignment_diagnostic_cache'):
+                diagnostic_result = optimizer._alignment_diagnostic_cache.get(cache_key)
                 if diagnostic_result:
                     logger.info("キャッシュされた診断結果を使用")
             
@@ -214,9 +214,9 @@ def main():
                 
                 # 診断結果をキャッシュに保存
                 if cache_key and diagnostic_result['diagnostic_completed']:
-                    if not hasattr(auto_optimizer, '_alignment_diagnostic_cache'):
-                        auto_optimizer._alignment_diagnostic_cache = {}
-                    auto_optimizer._alignment_diagnostic_cache[cache_key] = diagnostic_result
+                    if not hasattr(optimizer, '_alignment_diagnostic_cache'):
+                        optimizer._alignment_diagnostic_cache = {}
+                    optimizer._alignment_diagnostic_cache[cache_key] = diagnostic_result
                     logger.info("診断結果をキャッシュに保存")
                 
                 # 診断用プロセッサをクリーンアップ
