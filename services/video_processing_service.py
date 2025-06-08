@@ -328,7 +328,6 @@ class VideoProcessingService(BaseService):
                 'width': video_info.width,
                 'height': video_info.height,
                 'codec': video_info.codec,
-                'bitrate': video_info.bitrate,
                 'size': video_file.stat().st_size,
                 'format': video_file.suffix.lstrip('.')
             }
