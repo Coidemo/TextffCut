@@ -98,25 +98,23 @@ if defined DOCKER_MEM_STR (
 
 echo    Docker Desktop割り当て: %DOCKER_MEM_GB%GB
 
-REM Docker Desktopの割り当てメモリに基づいて推奨値を計算
-if %DOCKER_MEM_GB% geq 64 (
-    set RECOMMENDED_MEM=48
-    set MIN_MEM=16
-) else if %DOCKER_MEM_GB% geq 32 (
-    set RECOMMENDED_MEM=24
-    set MIN_MEM=12
-) else if %DOCKER_MEM_GB% geq 16 (
-    set RECOMMENDED_MEM=12
+REM Docker Desktopの割り当てメモリに基づいて推奨値を計算（75%を基本）
+set /a RECOMMENDED_MEM=%DOCKER_MEM_GB%*75/100
+
+REM 最小値の設定（メモリサイズに応じて）
+if %DOCKER_MEM_GB% geq 16 (
     set MIN_MEM=6
 ) else if %DOCKER_MEM_GB% geq 8 (
-    set RECOMMENDED_MEM=6
     set MIN_MEM=3
 ) else if %DOCKER_MEM_GB% geq 4 (
-    set RECOMMENDED_MEM=3
     set MIN_MEM=2
 ) else (
-    set RECOMMENDED_MEM=2
     set MIN_MEM=1
+)
+
+REM 最小値を下回らないように調整
+if %RECOMMENDED_MEM% lss %MIN_MEM% (
+    set RECOMMENDED_MEM=%MIN_MEM%
 )
 
 REM 推奨値がDocker割り当てを超えないようにチェック（念のため）
@@ -298,25 +296,23 @@ fi
 
 echo "   Docker Desktop割り当て: ${DOCKER_MEM_GB}GB"
 
-# Docker Desktopの割り当てメモリに基づいて推奨値を計算
-if [ $DOCKER_MEM_GB -ge 64 ]; then
-    RECOMMENDED_MEM=48
-    MIN_MEM=16
-elif [ $DOCKER_MEM_GB -ge 32 ]; then
-    RECOMMENDED_MEM=24
-    MIN_MEM=12
-elif [ $DOCKER_MEM_GB -ge 16 ]; then
-    RECOMMENDED_MEM=12
+# Docker Desktopの割り当てメモリに基づいて推奨値を計算（75%を基本）
+RECOMMENDED_MEM=$(( DOCKER_MEM_GB * 75 / 100 ))
+
+# 最小値の設定（メモリサイズに応じて）
+if [ $DOCKER_MEM_GB -ge 16 ]; then
     MIN_MEM=6
 elif [ $DOCKER_MEM_GB -ge 8 ]; then
-    RECOMMENDED_MEM=6
     MIN_MEM=3
 elif [ $DOCKER_MEM_GB -ge 4 ]; then
-    RECOMMENDED_MEM=3
     MIN_MEM=2
 else
-    RECOMMENDED_MEM=2
     MIN_MEM=1
+fi
+
+# 最小値を下回らないように調整
+if [ $RECOMMENDED_MEM -lt $MIN_MEM ]; then
+    RECOMMENDED_MEM=$MIN_MEM
 fi
 
 # 推奨値がDocker割り当てを超えないようにチェック（念のため）
