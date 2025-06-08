@@ -16,7 +16,25 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 📌 安定版情報 (重要)
 
-### v1.01 (2025-05-30) ⭐ **最新安定版**
+### v0.9.6 (2025-06-09) ⭐ **最新安定版**
+- **タグ**: `v0.9.6`
+- **コミット**: `b5c1ce1`
+- **リモート**: GitHubにプッシュ済み
+
+#### 主な特徴
+- ✅ Docker Desktop割り当てメモリの80%を自動計算して使用
+- ✅ メモリ管理の最適化（PC物理メモリではなくDocker割り当てベース）
+- ✅ 大容量メモリ環境（128GB等）でも適切にスケール
+- ✅ 効率的なWAVベース無音検出（90分動画対応）
+- ✅ FCPXMLエクスポート最適化（隙間を詰めて配置）
+- ✅ 時間範囲ベースの統一的な処理フロー
+
+#### 新機能 (v0.9.6)
+- **メモリ自動最適化**: Docker Desktop割り当てメモリを基準に適切な設定
+- **スケーラビリティ**: 大規模環境でも安定動作
+- **柔軟性向上**: reservations設定を削除し、より動的な動作を実現
+
+### v1.01 (2025-05-30)
 - **タグ**: `v1.01`
 - **リモート**: GitHubにプッシュ済み
 
@@ -26,11 +44,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - ✅ 効率的なWAVベース無音検出（90分動画対応）
 - ✅ FCPXMLエクスポート最適化（隙間を詰めて配置）
 - ✅ 時間範囲ベースの統一的な処理フロー
-
-#### 新機能 (v1.01)
-- **PAD設定**: セグメント開始前・終了後のパディング時間（0-0.5秒）を調整可能
-- **自然なつなぎ**: 音の急激な切り替わりを緩和して聞きやすい動画に
-- **UI最適化**: 文字起こしボタンの配置・色調整、レイアウト統一
 
 ### v1.0.0-stable (2024-05-28)
 - **タグ**: `v1.0.0-stable`
@@ -46,6 +59,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 #### 安定版に戻る方法
 ```bash
 # 最新安定版に戻る（推奨）
+git checkout v0.9.6
+
+# 前バージョンの安定版に戻る
 git checkout v1.01
 
 # 旧安定版に戻る
@@ -289,6 +305,6 @@ python -c "from core.export import FCPXMLExporter; print('Export OK')"
 
 ---
 
-最終更新: 2025-06-01
+最終更新: 2025-06-09
 次回開発時はこのファイルを必ず確認してください。
-特に安定版（v1.01）の情報は重要です。
+特に安定版（v0.9.6）の情報は重要です。
