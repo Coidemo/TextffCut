@@ -102,10 +102,7 @@ class ExportService(BaseService):
             self.fcpxml_exporter.export(
                 segments=export_segments,
                 output_path=str(output_file),
-                video_path=str(video_file),
-                project_name=project_name,
-                event_name=event_name,
-                video_info=video_info
+                project_name=project_name
             )
             
             # エクスポートファイルの検証
@@ -196,9 +193,7 @@ class ExportService(BaseService):
             self.xmeml_exporter.export(
                 segments=export_segments,
                 output_path=str(output_file),
-                video_path=str(video_file),
-                sequence_name=sequence_name,
-                video_info=video_info
+                project_name=sequence_name
             )
             
             # エクスポートファイルの検証

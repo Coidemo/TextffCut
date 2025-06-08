@@ -107,7 +107,6 @@ class TranscriptionService(BaseService):
             result = transcriber.transcribe(
                 video_path=str(video_file),
                 model_size=model_size,
-                language=language,
                 progress_callback=wrapped_callback,
                 use_cache=False,  # 内部キャッシュは使わない
                 save_cache=False,
