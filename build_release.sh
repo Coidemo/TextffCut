@@ -72,50 +72,44 @@ set HOST_VIDEOS_PATH=%cd%\videos
 REM ===========================================
 REM メモリ最適化設定
 REM ===========================================
-echo [メモリ] システムメモリを確認しています...
+echo [メモリ] Docker Desktopのメモリ設定を確認しています...
 
-REM Windowsでのメモリ取得（MB単位で取得してGB変換）
-for /f "tokens=2 delims==" %%i in ('wmic computersystem get TotalPhysicalMemory /value ^| findstr "="') do set TOTAL_MEM_BYTES=%%i
-set /a TOTAL_MEM_GB=%TOTAL_MEM_BYTES:~0,-9%+1
-
-REM 利用可能メモリを取得
-for /f "skip=1" %%i in ('wmic OS get FreePhysicalMemory') do (
-    set FREE_MEM_KB=%%i
-    goto :gotfreemem
+REM Docker Desktopに割り当てられたメモリを取得
+for /f "tokens=3" %%i in ('docker system info 2^>nul ^| findstr "Total Memory"') do (
+    set DOCKER_MEM_STR=%%i
+    goto :gotdockermem
 )
-:gotfreemem
-set /a AVAILABLE_MEM_GB=%FREE_MEM_KB%/1048576
+:gotdockermem
 
-echo    総メモリ: %TOTAL_MEM_GB%GB
-echo    利用可能: %AVAILABLE_MEM_GB%GB
-
-REM 推奨メモリ設定を計算
-if %TOTAL_MEM_GB% geq 32 (
-    set RECOMMENDED_MEM=16
-    set MIN_MEM=8
-) else if %TOTAL_MEM_GB% geq 16 (
-    set RECOMMENDED_MEM=12
-    set MIN_MEM=6
-) else if %TOTAL_MEM_GB% geq 12 (
-    set RECOMMENDED_MEM=8
-    set MIN_MEM=4
-) else if %TOTAL_MEM_GB% geq 8 (
-    set RECOMMENDED_MEM=6
-    set MIN_MEM=3
+REM GiBからGBに変換
+if defined DOCKER_MEM_STR (
+    REM GiBを削除して数値のみ取得（小数点は切り捨て）
+    set DOCKER_MEM_STR=%DOCKER_MEM_STR:GiB=%
+    for /f "tokens=1 delims=." %%a in ("%DOCKER_MEM_STR%") do set DOCKER_MEM_GB=%%a
 ) else (
-    set RECOMMENDED_MEM=4
-    set MIN_MEM=2
+    REM 取得できない場合はPCの物理メモリから推定
+    for /f "tokens=2 delims==" %%i in ('wmic computersystem get TotalPhysicalMemory /value ^| findstr "="') do set TOTAL_MEM_BYTES=%%i
+    set /a TOTAL_MEM_GB=%TOTAL_MEM_BYTES:~0,-9%+1
+    REM Docker Desktopのデフォルトは物理メモリの半分程度
+    set /a DOCKER_MEM_GB=%TOTAL_MEM_GB%/2
+    echo    ※ Docker Desktopのメモリ設定を取得できませんでした
+    echo    物理メモリ(%TOTAL_MEM_GB%GB)から推定: %DOCKER_MEM_GB%GB
 )
 
-REM 利用可能メモリが推奨値より少ない場合は調整
-if %AVAILABLE_MEM_GB% lss %RECOMMENDED_MEM% (
-    set /a ADJUSTED_MEM=%AVAILABLE_MEM_GB%*70/100
-    if %ADJUSTED_MEM% lss %MIN_MEM% (
-        set RECOMMENDED_MEM=%MIN_MEM%
-    ) else (
-        set RECOMMENDED_MEM=%ADJUSTED_MEM%
-    )
-    echo    ※ 利用可能メモリが少ないため、%RECOMMENDED_MEM%GBに調整しました
+echo    Docker Desktop割り当て: %DOCKER_MEM_GB%GB
+
+REM Docker Desktopの割り当てメモリに基づいて推奨値を計算（80%を基本）
+set /a RECOMMENDED_MEM=%DOCKER_MEM_GB%*80/100
+
+REM 最低1GBは確保（極小環境用の安全策）
+if %RECOMMENDED_MEM% lss 1 (
+    set RECOMMENDED_MEM=1
+)
+
+REM 推奨値がDocker割り当てを超えないようにチェック（念のため）
+if %RECOMMENDED_MEM% gtr %DOCKER_MEM_GB% (
+    set RECOMMENDED_MEM=%DOCKER_MEM_GB%
+    echo    ※ Docker Desktop割り当てを超えないよう、%RECOMMENDED_MEM%GBに調整しました
 )
 
 echo    割り当てメモリ: %RECOMMENDED_MEM%GB
@@ -129,8 +123,6 @@ echo     deploy: >> docker-compose.override.yml
 echo       resources: >> docker-compose.override.yml
 echo         limits: >> docker-compose.override.yml
 echo           memory: %RECOMMENDED_MEM%g >> docker-compose.override.yml
-echo         reservations: >> docker-compose.override.yml
-echo           memory: %MIN_MEM%g >> docker-compose.override.yml
 echo     environment: >> docker-compose.override.yml
 echo       - TEXTFFCUT_MEMORY_LIMIT=%RECOMMENDED_MEM%g >> docker-compose.override.yml
 
@@ -273,47 +265,36 @@ export HOST_VIDEOS_PATH="${SCRIPT_DIR}/videos"
 # ===========================================
 # メモリ最適化設定
 # ===========================================
-echo "💾 システムメモリを確認しています..."
+echo "💾 Docker Desktopのメモリ設定を確認しています..."
 
-# macOSでのメモリ取得
-TOTAL_MEM_GB=$(( $(sysctl -n hw.memsize) / 1024 / 1024 / 1024 ))
-# 利用可能メモリを計算（ページ数 × ページサイズ）
-FREE_PAGES=$(vm_stat | grep "Pages free" | awk '{print $3}' | sed 's/\.//')
-INACTIVE_PAGES=$(vm_stat | grep "Pages inactive" | awk '{print $3}' | sed 's/\.//')
-PURGEABLE_PAGES=$(vm_stat | grep "Pages purgeable" | awk '{print $3}' | sed 's/\.//')
-AVAILABLE_PAGES=$((FREE_PAGES + INACTIVE_PAGES + PURGEABLE_PAGES))
-AVAILABLE_MEM_GB=$(( AVAILABLE_PAGES * 4096 / 1024 / 1024 / 1024 ))
-
-echo "   総メモリ: ${TOTAL_MEM_GB}GB"
-echo "   利用可能: ${AVAILABLE_MEM_GB}GB"
-
-# 推奨メモリ設定を計算（改訂版）
-if [ $TOTAL_MEM_GB -ge 32 ]; then
-    RECOMMENDED_MEM=16
-    MIN_MEM=8
-elif [ $TOTAL_MEM_GB -ge 16 ]; then
-    RECOMMENDED_MEM=12
-    MIN_MEM=6
-elif [ $TOTAL_MEM_GB -ge 12 ]; then
-    RECOMMENDED_MEM=8
-    MIN_MEM=4
-elif [ $TOTAL_MEM_GB -ge 8 ]; then
-    RECOMMENDED_MEM=6
-    MIN_MEM=3
+# Docker Desktopに割り当てられたメモリを取得
+DOCKER_MEM_BYTES=$(docker system info 2>/dev/null | grep "Total Memory" | awk '{print $3}' | sed 's/GiB//')
+if [ -n "$DOCKER_MEM_BYTES" ]; then
+    # GiBからGBに変換（小数点以下切り捨て）
+    DOCKER_MEM_GB=$(echo "$DOCKER_MEM_BYTES" | awk '{print int($1)}')
 else
-    RECOMMENDED_MEM=4
-    MIN_MEM=2
+    # 取得できない場合はMacの物理メモリから推定
+    TOTAL_MEM_GB=$(( $(sysctl -n hw.memsize) / 1024 / 1024 / 1024 ))
+    # Docker Desktopのデフォルトは物理メモリの半分程度
+    DOCKER_MEM_GB=$(( TOTAL_MEM_GB / 2 ))
+    echo "   ⚠️  Docker Desktopのメモリ設定を取得できませんでした"
+    echo "   物理メモリ(${TOTAL_MEM_GB}GB)から推定: ${DOCKER_MEM_GB}GB"
 fi
 
-# 利用可能メモリが推奨値より少ない場合は調整（70%を上限）
-if [ $AVAILABLE_MEM_GB -lt $RECOMMENDED_MEM ]; then
-    ADJUSTED_MEM=$(( AVAILABLE_MEM_GB * 70 / 100 ))
-    if [ $ADJUSTED_MEM -lt $MIN_MEM ]; then
-        RECOMMENDED_MEM=$MIN_MEM
-    else
-        RECOMMENDED_MEM=$ADJUSTED_MEM
-    fi
-    echo "   ⚠️  利用可能メモリが少ないため、${RECOMMENDED_MEM}GBに調整しました"
+echo "   Docker Desktop割り当て: ${DOCKER_MEM_GB}GB"
+
+# Docker Desktopの割り当てメモリに基づいて推奨値を計算（80%を基本）
+RECOMMENDED_MEM=$(( DOCKER_MEM_GB * 80 / 100 ))
+
+# 最低1GBは確保（極小環境用の安全策）
+if [ $RECOMMENDED_MEM -lt 1 ]; then
+    RECOMMENDED_MEM=1
+fi
+
+# 推奨値がDocker割り当てを超えないようにチェック（念のため）
+if [ $RECOMMENDED_MEM -gt $DOCKER_MEM_GB ]; then
+    RECOMMENDED_MEM=$DOCKER_MEM_GB
+    echo "   ⚠️  Docker Desktop割り当てを超えないよう、${RECOMMENDED_MEM}GBに調整しました"
 fi
 
 echo "   割り当てメモリ: ${RECOMMENDED_MEM}GB"
@@ -328,8 +309,6 @@ services:
       resources:
         limits:
           memory: ${RECOMMENDED_MEM}g
-        reservations:
-          memory: ${MIN_MEM}g
     environment:
       - TEXTFFCUT_MEMORY_LIMIT=${RECOMMENDED_MEM}g
 OVERRIDE_EOF
