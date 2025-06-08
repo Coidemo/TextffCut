@@ -20,6 +20,7 @@ from .text_editing_service import TextEditingService
 from .video_processing_service import VideoProcessingService
 from .export_service import ExportService
 from .workflow_service import WorkflowService, WorkflowSettings
+from .integration_service import IntegrationService
 
 __all__ = [
     # Base
@@ -37,6 +38,7 @@ __all__ = [
     'VideoProcessingService',
     'ExportService',
     'WorkflowService',
+    'IntegrationService',
     
     # Settings
     'WorkflowSettings'

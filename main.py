@@ -4,13 +4,16 @@ TextffCut - メインアプリケーション
 """
 import streamlit as st
 from pathlib import Path
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Any, Dict
 import subprocess
 from datetime import datetime
 import os
 
 from config import config
-from core.constants import MemoryEstimates, ErrorMessages
+from core.constants import (
+    MemoryEstimates, ErrorMessages, ProcessingDefaults, ModelSettings,
+    ApiSettings, SilenceDetection, PerformanceSettings
+)
 from core import Transcriber, TextProcessor, ExportSegment, VideoSegment
 from core.transcription_smart_split import SmartSplitTranscriber
 from core.transcription_subprocess import SubprocessTranscriber
@@ -20,6 +23,8 @@ from utils import ProcessingContext, cleanup_intermediate_files
 from utils.exceptions import BuzzClipError, VideoProcessingError, TranscriptionError
 from core.alignment_processor import AlignmentProcessor
 from core.exceptions import WordsFieldMissingError
+from core.error_handling import ErrorHandler
+from services.integration_service import IntegrationService
 from ui import (
     show_video_input,
     show_api_key_manager,
@@ -135,7 +140,7 @@ st.markdown("""
 apply_dark_mode_styles()
 
 
-def debug_words_status(result):
+def debug_words_status(result: Any) -> None:
     """wordsフィールドの状態を詳細に出力（デバッグ用）"""
     from utils.logging import get_logger
     logger = get_logger(__name__)
@@ -154,7 +159,7 @@ def debug_words_status(result):
                 logger.warning(f"  セグメント{i}: wordsなし! - {seg.text[:30]}...")
 
 
-def main():
+def main() -> None:
     """メインアプリケーション"""
     
     # ロゴを表示（ダークモード対応）
@@ -368,14 +373,14 @@ def main():
                     st.markdown("**🤖 モデル選択**")
                     model_options = ["base (高速・低精度)", "small (高速・普通精度)", "medium (普通速度・高精度)", "large-v3 (低速・最高精度)"]
                     model_values = ["base", "small", "medium", "large-v3"]
-                    default_local_index = 2  # medium
+                    default_local_index = model_values.index(ModelSettings.DEFAULT_SIZE)
                     
                     # セッション状態から前回の選択を取得
-                    previous_model = st.session_state.get('local_model_size', 'medium')
+                    previous_model = st.session_state.get('local_model_size', ModelSettings.DEFAULT_SIZE)
                     try:
                         default_local_index = model_values.index(previous_model)
                     except ValueError:
-                        default_local_index = 2  # medium
+                        default_local_index = model_values.index(ModelSettings.DEFAULT_SIZE)
                     
                     selected_option = st.selectbox(
                         "ローカルモデル",
@@ -435,7 +440,7 @@ def main():
                         st.markdown(f"${cost_data['cost_usd']:.3f} (約{cost_data['cost_jpy']:.0f}円)")
                     else:
                         # フォールバック（サービスエラー時）
-                        estimated_cost_usd = duration_minutes * 0.006
+                        estimated_cost_usd = duration_minutes * ApiSettings.OPENAI_COST_PER_MINUTE
                         estimated_cost_jpy = estimated_cost_usd * 150
                         st.markdown("**💰 推定料金**")
                         st.markdown(f"${estimated_cost_usd:.3f} (約{estimated_cost_jpy:.0f}円)")
@@ -445,7 +450,7 @@ def main():
             
             # API利用時の注意事項をコンパクトに表示
             if use_api:
-                st.caption("⚠️ API料金: $0.006/分 | 為替変動あり | [最新料金](https://openai.com/pricing)を確認")
+                st.caption(f"⚠️ API料金: ${ApiSettings.OPENAI_COST_PER_MINUTE}/分 | 為替変動あり | [最新料金](https://openai.com/pricing)を確認")
                 
                 # 自動最適化モード（固定・内部処理）
                 pass
@@ -503,16 +508,49 @@ def main():
                 
                 st.rerun()
                     
-        except FileNotFoundError:
-            st.error("📁 指定された動画ファイルが見つかりません。パスを確認してください。")
+        except FileNotFoundError as e:
+            # 新しいエラーハンドリングシステムを使用
+            from core.error_handling import FileValidationError
+            
+            file_error = FileValidationError(
+                "指定された動画ファイルが見つかりません",
+                details={"path": str(video_path)}
+            )
+            
+            logger = get_logger(__name__)
+            error_handler = ErrorHandler(logger)
+            error_info = error_handler.handle_error(file_error)
+            st.error(f"📁 {error_info['user_message']}")
             return
+            
         except OSError as e:
-            st.error(f"💾 ファイルアクセスエラー: {str(e)}")
+            # 新しいエラーハンドリングシステムを使用
+            from core.error_handling import ResourceError
+            
+            resource_error = ResourceError(
+                f"ファイルアクセスエラー: {str(e)}",
+                original_error=e
+            )
+            
+            logger = get_logger(__name__)
+            error_handler = ErrorHandler(logger)
+            error_info = error_handler.handle_error(resource_error)
+            st.error(f"💾 {error_info['user_message']}")
             return
+            
         except Exception as e:
-            from utils.exceptions import BuzzClipError
-            error = BuzzClipError(f"動画情報の取得に失敗: {str(e)}")
-            st.error(error.get_user_message())
+            # 新しいエラーハンドリングシステムを使用
+            from core.error_handling import ProcessingError
+            
+            wrapped_error = ProcessingError(
+                f"動画情報の取得に失敗: {str(e)}",
+                original_error=e
+            )
+            
+            logger = get_logger(__name__)
+            error_handler = ErrorHandler(logger)
+            error_info = error_handler.handle_error(wrapped_error)
+            st.error(error_info['user_message'])
             return
     
     # 文字起こし実行の判定
@@ -696,11 +734,25 @@ def main():
                 progress_bar.empty()
                 progress_text.empty()
                 
-                st.error(f"❌ メモリ不足エラー: {str(e)}")
-                st.error("💡 対処法:")
-                st.error("1. より小さなモデル（medium等）を使用してください")
-                st.error("2. 他のアプリケーションを終了してメモリを解放してください")
-                st.error("3. システムのメモリを増設してください")
+                # 新しいエラーハンドリングシステムを使用
+                from core.error_handling import ResourceError
+                memory_error = ResourceError(
+                    f"メモリ不足エラー: {str(e)}",
+                    original_error=e,
+                    recovery_suggestions=[
+                        f"より小さなモデル（{ModelSettings.DEFAULT_SIZE}等）を使用してください",
+                        "他のアプリケーションを終了してメモリを解放してください",
+                        "システムのメモリを増設してください"
+                    ]
+                )
+                
+                logger = get_logger(__name__)
+                error_handler = ErrorHandler(logger)
+                error_info = error_handler.handle_error(memory_error)
+                
+                st.error(f"❌ {error_info['user_message']}")
+                for suggestion in error_info.get('recovery_suggestions', []):
+                    st.error(f"💡 {suggestion}")
                 
             except Exception as e:
                 # その他のエラー
@@ -709,12 +761,27 @@ def main():
                 progress_bar.empty()
                 progress_text.empty()
                 
-                from utils.exceptions import BuzzClipError, TranscriptionError
-                if isinstance(e, TranscriptionError):
+                # 新しい統一エラーハンドリングシステムを使用
+                from core.error_handling import ProcessingError, TranscriptionError as NewTranscriptionError
+                from utils.exceptions import TranscriptionError as LegacyTranscriptionError
+                
+                logger = get_logger(__name__)
+                error_handler = ErrorHandler(logger)
+                
+                # 既存のエラー型との互換性を維持
+                if isinstance(e, LegacyTranscriptionError):
                     st.error(e.get_user_message())
+                elif isinstance(e, (ProcessingError, NewTranscriptionError)):
+                    error_info = error_handler.handle_error(e)
+                    st.error(error_info["user_message"])
                 else:
-                    error = BuzzClipError(f"文字起こし処理でエラーが発生しました: {str(e)}")
-                    st.error(error.get_user_message())
+                    # 未知のエラーをProcessingErrorでラップ
+                    wrapped_error = ProcessingError(
+                        f"文字起こし処理でエラーが発生しました: {str(e)}",
+                        original_error=e
+                    )
+                    error_info = error_handler.handle_error(wrapped_error)
+                    st.error(error_info["user_message"])
     
     # 文字起こし結果の処理
     if 'transcription_result' in st.session_state and st.session_state.transcription_result:
@@ -1265,12 +1332,28 @@ def main():
                         
                         
                     except Exception as e:
-                        from utils.exceptions import BuzzClipError, VideoProcessingError, TranscriptionError
+                        # 新しい統一エラーハンドリングシステムを使用
+                        from core.error_handling import ProcessingError, ValidationError
+                        from utils.logging import get_logger
+                        
+                        logger = get_logger(__name__)
+                        error_handler = ErrorHandler(logger)
+                        
+                        # 既存のエラー型の互換性を維持
+                        from utils.exceptions import VideoProcessingError
                         if isinstance(e, VideoProcessingError):
                             st.error(e.get_user_message())
+                        elif isinstance(e, (ProcessingError, ValidationError)):
+                            error_info = error_handler.handle_error(e)
+                            st.error(error_info["user_message"])
                         else:
-                            error = BuzzClipError(f"動画処理中にエラーが発生しました: {str(e)}")
-                            st.error(error.get_user_message())
+                            # 未知のエラーをProcessingErrorでラップ
+                            wrapped_error = ProcessingError(
+                                f"動画処理中にエラーが発生しました: {str(e)}",
+                                original_error=e
+                            )
+                            error_info = error_handler.handle_error(wrapped_error)
+                            st.error(error_info["user_message"])
 
     # モーダル表示
     if st.session_state.get('show_modal', False):

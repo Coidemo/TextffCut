@@ -48,6 +48,7 @@ class ApiSettings:
     OPENAI_MODEL: Final[str] = "whisper-1"
     OPENAI_MAX_FILE_SIZE: Final[int] = 25 * 1024 * 1024  # 25MB
     OPENAI_CHUNK_DURATION: Final[int] = 600  # 10分
+    OPENAI_COST_PER_MINUTE: Final[float] = 0.006  # $0.006/分（2025年5月時点）
     
     # リトライ設定
     API_MAX_RETRIES: Final[int] = 3
