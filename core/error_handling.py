@@ -195,6 +195,12 @@ class FFmpegError(ExternalSystemError):
     user_message = "動画処理システムでエラーが発生しました"
 
 
+class ExternalServiceError(ExternalSystemError):
+    """外部サービスエラー（APIなど）"""
+    error_code = "EXTERNAL_SERVICE_ERROR"
+    user_message = "外部サービスでエラーが発生しました"
+
+
 class WhisperError(ExternalSystemError):
     """Whisperエラー"""
     error_code = "WHISPER_ERROR"

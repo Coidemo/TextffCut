@@ -2,6 +2,10 @@
 """
 ワーカープロセス用の文字起こし処理スクリプト（リファクタリング版）
 
+# 旧実装から新実装への移行
+このファイルは後方互換性のために維持されていますが、
+新しいorchestrator.TranscriptionWorkerクラスを使用することを推奨します。
+
 責任を明確に分離したクラスベースの実装。
 """
 
@@ -18,6 +22,13 @@ from dataclasses import dataclass
 
 # プロジェクトのルートディレクトリをパスに追加
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# 新しいTranscriptionWorkerクラスをインポート
+try:
+    from orchestrator import TranscriptionWorker as NewTranscriptionWorker
+    NEW_WORKER_AVAILABLE = True
+except ImportError:
+    NEW_WORKER_AVAILABLE = False
 
 # 定数をインポート
 from core.constants import (

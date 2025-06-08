@@ -8,6 +8,67 @@ TextffCut 共通定数定義
 from typing import Final
 
 
+class ProcessingDefaults:
+    """処理全般のデフォルト設定"""
+    # 言語設定
+    LANGUAGE: Final[str] = "ja"  # デフォルト言語（日本語）
+    
+    # ファイル設定
+    OUTPUT_FORMAT: Final[str] = "mp4"  # デフォルト出力形式
+    TEMP_DIR_PREFIX: Final[str] = "textffcut_"  # 一時ディレクトリプレフィックス
+    
+    # タイムアウト設定
+    PROCESS_TIMEOUT: Final[int] = 3600  # プロセスタイムアウト（秒）
+    SUBPROCESS_TIMEOUT: Final[int] = 300  # サブプロセスタイムアウト（秒）
+    
+    # リトライ設定
+    MAX_RETRIES: Final[int] = 3  # 最大リトライ回数
+    RETRY_DELAY: Final[float] = 1.0  # リトライ遅延（秒）
+
+
+class ModelSettings:
+    """モデル関連の設定"""
+    # デフォルトモデル
+    DEFAULT_SIZE: Final[str] = "medium"  # デフォルトモデルサイズ
+    DEFAULT_COMPUTE_TYPE: Final[str] = "int8"  # デフォルト計算精度
+    
+    # モデルサイズ一覧
+    AVAILABLE_SIZES: Final[tuple] = ("base", "small", "medium", "large", "large-v3")
+    
+    # VAD設定
+    VAD_THRESHOLD: Final[float] = 0.5  # Voice Activity Detection閾値
+    VAD_MIN_SPEECH_DURATION: Final[float] = 0.1  # 最小発話時間（秒）
+    VAD_MIN_SILENCE_DURATION: Final[float] = 0.1  # 最小無音時間（秒）
+
+
+class ApiSettings:
+    """API関連の設定"""
+    # OpenAI Whisper API
+    OPENAI_API_URL: Final[str] = "https://api.openai.com/v1/audio/transcriptions"
+    OPENAI_MODEL: Final[str] = "whisper-1"
+    OPENAI_MAX_FILE_SIZE: Final[int] = 25 * 1024 * 1024  # 25MB
+    OPENAI_CHUNK_DURATION: Final[int] = 600  # 10分
+    
+    # リトライ設定
+    API_MAX_RETRIES: Final[int] = 3
+    API_RETRY_DELAY: Final[float] = 2.0
+    API_TIMEOUT: Final[int] = 300  # 5分
+
+
+class PerformanceSettings:
+    """パフォーマンス関連の設定"""
+    # 並列処理
+    DEFAULT_NUM_WORKERS: Final[int] = 2
+    MAX_PARALLEL_JOBS: Final[int] = 4
+    
+    # プログレスバー
+    PROGRESS_UPDATE_INTERVAL: Final[float] = 0.1  # 更新間隔（秒）
+    
+    # キャッシュ
+    ENABLE_CACHE: Final[bool] = True
+    CACHE_SIZE_MB: Final[int] = 500  # キャッシュサイズ（MB）
+
+
 class MemoryThresholds:
     """メモリ使用率の閾値定義"""
     # 緊急レベル

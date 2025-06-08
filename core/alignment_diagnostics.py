@@ -6,7 +6,8 @@
 """
 
 from dataclasses import dataclass
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, Any
+from enum import Enum
 import logging
 import time
 import gc
@@ -18,6 +19,31 @@ from core.memory_monitor import MemoryMonitor
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+class DiagnosticLevel(Enum):
+    """診断レベル"""
+    OK = "ok"           # 正常
+    WARNING = "warning" # 警告
+    ERROR = "error"     # エラー
+    CRITICAL = "critical" # 致命的
+
+
+@dataclass
+class SegmentDiagnostic:
+    """セグメント単位の診断結果"""
+    segment_id: str
+    level: DiagnosticLevel
+    message: str
+    details: Optional[Dict[str, Any]] = None
+    
+    def is_ok(self) -> bool:
+        """正常かどうか"""
+        return self.level == DiagnosticLevel.OK
+    
+    def is_warning_or_worse(self) -> bool:
+        """警告以上かどうか"""
+        return self.level in [DiagnosticLevel.WARNING, DiagnosticLevel.ERROR, DiagnosticLevel.CRITICAL]
 
 
 @dataclass
@@ -394,3 +420,176 @@ class AlignmentDiagnostics:
             recommendations.append("処理前にメモリを解放することを推奨")
         
         return recommendations, warnings
+    
+    def analyze_segment(
+        self,
+        segment: 'TranscriptionSegmentV2',
+        context: Optional[Dict[str, Any]] = None
+    ) -> SegmentDiagnostic:
+        """
+        個別セグメントを診断
+        
+        Args:
+            segment: 診断対象セグメント
+            context: 追加のコンテキスト情報
+            
+        Returns:
+            セグメント診断結果
+        """
+        # 基本的な検証
+        if not segment.text or not segment.text.strip():
+            return SegmentDiagnostic(
+                segment_id=segment.id,
+                level=DiagnosticLevel.ERROR,
+                message="テキストが空です",
+                details={"text_length": 0}
+            )
+        
+        # タイムスタンプの検証
+        if segment.start < 0 or segment.end <= segment.start:
+            return SegmentDiagnostic(
+                segment_id=segment.id,
+                level=DiagnosticLevel.ERROR,
+                message=f"無効なタイムスタンプ: {segment.start}-{segment.end}",
+                details={"start": segment.start, "end": segment.end}
+            )
+        
+        # アライメント情報の検証
+        if segment.alignment_completed:
+            if not segment.words:
+                return SegmentDiagnostic(
+                    segment_id=segment.id,
+                    level=DiagnosticLevel.WARNING,
+                    message="アライメント完了だがword情報がありません",
+                    details={"has_words": False}
+                )
+            
+            # word情報の品質チェック
+            valid_words = sum(1 for w in segment.words if hasattr(w, 'start') and hasattr(w, 'end'))
+            if valid_words < len(segment.words) * 0.8:
+                return SegmentDiagnostic(
+                    segment_id=segment.id,
+                    level=DiagnosticLevel.WARNING,
+                    message=f"word情報の品質が低い: {valid_words}/{len(segment.words)}",
+                    details={"valid_words": valid_words, "total_words": len(segment.words)}
+                )
+        
+        # セグメントの長さチェック
+        duration = segment.end - segment.start
+        if duration > 300:  # 5分以上
+            return SegmentDiagnostic(
+                segment_id=segment.id,
+                level=DiagnosticLevel.WARNING,
+                message=f"セグメントが長すぎます: {duration:.1f}秒",
+                details={"duration": duration}
+            )
+        
+        # 正常
+        return SegmentDiagnostic(
+            segment_id=segment.id,
+            level=DiagnosticLevel.OK,
+            message="正常",
+            details={"duration": duration, "text_length": len(segment.text)}
+        )
+    
+    def analyze_result(
+        self,
+        result: 'TranscriptionResultV2'
+    ) -> Dict[str, Any]:
+        """
+        文字起こし結果全体を診断
+        
+        Args:
+            result: 文字起こし結果
+            
+        Returns:
+            診断結果の辞書
+        """
+        segment_diagnostics = []
+        level_counts = {level: 0 for level in DiagnosticLevel}
+        
+        # 各セグメントを診断
+        for segment in result.segments:
+            diag = self.analyze_segment(segment)
+            segment_diagnostics.append(diag)
+            level_counts[diag.level] += 1
+        
+        # 全体的な診断
+        total_segments = len(result.segments)
+        
+        # 全体レベルの判定
+        if level_counts[DiagnosticLevel.CRITICAL] > 0:
+            overall_level = DiagnosticLevel.CRITICAL
+        elif level_counts[DiagnosticLevel.ERROR] > total_segments * 0.1:
+            overall_level = DiagnosticLevel.ERROR
+        elif level_counts[DiagnosticLevel.WARNING] > total_segments * 0.3:
+            overall_level = DiagnosticLevel.WARNING
+        else:
+            overall_level = DiagnosticLevel.OK
+        
+        return {
+            "overall_level": overall_level.value,
+            "level_counts": {level.value: count for level, count in level_counts.items()},
+            "segment_diagnostics": [
+                {
+                    "segment_id": d.segment_id,
+                    "level": d.level.value,
+                    "message": d.message,
+                    "details": d.details
+                }
+                for d in segment_diagnostics
+                if d.level != DiagnosticLevel.OK  # OKは省略
+            ],
+            "summary": {
+                "total_segments": total_segments,
+                "ok_segments": level_counts[DiagnosticLevel.OK],
+                "warning_segments": level_counts[DiagnosticLevel.WARNING],
+                "error_segments": level_counts[DiagnosticLevel.ERROR],
+                "critical_segments": level_counts[DiagnosticLevel.CRITICAL]
+            }
+        }
+    
+    def generate_report(
+        self,
+        result: 'TranscriptionResultV2',
+        include_ok: bool = False
+    ) -> str:
+        """
+        診断レポートを生成
+        
+        Args:
+            result: 文字起こし結果
+            include_ok: 正常なセグメントも含めるか
+            
+        Returns:
+            レポート文字列
+        """
+        analysis = self.analyze_result(result)
+        
+        lines = ["=== アライメント診断レポート ==="]
+        lines.append(f"全体評価: {analysis['overall_level']}")
+        lines.append("")
+        
+        # サマリー
+        lines.append("サマリー:")
+        summary = analysis['summary']
+        lines.append(f"  総セグメント数: {summary['total_segments']}")
+        lines.append(f"  正常: {summary['ok_segments']}")
+        if summary['warning_segments'] > 0:
+            lines.append(f"  警告: {summary['warning_segments']}")
+        if summary['error_segments'] > 0:
+            lines.append(f"  エラー: {summary['error_segments']}")
+        if summary['critical_segments'] > 0:
+            lines.append(f"  致命的: {summary['critical_segments']}")
+        lines.append("")
+        
+        # 問題のあるセグメント
+        if analysis['segment_diagnostics']:
+            lines.append("問題のあるセグメント:")
+            for diag in analysis['segment_diagnostics']:
+                lines.append(f"  [{diag['level']}] {diag['segment_id']}: {diag['message']}")
+                if diag.get('details'):
+                    for key, value in diag['details'].items():
+                        lines.append(f"    - {key}: {value}")
+        
+        return "\n".join(lines)
