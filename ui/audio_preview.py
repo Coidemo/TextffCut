@@ -5,6 +5,7 @@ import streamlit as st
 from pathlib import Path
 from typing import List, Tuple, Optional
 import tempfile
+import uuid
 
 from core.video import VideoProcessor
 from utils.logging import get_logger
@@ -90,6 +91,16 @@ def generate_audio_preview(
         from config import config
         video_processor = VideoProcessor(config)
         
+        # 動画ファイルの存在確認
+        if not Path(video_path).exists():
+            logger.error(f"動画ファイルが存在しません: {video_path}")
+            return None
+        
+        # 時間範囲が空でないことを確認
+        if not time_ranges:
+            logger.warning("時間範囲が指定されていません")
+            return None
+        
         # 一時ディレクトリを使用
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
@@ -107,17 +118,27 @@ def generate_audio_preview(
                 video_path,
                 segments,
                 str(output_audio_path),
-                progress_callback
+                progress_callback,
+                preview_mode=True  # プレビューモードで高速処理
             )
             
             if success and output_audio_path.exists():
-                # Streamlitの一時ディレクトリにコピー
+                # ファイルサイズを確認
+                file_size = output_audio_path.stat().st_size
+                if file_size == 0:
+                    logger.warning("生成された音声ファイルが空です")
+                    return None
+                
+                # Streamlitの一時ディレクトリにコピー（UUID使用で衝突回避）
                 import shutil
-                final_path = Path(tempfile.gettempdir()) / f"preview_audio_{hash(str(time_ranges))}.wav"
+                final_path = Path(tempfile.gettempdir()) / f"preview_audio_{uuid.uuid4()}.wav"
                 shutil.copy2(str(output_audio_path), str(final_path))
+                logger.info(f"音声プレビューファイル生成完了: {final_path} ({file_size} bytes)")
                 return str(final_path)
+            else:
+                logger.error("音声抽出に失敗しました")
             
     except Exception as e:
-        logger.error(f"音声プレビュー生成エラー: {e}")
+        logger.error(f"音声プレビュー生成エラー: {e}", exc_info=True)
     
     return None

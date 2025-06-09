@@ -17,8 +17,12 @@ from utils.file_utils import ensure_directory, get_safe_filename
 from utils.time_utils import format_time
 from utils import ProcessingContext, cleanup_intermediate_files
 from utils.exceptions import BuzzClipError, VideoProcessingError, TranscriptionError
+from utils.logging import get_logger
 from core.alignment_processor import AlignmentProcessor
 from core.exceptions import WordsFieldMissingError
+from typing import Dict, Any
+
+logger = get_logger(__name__)
 from ui import (
     show_video_input,
     show_api_key_manager,
@@ -149,6 +153,39 @@ def debug_words_status(result):
                 logger.info(f"  セグメント{i}: {len(seg.words)}words - {seg.text[:30]}...")
             else:
                 logger.warning(f"  セグメント{i}: wordsなし! - {seg.text[:30]}...")
+
+
+def calculate_time_ranges(full_text: str, edited_text: str, transcription: Dict[str, Any]) -> List[Tuple[float, float]]:
+    """編集テキストから時間範囲を計算する共通関数"""
+    text_processor = TextProcessor()
+    separator_patterns = ["---", "——", "－－－"]
+    found_separator = None
+    
+    for pattern in separator_patterns:
+        if pattern in edited_text:
+            found_separator = pattern
+            break
+    
+    if found_separator:
+        return text_processor.find_differences_with_separator(
+            full_text, edited_text, transcription, found_separator
+        )
+    else:
+        diff = text_processor.find_differences(full_text, edited_text)
+        return diff.get_time_ranges(transcription)
+
+
+def cleanup_old_preview_files():
+    """古い音声プレビューファイルをクリーンアップ"""
+    import tempfile
+    temp_dir = Path(tempfile.gettempdir())
+    for file in temp_dir.glob("preview_audio_*.wav"):
+        try:
+            # 1時間以上古いファイルを削除
+            if (datetime.now().timestamp() - file.stat().st_mtime) > 3600:
+                file.unlink()
+        except:
+            pass
 
 
 def main():
@@ -857,20 +894,22 @@ def main():
                             # エラー状態をクリア
                             st.session_state.show_error_and_delete = False
                             
+                            # 古い音声プレビューファイルをクリーンアップ
+                            cleanup_old_preview_files()
+                            
                             # 音声プレビューを自動生成
                             saved_edited_text = edited_text
-                            # time_rangesを計算
-                            if found_separator:
-                                preview_time_ranges = text_processor.find_differences_with_separator(full_text, saved_edited_text, transcription, found_separator)
-                            else:
-                                diff = text_processor.find_differences(full_text, saved_edited_text)
-                                preview_time_ranges = diff.get_time_ranges(transcription)
+                            preview_time_ranges = calculate_time_ranges(full_text, saved_edited_text, transcription)
                             
                             if preview_time_ranges:
                                 from ui.audio_preview import generate_audio_preview
-                                audio_path = generate_audio_preview(video_path, preview_time_ranges)
-                                if audio_path and Path(audio_path).exists():
-                                    st.session_state.preview_audio_path = audio_path
+                                try:
+                                    audio_path = generate_audio_preview(video_path, preview_time_ranges)
+                                    if audio_path and Path(audio_path).exists():
+                                        st.session_state.preview_audio_path = audio_path
+                                except Exception as e:
+                                    logger.error(f"音声プレビュー生成エラー: {e}")
+                                    st.warning("音声プレビューの生成に失敗しました")
                             
                             st.rerun()
             
@@ -887,27 +926,19 @@ def main():
                         # 音声ファイルがない場合は生成
                         if 'preview_audio_path' not in st.session_state or not Path(st.session_state.get('preview_audio_path', '')).exists():
                             # time_rangesを計算
-                            text_processor = TextProcessor()
-                            separator_patterns = ["---", "——", "－－－"]
-                            found_separator = None
-                            for pattern in separator_patterns:
-                                if pattern in saved_edited_text:
-                                    found_separator = pattern
-                                    break
-                            
-                            if found_separator:
-                                preview_time_ranges = text_processor.find_differences_with_separator(full_text, saved_edited_text, transcription, found_separator)
-                            else:
-                                diff = text_processor.find_differences(full_text, saved_edited_text)
-                                preview_time_ranges = diff.get_time_ranges(transcription)
+                            preview_time_ranges = calculate_time_ranges(full_text, saved_edited_text, transcription)
                             
                             if preview_time_ranges:
                                 with st.spinner("音声を準備中..."):
                                     from ui.audio_preview import generate_audio_preview
-                                    audio_path = generate_audio_preview(video_path, preview_time_ranges)
-                                    if audio_path and Path(audio_path).exists():
-                                        st.session_state.preview_audio_path = audio_path
-                                        st.rerun()
+                                    try:
+                                        audio_path = generate_audio_preview(video_path, preview_time_ranges)
+                                        if audio_path and Path(audio_path).exists():
+                                            st.session_state.preview_audio_path = audio_path
+                                            st.rerun()
+                                    except Exception as e:
+                                        logger.error(f"音声プレビュー生成エラー: {e}")
+                                        st.error("音声プレビューの生成に失敗しました。動画ファイルが正しく読み込めるか確認してください。")
                         
                         # 音声プレーヤーを表示
                         if 'preview_audio_path' in st.session_state:
