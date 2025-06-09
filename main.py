@@ -179,13 +179,30 @@ def cleanup_old_preview_files():
     """古い音声プレビューファイルをクリーンアップ"""
     import tempfile
     temp_dir = Path(tempfile.gettempdir())
+    current_file = st.session_state.get('preview_audio_path', '')
+    
     for file in temp_dir.glob("preview_audio_*.wav"):
         try:
-            # 1時間以上古いファイルを削除
-            if (datetime.now().timestamp() - file.stat().st_mtime) > 3600:
+            # 現在使用中のファイル以外を削除
+            if str(file) != current_file:
                 file.unlink()
-        except:
-            pass
+                logger.debug(f"古いプレビューファイルを削除: {file}")
+        except Exception as e:
+            logger.debug(f"ファイル削除エラー: {file}, {e}")
+
+
+def cleanup_current_preview():
+    """現在のプレビューファイルをクリーンアップ"""
+    if 'preview_audio_path' in st.session_state:
+        try:
+            audio_path = Path(st.session_state.preview_audio_path)
+            if audio_path.exists():
+                audio_path.unlink()
+                logger.debug(f"現在のプレビューファイルを削除: {audio_path}")
+        except Exception as e:
+            logger.debug(f"プレビューファイル削除エラー: {e}")
+        finally:
+            del st.session_state.preview_audio_path
 
 
 def main():
@@ -838,15 +855,14 @@ def main():
             with button_col:
                 # 更新ボタン
                 if st.button("🔄 更新", type="primary", use_container_width=True):
-                    st.session_state.edited_text = edited_text
-                    
-                    # 古い音声ファイルを削除
-                    if 'preview_audio_path' in st.session_state:
-                        try:
-                            Path(st.session_state.preview_audio_path).unlink()
-                        except:
-                            pass
-                        del st.session_state.preview_audio_path
+                    # 音声生成中は更新を無効化
+                    if st.session_state.get('audio_preview_generating', False):
+                        st.warning("音声プレビューを生成中です。しばらくお待ちください。")
+                    else:
+                        st.session_state.edited_text = edited_text
+                        
+                        # 現在の音声ファイルを削除
+                        cleanup_current_preview()
                     
                     # 赤ハイライトがあるかチェック
                     if edited_text:
@@ -902,14 +918,33 @@ def main():
                             preview_time_ranges = calculate_time_ranges(full_text, saved_edited_text, transcription)
                             
                             if preview_time_ranges:
-                                from ui.audio_preview import generate_audio_preview
+                                from ui.audio_preview import (
+                                    generate_audio_preview,
+                                    AudioPreviewFileError,
+                                    AudioPreviewProcessingError,
+                                    AudioPreviewError
+                                )
                                 try:
+                                    # 音声生成中フラグを設定
+                                    st.session_state.audio_preview_generating = True
                                     audio_path = generate_audio_preview(video_path, preview_time_ranges)
                                     if audio_path and Path(audio_path).exists():
                                         st.session_state.preview_audio_path = audio_path
+                                except AudioPreviewFileError as e:
+                                    logger.error(f"音声プレビューファイルエラー: {e}")
+                                    st.warning(f"ファイルエラー: {e}")
+                                except AudioPreviewProcessingError as e:
+                                    logger.error(f"音声プレビュー処理エラー: {e}")
+                                    st.warning(f"処理エラー: {e}")
+                                except AudioPreviewError as e:
+                                    logger.error(f"音声プレビューエラー: {e}")
+                                    st.warning(f"エラー: {e}")
                                 except Exception as e:
-                                    logger.error(f"音声プレビュー生成エラー: {e}")
-                                    st.warning("音声プレビューの生成に失敗しました")
+                                    logger.error(f"予期しない音声プレビューエラー: {e}")
+                                    st.error("音声プレビューの生成中に予期しないエラーが発生しました")
+                                finally:
+                                    # 音声生成中フラグをクリア
+                                    st.session_state.audio_preview_generating = False
                             
                             st.rerun()
             
@@ -929,16 +964,35 @@ def main():
                             preview_time_ranges = calculate_time_ranges(full_text, saved_edited_text, transcription)
                             
                             if preview_time_ranges:
-                                with st.spinner("音声を準備中..."):
-                                    from ui.audio_preview import generate_audio_preview
-                                    try:
-                                        audio_path = generate_audio_preview(video_path, preview_time_ranges)
-                                        if audio_path and Path(audio_path).exists():
-                                            st.session_state.preview_audio_path = audio_path
-                                            st.rerun()
-                                    except Exception as e:
-                                        logger.error(f"音声プレビュー生成エラー: {e}")
-                                        st.error("音声プレビューの生成に失敗しました。動画ファイルが正しく読み込めるか確認してください。")
+                                # 音声生成中は新たな生成を防ぐ
+                                if not st.session_state.get('audio_preview_generating', False):
+                                    with st.spinner("音声を準備中..."):
+                                        from ui.audio_preview import (
+                                            generate_audio_preview,
+                                            AudioPreviewFileError,
+                                            AudioPreviewProcessingError,
+                                            AudioPreviewError
+                                        )
+                                        try:
+                                            st.session_state.audio_preview_generating = True
+                                            audio_path = generate_audio_preview(video_path, preview_time_ranges)
+                                            if audio_path and Path(audio_path).exists():
+                                                st.session_state.preview_audio_path = audio_path
+                                                st.rerun()
+                                        except AudioPreviewFileError as e:
+                                            logger.error(f"音声プレビューファイルエラー: {e}")
+                                            st.error(f"ファイルエラー: {e}")
+                                        except AudioPreviewProcessingError as e:
+                                            logger.error(f"音声プレビュー処理エラー: {e}")
+                                            st.error(f"処理エラー: {e}")
+                                        except AudioPreviewError as e:
+                                            logger.error(f"音声プレビューエラー: {e}")
+                                            st.error(f"エラー: {e}")
+                                        except Exception as e:
+                                            logger.error(f"予期しない音声プレビューエラー: {e}", exc_info=True)
+                                            st.error("音声プレビューの生成中に予期しないエラーが発生しました")
+                                        finally:
+                                            st.session_state.audio_preview_generating = False
                         
                         # 音声プレーヤーを表示
                         if 'preview_audio_path' in st.session_state:
