@@ -130,9 +130,16 @@ def generate_audio_preview(
             raise AudioPreviewError(error_msg)
         
         # 合計時間を計算して制限
-        total_duration = sum(end - start for start, end in time_ranges)
-        if total_duration > MAX_PREVIEW_DURATION:
-            logger.warning(f"プレビュー時間が{MAX_PREVIEW_DURATION}秒を超えています: {total_duration:.1f}秒")
+        original_duration = sum(end - start for start, end in time_ranges)
+        
+        # 1分制限の通知情報をセッション状態に保存
+        if original_duration > MAX_PREVIEW_DURATION:
+            if st.session_state:
+                st.session_state.preview_duration_limited = True
+                st.session_state.preview_original_duration = original_duration
+                st.session_state.preview_limited_duration = MAX_PREVIEW_DURATION
+            
+            logger.warning(f"プレビュー時間が{MAX_PREVIEW_DURATION}秒を超えています: {original_duration:.1f}秒")
             # 時間範囲を調整して最大1分に制限
             adjusted_ranges = []
             accumulated_duration = 0.0
@@ -156,6 +163,10 @@ def generate_audio_preview(
             
             time_ranges = adjusted_ranges
             logger.info(f"プレビュー時間を{MAX_PREVIEW_DURATION}秒に制限しました")
+        else:
+            # 制限されていない場合は通知情報をクリア
+            if st.session_state:
+                st.session_state.preview_duration_limited = False
         
         # 一時ディレクトリを使用
         with tempfile.TemporaryDirectory() as temp_dir:

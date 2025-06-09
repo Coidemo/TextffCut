@@ -183,15 +183,40 @@ def cleanup_old_preview_files():
     temp_dir = Path(tempfile.gettempdir())
     current_file = st.session_state.get('preview_audio_path', '')
     
+    # 削除対象ファイルをリストアップ
+    files_to_delete = []
+    total_size = 0
+    
     # TextffCut専用のプレビューファイルのみを対象にする
     for file in temp_dir.glob(f"{PREVIEW_FILE_PREFIX}*.wav"):
+        if str(file) != current_file:
+            try:
+                file_size = file.stat().st_size
+                files_to_delete.append((file, file_size))
+                total_size += file_size
+            except Exception as e:
+                logger.warning(f"ファイル情報取得エラー: {file}, {e}")
+    
+    # ログに記録
+    if files_to_delete:
+        logger.info(f"古いプレビューファイルをクリーンアップ: {len(files_to_delete)}個のファイル, 合計サイズ: {total_size / 1024 / 1024:.1f}MB")
+    
+    # 削除実行
+    deleted_count = 0
+    deleted_size = 0
+    
+    for file, file_size in files_to_delete:
         try:
-            # 現在使用中のファイル以外を削除
-            if str(file) != current_file:
-                file.unlink()
-                logger.debug(f"古いプレビューファイルを削除: {file}")
+            file.unlink()
+            deleted_count += 1
+            deleted_size += file_size
+            logger.debug(f"削除成功: {file.name} ({file_size / 1024:.1f}KB)")
         except Exception as e:
-            logger.debug(f"ファイル削除エラー: {file}, {e}")
+            logger.warning(f"ファイル削除失敗: {file}, エラー: {e}")
+    
+    # 削除結果をログに記録
+    if deleted_count > 0:
+        logger.info(f"クリーンアップ完了: {deleted_count}個のファイルを削除, 解放サイズ: {deleted_size / 1024 / 1024:.1f}MB")
 
 
 def cleanup_current_preview():
@@ -892,16 +917,26 @@ def main():
             button_col, player_col = st.columns([1, 2])
             
             with button_col:
-                # 更新ボタン
-                if st.button("🔄 更新", type="primary", use_container_width=True):
-                    # 音声生成中は更新を無効化
-                    if st.session_state.get('audio_preview_generating', False):
-                        st.warning("音声プレビューを生成中です。しばらくお待ちください。")
-                    else:
-                        st.session_state.edited_text = edited_text
-                        
-                        # 現在の音声ファイルを削除
-                        cleanup_current_preview()
+                # 更新ボタン（処理中は無効化）
+                is_processing = st.session_state.get('audio_preview_generating', False)
+                
+                # 最後の更新時刻を確認（連打防止）
+                import time
+                last_update_time = st.session_state.get('last_preview_update_time', 0)
+                current_time = time.time()
+                cooldown_period = 1.0  # 1秒のクールダウン
+                is_cooldown = (current_time - last_update_time) < cooldown_period
+                
+                # ボタンの無効化状態を決定
+                button_disabled = is_processing or is_cooldown
+                
+                if st.button("🔄 更新", type="primary", use_container_width=True, disabled=button_disabled):
+                    # 更新時刻を記録
+                    st.session_state.last_preview_update_time = current_time
+                    st.session_state.edited_text = edited_text
+                    
+                    # 現在の音声ファイルを削除
+                    cleanup_current_preview()
                     
                     # 赤ハイライトがあるかチェック
                     if edited_text:
@@ -958,20 +993,33 @@ def main():
                             
                             if preview_time_ranges:
                                 from ui.audio_preview import generate_audio_preview
+                                
+                                # 音声生成の成功/失敗を記録
+                                preview_generated = False
+                                preview_error = None
+                                
                                 try:
                                     # 音声生成中フラグを設定
                                     st.session_state.audio_preview_generating = True
                                     audio_path = generate_audio_preview(video_path, preview_time_ranges)
                                     if audio_path and Path(audio_path).exists():
                                         st.session_state.preview_audio_path = audio_path
+                                        preview_generated = True
                                 except Exception as e:
+                                    preview_error = e
                                     handle_audio_preview_error(e, error_level="warning")
                                 finally:
-                                    # 音声生成中フラグをクリア（st.rerun()の前に必ず実行）
+                                    # 音声生成中フラグをクリア
                                     st.session_state.audio_preview_generating = False
-                            
-                            # フラグクリア後にrerun
-                            st.rerun()
+                                
+                                # フラグクリア後、成功/失敗に関わらずUIを更新
+                                st.rerun()
+                
+                # ボタンの状態メッセージを表示
+                if is_processing:
+                    st.caption("🔄 音声プレビューを生成中...")
+                elif is_cooldown:
+                    st.caption("⏱️ しばらくお待ちください...")
             
             with player_col:
                 # エラーがある場合は削除ボタンを表示
@@ -993,25 +1041,38 @@ def main():
                                 if not st.session_state.get('audio_preview_generating', False):
                                     with st.spinner("音声を準備中..."):
                                         from ui.audio_preview import generate_audio_preview
+                                        
+                                        # UIを更新するかどうかのフラグ
+                                        should_rerun = False
+                                        
                                         try:
                                             st.session_state.audio_preview_generating = True
                                             audio_path = generate_audio_preview(video_path, preview_time_ranges)
                                             if audio_path and Path(audio_path).exists():
                                                 st.session_state.preview_audio_path = audio_path
-                                                # フラグをクリアしてからrerun
-                                                st.session_state.audio_preview_generating = False
-                                                st.rerun()
+                                                should_rerun = True
                                         except Exception as e:
                                             handle_audio_preview_error(e, error_level="error")
+                                            # エラー時もUIを更新してエラーメッセージを確実に表示
+                                            should_rerun = True
                                         finally:
-                                            # エラー時のみフラグをクリア（正常時は上でクリア済み）
-                                            if st.session_state.get('audio_preview_generating', False):
-                                                st.session_state.audio_preview_generating = False
+                                            # フラグを必ずクリア
+                                            st.session_state.audio_preview_generating = False
+                                        
+                                        # UIを更新
+                                        if should_rerun:
+                                            st.rerun()
                         
                         # 音声プレーヤーを表示
                         if 'preview_audio_path' in st.session_state:
                             audio_path = st.session_state.preview_audio_path
                             if Path(audio_path).exists():
+                                # 1分制限の通知を表示
+                                if st.session_state.get('preview_duration_limited', False):
+                                    original_duration = st.session_state.get('preview_original_duration', 0)
+                                    limited_duration = st.session_state.get('preview_limited_duration', 60)
+                                    st.info(f"⚠️ プレビューは最大{limited_duration:.0f}秒に制限されています（元の長さ: {original_duration:.1f}秒）")
+                                
                                 st.audio(audio_path, format='audio/wav')
         
         # 切り抜き処理
