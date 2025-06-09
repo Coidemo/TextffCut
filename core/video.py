@@ -15,6 +15,10 @@ from utils.logging import get_logger
 
 logger = get_logger(__name__)
 
+# 定数定義
+PREVIEW_SAMPLE_RATE = 22050  # プレビュー用のサンプリングレート（処理速度優先）
+WHISPER_SAMPLE_RATE = 16000  # Whisper用のサンプリングレート
+
 
 @dataclass
 class VideoInfo:
@@ -676,7 +680,7 @@ class VideoProcessor:
                 duration = segment.end - segment.start
                 # プレビューモードでは処理速度優先の設定
                 if preview_mode:
-                    # 22050Hz、モノラル、低品質だが高速
+                    # プレビュー用：処理速度優先
                     cmd = [
                         "ffmpeg", "-y",
                         "-i", str(input_path),
@@ -684,8 +688,8 @@ class VideoProcessor:
                         "-t", str(duration),
                         "-vn",
                         "-acodec", "pcm_s16le",
-                        "-ar", "22050",  # 処理速度優先のサンプリングレート
-                        "-ac", "1",      # モノラル
+                        "-ar", str(PREVIEW_SAMPLE_RATE),  # 処理速度優先のサンプリングレート
+                        "-ac", "1",  # モノラル
                         str(temp_audio)
                     ]
                 else:
@@ -697,8 +701,8 @@ class VideoProcessor:
                         "-t", str(duration),
                         "-vn",
                         "-acodec", "pcm_s16le",
-                        "-ar", "16000",  # Whisper用のサンプリングレート
-                        "-ac", "1",      # モノラル
+                        "-ar", str(WHISPER_SAMPLE_RATE),  # Whisper用のサンプリングレート
+                        "-ac", "1",  # モノラル
                         str(temp_audio)
                     ]
                 
@@ -745,7 +749,7 @@ class VideoProcessor:
                         "-safe", "0",
                         "-i", str(list_file),
                         "-acodec", "pcm_s16le",
-                        "-ar", "22050",  # プレビュー用のサンプリングレート
+                        "-ar", str(PREVIEW_SAMPLE_RATE),  # プレビュー用のサンプリングレート
                         "-ac", "1",
                         "-f", "wav",
                         str(output_audio_path)
@@ -757,7 +761,7 @@ class VideoProcessor:
                         "-safe", "0",
                         "-i", str(list_file),
                         "-acodec", "pcm_s16le",
-                        "-ar", "16000",  # Whisper用のサンプリングレート
+                        "-ar", str(WHISPER_SAMPLE_RATE),  # Whisper用のサンプリングレート
                         "-ac", "1",
                         "-f", "wav",
                         str(output_audio_path)

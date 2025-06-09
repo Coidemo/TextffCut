@@ -12,6 +12,9 @@ from utils.logging import get_logger
 
 logger = get_logger(__name__)
 
+# 定数定義
+PREVIEW_FILE_PREFIX = "textffcut_preview_audio_"
+
 
 class AudioPreviewError(Exception):
     """音声プレビュー関連のエラー基底クラス"""
@@ -185,7 +188,7 @@ def generate_audio_preview(
                 
                 # Streamlitの一時ディレクトリにコピー（UUID使用で衝突回避）
                 import shutil
-                final_path = Path(tempfile.gettempdir()) / f"preview_audio_{uuid.uuid4()}.wav"
+                final_path = Path(tempfile.gettempdir()) / f"{PREVIEW_FILE_PREFIX}{uuid.uuid4()}.wav"
                 
                 try:
                     shutil.copy2(str(output_audio_path), str(final_path))
