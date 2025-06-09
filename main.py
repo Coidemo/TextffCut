@@ -794,38 +794,22 @@ def main():
                 display_text = saved_edited_text
             
             
-            if display_text:
-                # 時間計算
-                text_processor = TextProcessor()
-                
-                # 区切り文字パターンをチェック
-                separator_patterns = ["---", "——", "－－－"]
-                found_separator = None
-                
-                for pattern in separator_patterns:
-                    if pattern in display_text:
-                        found_separator = pattern
-                        break
-                
-                if found_separator:
-                    time_ranges = text_processor.find_differences_with_separator(full_text, display_text, transcription, found_separator)
-                    sections = text_processor.split_text_by_separator(display_text, found_separator)
-                    separator_info = f" / セクション数: {len(sections)}"
-                else:
-                    diff = text_processor.find_differences(full_text, display_text)
-                    time_ranges = diff.get_time_ranges(transcription)
-                    separator_info = ""
-                
-                total_duration = sum(end - start for start, end in time_ranges)
-                st.caption(f"文字数: {len(display_text)}文字 / 時間: {total_duration:.1f}秒（無音削除前）{separator_info}")
             
-            # ボタンを横並びに配置
-            button_col1, button_col2 = st.columns([1, 2])
+            # ボタンとプレーヤーを横並びに配置（1:2の比率）
+            button_col, player_col = st.columns([1, 2])
             
-            with button_col1:
+            with button_col:
                 # 更新ボタン
                 if st.button("🔄 更新", type="primary", use_container_width=True):
                     st.session_state.edited_text = edited_text
+                    
+                    # 古い音声ファイルを削除
+                    if 'preview_audio_path' in st.session_state:
+                        try:
+                            Path(st.session_state.preview_audio_path).unlink()
+                        except:
+                            pass
+                        del st.session_state.preview_audio_path
                     
                     # 赤ハイライトがあるかチェック
                     if edited_text:
@@ -872,14 +856,64 @@ def main():
                         else:
                             # エラー状態をクリア
                             st.session_state.show_error_and_delete = False
+                            
+                            # 音声プレビューを自動生成
+                            saved_edited_text = edited_text
+                            # time_rangesを計算
+                            if found_separator:
+                                preview_time_ranges = text_processor.find_differences_with_separator(full_text, saved_edited_text, transcription, found_separator)
+                            else:
+                                diff = text_processor.find_differences(full_text, saved_edited_text)
+                                preview_time_ranges = diff.get_time_ranges(transcription)
+                            
+                            if preview_time_ranges:
+                                from ui.audio_preview import generate_audio_preview
+                                audio_path = generate_audio_preview(video_path, preview_time_ranges)
+                                if audio_path and Path(audio_path).exists():
+                                    st.session_state.preview_audio_path = audio_path
+                            
                             st.rerun()
             
-            with button_col2:
-                # 削除ボタン（エラーがある場合のみ表示）
+            with player_col:
+                # エラーがある場合は削除ボタンを表示
                 if st.session_state.get('show_error_and_delete', False):
                     if st.button("エラー箇所を確認して削除", key="delete_highlights_main", use_container_width=True):
                         st.session_state.show_modal = True
                         st.rerun()
+                else:
+                    # エラーがない場合は音声プレーヤーを表示
+                    saved_edited_text = st.session_state.get('edited_text', '')
+                    if saved_edited_text:
+                        # 音声ファイルがない場合は生成
+                        if 'preview_audio_path' not in st.session_state or not Path(st.session_state.get('preview_audio_path', '')).exists():
+                            # time_rangesを計算
+                            text_processor = TextProcessor()
+                            separator_patterns = ["---", "——", "－－－"]
+                            found_separator = None
+                            for pattern in separator_patterns:
+                                if pattern in saved_edited_text:
+                                    found_separator = pattern
+                                    break
+                            
+                            if found_separator:
+                                preview_time_ranges = text_processor.find_differences_with_separator(full_text, saved_edited_text, transcription, found_separator)
+                            else:
+                                diff = text_processor.find_differences(full_text, saved_edited_text)
+                                preview_time_ranges = diff.get_time_ranges(transcription)
+                            
+                            if preview_time_ranges:
+                                with st.spinner("音声を準備中..."):
+                                    from ui.audio_preview import generate_audio_preview
+                                    audio_path = generate_audio_preview(video_path, preview_time_ranges)
+                                    if audio_path and Path(audio_path).exists():
+                                        st.session_state.preview_audio_path = audio_path
+                                        st.rerun()
+                        
+                        # 音声プレーヤーを表示
+                        if 'preview_audio_path' in st.session_state:
+                            audio_path = st.session_state.preview_audio_path
+                            if Path(audio_path).exists():
+                                st.audio(audio_path, format='audio/wav')
         
         # 切り抜き処理
         if edited_text and 'edited_text' in st.session_state:
