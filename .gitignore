@@ -226,3 +226,9 @@ models/
 *.h5
 *.onnx
 *.safetensors
+
+# PyInstaller
+build/
+dist/
+*.spec
+__pycache__/

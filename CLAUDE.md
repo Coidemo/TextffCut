@@ -16,6 +16,23 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 📌 安定版情報 (重要)
 
+### v0.9.7-beta (2025-06-11) 🆕 **ベータ版**
+- **タグ**: `v0.9.7-beta`
+- **ブランチ**: `fix/0.9.6-bugfix-clean`
+
+#### 主な変更点
+- ✅ Whisper mediumモデル固定（高速・高精度）
+- ✅ モデルをDockerイメージに事前同梱
+- ✅ Windowsでのアライメントモデルダウンロード問題を解決
+- ✅ オフライン環境でも確実に動作
+- ✅ UIからモデル選択を削除（シンプル化）
+
+#### 技術的詳細
+- パッケージサイズ: 約2GB（Dockerイメージ: 13.1GB）
+- Whisper mediumモデル: 1.5GB
+- 日本語アライメントモデル同梱
+- 90分動画の処理: 5-10分（環境依存）
+
 ### v1.01 (2025-05-30) ⭐ **最新安定版**
 - **タグ**: `v1.01`
 - **リモート**: GitHubにプッシュ済み
@@ -287,8 +304,67 @@ python -c "from core.export import FCPXMLExporter; print('Export OK')"
 - 無音検出: リアルタイムの約2倍速
 - FCPXML生成: 即座（<1秒）
 
+## 🚀 PyInstaller移行プロジェクト (2025-06-11開始)
+
+### 開発状況
+- **現在のフェーズ**: Phase 1 - MVP版
+- **ブランチ**: `feature/pyinstaller-build`
+- **目的**: Windows/Mac両対応のスタンドアロンアプリ化
+
+### 段階的実装計画
+
+#### Phase 1: MVP版（実装中）
+- [x] 最小限のStreamlit UI（`textffcut_mvp.py`）
+- [x] 動画ファイル選択機能
+- [x] 動画情報表示（時間、サイズ等）
+- [x] PyInstallerでのビルド確認
+- **サイズ**: 341MB（最適化前）
+- **課題**: Streamlitの起動方法の調整が必要
+
+**進捗メモ (2025-06-12):**
+- MVP版のUIを作成完了
+- PyInstallerでビルド成功（コンソール版/GUI版）
+- 実行時にStreamlitの起動に課題あり
+- ランチャースクリプト（`textffcut_mvp_launcher.py`）を作成
+
+#### Phase 2: 動画処理版
+- [ ] 音声抽出（WAV）
+- [ ] 無音検出
+- [ ] 簡易カット機能
+- **サイズ目標**: <200MB
+
+#### Phase 3: API文字起こし版
+- [ ] OpenAI Whisper API統合
+- [ ] API設定UI
+- [ ] 文字起こし結果表示
+- **サイズ目標**: <300MB
+
+#### Phase 4: フル機能版
+- [ ] WhisperXローカル統合
+- [ ] アライメント機能
+- [ ] 完全なFCPXML出力
+- **サイズ目標**: <1GB
+
+### ビルド手順
+```bash
+# Mac版ビルド
+pyinstaller textffcut_mvp.spec
+
+# Windows版ビルド（Windows環境で実行）
+pyinstaller textffcut_mvp_win.spec
+```
+
+### テスト済み環境
+- macOS: 未テスト
+- Windows: 未テスト
+
+### トークン切れ対策
+- 各フェーズ完了時にコミット
+- 進捗はこのセクションに随時更新
+- 問題発生時の詳細もここに記載
+
 ---
 
-最終更新: 2025-06-01
+最終更新: 2025-06-11
 次回開発時はこのファイルを必ず確認してください。
-特に安定版（v1.01）の情報は重要です。
+特に安定版（v0.9.6）の情報は重要です。
