@@ -327,11 +327,17 @@ python -c "from core.export import FCPXMLExporter; print('Export OK')"
 - 実行時にStreamlitの起動に課題あり
 - ランチャースクリプト（`textffcut_mvp_launcher.py`）を作成
 
-#### Phase 2: 動画処理版
-- [ ] 音声抽出（WAV）
+#### Phase 2: 動画処理版（実装中）
+- [x] 音声抽出（WAV）- `textffcut_video.py`
+- [x] 動画情報取得（ffprobe使用）
 - [ ] 無音検出
 - [ ] 簡易カット機能
-- **サイズ目標**: <200MB
+- **サイズ**: 7.1MB（ffmpeg別途必要）
+
+**進捗メモ (2025-06-12):**
+- Video版作成（ffmpeg/ffprobe使用）
+- 動画情報表示と音声抽出機能実装
+- PyInstallerビルド成功（7.1MB）
 
 #### Phase 3: API文字起こし版
 - [ ] OpenAI Whisper API統合
