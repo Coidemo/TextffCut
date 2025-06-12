@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  textffcut:
+    build: .
+    image: textffcut:0.9.7-beta
+    container_name: textffcut_app
+    restart: no
+    ports:
+      - "8501:8501"
+    volumes:
+      # Windowsでは絶対パスまたは${PWD}を使用
+      - ${PWD}/videos:/app/videos
+      - ${PWD}/output:/app/output
+      - ${PWD}/transcriptions:/app/transcriptions
+      - ${PWD}/logs:/app/logs
+      - ${PWD}/models:/home/appuser/.cache
+      - ${PWD}/optimizer_profiles:/home/appuser/.textffcut
+    environment:
+      - TZ=Asia/Tokyo
+      # Windowsのパスを正しく表示するための設定
+      - HOST_VIDEOS_PATH=${PWD}/videos
+      # Windowsでのファイル権限問題を回避
+      - DOCKER_HOST_OS=windows
+    # Windowsではメモリ制限をDocker Desktop側で設定
+    # deploy:
+    #   resources:
+    #     limits:
+    #       memory: 8G

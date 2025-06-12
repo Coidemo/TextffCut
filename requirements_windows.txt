@@ -1,0 +1,29 @@
+# TextffCut Dependencies for Windows
+# Windows環境用に調整されたバージョン
+
+# Core dependencies
+streamlit==1.45.1
+ffmpeg-python==0.2.0
+pydub==0.25.1
+numpy==1.26.4
+pandas==2.0.3
+python-dotenv==1.0.0
+tqdm==4.66.1
+psutil==5.9.5
+cryptography==41.0.7
+
+# API support
+openai==1.12.0
+httpx==0.23.3
+requests==2.31.0
+
+# PyTorch (CPU版を明示的に指定)
+--index-url https://download.pytorch.org/whl/cpu
+torch==2.2.0+cpu
+torchaudio==2.2.0+cpu
+
+# Whisper
+openai-whisper>=20230918
+
+# WhisperX (GitHubから直接インストール)
+# pip install git+https://github.com/m-bain/whisperX.git

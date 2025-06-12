@@ -313,19 +313,22 @@ python -c "from core.export import FCPXMLExporter; print('Export OK')"
 
 ### 段階的実装計画
 
-#### Phase 1: MVP版（実装中）
+#### Phase 1: MVP版（✅ 完了）
 - [x] 最小限のStreamlit UI（`textffcut_mvp.py`）
 - [x] 動画ファイル選択機能
 - [x] 動画情報表示（時間、サイズ等）
 - [x] PyInstallerでのビルド確認
-- **サイズ**: 341MB（最適化前）
-- **課題**: Streamlitの起動方法の調整が必要
+- [x] CLI版とVideo版で動作確認
+- **サイズ**: CLI版 7.1MB、Video版 7.1MB
+- **課題**: Streamlit版は起動に課題が残る（356MB～1.35GB）
 
 **進捗メモ (2025-06-12):**
-- MVP版のUIを作成完了
-- PyInstallerでビルド成功（コンソール版/GUI版）
-- 実行時にStreamlitの起動に課題あり
-- ランチャースクリプト（`textffcut_mvp_launcher.py`）を作成
+- CLI版とVideo版は完全動作 ✅
+- Streamlit版は複数のアプローチを試行：
+  - 直接起動版（356MB）
+  - subprocess版（1.35GB）
+  - 実績のあるhook使用版
+- Streamlitの複雑な依存関係により完全な解決には至らず
 
 #### Phase 2: 動画処理版（実装中）
 - [x] 音声抽出（WAV）- `textffcut_video.py`

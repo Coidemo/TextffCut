@@ -34,10 +34,17 @@ RUN useradd -m -s /bin/bash appuser
 # 必要なディレクトリを作成（root権限で）
 RUN mkdir -p /app/videos /app/output /app/transcriptions /app/logs /app/temp
 
-# キャッシュディレクトリを作成（モデルは初回実行時にダウンロード）
+# キャッシュディレクトリを作成
 RUN mkdir -p /home/appuser/.cache /home/appuser/.cache/matplotlib \
-    /home/appuser/.cache/whisperx /home/appuser/.cache/huggingface && \
+    /home/appuser/.cache/whisperx /home/appuser/.cache/huggingface \
+    /home/appuser/.cache/whisper /home/appuser/.cache/torch \
+    /home/appuser/.cache/torch/hub && \
     chown -R appuser:appuser /home/appuser/.cache
+
+# モデルを事前ダウンロード（appuserとして実行）
+USER appuser
+RUN python scripts/download_models.py
+USER root
 
 # アプリケーションディレクトリの所有権を変更
 # videosとlogsは書き込み可能にする必要がある

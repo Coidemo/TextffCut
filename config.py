@@ -10,9 +10,8 @@ from typing import List, Optional
 @dataclass
 class TranscriptionConfig:
     """文字起こし関連の設定"""
-    # 基本設定（ユーザーが選択可能）
-    model_size: str = "large-v3"
-    whisper_models: List[str] = field(default_factory=lambda: ["large-v3", "medium", "small", "base"])
+    # 基本設定
+    model_size: str = "medium"  # mediumモデル固定（高速・高精度）
     language: str = "ja"
     
     # API設定（ユーザーが選択可能）
@@ -115,8 +114,7 @@ class Config:
         config = cls()
         
         # 環境変数からの読み込み例
-        if model_size := os.getenv('TEXTFFCUT_MODEL_SIZE'):
-            config.transcription.model_size = model_size
+        # model_sizeは固定なので環境変数での変更は無効
         
         if output_dir := os.getenv('TEXTFFCUT_OUTPUT_DIR'):
             config.paths.output_dir = output_dir
