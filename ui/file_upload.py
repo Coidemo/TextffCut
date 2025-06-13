@@ -32,7 +32,7 @@ def show_video_input() -> Optional[Tuple[str, str]]:
         video_files = sorted(video_files)
         
         # 動画選択UI
-        col1, col2 = st.columns([4, 1])
+        col1, col2 = st.columns([5, 1])
         with col1:
             selected_file = st.selectbox(
                 "編集する動画を選択してください",
@@ -41,7 +41,7 @@ def show_video_input() -> Optional[Tuple[str, str]]:
             )
         with col2:
             st.markdown("<div style='margin-top: 1.875rem;'></div>", unsafe_allow_html=True)
-            if st.button("🔄 更新", help="ファイルリストを更新"):
+            if st.button("🔄 更新", help="ファイルリストを更新", use_container_width=True):
                 st.rerun()
         
         # 動画フォルダのパスを常に表示

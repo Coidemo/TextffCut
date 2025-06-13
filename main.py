@@ -353,7 +353,7 @@ def main():
             with model_col:
                 if use_api:
                     st.markdown("**🤖 モデル**")
-                    st.markdown("whisper-1（固定）")
+                    st.markdown("whisper-1")
                     model_size = "whisper-1"
                     
                     # APIキーをセッションに保存
@@ -362,7 +362,8 @@ def main():
                     if saved_key:
                         st.session_state.api_key = saved_key
                 else:
-                    st.markdown("**🤖 モデル: Whisper medium（固定）**")
+                    st.markdown("**🤖 モデル**")
+                    st.markdown("Whisper medium")
                     
                     # v0.9.7-beta: mediumモデル固定
                     model_size = "medium"
