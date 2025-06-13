@@ -362,40 +362,11 @@ def main():
                     if saved_key:
                         st.session_state.api_key = saved_key
                 else:
-                    st.markdown("**🤖 モデル選択**")
-                    model_options = ["base (高速・低精度)", "small (高速・普通精度)", "medium (普通速度・高精度)", "large-v3 (低速・最高精度)"]
-                    model_values = ["base", "small", "medium", "large-v3"]
-                    default_local_index = 2  # medium
+                    st.markdown("**🤖 モデル: Whisper medium（固定）**")
                     
-                    # セッション状態から前回の選択を取得
-                    previous_model = st.session_state.get('local_model_size', 'medium')
-                    try:
-                        default_local_index = model_values.index(previous_model)
-                    except ValueError:
-                        default_local_index = 2  # medium
-                    
-                    selected_option = st.selectbox(
-                        "ローカルモデル",
-                        model_options,
-                        index=default_local_index,
-                        key="local_model_main",
-                        label_visibility="collapsed"
-                    )
-                    
-                    model_size = model_values[model_options.index(selected_option)]
+                    # v0.9.7-beta: mediumモデル固定
+                    model_size = "medium"
                     st.session_state.local_model_size = model_size
-                    
-                    # large-v3選択時の警告
-                    if model_size == "large-v3":
-                        try:
-                            import psutil
-                            available_gb = psutil.virtual_memory().available / (1024 ** 3)
-                            if available_gb < 8:
-                                st.warning(f"⚠️ 利用可能メモリ: {available_gb:.1f}GB - large-v3は高メモリを必要とします。mediumモデルの使用を推奨します。")
-                            elif available_gb < 12:
-                                st.info(f"ℹ️ 利用可能メモリ: {available_gb:.1f}GB - 自動最適化により処理速度が制限される場合があります。")
-                        except:
-                            pass
             
             with time_col:
                 st.markdown("**📊 動画時間**")
