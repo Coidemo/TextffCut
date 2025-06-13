@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  textffcut:
+    build:
+      context: .
+      dockerfile: Dockerfile.v097-final
+    image: textffcut:v0.9.7-optimized
+    container_name: textffcut
+    ports:
+      - "8501:8501"
+    volumes:
+      # 動画ファイルのみマウント（モデルは内包済み）
+      - ./videos:/app/videos
+      - ./videos/output:/app/output
+      - ./transcriptions:/app/transcriptions
+      - ./logs:/app/logs
+    environment:
+      # メモリ最適化設定
+      - TEXTFFCUT_ISOLATION_MODE=subprocess
+      - OMP_NUM_THREADS=2  # CPU使用を制限
+      - MKL_NUM_THREADS=2
+      - NUMEXPR_NUM_THREADS=2
+    restart: unless-stopped
+    # リソース制限（必要に応じて調整）
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 8G
+        reservations:
+          cpus: '2'
+          memory: 4G

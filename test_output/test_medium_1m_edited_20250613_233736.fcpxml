@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE fcpxml>
+<fcpxml version="1.11">
+    <resources>
+        <format id="r1" name="FFVideoFormat1280p25" frameDuration="1/25s" width="1280" height="720"/>
+        <asset id="r2" name="test_medium_1m.mp4" src="file:///Users/naoki/myProject/TextffCut/videos/test_medium_1m.mp4" start="0s" duration="24.04s" hasVideo="1" hasAudio="1"/>
+    </resources>
+    <library>
+        <event name="TextffCut Export">
+            <project name="test_medium_1m">
+                <sequence format="r1">
+                    <spine>
+                        <clip name="Segment 1" offset="0s" duration="2.585624s">
+                            <video ref="r2" offset="0s" duration="2.585624s"/>
+                            <audio ref="r2" offset="0s" duration="2.585624s"/>
+                        </clip>
+                        <clip name="Segment 2" offset="0s" duration="4.231338000000001s">
+                            <video ref="r2" offset="2.91356s" duration="4.231338000000001s"/>
+                            <audio ref="r2" offset="2.91356s" duration="4.231338000000001s"/>
+                        </clip>
+                        <clip name="Segment 3" offset="0s" duration="2.466621s">
+                            <video ref="r2" offset="7.504626s" duration="2.466621s"/>
+                            <audio ref="r2" offset="7.504626s" duration="2.466621s"/>
+                        </clip>
+                        <clip name="Segment 4" offset="0s" duration="4.234422s">
+                            <video ref="r2" offset="10.314059s" duration="4.234422s"/>
+                            <audio ref="r2" offset="10.314059s" duration="4.234422s"/>
+                        </clip>
+                        <clip name="Segment 5" offset="0s" duration="2.4804080000000006s">
+                            <video ref="r2" offset="14.897914s" duration="2.4804080000000006s"/>
+                            <audio ref="r2" offset="14.897914s" duration="2.4804080000000006s"/>
+                        </clip>
+                        <clip name="Segment 6" offset="0s" duration="6.320543999999998s">
+                            <video ref="r2" offset="17.719456s" duration="6.320543999999998s"/>
+                            <audio ref="r2" offset="17.719456s" duration="6.320543999999998s"/>
+                        </clip>
+                    </spine>
+                </sequence>
+            </project>
+        </event>
+    </library>
+</fcpxml>

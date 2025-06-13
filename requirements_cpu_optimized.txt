@@ -1,0 +1,30 @@
+# TextffCut Dependencies - CPU最適化版（全機能維持）
+# 精度を維持しつつサイズ削減
+# 2025-06-14作成
+
+# Core（必須）
+streamlit==1.45.1
+ffmpeg-python==0.2.0
+
+# PyTorch CPU版（torchaudioは本当に必要？）
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.2.0+cpu
+# torchaudio==2.2.0+cpu  # WhisperXが内部で使用している可能性
+
+# Whisper + WhisperX（アライメント必須）
+openai-whisper>=20230918
+whisperx>=3.1.0
+
+# データ処理（最小限）
+numpy==1.26.4
+pandas==2.0.3
+
+# 削減検討パッケージ
+pydub==0.25.1  # 無音検出で使用
+tqdm==4.66.1  # 進捗表示（ユーザー体験向上）
+# psutil==5.9.5  # メモリ監視（なくても動作可能）
+# python-dotenv==1.0.0  # 環境変数（Dockerでは不要）
+# cryptography==41.0.7  # API版のみ
+# openai==1.12.0  # API版のみ  
+# httpx==0.23.3  # API版のみ
+# requests==2.31.0  # ヘルスチェック以外では不要かも

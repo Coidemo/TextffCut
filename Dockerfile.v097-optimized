@@ -1,0 +1,96 @@
+# TextffCut v0.9.7 最適化版 - 精度維持しつつサイズ削減
+# Whisper mediumモデル維持、その他で最大限削減
+
+# ステージ1: モデルダウンロード専用
+FROM python:3.11-slim as model-downloader
+
+# 最小限のパッケージでモデルダウンロード
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Whisperのみインストールしてモデルダウンロード
+RUN pip install --no-cache-dir openai-whisper && \
+    python -c "import whisper; whisper.load_model('medium', download_root='/models/whisper')" && \
+    rm -rf /root/.cache/pip
+
+# ステージ2: Python依存関係のビルド
+FROM python:3.11-slim as builder
+
+WORKDIR /build
+
+# ビルド用パッケージ
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    gcc \
+    g++ \
+    && rm -rf /var/lib/apt/lists/*
+
+# CPU版requirements（torchaudioなし版）
+COPY requirements_cpu_optimized.txt .
+RUN pip install --no-cache-dir --user -r requirements_cpu_optimized.txt && \
+    find /root/.local -type d -name __pycache__ -exec rm -rf {} + && \
+    find /root/.local -type d -name tests -exec rm -rf {} + && \
+    find /root/.local -name "*.pyc" -delete && \
+    rm -rf /root/.cache/pip
+
+# ステージ3: 実行環境（超軽量）
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# 実行専用の最小パッケージ
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    locales \
+    && apt-get clean && \
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* && \
+    locale-gen ja_JP.UTF-8
+
+# 環境設定
+ENV LANG=ja_JP.UTF-8 \
+    LC_ALL=ja_JP.UTF-8 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    TEXTFFCUT_ISOLATION_MODE=subprocess
+
+# ビルドステージからPythonパッケージをコピー
+COPY --from=builder /root/.local /usr/local
+
+# モデルのみコピー（アライメントモデルは除外）
+COPY --from=model-downloader /models/whisper /root/.cache/whisper
+
+# アプリケーションユーザー
+RUN useradd -m -s /bin/bash appuser && \
+    mkdir -p /home/appuser/.cache/whisper && \
+    cp -r /root/.cache/whisper/* /home/appuser/.cache/whisper/ && \
+    rm -rf /root/.cache
+
+# アプリケーションファイル（最小限）
+COPY main.py config.py ./
+COPY core ./core/
+COPY ui ./ui/
+COPY utils ./utils/
+COPY scripts/download_models_runtime.py ./scripts/
+
+# 必要なディレクトリ作成
+RUN mkdir -p videos output transcriptions logs temp && \
+    chown -R appuser:appuser /app /home/appuser && \
+    chmod -R 777 videos output transcriptions logs temp
+
+# Streamlit設定
+USER appuser
+RUN mkdir -p ~/.streamlit && \
+    echo '[server]\nheadless = true\nport = 8501\naddress = "0.0.0.0"\nmaxUploadSize = 200\n' > ~/.streamlit/config.toml
+
+# アライメントモデルは実行時にダウンロード（オプション）
+ENV DOWNLOAD_ALIGN_MODEL_ON_START=false
+
+EXPOSE 8501
+
+# ヘルスチェック（簡略化）
+HEALTHCHECK --interval=60s --timeout=10s --retries=3 \
+    CMD python -c "import requests; requests.get('http://localhost:8501/_stcore/health')" || exit 1
+
+CMD ["streamlit", "run", "main.py", "--server.fileWatcherType", "none"]

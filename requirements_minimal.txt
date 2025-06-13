@@ -1,0 +1,27 @@
+# TextffCut Dependencies - 最小構成版
+# Dockerイメージ極限サイズ削減用
+# 2025-06-14作成
+
+# Core（必須）
+streamlit==1.45.1
+ffmpeg-python==0.2.0
+
+# Whisper最小構成
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.2.0+cpu
+openai-whisper>=20230918
+
+# WhisperX（アライメントなし版）
+# whisperx>=3.1.0  # コメントアウト - アライメント機能を使わない場合
+
+# データ処理（最小限）
+numpy==1.26.4
+pandas==2.0.3  # FCPXMLエクスポートに必要
+
+# 削除したパッケージ：
+# - pydub（ffmpeg-pythonで代替可能）
+# - tqdm（進捗表示は必須ではない）
+# - psutil（メモリ監視は必須ではない）
+# - cryptography（API利用時のみ必要）
+# - python-dotenv（環境変数は直接設定可能）
+# - openai/httpx/requests（API版では不要）
