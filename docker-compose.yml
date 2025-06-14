@@ -8,11 +8,7 @@ services:
       - "8501:8501"
     volumes:
       - ./videos:/app/videos
-      - ./output:/app/output
       - ./transcriptions:/app/transcriptions
-      - ./logs:/app/logs
-      - ./models:/home/appuser/.cache
-      - ./optimizer_profiles:/home/appuser/.textffcut
     environment:
       - TZ=Asia/Tokyo
       - HOST_VIDEOS_PATH=${PWD}/videos

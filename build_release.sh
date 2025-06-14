@@ -610,9 +610,7 @@ services:
       - "8501:8501"
     volumes:
       - ./videos:/app/videos
-      - ./logs:/app/logs
-      - ./models:/home/appuser/.cache
-      - ./optimizer_profiles:/home/appuser/.textffcut
+      - ./transcriptions:/app/transcriptions
     environment:
       - TZ=Asia/Tokyo
       - HOST_VIDEOS_PATH=\${HOST_VIDEOS_PATH}
