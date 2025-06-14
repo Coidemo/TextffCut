@@ -63,6 +63,7 @@ echo "4. 配布用ファイルを作成しています..."
 # START.bat の作成（通常起動 - 高速版）
 cat > release/START.bat <<EOF
 @echo off
+chcp 65001 >nul
 echo TextffCut v${VERSION} を起動します...
 echo.
 
@@ -224,6 +225,7 @@ EOF
 # START_CLEAN.bat の作成（クリーン起動版）
 cat > release/START_CLEAN.bat <<EOF
 @echo off
+chcp 65001 >nul
 echo TextffCut v${VERSION} を起動します...
 echo.
 
