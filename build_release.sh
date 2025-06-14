@@ -474,6 +474,129 @@ EOF
 # ${VERSION}を実際の値に置換
 sed -i '' "s/\${VERSION}/${VERSION}/g" release/START.command
 
+# START_CLEAN.bat の作成（Windows版クリーンスタート）
+cat > release/START_CLEAN.bat <<EOF
+@echo off
+REM TextffCut クリーンスタート (Windows版)
+REM Dockerイメージを再読み込みして起動します
+
+echo === TextffCut クリーンスタート (Windows) ===
+echo.
+echo このスクリプトは以下を実行します:
+echo - 既存のコンテナを停止
+echo - Dockerイメージを削除して再読み込み  
+echo - 新しいコンテナを起動
+echo.
+echo 続行しますか？ (Y/N): 
+choice /C YN /N
+if errorlevel 2 goto :cancel
+
+echo.
+echo 1. 既存のコンテナを停止しています...
+docker-compose down 2>nul
+
+echo.
+echo 2. 既存のイメージを削除しています...
+docker images | findstr textffcut | for /f "tokens=3" %%i in ('more') do docker rmi -f %%i 2>nul
+
+echo.
+echo 3. Dockerイメージを読み込んでいます...
+for %%f in (textffcut_*.tar.gz) do (
+    echo    読み込み中: %%f
+    docker load -i %%f
+)
+
+echo.
+echo 4. コンテナを起動しています...
+docker-compose up -d
+
+echo.
+echo 起動を確認中...
+timeout /t 5 /nobreak >nul
+
+echo ✅ クリーンスタート完了！
+echo 🌐 ブラウザで http://localhost:8501 を開いています...
+start http://localhost:8501
+
+echo.
+pause
+goto :eof
+
+:cancel
+echo キャンセルしました
+pause
+EOF
+
+# START_CLEAN.command の作成（Mac版クリーンスタート）
+cat > release/START_CLEAN.command <<'EOF'
+#!/bin/bash
+# TextffCut クリーンスタート (Mac版)
+# Dockerイメージを再読み込みして起動します
+
+echo "=== TextffCut クリーンスタート (Mac) ==="
+echo ""
+echo "このスクリプトは以下を実行します:"
+echo "- 既存のコンテナを停止"
+echo "- Dockerイメージを削除して再読み込み"
+echo "- 新しいコンテナを起動"
+echo ""
+echo "続行しますか？ (y/N): "
+read -r response
+
+if [[ ! "$response" =~ ^[Yy]$ ]]; then
+    echo "キャンセルしました"
+    exit 0
+fi
+
+# スクリプトの場所に移動
+cd "$(dirname "$0")"
+
+echo ""
+echo "1. 既存のコンテナを停止しています..."
+docker-compose down 2>/dev/null
+
+echo ""
+echo "2. 既存のイメージを削除しています..."
+docker images | grep textffcut | awk '{print $3}' | xargs docker rmi -f 2>/dev/null || true
+
+echo ""
+echo "3. Dockerイメージを読み込んでいます..."
+for file in textffcut_*.tar.gz; do
+    if [ -f "$file" ]; then
+        echo "   読み込み中: $file"
+        docker load -i "$file"
+    fi
+done
+
+echo ""
+echo "4. コンテナを起動しています..."
+docker-compose up -d
+
+echo ""
+echo "起動を確認中..."
+sleep 5
+
+# ヘルスチェック
+if curl -s http://localhost:8501 > /dev/null; then
+    echo "✅ クリーンスタート完了！"
+    echo "🌐 ブラウザで http://localhost:8501 を開いています..."
+    open http://localhost:8501
+else
+    echo "⚠️ アプリケーションの起動に時間がかかっています"
+    echo "しばらくお待ちください..."
+fi
+
+echo ""
+echo "終了するにはEnterキーを押してください"
+read
+EOF
+
+# 実行権限を付与
+chmod +x release/START_CLEAN.command
+
+# ${VERSION}を実際の値に置換
+sed -i '' "s/\${VERSION}/${VERSION}/g" release/START.command
+
 # docker-compose.yml の作成（配布用）
 cat > release/docker-compose.yml <<EOF
 version: '3.8'
@@ -522,6 +645,13 @@ TextffCut
 4. 終了方法
    ターミナル/コマンドプロンプトで Ctrl+C を押す
 
+【トラブルシューティング】
+
+問題が発生した場合:
+   - Windows: START_CLEAN.bat をダブルクリック
+   - macOS: START_CLEAN.command をダブルクリック
+   （Dockerイメージを削除して再読み込みします）
+
 【詳しい使い方】
 
 スクリーンショット付きの詳しい説明は note をご覧ください：
@@ -536,6 +666,7 @@ EOF
 
 # 実行権限を付与
 chmod +x release/START.command
+chmod +x release/START_CLEAN.command
 
 echo "✅ 配布用ファイルの作成完了"
 echo ""
@@ -549,6 +680,8 @@ mkdir -p TextffCut
 mv textffcut_v${VERSION}_docker.tar.gz TextffCut/
 mv START.bat TextffCut/
 mv START.command TextffCut/
+mv START_CLEAN.bat TextffCut/
+mv START_CLEAN.command TextffCut/
 mv docker-compose.yml TextffCut/
 mv README.txt TextffCut/
 
