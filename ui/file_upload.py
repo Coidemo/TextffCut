@@ -41,7 +41,7 @@ def show_video_input() -> Optional[Tuple[str, str]]:
             )
         with col2:
             st.markdown("<div style='margin-top: 1.875rem;'></div>", unsafe_allow_html=True)
-            if st.button("🔄 リストを更新", help="ファイルリストを更新"):
+            if st.button("🔄 更新", help="ファイルリストを更新", use_container_width=True):
                 st.rerun()
         
         # 動画フォルダのパスを常に表示
