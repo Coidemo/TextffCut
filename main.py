@@ -361,7 +361,7 @@ def main() -> None:
             with model_col:
                 if use_api:
                     st.markdown("**🤖 モデル**")
-                    st.markdown("whisper-1（固定）")
+                    st.markdown("whisper-1")
                     model_size = "whisper-1"
                     
                     # APIキーをセッションに保存
@@ -370,59 +370,12 @@ def main() -> None:
                     if saved_key:
                         st.session_state.api_key = saved_key
                 else:
-                    st.markdown("**🤖 モデル選択**")
-                    model_options = ["base (高速・低精度)", "small (高速・普通精度)", "medium (普通速度・高精度)", "large-v3 (低速・最高精度)"]
-                    model_values = ["base", "small", "medium", "large-v3"]
-                    default_local_index = model_values.index(ModelSettings.DEFAULT_SIZE)
+                    st.markdown("**🤖 モデル**")
+                    st.markdown("Whisper medium")
                     
-                    # セッション状態から前回の選択を取得
-                    previous_model = st.session_state.get('local_model_size', ModelSettings.DEFAULT_SIZE)
-                    try:
-                        default_local_index = model_values.index(previous_model)
-                    except ValueError:
-                        default_local_index = model_values.index(ModelSettings.DEFAULT_SIZE)
-                    
-                    selected_option = st.selectbox(
-                        "ローカルモデル",
-                        model_options,
-                        index=default_local_index,
-                        key="local_model_main",
-                        label_visibility="collapsed"
-                    )
-                    
-                    model_size = model_values[model_options.index(selected_option)]
+                    # v0.9.7-beta: mediumモデル固定
+                    model_size = "medium"
                     st.session_state.local_model_size = model_size
-                    
-                    # モデル設定の検証
-                    if model_size == "large-v3":
-                        try:
-                            import psutil
-                            available_gb = psutil.virtual_memory().available / (1024 ** 3)
-                            
-                            # ConfigurationServiceを使用して検証
-                            config_service = ConfigurationService(config)
-                            validation_result = config_service.validate_model_settings(
-                                model_size=model_size,
-                                use_api=False,
-                                available_memory_gb=available_gb
-                            )
-                            
-                            if validation_result.success:
-                                validation_data = validation_result.data
-                                # 警告の表示
-                                for warning in validation_data.get('warnings', []):
-                                    if 'メモリが16GB未満' in warning:
-                                        st.warning(warning)
-                                    else:
-                                        st.info(warning)
-                            else:
-                                # フォールバック
-                                if available_gb < MemoryEstimates.LOW_MEMORY_GB:
-                                    st.warning(ErrorMessages.LOW_MEMORY_WARNING.format(available_gb))
-                                elif available_gb < MemoryEstimates.MINIMUM_MEMORY_GB:
-                                    st.info(ErrorMessages.MEMORY_LIMIT_INFO.format(available_gb))
-                        except:
-                            pass
             
             with time_col:
                 st.markdown("**📊 動画時間**")
