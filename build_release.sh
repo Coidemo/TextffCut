@@ -611,6 +611,7 @@ services:
     volumes:
       - ./videos:/app/videos
       - ./transcriptions:/app/transcriptions
+      - ./logs:/app/logs
     environment:
       - TZ=Asia/Tokyo
       - HOST_VIDEOS_PATH=\${HOST_VIDEOS_PATH}
