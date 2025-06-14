@@ -4,13 +4,17 @@ TextffCut - メインアプリケーション
 """
 import streamlit as st
 from pathlib import Path
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Any, Dict
 import subprocess
 from datetime import datetime
 import os
 
 from config import config
-from core import Transcriber, TextProcessor, VideoProcessor, FCPXMLExporter, XMEMLExporter, ExportSegment, VideoSegment
+from core.constants import (
+    MemoryEstimates, ErrorMessages, ProcessingDefaults, ModelSettings,
+    ApiSettings, SilenceDetection, PerformanceSettings
+)
+from core import Transcriber, TextProcessor, ExportSegment, VideoSegment
 from core.transcription_smart_split import SmartSplitTranscriber
 from core.transcription_subprocess import SubprocessTranscriber
 from utils.file_utils import ensure_directory, get_safe_filename
@@ -19,6 +23,8 @@ from utils import ProcessingContext, cleanup_intermediate_files
 from utils.exceptions import BuzzClipError, VideoProcessingError, TranscriptionError
 from core.alignment_processor import AlignmentProcessor
 from core.exceptions import WordsFieldMissingError
+from core.error_handling import ErrorHandler
+from services.integration_service import IntegrationService
 from ui import (
     show_video_input,
     show_api_key_manager,
@@ -34,8 +40,10 @@ from ui import (
     show_help,
     show_optimization_status,
     cleanup_temp_files,
-    apply_dark_mode_styles
+    apply_dark_mode_styles,
+    SessionStateAdapter
 )
+from services import ConfigurationService, TextEditingService, VideoProcessingService, WorkflowService, ExportService
 
 
 # Streamlitの設定
@@ -132,7 +140,7 @@ st.markdown("""
 apply_dark_mode_styles()
 
 
-def debug_words_status(result):
+def debug_words_status(result: Any) -> None:
     """wordsフィールドの状態を詳細に出力（デバッグ用）"""
     from utils.logging import get_logger
     logger = get_logger(__name__)
@@ -151,7 +159,7 @@ def debug_words_status(result):
                 logger.warning(f"  セグメント{i}: wordsなし! - {seg.text[:30]}...")
 
 
-def main():
+def main() -> None:
     """メインアプリケーション"""
     
     # ロゴを表示（ダークモード対応）
@@ -375,17 +383,27 @@ def main():
             
             with price_col:
                 if use_api:
-                    estimated_cost_usd = duration_minutes * 0.006
-                    estimated_cost_jpy = estimated_cost_usd * 150
-                    st.markdown("**💰 推定料金**")
-                    st.markdown(f"${estimated_cost_usd:.3f} (約{estimated_cost_jpy:.0f}円)")
+                    # ConfigurationServiceを使用して料金計算
+                    config_service = ConfigurationService(config)
+                    cost_result = config_service.calculate_api_cost(duration_minutes)
+                    
+                    if cost_result.success:
+                        cost_data = cost_result.data
+                        st.markdown("**💰 推定料金**")
+                        st.markdown(f"${cost_data['cost_usd']:.3f} (約{cost_data['cost_jpy']:.0f}円)")
+                    else:
+                        # フォールバック（サービスエラー時）
+                        estimated_cost_usd = duration_minutes * ApiSettings.OPENAI_COST_PER_MINUTE
+                        estimated_cost_jpy = estimated_cost_usd * 150
+                        st.markdown("**💰 推定料金**")
+                        st.markdown(f"${estimated_cost_usd:.3f} (約{estimated_cost_jpy:.0f}円)")
                 else:
                     st.markdown("**💰 料金**")
                     st.markdown("無料（ローカル処理）")
             
             # API利用時の注意事項をコンパクトに表示
             if use_api:
-                st.caption("⚠️ API料金: $0.006/分 | 為替変動あり | [最新料金](https://openai.com/pricing)を確認")
+                st.caption(f"⚠️ API料金: ${ApiSettings.OPENAI_COST_PER_MINUTE}/分 | 為替変動あり | [最新料金](https://openai.com/pricing)を確認")
                 
                 # 自動最適化モード（固定・内部処理）
                 pass
@@ -443,16 +461,49 @@ def main():
                 
                 st.rerun()
                     
-        except FileNotFoundError:
-            st.error("📁 指定された動画ファイルが見つかりません。パスを確認してください。")
+        except FileNotFoundError as e:
+            # 新しいエラーハンドリングシステムを使用
+            from core.error_handling import FileValidationError
+            
+            file_error = FileValidationError(
+                "指定された動画ファイルが見つかりません",
+                details={"path": str(video_path)}
+            )
+            
+            logger = get_logger(__name__)
+            error_handler = ErrorHandler(logger)
+            error_info = error_handler.handle_error(file_error)
+            st.error(f"📁 {error_info['user_message']}")
             return
+            
         except OSError as e:
-            st.error(f"💾 ファイルアクセスエラー: {str(e)}")
+            # 新しいエラーハンドリングシステムを使用
+            from core.error_handling import ResourceError
+            
+            resource_error = ResourceError(
+                f"ファイルアクセスエラー: {str(e)}",
+                original_error=e
+            )
+            
+            logger = get_logger(__name__)
+            error_handler = ErrorHandler(logger)
+            error_info = error_handler.handle_error(resource_error)
+            st.error(f"💾 {error_info['user_message']}")
             return
+            
         except Exception as e:
-            from utils.exceptions import BuzzClipError
-            error = BuzzClipError(f"動画情報の取得に失敗: {str(e)}")
-            st.error(error.get_user_message())
+            # 新しいエラーハンドリングシステムを使用
+            from core.error_handling import ProcessingError
+            
+            wrapped_error = ProcessingError(
+                f"動画情報の取得に失敗: {str(e)}",
+                original_error=e
+            )
+            
+            logger = get_logger(__name__)
+            error_handler = ErrorHandler(logger)
+            error_info = error_handler.handle_error(wrapped_error)
+            st.error(error_info['user_message'])
             return
     
     # 文字起こし実行の判定
@@ -636,11 +687,25 @@ def main():
                 progress_bar.empty()
                 progress_text.empty()
                 
-                st.error(f"❌ メモリ不足エラー: {str(e)}")
-                st.error("💡 対処法:")
-                st.error("1. より小さなモデル（medium等）を使用してください")
-                st.error("2. 他のアプリケーションを終了してメモリを解放してください")
-                st.error("3. システムのメモリを増設してください")
+                # 新しいエラーハンドリングシステムを使用
+                from core.error_handling import ResourceError
+                memory_error = ResourceError(
+                    f"メモリ不足エラー: {str(e)}",
+                    original_error=e,
+                    recovery_suggestions=[
+                        f"より小さなモデル（{ModelSettings.DEFAULT_SIZE}等）を使用してください",
+                        "他のアプリケーションを終了してメモリを解放してください",
+                        "システムのメモリを増設してください"
+                    ]
+                )
+                
+                logger = get_logger(__name__)
+                error_handler = ErrorHandler(logger)
+                error_info = error_handler.handle_error(memory_error)
+                
+                st.error(f"❌ {error_info['user_message']}")
+                for suggestion in error_info.get('recovery_suggestions', []):
+                    st.error(f"💡 {suggestion}")
                 
             except Exception as e:
                 # その他のエラー
@@ -649,12 +714,27 @@ def main():
                 progress_bar.empty()
                 progress_text.empty()
                 
-                from utils.exceptions import BuzzClipError, TranscriptionError
-                if isinstance(e, TranscriptionError):
+                # 新しい統一エラーハンドリングシステムを使用
+                from core.error_handling import ProcessingError, TranscriptionError as NewTranscriptionError
+                from utils.exceptions import TranscriptionError as LegacyTranscriptionError
+                
+                logger = get_logger(__name__)
+                error_handler = ErrorHandler(logger)
+                
+                # 既存のエラー型との互換性を維持
+                if isinstance(e, LegacyTranscriptionError):
                     st.error(e.get_user_message())
+                elif isinstance(e, (ProcessingError, NewTranscriptionError)):
+                    error_info = error_handler.handle_error(e)
+                    st.error(error_info["user_message"])
                 else:
-                    error = BuzzClipError(f"文字起こし処理でエラーが発生しました: {str(e)}")
-                    st.error(error.get_user_message())
+                    # 未知のエラーをProcessingErrorでラップ
+                    wrapped_error = ProcessingError(
+                        f"文字起こし処理でエラーが発生しました: {str(e)}",
+                        original_error=e
+                    )
+                    error_info = error_handler.handle_error(wrapped_error)
+                    st.error(error_info["user_message"])
     
     # 文字起こし結果の処理
     if 'transcription_result' in st.session_state and st.session_state.transcription_result:
@@ -724,6 +804,9 @@ def main():
             if saved_edited_text:
                 text_processor = TextProcessor()
                 
+                # TextEditingServiceを使用して差分計算
+                text_service = TextEditingService(config)
+                
                 # 区切り文字がある場合は区切り文字対応の差分表示
                 separator_patterns = ["---", "——", "－－－"]
                 found_separator = None
@@ -735,12 +818,23 @@ def main():
                 if found_separator:
                     # 区切り文字がある場合：区切り文字を除去して差分計算
                     text_without_separator = saved_edited_text.replace(found_separator, ' ')  # スペースで置換
+                    # 互換性のためTextProcessorも使用（サービス層への移行を段階的に行う）
+                    text_processor = TextProcessor()
                     diff = text_processor.find_differences(full_text, text_without_separator)
                     show_diff_viewer(full_text, diff)
                 else:
-                    # 区切り文字がない場合：従来通り
-                    diff = text_processor.find_differences(full_text, saved_edited_text)
-                    show_diff_viewer(full_text, diff)
+                    # 区切り文字がない場合：サービスを使用
+                    diff_result = text_service.find_differences(
+                        transcription.segments,
+                        saved_edited_text
+                    )
+                    if diff_result.success:
+                        # 既存の差分表示と互換性を保つため、TextProcessorも使用
+                        text_processor = TextProcessor()
+                        diff = text_processor.find_differences(full_text, saved_edited_text)
+                        show_diff_viewer(full_text, diff)
+                    else:
+                        st.error(f"差分検出エラー: {diff_result.error}")
             else:
                 show_diff_viewer(full_text)
         
@@ -948,6 +1042,16 @@ def main():
                 # ディレクトリを作成（XMLファイル保護のためクリーンしない）
                 project_path = ensure_directory(Path(project_dir), clean=False)
                 
+                # ConfigurationServiceを使用して出力パス情報を取得
+                config_service = ConfigurationService(config)
+                
+                # 処理タイプのマッピング
+                process_type_map = {
+                    "切り抜きのみ": "clip",
+                    "切り抜き + 無音削除": "both"
+                }
+                mapped_process_type = process_type_map.get(process_type, "full")
+                
                 # 処理タイプに応じたサフィックス（アルファベット表現）
                 if process_type == "切り抜きのみ":
                     type_suffix = "Clip"
@@ -957,8 +1061,7 @@ def main():
                 # ProcessingContextで処理を実行（エラー時は自動クリーンアップ）
                 with st.spinner("処理中..."), ProcessingContext(project_path) as temp_manager:
                     try:
-                        video_processor = VideoProcessor(config)
-                        fcpxml_exporter = FCPXMLExporter(config)
+                        # サービス層を使用するため、直接インスタンス化は不要
                         
                         # プログレスバーを初期化
                         progress_bar, status_text = show_progress(0, "処理を開始しています...")
@@ -974,52 +1077,82 @@ def main():
                             def progress_callback(progress, status):
                                 show_progress(progress, status, progress_bar, status_text)
                             
-                            # 無音を検出して残す時間範囲を取得
-                            keep_ranges = video_processor.remove_silence_new(
-                                video_path,
-                                time_ranges,
-                                str(project_path),
-                                noise_threshold,
-                                min_silence_duration,
-                                min_segment_duration,
-                                padding_start=padding_start,
-                                padding_end=padding_end,
+                            # VideoProcessingServiceを使用して無音削除
+                            video_service = VideoProcessingService(config)
+                            from core.models import TranscriptionResultV2
+                            from core import TranscriptionSegment
+                            
+                            # time_rangesからセグメントを作成
+                            segments_for_removal = []
+                            for start, end in time_ranges:
+                                segments_for_removal.append(TranscriptionSegment(
+                                    start=start,
+                                    end=end,
+                                    text="",
+                                    words=[]
+                                ))
+                            
+                            silence_result = video_service.remove_silence(
+                                video_path=video_path,
+                                segments=segments_for_removal,
+                                threshold=noise_threshold,
+                                min_silence_duration=min_silence_duration,
+                                pad_start=padding_start,
+                                pad_end=padding_end,
+                                min_segment_duration=min_segment_duration,
                                 progress_callback=progress_callback
                             )
+                            
+                            if silence_result.success:
+                                # 調整されたセグメントから時間範囲を抽出
+                                adjusted_segments = silence_result.data
+                                keep_ranges = [(seg.start, seg.end) for seg in adjusted_segments]
+                            else:
+                                st.error(f"無音削除エラー: {silence_result.error}")
+                                return
                         
                         # 出力形式に応じて処理
                         if output_format in ["FCPXMLファイル", "Premiere Pro XML"]:
-                            # XMLを生成（時間範囲から直接）
+                            # ExportServiceを使用してXMLを生成
+                            export_service = ExportService(config)
                             from utils.file_utils import get_unique_path
                             
+                            # 形式を決定
                             if output_format == "FCPXMLファイル":
+                                export_format = "fcpxml"
                                 xml_ext = ".fcpxml"
-                                xml_exporter = fcpxml_exporter
                             else:  # Premiere Pro XML
+                                export_format = "xmeml"
                                 xml_ext = ".xml"
-                                xml_exporter = XMEMLExporter(config)
                             
                             xml_path = get_unique_path(project_path / f"{safe_name}_TextffCut_{type_suffix}{xml_ext}")
                             
-                            # エクスポート用セグメントを構築（隙間を詰めて配置）
+                            # keep_rangesからセグメントを作成
+                            from core import TranscriptionSegment
                             export_segments = []
-                            timeline_pos = 0.0
-                            
-                            for start, end in keep_ranges:
-                                export_segments.append(ExportSegment(
-                                    source_path=video_path,
-                                    start_time=start,
-                                    end_time=end,
-                                    timeline_start=timeline_pos
+                            for i, (start, end) in enumerate(keep_ranges):
+                                export_segments.append(TranscriptionSegment(
+                                    start=start,
+                                    end=end,
+                                    text="",
+                                    words=[]
                                 ))
-                                timeline_pos += (end - start)  # 隙間を詰める
                             
-                            success = xml_exporter.export(
-                                export_segments,
-                                str(xml_path),
-                                timeline_fps,
-                                f"{safe_name} Project"
+                            # エクスポート実行
+                            export_result = export_service.execute(
+                                format=export_format,
+                                video_path=video_path,
+                                segments=export_segments,
+                                output_path=str(xml_path),
+                                project_name=f"{safe_name} Project",
+                                event_name="TextffCut",
+                                remove_silence=(process_type != "切り抜きのみ")
                             )
+                            
+                            success = export_result.success
+                            if success:
+                                # メタデータから統計情報を取得
+                                timeline_pos = export_result.metadata.get('used_duration', 0)
                             
                             if success:
                                 # 100%完了を表示
@@ -1051,12 +1184,36 @@ def main():
                                 show_progress(progress, f"セグメント {i+1}/{total_ranges} を抽出中...", progress_bar, status_text)
                                 
                                 segment_file = project_path / f"segment_{i+1}.mp4"
-                                success = video_processor.extract_segment(
-                                    video_path,
-                                    start,
-                                    end,
-                                    str(segment_file)
+                                # VideoProcessingServiceを使用
+                                if 'video_service' not in locals():
+                                    video_service = VideoProcessingService(config)
+                                
+                                # 一つのセグメントを抽出するためのVideoSegmentを作成
+                                from core import VideoSegment
+                                segments_to_extract = [VideoSegment(
+                                    start=start,
+                                    end=end,
+                                    text=""
+                                )]
+                                
+                                extract_result = video_service.extract_segments(
+                                    video_path=video_path,
+                                    segments=segments_to_extract,
+                                    output_dir=str(project_path),
+                                    format="mp4"
                                 )
+                                
+                                if extract_result.success:
+                                    extracted_files = extract_result.data
+                                    if extracted_files:
+                                        # ファイル名をリネーム
+                                        import shutil
+                                        shutil.move(extracted_files[0], str(segment_file))
+                                        success = True
+                                    else:
+                                        success = False
+                                else:
+                                    success = False
                                 
                                 if success:
                                     output_files.append(str(segment_file))
@@ -1068,11 +1225,17 @@ def main():
                                 combined_path = get_unique_path(project_path / f"{safe_name}_TextffCut_{type_suffix}.mp4")
                                 show_progress(0.8, "動画を統合しています...", progress_bar, status_text)
                                 
-                                success = video_processor.combine_videos(
-                                    output_files,
-                                    str(combined_path),
-                                    lambda p, s: show_progress(0.8 + p * 0.2, s, progress_bar, status_text)
+                                # VideoProcessingServiceを使用して動画を結合
+                                if 'video_service' not in locals():
+                                    video_service = VideoProcessingService(config)
+                                
+                                merge_result = video_service.merge_videos(
+                                    video_files=output_files,
+                                    output_path=str(combined_path),
+                                    progress_callback=lambda p, s: show_progress(0.8 + p * 0.2, s, progress_bar, status_text)
                                 )
+                                
+                                success = merge_result.success
                                 
                                 if success:
                                     # 100%完了を表示
@@ -1122,12 +1285,28 @@ def main():
                         
                         
                     except Exception as e:
-                        from utils.exceptions import BuzzClipError, VideoProcessingError, TranscriptionError
+                        # 新しい統一エラーハンドリングシステムを使用
+                        from core.error_handling import ProcessingError, ValidationError
+                        from utils.logging import get_logger
+                        
+                        logger = get_logger(__name__)
+                        error_handler = ErrorHandler(logger)
+                        
+                        # 既存のエラー型の互換性を維持
+                        from utils.exceptions import VideoProcessingError
                         if isinstance(e, VideoProcessingError):
                             st.error(e.get_user_message())
+                        elif isinstance(e, (ProcessingError, ValidationError)):
+                            error_info = error_handler.handle_error(e)
+                            st.error(error_info["user_message"])
                         else:
-                            error = BuzzClipError(f"動画処理中にエラーが発生しました: {str(e)}")
-                            st.error(error.get_user_message())
+                            # 未知のエラーをProcessingErrorでラップ
+                            wrapped_error = ProcessingError(
+                                f"動画処理中にエラーが発生しました: {str(e)}",
+                                original_error=e
+                            )
+                            error_info = error_handler.handle_error(wrapped_error)
+                            st.error(error_info["user_message"])
 
     # モーダル表示
     if st.session_state.get('show_modal', False):
