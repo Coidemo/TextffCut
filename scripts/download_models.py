@@ -59,7 +59,9 @@ def download_models():
         # キャッシュサイズを確認
         total_size = 0
         file_count = 0
-        for cache_dir in cache_dirs:
+        all_cache_dirs = cache_dirs + [os.path.expanduser("~/.cache/whisper")]
+        
+        for cache_dir in all_cache_dirs:
             if os.path.exists(cache_dir):
                 for dirpath, dirnames, filenames in os.walk(cache_dir):
                     for f in filenames:
@@ -67,16 +69,6 @@ def download_models():
                         if os.path.exists(fp):
                             total_size += os.path.getsize(fp)
                             file_count += 1
-        
-        # Whisperモデルのキャッシュも確認
-        whisper_cache = os.path.expanduser("~/.cache/whisper")
-        if os.path.exists(whisper_cache):
-            for dirpath, dirnames, filenames in os.walk(whisper_cache):
-                for f in filenames:
-                    fp = os.path.join(dirpath, f)
-                    if os.path.exists(fp):
-                        total_size += os.path.getsize(fp)
-                        file_count += 1
         
         logger.info("\n=== ダウンロード完了 ===")
         logger.info(f"✓ Whisper mediumモデル（高速・高精度）")
