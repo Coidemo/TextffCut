@@ -371,9 +371,7 @@ def main() -> None:
                         st.session_state.api_key = saved_key
                 else:
                     st.markdown("**🤖 モデル**")
-                    st.markdown("Whisper medium")
-                    
-                    # v0.9.7-beta: mediumモデル固定
+                    st.markdown("medium（固定）")
                     model_size = "medium"
                     st.session_state.local_model_size = model_size
             
