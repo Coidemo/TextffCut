@@ -59,6 +59,7 @@ echo ""
 
 # 4. 配布用ファイルの作成
 echo "4. 配布用ファイルを作成しています..."
+# Windows起動バッチファイルの修正を適用
 
 # START.bat の作成（通常起動 - 高速版）
 cat > release/START.bat <<EOF
