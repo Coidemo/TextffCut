@@ -588,7 +588,7 @@ def main() -> None:
             
             logger = get_logger(__name__)
             error_handler = ErrorHandler(logger)
-            error_info = error_handler.handle_error(file_error)
+            error_info = error_handler.handle_error(file_error, context="video_info_loading", raise_after=False)
             st.error(f"📁 {error_info['user_message']}")
             return
             
@@ -598,12 +598,12 @@ def main() -> None:
             
             resource_error = ResourceError(
                 f"ファイルアクセスエラー: {str(e)}",
-                original_error=e
+                cause=e
             )
             
             logger = get_logger(__name__)
             error_handler = ErrorHandler(logger)
-            error_info = error_handler.handle_error(resource_error)
+            error_info = error_handler.handle_error(resource_error, context="file_access", raise_after=False)
             st.error(f"💾 {error_info['user_message']}")
             return
             
@@ -613,12 +613,12 @@ def main() -> None:
             
             wrapped_error = ProcessingError(
                 f"動画情報の取得に失敗: {str(e)}",
-                original_error=e
+                cause=e
             )
             
             logger = get_logger(__name__)
             error_handler = ErrorHandler(logger)
-            error_info = error_handler.handle_error(wrapped_error)
+            error_info = error_handler.handle_error(wrapped_error, context="video_info_general", raise_after=False)
             st.error(error_info['user_message'])
             return
     
@@ -807,20 +807,23 @@ def main() -> None:
                 from core.error_handling import ResourceError
                 memory_error = ResourceError(
                     f"メモリ不足エラー: {str(e)}",
-                    original_error=e,
-                    recovery_suggestions=[
-                        f"より小さなモデル（{ModelSettings.DEFAULT_SIZE}等）を使用してください",
-                        "他のアプリケーションを終了してメモリを解放してください",
-                        "システムのメモリを増設してください"
-                    ]
+                    details={
+                        "recovery_suggestions": [
+                            f"より小さなモデル（{ModelSettings.DEFAULT_SIZE}等）を使用してください",
+                            "他のアプリケーションを終了してメモリを解放してください",
+                            "システムのメモリを増設してください"
+                        ]
+                    },
+                    cause=e
                 )
                 
                 logger = get_logger(__name__)
                 error_handler = ErrorHandler(logger)
-                error_info = error_handler.handle_error(memory_error)
+                error_info = error_handler.handle_error(memory_error, context="transcription_memory", raise_after=False)
                 
                 st.error(f"❌ {error_info['user_message']}")
-                for suggestion in error_info.get('recovery_suggestions', []):
+                details = error_info.get('details', {})
+                for suggestion in details.get('recovery_suggestions', []):
                     st.error(f"💡 {suggestion}")
                 
             except Exception as e:
@@ -841,15 +844,15 @@ def main() -> None:
                 if isinstance(e, LegacyTranscriptionError):
                     st.error(e.get_user_message())
                 elif isinstance(e, (ProcessingError, NewTranscriptionError)):
-                    error_info = error_handler.handle_error(e)
+                    error_info = error_handler.handle_error(e, context="transcription_processing", raise_after=False)
                     st.error(error_info["user_message"])
                 else:
                     # 未知のエラーをProcessingErrorでラップ
                     wrapped_error = ProcessingError(
                         f"文字起こし処理でエラーが発生しました: {str(e)}",
-                        original_error=e
+                        cause=e
                     )
-                    error_info = error_handler.handle_error(wrapped_error)
+                    error_info = error_handler.handle_error(wrapped_error, context="transcription_unknown", raise_after=False)
                     st.error(error_info["user_message"])
     
     # 文字起こし結果の処理
@@ -976,28 +979,26 @@ def main() -> None:
                 display_text = saved_edited_text
             
             
-            
             # ボタンとプレーヤーを横並びに配置（1:2の比率）
             button_col, player_col = st.columns([1, 2])
             
             with button_col:
-                # 更新ボタン（処理中は無効化）
-                is_processing = st.session_state.get('audio_preview_generating', False)
-                
-                # 最後の更新時刻を確認（連打防止）
-                import time
-                last_update_time = st.session_state.get('last_preview_update_time', 0)
-                current_time = time.time()
-                cooldown_period = 1.0  # 1秒のクールダウン
-                is_cooldown = (current_time - last_update_time) < cooldown_period
-                
-                # ボタンの無効化状態を決定
-                button_disabled = is_processing or is_cooldown
-                
-                if st.button("🔄 更新", type="primary", use_container_width=True, disabled=button_disabled):
-                    # 更新時刻を記録
-                    st.session_state.last_preview_update_time = current_time
-                    st.session_state.edited_text = edited_text
+                # 更新ボタン（常に押せる）
+                if st.button("🔄 更新", type="primary", use_container_width=True):
+                    # 最後の更新時刻を確認（連打防止）
+                    import time
+                    current_time = time.time()
+                    last_update_time = st.session_state.get('last_preview_update_time', 0)
+                    cooldown_period = 1.0  # 1秒のクールダウン
+                    
+                    if (current_time - last_update_time) < cooldown_period:
+                        # クールダウン中は何もしない（警告も表示しない）
+                        pass
+                    else:
+                        # クールダウンでない場合は通常処理
+                        st.session_state.last_preview_update_time = current_time
+                        st.session_state.edited_text = edited_text
+                        st.session_state.show_cooldown_warning = False
                     
                     # 現在の音声ファイルを削除
                     cleanup_current_preview()
@@ -1078,12 +1079,6 @@ def main() -> None:
                                 
                                 # フラグクリア後、成功/失敗に関わらずUIを更新
                                 st.rerun()
-                
-                # ボタンの状態メッセージを表示
-                if is_processing:
-                    st.caption("🔄 音声プレビューを生成中...")
-                elif is_cooldown:
-                    st.caption("⏱️ しばらくお待ちください...")
             
             with player_col:
                 # エラーがある場合は削除ボタンを表示
@@ -1138,6 +1133,14 @@ def main() -> None:
                                     st.info(f"⚠️ プレビューは最大{limited_duration:.0f}秒に制限されています（元の長さ: {original_duration:.1f}秒）")
                                 
                                 st.audio(audio_path, format='audio/wav')
+            
+            # プレビュー情報を表示（更新ボタンの左端から）
+            if display_text:
+                # 時間計算を再度実行（音声プレーヤーがある場合のみ）
+                preview_time_ranges = calculate_time_ranges(full_text, display_text, transcription)
+                if preview_time_ranges:
+                    total_duration = sum(end - start for start, end in preview_time_ranges)
+                    st.caption(f"📊 文字数: {len(display_text)}文字 | 🎵 音声: {total_duration:.1f}秒")
         
         # 切り抜き処理
         if edited_text and 'edited_text' in st.session_state:
@@ -1489,15 +1492,15 @@ def main() -> None:
                         if isinstance(e, VideoProcessingError):
                             st.error(e.get_user_message())
                         elif isinstance(e, (ProcessingError, ValidationError)):
-                            error_info = error_handler.handle_error(e)
+                            error_info = error_handler.handle_error(e, context="video_processing", raise_after=False)
                             st.error(error_info["user_message"])
                         else:
                             # 未知のエラーをProcessingErrorでラップ
                             wrapped_error = ProcessingError(
                                 f"動画処理中にエラーが発生しました: {str(e)}",
-                                original_error=e
+                                cause=e
                             )
-                            error_info = error_handler.handle_error(wrapped_error)
+                            error_info = error_handler.handle_error(wrapped_error, context="video_processing_unknown", raise_after=False)
                             st.error(error_info["user_message"])
 
     # モーダル表示
