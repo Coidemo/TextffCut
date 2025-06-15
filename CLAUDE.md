@@ -16,9 +16,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 📌 安定版情報 (重要)
 
-### v0.9.7-beta (2025-06-11) 🆕 **ベータ版**
-- **タグ**: `v0.9.7-beta`
-- **ブランチ**: `fix/0.9.6-bugfix-clean`
+### v0.9.7 (2025-06-15) 🆕 **最新リリース**
+- **タグ**: `v0.9.7`
+- **ブランチ**: `feature/pyinstaller-build`
 
 #### 主な変更点
 - ✅ Whisper mediumモデル固定（高速・高精度）
