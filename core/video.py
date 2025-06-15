@@ -15,6 +15,10 @@ from utils.logging import get_logger
 
 logger = get_logger(__name__)
 
+# 定数定義
+PREVIEW_SAMPLE_RATE = 22050  # プレビュー用のサンプリングレート（処理速度優先）
+WHISPER_SAMPLE_RATE = 16000  # Whisper用のサンプリングレート
+
 
 @dataclass
 class VideoInfo:
@@ -648,7 +652,8 @@ class VideoProcessor:
         input_path: str,
         segments: List[VideoSegment],
         output_audio_path: str,
-        progress_callback: Optional[Callable[[float, str], None]] = None
+        progress_callback: Optional[Callable[[float, str], None]] = None,
+        preview_mode: bool = False
     ) -> bool:
         """
         指定セグメントから音声のみを抽出して結合
@@ -658,6 +663,7 @@ class VideoProcessor:
             segments: 抽出するセグメントのリスト
             output_audio_path: 出力音声ファイルパス
             progress_callback: 進捗コールバック
+            preview_mode: プレビューモード（処理速度優先）
             
         Returns:
             成功したかどうか
@@ -672,17 +678,33 @@ class VideoProcessor:
                 temp_audio = temp_dir / f"temp_audio_{i:04d}.wav"
                 
                 duration = segment.end - segment.start
-                cmd = [
-                    "ffmpeg", "-y",
-                    "-i", str(input_path),
-                    "-ss", str(segment.start),
-                    "-t", str(duration),  # -to の代わりに -t (duration) を使用
-                    "-vn",  # ビデオなし
-                    "-acodec", "pcm_s16le",
-                    "-ar", "16000",  # Whisper用のサンプリングレート
-                    "-ac", "1",  # モノラル
-                    str(temp_audio)
-                ]
+                # プレビューモードでは処理速度優先の設定
+                if preview_mode:
+                    # プレビュー用：処理速度優先
+                    cmd = [
+                        "ffmpeg", "-y",
+                        "-i", str(input_path),
+                        "-ss", str(segment.start),
+                        "-t", str(duration),
+                        "-vn",
+                        "-acodec", "pcm_s16le",
+                        "-ar", str(PREVIEW_SAMPLE_RATE),  # 処理速度優先のサンプリングレート
+                        "-ac", "1",  # モノラル
+                        str(temp_audio)
+                    ]
+                else:
+                    # 通常モード（Whisper用）
+                    cmd = [
+                        "ffmpeg", "-y",
+                        "-i", str(input_path),
+                        "-ss", str(segment.start),
+                        "-t", str(duration),
+                        "-vn",
+                        "-acodec", "pcm_s16le",
+                        "-ar", str(WHISPER_SAMPLE_RATE),  # Whisper用のサンプリングレート
+                        "-ac", "1",  # モノラル
+                        str(temp_audio)
+                    ]
                 
                 logger.info(f"音声抽出コマンド実行: セグメント {i+1} ({segment.start:.1f}s - {segment.end:.1f}s)")
                 result = subprocess.run(cmd, capture_output=True, text=True)
@@ -719,18 +741,31 @@ class VideoProcessor:
                     for audio_file in temp_audio_files:
                         f.write(f"file '{Path(audio_file).resolve()}'\n")
                 
-                # 結合
-                cmd = [
-                    "ffmpeg", "-y",
-                    "-f", "concat",
-                    "-safe", "0",
-                    "-i", str(list_file),
-                    "-acodec", "pcm_s16le",
-                    "-ar", "16000",
-                    "-ac", "1",
-                    "-f", "wav",  # 出力フォーマットを明示的に指定
-                    str(output_audio_path)
-                ]
+                # 結合（プレビューモードに対応）
+                if preview_mode:
+                    cmd = [
+                        "ffmpeg", "-y",
+                        "-f", "concat",
+                        "-safe", "0",
+                        "-i", str(list_file),
+                        "-acodec", "pcm_s16le",
+                        "-ar", str(PREVIEW_SAMPLE_RATE),  # プレビュー用のサンプリングレート
+                        "-ac", "1",
+                        "-f", "wav",
+                        str(output_audio_path)
+                    ]
+                else:
+                    cmd = [
+                        "ffmpeg", "-y",
+                        "-f", "concat",
+                        "-safe", "0",
+                        "-i", str(list_file),
+                        "-acodec", "pcm_s16le",
+                        "-ar", str(WHISPER_SAMPLE_RATE),  # Whisper用のサンプリングレート
+                        "-ac", "1",
+                        "-f", "wav",
+                        str(output_audio_path)
+                    ]
                 
                 logger.info(f"音声結合開始: {len(temp_audio_files)}ファイル")
                 result = subprocess.run(cmd, capture_output=True, text=True)
