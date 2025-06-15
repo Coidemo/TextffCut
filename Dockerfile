@@ -28,9 +28,17 @@ RUN pip install --no-cache-dir \
 # ダウンロードスクリプトのみコピー
 COPY scripts/download_models.py .
 
+# 環境変数を設定（モデルのダウンロード場所を明示的に指定）
+ENV HF_HOME=/home/appuser/.cache/huggingface
+ENV TRANSFORMERS_CACHE=/home/appuser/.cache/huggingface
+ENV TORCH_HOME=/home/appuser/.cache/torch
+
 # モデルをダウンロード（/home/appuser配下に保存）
 RUN mkdir -p /home/appuser/.cache && \
     python download_models.py && \
+    # ダウンロードされたファイルを確認
+    echo "=== アライメントモデルファイル確認 ===" && \
+    find /home/appuser/.cache -name "*.bin" -o -name "*.safetensors" | head -20 && \
     # 不要なファイルを削除
     find /home/appuser/.cache -name "*.pyc" -delete && \
     find /home/appuser/.cache -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
@@ -84,6 +92,9 @@ RUN chown -R appuser:appuser /app && \
     chmod -R 755 /app && \
     chmod -R 777 /app/videos /app/output /app/transcriptions /app/logs /app/temp
 
+# matplotlibキャッシュディレクトリも書き込み可能に
+RUN chmod -R 777 /home/appuser/.cache/matplotlib
+
 # Streamlit設定（appuserのホームディレクトリに）
 USER appuser
 RUN mkdir -p /home/appuser/.streamlit && \
@@ -97,6 +108,11 @@ RUN if [ -f test_docker_permissions.py ]; then python test_docker_permissions.py
 ENV PYTHONUNBUFFERED=1
 ENV TEXTFFCUT_ISOLATION_MODE=subprocess
 ENV MPLCONFIGDIR=/home/appuser/.cache/matplotlib
+# モデルキャッシュの環境変数（アライメント処理で使用）
+ENV HF_HOME=/home/appuser/.cache/huggingface
+ENV TRANSFORMERS_CACHE=/home/appuser/.cache/huggingface
+ENV HF_DATASETS_CACHE=/home/appuser/.cache/huggingface/datasets
+ENV TORCH_HOME=/home/appuser/.cache/torch
 
 # ヘルスチェック
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
