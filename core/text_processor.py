@@ -4,9 +4,10 @@
 import re
 from dataclasses import dataclass
 from difflib import SequenceMatcher
-from typing import List, Tuple, Set, Optional
+from typing import List, Tuple, Set, Optional, Any
 
 from .transcription import TranscriptionResult, TranscriptionSegment
+from .timestamp_estimator import TimestampEstimator
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -90,7 +91,7 @@ class TextDifference:
                 
                 raise VideoProcessingError(error_msg)
             elif not_found_count > 0:
-                logger.info(
+                logger.debug(
                     f"一部のテキスト位置でタイムスタンプが見つかりませんでした "
                     f"({not_found_count}/{total_positions})。処理を続行します。"
                 )
@@ -103,7 +104,7 @@ class TextDifference:
         start_pos: int, 
         end_pos: int
     ) -> Tuple[Optional[float], Optional[float]]:
-        """文字位置からタイムスタンプを取得"""
+        """文字位置からタイムスタンプを取得（改善版：フォールバック階層アプローチ）"""
         # デバッグ情報の収集
         target_text = ""
         if hasattr(self, 'original_text'):
@@ -159,82 +160,12 @@ class TextDifference:
                         # タイムスタンプが欠落している場合
                         if word_start is None or word_end is None:
                             debug_info['words_without_timestamp'] += 1
-                            logger.warning(f"タイムスタンプが欠落しているword: {word_text}")
                             
-                            # より精密な推定処理
-                            # 前後の有効なタイムスタンプを収集（より広い範囲）
-                            prev_timestamps = []
-                            next_timestamps = []
-                            
-                            # 前方検索（最大5つ前まで）
-                            for prev_idx in range(max(0, word_idx - 5), word_idx):
-                                prev_word = seg.words[prev_idx]
-                                if hasattr(prev_word, 'start') and hasattr(prev_word, 'end'):
-                                    if prev_word.start is not None and prev_word.end is not None:
-                                        prev_timestamps.append((prev_idx, prev_word.start, prev_word.end))
-                                elif isinstance(prev_word, dict):
-                                    if prev_word.get('start') is not None and prev_word.get('end') is not None:
-                                        prev_timestamps.append((prev_idx, prev_word['start'], prev_word['end']))
-                            
-                            # 後方検索（最大5つ後まで）
-                            for next_idx in range(word_idx + 1, min(len(seg.words), word_idx + 6)):
-                                next_word = seg.words[next_idx]
-                                if hasattr(next_word, 'start') and hasattr(next_word, 'end'):
-                                    if next_word.start is not None and next_word.end is not None:
-                                        next_timestamps.append((next_idx, next_word.start, next_word.end))
-                                elif isinstance(next_word, dict):
-                                    if next_word.get('start') is not None and next_word.get('end') is not None:
-                                        next_timestamps.append((next_idx, next_word['start'], next_word['end']))
-                            
-                            # 線形補間による推定
-                            estimated_start = None
-                            estimated_end = None
-                            
-                            if prev_timestamps and next_timestamps:
-                                # 最も近い前後のタイムスタンプを使用
-                                prev_idx, prev_start, prev_end = prev_timestamps[-1]
-                                next_idx, next_start, next_end = next_timestamps[0]
-                                
-                                # インデックスの差による重み付け補間
-                                total_gap = next_idx - prev_idx
-                                current_gap = word_idx - prev_idx
-                                ratio = current_gap / total_gap if total_gap > 0 else 0.5
-                                
-                                # 開始時間の推定
-                                estimated_start = prev_end + (next_start - prev_end) * ratio
-                                
-                                # 終了時間の推定（平均的な発話速度を考慮）
-                                avg_duration = (prev_end - prev_start + next_end - next_start) / 2
-                                estimated_end = estimated_start + avg_duration * 0.8  # 少し短めに見積もる
-                                
-                                logger.info(f"タイムスタンプを線形補間で推定: {word_text} ({estimated_start:.2f}秒 - {estimated_end:.2f}秒)")
-                            
-                            elif prev_timestamps:
-                                # 前のタイムスタンプのみある場合
-                                prev_idx, prev_start, prev_end = prev_timestamps[-1]
-                                avg_duration = prev_end - prev_start
-                                estimated_start = prev_end + 0.1  # 小さなギャップを仮定
-                                estimated_end = estimated_start + avg_duration
-                                
-                                logger.info(f"タイムスタンプを前方から推定: {word_text} ({estimated_start:.2f}秒 - {estimated_end:.2f}秒)")
-                            
-                            elif next_timestamps:
-                                # 後のタイムスタンプのみある場合
-                                next_idx, next_start, next_end = next_timestamps[0]
-                                avg_duration = next_end - next_start
-                                estimated_end = next_start - 0.1  # 小さなギャップを仮定
-                                estimated_start = estimated_end - avg_duration
-                                
-                                logger.info(f"タイムスタンプを後方から推定: {word_text} ({estimated_start:.2f}秒 - {estimated_end:.2f}秒)")
-                            
-                            else:
-                                # セグメントのタイムスタンプを使用（最終手段）
-                                segment_duration = seg.end - seg.start
-                                word_ratio = word_idx / len(seg.words)
-                                estimated_start = seg.start + segment_duration * word_ratio
-                                estimated_end = estimated_start + segment_duration / len(seg.words)
-                                
-                                logger.warning(f"タイムスタンプをセグメントから推定: {word_text} ({estimated_start:.2f}秒 - {estimated_end:.2f}秒)")
+                            # フォールバック階層アプローチで推定
+                            estimator = TimestampEstimator()
+                            estimated_start, estimated_end = estimator.estimate_timestamp_fallback(
+                                seg, word_idx, word_text
+                            )
                             
                             # 推定値を使用して処理を続行
                             if start_time is None and current_pos <= start_pos < current_pos + word_len:
@@ -280,6 +211,11 @@ class TextDifference:
                 f"確認したword数: {debug_info['words_checked']}\n"
                 f"タイムスタンプ欠落word数: {debug_info['words_without_timestamp']}"
             )
+    
+    
+    
+    
+    
 
 
 class TextProcessor:
@@ -643,3 +579,8 @@ class TextProcessor:
                 merged.append((current_start, current_end))
         
         return merged
+    
+    
+    
+    
+    

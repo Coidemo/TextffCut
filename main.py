@@ -21,10 +21,14 @@ from utils.file_utils import ensure_directory, get_safe_filename
 from utils.time_utils import format_time
 from utils import ProcessingContext, cleanup_intermediate_files
 from utils.exceptions import BuzzClipError, VideoProcessingError, TranscriptionError
+from utils.logging import get_logger
 from core.alignment_processor import AlignmentProcessor
 from core.exceptions import WordsFieldMissingError
 from core.error_handling import ErrorHandler
 from services.integration_service import IntegrationService
+from typing import Dict, Any
+
+logger = get_logger(__name__)
 from ui import (
     show_video_input,
     show_api_key_manager,
@@ -157,6 +161,120 @@ def debug_words_status(result: Any) -> None:
                 logger.info(f"  セグメント{i}: {len(seg.words)}words - {seg.text[:30]}...")
             else:
                 logger.warning(f"  セグメント{i}: wordsなし! - {seg.text[:30]}...")
+
+
+def calculate_time_ranges(full_text: str, edited_text: str, transcription: Dict[str, Any]) -> List[Tuple[float, float]]:
+    """編集テキストから時間範囲を計算する共通関数"""
+    text_processor = TextProcessor()
+    separator_patterns = ["---", "——", "－－－"]
+    found_separator = None
+    
+    for pattern in separator_patterns:
+        if pattern in edited_text:
+            found_separator = pattern
+            break
+    
+    if found_separator:
+        return text_processor.find_differences_with_separator(
+            full_text, edited_text, transcription, found_separator
+        )
+    else:
+        diff = text_processor.find_differences(full_text, edited_text)
+        return diff.get_time_ranges(transcription)
+
+
+def cleanup_old_preview_files():
+    """古い音声プレビューファイルをクリーンアップ"""
+    import tempfile
+    from ui.audio_preview import PREVIEW_FILE_PREFIX
+    
+    temp_dir = Path(tempfile.gettempdir())
+    current_file = st.session_state.get('preview_audio_path', '')
+    
+    # 削除対象ファイルをリストアップ
+    files_to_delete = []
+    total_size = 0
+    
+    # TextffCut専用のプレビューファイルのみを対象にする
+    for file in temp_dir.glob(f"{PREVIEW_FILE_PREFIX}*.wav"):
+        if str(file) != current_file:
+            try:
+                file_size = file.stat().st_size
+                files_to_delete.append((file, file_size))
+                total_size += file_size
+            except Exception as e:
+                logger.warning(f"ファイル情報取得エラー: {file}, {e}")
+    
+    # ログに記録
+    if files_to_delete:
+        logger.info(f"古いプレビューファイルをクリーンアップ: {len(files_to_delete)}個のファイル, 合計サイズ: {total_size / 1024 / 1024:.1f}MB")
+    
+    # 削除実行
+    deleted_count = 0
+    deleted_size = 0
+    
+    for file, file_size in files_to_delete:
+        try:
+            file.unlink()
+            deleted_count += 1
+            deleted_size += file_size
+            logger.debug(f"削除成功: {file.name} ({file_size / 1024:.1f}KB)")
+        except Exception as e:
+            logger.warning(f"ファイル削除失敗: {file}, エラー: {e}")
+    
+    # 削除結果をログに記録
+    if deleted_count > 0:
+        logger.info(f"クリーンアップ完了: {deleted_count}個のファイルを削除, 解放サイズ: {deleted_size / 1024 / 1024:.1f}MB")
+
+
+def cleanup_current_preview():
+    """現在のプレビューファイルをクリーンアップ"""
+    if 'preview_audio_path' in st.session_state:
+        try:
+            audio_path = Path(st.session_state.preview_audio_path)
+            if audio_path.exists():
+                audio_path.unlink()
+                logger.debug(f"現在のプレビューファイルを削除: {audio_path}")
+        except Exception as e:
+            logger.debug(f"プレビューファイル削除エラー: {e}")
+        finally:
+            del st.session_state.preview_audio_path
+
+
+def handle_audio_preview_error(e: Exception, error_level: str = "warning"):
+    """音声プレビューエラーの共通ハンドリング
+    
+    Args:
+        e: 発生した例外
+        error_level: エラーレベル ("warning" または "error")
+    """
+    from ui.audio_preview import (
+        AudioPreviewFileError,
+        AudioPreviewProcessingError,
+        AudioPreviewError
+    )
+    
+    if isinstance(e, AudioPreviewFileError):
+        logger.error(f"音声プレビューファイルエラー: {e}")
+        if error_level == "error":
+            st.error(f"ファイルエラー: {e}")
+        else:
+            st.warning(f"ファイルエラー: {e}")
+    elif isinstance(e, AudioPreviewProcessingError):
+        logger.error(f"音声プレビュー処理エラー: {e}")
+        if error_level == "error":
+            st.error(f"処理エラー: {e}")
+        else:
+            st.warning(f"処理エラー: {e}")
+    elif isinstance(e, AudioPreviewError):
+        logger.error(f"音声プレビューエラー: {e}")
+        if error_level == "error":
+            st.error(f"エラー: {e}")
+        else:
+            st.warning(f"エラー: {e}")
+    else:
+        logger.error(f"予期しない音声プレビューエラー: {e}", exc_info=True)
+        st.error("音声プレビューの生成中に予期しないエラーが発生しました")
 
 
 def main() -> None:
@@ -470,7 +588,7 @@ def main() -> None:
             
             logger = get_logger(__name__)
             error_handler = ErrorHandler(logger)
-            error_info = error_handler.handle_error(file_error)
+            error_info = error_handler.handle_error(file_error, context="video_info_loading", raise_after=False)
             st.error(f"📁 {error_info['user_message']}")
             return
             
@@ -480,12 +598,12 @@ def main() -> None:
             
             resource_error = ResourceError(
                 f"ファイルアクセスエラー: {str(e)}",
-                original_error=e
+                cause=e
             )
             
             logger = get_logger(__name__)
             error_handler = ErrorHandler(logger)
-            error_info = error_handler.handle_error(resource_error)
+            error_info = error_handler.handle_error(resource_error, context="file_access", raise_after=False)
             st.error(f"💾 {error_info['user_message']}")
             return
             
@@ -495,12 +613,12 @@ def main() -> None:
             
             wrapped_error = ProcessingError(
                 f"動画情報の取得に失敗: {str(e)}",
-                original_error=e
+                cause=e
             )
             
             logger = get_logger(__name__)
             error_handler = ErrorHandler(logger)
-            error_info = error_handler.handle_error(wrapped_error)
+            error_info = error_handler.handle_error(wrapped_error, context="video_info_general", raise_after=False)
             st.error(error_info['user_message'])
             return
     
@@ -689,20 +807,23 @@ def main() -> None:
                 from core.error_handling import ResourceError
                 memory_error = ResourceError(
                     f"メモリ不足エラー: {str(e)}",
-                    original_error=e,
-                    recovery_suggestions=[
-                        f"より小さなモデル（{ModelSettings.DEFAULT_SIZE}等）を使用してください",
-                        "他のアプリケーションを終了してメモリを解放してください",
-                        "システムのメモリを増設してください"
-                    ]
+                    details={
+                        "recovery_suggestions": [
+                            f"より小さなモデル（{ModelSettings.DEFAULT_SIZE}等）を使用してください",
+                            "他のアプリケーションを終了してメモリを解放してください",
+                            "システムのメモリを増設してください"
+                        ]
+                    },
+                    cause=e
                 )
                 
                 logger = get_logger(__name__)
                 error_handler = ErrorHandler(logger)
-                error_info = error_handler.handle_error(memory_error)
+                error_info = error_handler.handle_error(memory_error, context="transcription_memory", raise_after=False)
                 
                 st.error(f"❌ {error_info['user_message']}")
-                for suggestion in error_info.get('recovery_suggestions', []):
+                details = error_info.get('details', {})
+                for suggestion in details.get('recovery_suggestions', []):
                     st.error(f"💡 {suggestion}")
                 
             except Exception as e:
@@ -723,15 +844,15 @@ def main() -> None:
                 if isinstance(e, LegacyTranscriptionError):
                     st.error(e.get_user_message())
                 elif isinstance(e, (ProcessingError, NewTranscriptionError)):
-                    error_info = error_handler.handle_error(e)
+                    error_info = error_handler.handle_error(e, context="transcription_processing", raise_after=False)
                     st.error(error_info["user_message"])
                 else:
                     # 未知のエラーをProcessingErrorでラップ
                     wrapped_error = ProcessingError(
                         f"文字起こし処理でエラーが発生しました: {str(e)}",
-                        original_error=e
+                        cause=e
                     )
-                    error_info = error_handler.handle_error(wrapped_error)
+                    error_info = error_handler.handle_error(wrapped_error, context="transcription_unknown", raise_after=False)
                     st.error(error_info["user_message"])
     
     # 文字起こし結果の処理
@@ -858,38 +979,29 @@ def main() -> None:
                 display_text = saved_edited_text
             
             
-            if display_text:
-                # 時間計算
-                text_processor = TextProcessor()
-                
-                # 区切り文字パターンをチェック
-                separator_patterns = ["---", "——", "－－－"]
-                found_separator = None
-                
-                for pattern in separator_patterns:
-                    if pattern in display_text:
-                        found_separator = pattern
-                        break
-                
-                if found_separator:
-                    time_ranges = text_processor.find_differences_with_separator(full_text, display_text, transcription, found_separator)
-                    sections = text_processor.split_text_by_separator(display_text, found_separator)
-                    separator_info = f" / セクション数: {len(sections)}"
-                else:
-                    diff = text_processor.find_differences(full_text, display_text)
-                    time_ranges = diff.get_time_ranges(transcription)
-                    separator_info = ""
-                
-                total_duration = sum(end - start for start, end in time_ranges)
-                st.caption(f"文字数: {len(display_text)}文字 / 時間: {total_duration:.1f}秒（無音削除前）{separator_info}")
+            # ボタンとプレーヤーを横並びに配置（1:2の比率）
+            button_col, player_col = st.columns([1, 2])
             
-            # ボタンを横並びに配置
-            button_col1, button_col2 = st.columns([1, 2])
-            
-            with button_col1:
-                # 更新ボタン
+            with button_col:
+                # 更新ボタン（常に押せる）
                 if st.button("🔄 更新", type="primary", use_container_width=True):
-                    st.session_state.edited_text = edited_text
+                    # 最後の更新時刻を確認（連打防止）
+                    import time
+                    current_time = time.time()
+                    last_update_time = st.session_state.get('last_preview_update_time', 0)
+                    cooldown_period = 1.0  # 1秒のクールダウン
+                    
+                    if (current_time - last_update_time) < cooldown_period:
+                        # クールダウン中は何もしない（警告も表示しない）
+                        pass
+                    else:
+                        # クールダウンでない場合は通常処理
+                        st.session_state.last_preview_update_time = current_time
+                        st.session_state.edited_text = edited_text
+                        st.session_state.show_cooldown_warning = False
+                    
+                    # 現在の音声ファイルを削除
+                    cleanup_current_preview()
                     
                     # 赤ハイライトがあるかチェック
                     if edited_text:
@@ -936,14 +1048,99 @@ def main() -> None:
                         else:
                             # エラー状態をクリア
                             st.session_state.show_error_and_delete = False
-                            st.rerun()
+                            
+                            # 古い音声プレビューファイルをクリーンアップ
+                            cleanup_old_preview_files()
+                            
+                            # 音声プレビューを自動生成
+                            saved_edited_text = edited_text
+                            preview_time_ranges = calculate_time_ranges(full_text, saved_edited_text, transcription)
+                            
+                            if preview_time_ranges:
+                                from ui.audio_preview import generate_audio_preview
+                                
+                                # 音声生成の成功/失敗を記録
+                                preview_generated = False
+                                preview_error = None
+                                
+                                try:
+                                    # 音声生成中フラグを設定
+                                    st.session_state.audio_preview_generating = True
+                                    audio_path = generate_audio_preview(video_path, preview_time_ranges)
+                                    if audio_path and Path(audio_path).exists():
+                                        st.session_state.preview_audio_path = audio_path
+                                        preview_generated = True
+                                except Exception as e:
+                                    preview_error = e
+                                    handle_audio_preview_error(e, error_level="warning")
+                                finally:
+                                    # 音声生成中フラグをクリア
+                                    st.session_state.audio_preview_generating = False
+                                
+                                # フラグクリア後、成功/失敗に関わらずUIを更新
+                                st.rerun()
             
-            with button_col2:
-                # 削除ボタン（エラーがある場合のみ表示）
+            with player_col:
+                # エラーがある場合は削除ボタンを表示
                 if st.session_state.get('show_error_and_delete', False):
                     if st.button("エラー箇所を確認して削除", key="delete_highlights_main", use_container_width=True):
                         st.session_state.show_modal = True
                         st.rerun()
+                else:
+                    # エラーがない場合は音声プレーヤーを表示
+                    saved_edited_text = st.session_state.get('edited_text', '')
+                    if saved_edited_text:
+                        # 音声ファイルがない場合は生成
+                        if 'preview_audio_path' not in st.session_state or not Path(st.session_state.get('preview_audio_path', '')).exists():
+                            # time_rangesを計算
+                            preview_time_ranges = calculate_time_ranges(full_text, saved_edited_text, transcription)
+                            
+                            if preview_time_ranges:
+                                # 音声生成中は新たな生成を防ぐ
+                                if not st.session_state.get('audio_preview_generating', False):
+                                    with st.spinner("音声を準備中..."):
+                                        from ui.audio_preview import generate_audio_preview
+                                        
+                                        # UIを更新するかどうかのフラグ
+                                        should_rerun = False
+                                        
+                                        try:
+                                            st.session_state.audio_preview_generating = True
+                                            audio_path = generate_audio_preview(video_path, preview_time_ranges)
+                                            if audio_path and Path(audio_path).exists():
+                                                st.session_state.preview_audio_path = audio_path
+                                                should_rerun = True
+                                        except Exception as e:
+                                            handle_audio_preview_error(e, error_level="error")
+                                            # エラー時もUIを更新してエラーメッセージを確実に表示
+                                            should_rerun = True
+                                        finally:
+                                            # フラグを必ずクリア
+                                            st.session_state.audio_preview_generating = False
+                                        
+                                        # UIを更新
+                                        if should_rerun:
+                                            st.rerun()
+                        
+                        # 音声プレーヤーを表示
+                        if 'preview_audio_path' in st.session_state:
+                            audio_path = st.session_state.preview_audio_path
+                            if Path(audio_path).exists():
+                                # 1分制限の通知を表示
+                                if st.session_state.get('preview_duration_limited', False):
+                                    original_duration = st.session_state.get('preview_original_duration', 0)
+                                    limited_duration = st.session_state.get('preview_limited_duration', 60)
+                                    st.info(f"⚠️ プレビューは最大{limited_duration:.0f}秒に制限されています（元の長さ: {original_duration:.1f}秒）")
+                                
+                                st.audio(audio_path, format='audio/wav')
+            
+            # プレビュー情報を表示（更新ボタンの左端から）
+            if display_text:
+                # 時間計算を再度実行（音声プレーヤーがある場合のみ）
+                preview_time_ranges = calculate_time_ranges(full_text, display_text, transcription)
+                if preview_time_ranges:
+                    total_duration = sum(end - start for start, end in preview_time_ranges)
+                    st.caption(f"📊 文字数: {len(display_text)}文字 | 🎵 音声: {total_duration:.1f}秒")
         
         # 切り抜き処理
         if edited_text and 'edited_text' in st.session_state:
@@ -1190,8 +1387,7 @@ def main() -> None:
                                 from core import VideoSegment
                                 segments_to_extract = [VideoSegment(
                                     start=start,
-                                    end=end,
-                                    text=""
+                                    end=end
                                 )]
                                 
                                 extract_result = video_service.extract_segments(
@@ -1295,15 +1491,15 @@ def main() -> None:
                         if isinstance(e, VideoProcessingError):
                             st.error(e.get_user_message())
                         elif isinstance(e, (ProcessingError, ValidationError)):
-                            error_info = error_handler.handle_error(e)
+                            error_info = error_handler.handle_error(e, context="video_processing", raise_after=False)
                             st.error(error_info["user_message"])
                         else:
                             # 未知のエラーをProcessingErrorでラップ
                             wrapped_error = ProcessingError(
                                 f"動画処理中にエラーが発生しました: {str(e)}",
-                                original_error=e
+                                cause=e
                             )
-                            error_info = error_handler.handle_error(wrapped_error)
+                            error_info = error_handler.handle_error(wrapped_error, context="video_processing_unknown", raise_after=False)
                             st.error(error_info["user_message"])
 
     # モーダル表示
