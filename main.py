@@ -1387,8 +1387,7 @@ def main() -> None:
                                 from core import VideoSegment
                                 segments_to_extract = [VideoSegment(
                                     start=start,
-                                    end=end,
-                                    text=""
+                                    end=end
                                 )]
                                 
                                 extract_result = video_service.extract_segments(
