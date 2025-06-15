@@ -70,74 +70,11 @@ echo.
 REM Set environment variables
 set HOST_VIDEOS_PATH=%cd%\videos
 
-REM ===========================================
-REM Memory optimization settings
-REM ===========================================
-echo [Memory] Checking Docker Desktop memory settings...
-
-REM Get memory allocated to Docker Desktop
-for /f "tokens=3" %%i in ('docker system info 2^>nul ^| findstr "Total Memory"') do (
-    set DOCKER_MEM_STR=%%i
-    goto :gotdockermem
-)
-:gotdockermem
-
-REM Convert GiB to GB
-if defined DOCKER_MEM_STR (
-    REM Remove GiB and get numeric value only (truncate decimal)
-    set DOCKER_MEM_STR=%DOCKER_MEM_STR:GiB=%
-    for /f "tokens=1 delims=." %%a in ("%DOCKER_MEM_STR%") do set DOCKER_MEM_GB=%%a
-) else (
-    REM If unable to get, estimate from PC physical memory
-    for /f "tokens=2 delims==" %%i in ('wmic computersystem get TotalPhysicalMemory /value ^| findstr "="') do set TOTAL_MEM_BYTES=%%i
-    set /a TOTAL_MEM_GB=%TOTAL_MEM_BYTES:~0,-9%+1
-    REM Docker Desktop default is about half of physical memory
-    set /a DOCKER_MEM_GB=%TOTAL_MEM_GB%/2
-    echo    * Could not get Docker Desktop memory settings
-    echo    Estimated from physical memory (%TOTAL_MEM_GB%GB): %DOCKER_MEM_GB%GB
-)
-
-echo    Docker Desktop allocated: %DOCKER_MEM_GB%GB
-
-REM Calculate recommended value based on Docker Desktop allocated memory (80% baseline)
-set /a RECOMMENDED_MEM=%DOCKER_MEM_GB%*80/100
-
-REM Ensure minimum 1GB (safety for minimal environments)
-if %RECOMMENDED_MEM% lss 1 (
-    set RECOMMENDED_MEM=1
-)
-
-REM Check that recommended value doesn't exceed Docker allocation (just in case)
-if %RECOMMENDED_MEM% gtr %DOCKER_MEM_GB% (
-    set RECOMMENDED_MEM=%DOCKER_MEM_GB%
-    echo    * Adjusted to %RECOMMENDED_MEM%GB to not exceed Docker Desktop allocation
-)
-
-echo    Allocated memory: %RECOMMENDED_MEM%GB
-echo.
-
-REM Generate docker-compose.override.yml
-echo version: '3.8' > docker-compose.override.yml
-echo services: >> docker-compose.override.yml
-echo   textffcut: >> docker-compose.override.yml
-echo     deploy: >> docker-compose.override.yml
-echo       resources: >> docker-compose.override.yml
-echo         limits: >> docker-compose.override.yml
-echo           memory: %RECOMMENDED_MEM%g >> docker-compose.override.yml
-echo     environment: >> docker-compose.override.yml
-echo       - TEXTFFCUT_MEMORY_LIMIT=%RECOMMENDED_MEM%g >> docker-compose.override.yml
-
-REM ===========================================
 REM Check Docker Desktop
-REM ===========================================
 docker version >nul 2>&1
 if %errorlevel% neq 0 (
     echo Error: Docker Desktop is not running.
     echo Please start Docker Desktop and try again.
-    echo.
-    echo Hint: Check Docker Desktop memory settings
-    echo       Settings - Resources - Memory should be %RECOMMENDED_MEM%GB or more
-    echo.
     pause
     exit /b 1
 )
@@ -159,7 +96,6 @@ if %errorlevel% equ 0 (
     echo Startup Configuration
     echo ===========================================
     echo    URL: http://localhost:8501
-    echo    Memory allocation: %RECOMMENDED_MEM%GB
     echo    Video folder: %cd%\videos
     echo.
     echo Opening http://localhost:8501 in browser...
@@ -181,7 +117,6 @@ if %errorlevel% equ 0 (
     echo Startup Configuration
     echo ===========================================
     echo    URL: http://localhost:8501
-    echo    Memory allocation: %RECOMMENDED_MEM%GB
     echo    Video folder: %cd%\videos
     echo.
     echo Opening http://localhost:8501 in browser...
@@ -205,7 +140,6 @@ echo ===========================================
 echo Startup Configuration
 echo ===========================================
 echo    URL: http://localhost:8501
-echo    Memory allocation: %RECOMMENDED_MEM%GB
 echo    Video folder: %cd%\videos
 echo.
 
@@ -217,14 +151,11 @@ REM Check Docker Compose version and start
 docker compose version >nul 2>&1
 if errorlevel 1 (
     REM Use old version
-    docker-compose -f ./docker-compose-simple.yml -f ./docker-compose.override.yml up
+    docker-compose -f ./docker-compose-simple.yml up
 ) else (
     REM Use new version
-    docker compose -f ./docker-compose-simple.yml -f ./docker-compose.override.yml up
+    docker compose -f ./docker-compose-simple.yml up
 )
-
-REM Delete override file
-del /f docker-compose.override.yml 2>nul
 
 pause
 EOF
@@ -250,6 +181,8 @@ for /f "tokens=*" %%i in ('docker ps -a --format "{{.Names}}" ^| findstr /i text
     echo    - %%i
     docker stop %%i >nul 2>&1
     docker rm %%i >nul 2>&1
+    REM Reset errorlevel in loop
+    ver >nul
 )
 
 REM Remove containers managed by docker-compose
@@ -268,6 +201,8 @@ echo    Removing images...
 for /f "tokens=*" %%i in ('docker images --format "{{.Repository}}:{{.Tag}}" ^| findstr /i textffcut ^| findstr /v ":%VERSION%$"') do (
     echo    - %%i
     docker rmi %%i >nul 2>&1
+    REM Reset errorlevel in loop
+    ver >nul
 )
 
 REM Remove volumes
@@ -275,89 +210,31 @@ echo    Removing volumes...
 for /f "tokens=*" %%i in ('docker volume ls --format "{{.Name}}" ^| findstr /i textffcut') do (
     echo    - %%i
     docker volume rm %%i >nul 2>&1
+    REM Reset errorlevel in loop
+    ver >nul
 )
 
 echo    Cleanup complete
 echo.
 
-REM ===========================================
-REM Memory optimization settings
-REM ===========================================
-echo [Memory] Checking Docker Desktop memory settings...
+REM Reset errorlevel after cleanup
+ver >nul
 
-REM Get memory allocated to Docker Desktop
-for /f "tokens=3" %%i in ('docker system info 2^>nul ^| findstr "Total Memory"') do (
-    set DOCKER_MEM_STR=%%i
-    goto :gotdockermem
-)
-:gotdockermem
-
-REM Convert GiB to GB
-if defined DOCKER_MEM_STR (
-    REM Remove GiB and get numeric value only (truncate decimal)
-    set DOCKER_MEM_STR=%DOCKER_MEM_STR:GiB=%
-    for /f "tokens=1 delims=." %%a in ("%DOCKER_MEM_STR%") do set DOCKER_MEM_GB=%%a
-) else (
-    REM If unable to get, estimate from PC physical memory
-    for /f "tokens=2 delims==" %%i in ('wmic computersystem get TotalPhysicalMemory /value ^| findstr "="') do set TOTAL_MEM_BYTES=%%i
-    set /a TOTAL_MEM_GB=%TOTAL_MEM_BYTES:~0,-9%+1
-    REM Docker Desktop default is about half of physical memory
-    set /a DOCKER_MEM_GB=%TOTAL_MEM_GB%/2
-    echo    * Could not get Docker Desktop memory settings
-    echo    Estimated from physical memory (%TOTAL_MEM_GB%GB): %DOCKER_MEM_GB%GB
-)
-
-echo    Docker Desktop allocated: %DOCKER_MEM_GB%GB
-
-REM Calculate recommended value based on Docker Desktop allocated memory (80% baseline)
-set /a RECOMMENDED_MEM=%DOCKER_MEM_GB%*80/100
-
-REM Ensure minimum 1GB (safety for minimal environments)
-if %RECOMMENDED_MEM% lss 1 (
-    set RECOMMENDED_MEM=1
-)
-
-REM Check that recommended value doesn't exceed Docker allocation (just in case)
-if %RECOMMENDED_MEM% gtr %DOCKER_MEM_GB% (
-    set RECOMMENDED_MEM=%DOCKER_MEM_GB%
-    echo    * Adjusted to %RECOMMENDED_MEM%GB to not exceed Docker Desktop allocation
-)
-
-echo    Allocated memory: %RECOMMENDED_MEM%GB
-echo.
-
-REM Generate docker-compose.override.yml
-echo version: '3.8' > docker-compose.override.yml
-echo services: >> docker-compose.override.yml
-echo   textffcut: >> docker-compose.override.yml
-echo     deploy: >> docker-compose.override.yml
-echo       resources: >> docker-compose.override.yml
-echo         limits: >> docker-compose.override.yml
-echo           memory: %RECOMMENDED_MEM%g >> docker-compose.override.yml
-echo     environment: >> docker-compose.override.yml
-echo       - TEXTFFCUT_MEMORY_LIMIT=%RECOMMENDED_MEM%g >> docker-compose.override.yml
-
-REM ===========================================
 REM Check Docker Desktop
-REM ===========================================
 docker version >nul 2>&1
 if %errorlevel% neq 0 (
     echo Error: Docker Desktop is not running.
     echo Please start Docker Desktop and try again.
-    echo.
-    echo Hint: Check Docker Desktop memory settings
-    echo       Settings - Resources - Memory should be %RECOMMENDED_MEM%GB or more
-    echo.
     pause
     exit /b 1
 )
 
 REM Check if any container is using port 8501
-docker ps --format "table {{.Names}}	{{.Ports}}" | findstr "8501" >nul 2>&1
+docker ps --format "table {{.Names}}\\t{{.Ports}}" | findstr "8501" >nul 2>&1
 if %errorlevel% equ 0 (
     echo Warning: Port 8501 is already in use.
     echo Existing containers:
-    docker ps --format "table {{.Names}}	{{.Ports}}" | findstr "8501"
+    docker ps --format "table {{.Names}}\\t{{.Ports}}" | findstr "8501"
     echo.
     set /p REPLY=Stop existing containers and start? (y/n): 
     if /i "%REPLY%"=="y" (
@@ -431,20 +308,8 @@ echo ===========================================
 echo Startup Configuration
 echo ===========================================
 echo    URL: http://localhost:8501
-echo    Memory allocation: %RECOMMENDED_MEM%GB
 echo    Video folder: %cd%\videos
 echo.
-
-REM Memory shortage warning
-if %AVAILABLE_MEM_GB% lss 4 (
-    echo *** WARNING ***
-    echo    Available memory is less than 4GB
-    echo    Processing large videos may fail
-    echo    Recommend closing other applications
-    echo.
-    echo    Hint: Videos over 2 hours need 12GB+ memory
-    echo.
-)
 
 echo Starting application...
 echo Opening http://localhost:8501 in browser...
@@ -454,14 +319,11 @@ REM Check Docker Compose version and start
 docker compose version >nul 2>&1
 if errorlevel 1 (
     REM Use old version
-    docker-compose -f ./docker-compose-simple.yml -f ./docker-compose.override.yml up
+    docker-compose -f ./docker-compose-simple.yml up
 ) else (
     REM Use new version
-    docker compose -f ./docker-compose-simple.yml -f ./docker-compose.override.yml up
+    docker compose -f ./docker-compose-simple.yml up
 )
-
-REM Delete override file
-del /f docker-compose.override.yml 2>nul
 
 pause
 EOF
@@ -480,71 +342,10 @@ cd "$SCRIPT_DIR"
 # 環境変数を設定
 export HOST_VIDEOS_PATH="${SCRIPT_DIR}/videos"
 
-# ===========================================
-# メモリ最適化設定
-# ===========================================
-echo "💾 Docker Desktopのメモリ設定を確認しています..."
-
-# Docker Desktopに割り当てられたメモリを取得
-DOCKER_MEM_BYTES=$(docker system info 2>/dev/null | grep "Total Memory" | awk '{print $3}' | sed 's/GiB//')
-if [ -n "$DOCKER_MEM_BYTES" ]; then
-    # GiBからGBに変換（小数点以下切り捨て）
-    DOCKER_MEM_GB=$(echo "$DOCKER_MEM_BYTES" | awk '{print int($1)}')
-else
-    # 取得できない場合はMacの物理メモリから推定
-    TOTAL_MEM_GB=$(( $(sysctl -n hw.memsize) / 1024 / 1024 / 1024 ))
-    # Docker Desktopのデフォルトは物理メモリの半分程度
-    DOCKER_MEM_GB=$(( TOTAL_MEM_GB / 2 ))
-    echo "   ⚠️  Docker Desktopのメモリ設定を取得できませんでした"
-    echo "   物理メモリ(${TOTAL_MEM_GB}GB)から推定: ${DOCKER_MEM_GB}GB"
-fi
-
-echo "   Docker Desktop割り当て: ${DOCKER_MEM_GB}GB"
-
-# Docker Desktopの割り当てメモリに基づいて推奨値を計算（80%を基本）
-RECOMMENDED_MEM=$(( DOCKER_MEM_GB * 80 / 100 ))
-
-# 最低1GBは確保（極小環境用の安全策）
-if [ $RECOMMENDED_MEM -lt 1 ]; then
-    RECOMMENDED_MEM=1
-fi
-
-# 推奨値がDocker割り当てを超えないようにチェック（念のため）
-if [ $RECOMMENDED_MEM -gt $DOCKER_MEM_GB ]; then
-    RECOMMENDED_MEM=$DOCKER_MEM_GB
-    echo "   ⚠️  Docker Desktop割り当てを超えないよう、${RECOMMENDED_MEM}GBに調整しました"
-fi
-
-echo "   割り当てメモリ: ${RECOMMENDED_MEM}GB"
-echo ""
-
-# docker-compose.override.ymlを生成（メモリ制限を追加）
-cat > docker-compose.override.yml <<OVERRIDE_EOF
-version: '3.8'
-services:
-  textffcut:
-    deploy:
-      resources:
-        limits:
-          memory: ${RECOMMENDED_MEM}g
-    environment:
-      - TEXTFFCUT_MEMORY_LIMIT=${RECOMMENDED_MEM}g
-OVERRIDE_EOF
-
-# ===========================================
 # Docker Desktop確認
-# ===========================================
 if ! docker version &>/dev/null; then
     echo "エラー: Docker Desktopが起動していません。"
     echo "Docker Desktopを起動してから、もう一度実行してください。"
-    
-    # Docker Desktopのメモリ設定アドバイス
-    echo ""
-    echo "💡 Docker Desktopのメモリ設定を確認してください："
-    echo "   1. Docker Desktop → Settings → Resources"
-    echo "   2. Memory を ${RECOMMENDED_MEM}GB 以上に設定"
-    echo ""
-    
     read -p "Enterキーを押して終了..."
     exit 1
 fi
@@ -556,7 +357,6 @@ if [ -n "$RUNNING_CONTAINER" ]; then
     echo ""
     echo "=== 起動設定 ==="
     echo "📍 URL: http://localhost:8501"
-    echo "💾 メモリ割り当て: ${RECOMMENDED_MEM}GB"
     echo "📁 動画フォルダ: ${SCRIPT_DIR}/videos"
     echo ""
     echo "ブラウザで http://localhost:8501 を開いています..."
@@ -576,7 +376,6 @@ if [ -n "$STOPPED_CONTAINER" ]; then
     echo ""
     echo "=== 起動設定 ==="
     echo "📍 URL: http://localhost:8501"
-    echo "💾 メモリ割り当て: ${RECOMMENDED_MEM}GB"
     echo "📁 動画フォルダ: ${SCRIPT_DIR}/videos"
     echo ""
     echo "ブラウザで http://localhost:8501 を開いています..."
@@ -656,19 +455,8 @@ fi
 echo ""
 echo "=== 起動設定 ==="
 echo "📍 URL: http://localhost:$PORT"
-echo "💾 メモリ割り当て: ${RECOMMENDED_MEM}GB"
 echo "📁 動画フォルダ: ${SCRIPT_DIR}/videos"
 echo ""
-
-# メモリ不足の警告
-if [ $RECOMMENDED_MEM -lt 4 ]; then
-    echo "⚠️  警告: 割り当てメモリが4GB未満です"
-    echo "   大きな動画の処理に失敗する可能性があります"
-    echo "   Docker Desktopのメモリ設定を増やすか、他のアプリケーションを終了してください"
-    echo ""
-    echo "   ヒント: 2時間以上の動画は12GB以上推奨"
-    echo ""
-fi
 
 echo "アプリケーションを起動しています..."
 echo "ブラウザで http://localhost:$PORT を開いています..."
@@ -678,18 +466,14 @@ if [ -n "$TEXTFFCUT_PORT" ]; then
     # docker-compose.ymlを一時的に作成（ポート変更対応）
     sed "s/8501:8501/$TEXTFFCUT_PORT:8501/g" ./docker-compose-simple.yml > ./docker-compose-temp.yml
     
-    # overrideファイルと一緒に起動
-    docker-compose -f ./docker-compose-temp.yml -f ./docker-compose.override.yml up
+    # 起動
+    docker-compose -f ./docker-compose-temp.yml up
     
     # 一時ファイルを削除
     rm -f ./docker-compose-temp.yml
-    rm -f ./docker-compose.override.yml
 else
-    # overrideファイルと一緒に起動
-    docker-compose -f ./docker-compose-simple.yml -f ./docker-compose.override.yml up
-    
-    # overrideファイルを削除
-    rm -f ./docker-compose.override.yml
+    # 起動
+    docker-compose -f ./docker-compose-simple.yml up
 fi
 
 read -p "Enterキーを押して終了..."
@@ -851,45 +635,11 @@ for folder in videos logs models; do
     fi
 done
 
-# システムメモリをチェック
-MEMORY_GB=$(( $(sysctl -n hw.memsize) / 1024 / 1024 / 1024 ))
-echo "💻 システムメモリ: ${MEMORY_GB}GB"
-
-# Docker Desktopに割り当てられたメモリを取得
-DOCKER_MEM_BYTES=$(docker system info 2>/dev/null | grep "Total Memory" | awk '{print $3}' | sed 's/GiB//')
-if [ -n "$DOCKER_MEM_BYTES" ]; then
-    DOCKER_MEM_GB=$(echo "$DOCKER_MEM_BYTES" | awk '{print int($1)}')
-else
-    DOCKER_MEM_GB=$(( MEMORY_GB / 2 ))
-fi
-
-# 推奨メモリを計算
-RECOMMENDED_MEM=$(( DOCKER_MEM_GB * 80 / 100 ))
-if [ $RECOMMENDED_MEM -lt 1 ]; then
-    RECOMMENDED_MEM=1
-fi
-
-echo "Docker Desktop割り当て: ${DOCKER_MEM_GB}GB"
-echo "割り当てメモリ: ${RECOMMENDED_MEM}GB"
-
-# docker-compose.override.ymlを生成
-cat > docker-compose.override.yml <<OVERRIDE_EOF
-version: '3.8'
-services:
-  textffcut:
-    deploy:
-      resources:
-        limits:
-          memory: ${RECOMMENDED_MEM}g
-    environment:
-      - TEXTFFCUT_MEMORY_LIMIT=${RECOMMENDED_MEM}g
-OVERRIDE_EOF
-
 echo ""
 echo "🚀 TextffCut を起動しています..."
 
 # Docker Composeで起動
-docker-compose -f docker-compose-simple.yml -f docker-compose.override.yml up -d
+docker-compose -f docker-compose-simple.yml up -d
 
 # 起動確認
 echo ""
@@ -927,9 +677,6 @@ else
     echo "Docker Desktop が正常に動作していることを確認してください。"
     echo ""
 fi
-
-# overrideファイルを削除
-rm -f ./docker-compose.override.yml
 
 read -p "Enterキーを押して終了..."
 EOF
