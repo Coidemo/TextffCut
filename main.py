@@ -47,6 +47,7 @@ from ui import (
     apply_dark_mode_styles,
     SessionStateAdapter
 )
+from ui.timeline_editor import show_timeline_editor
 from services import ConfigurationService, TextEditingService, VideoProcessingService, WorkflowService, ExportService
 
 
@@ -1155,6 +1156,48 @@ def main() -> None:
                 st.markdown("##### 🔇 無音削除の設定")
                 st.info(f"現在の設定: 閾値{noise_threshold}dB | 無音{min_silence_duration}秒 | セグメント{min_segment_duration}秒 | パディング{padding_start}-{padding_end}秒 | 設定変更は左サイドパネルの「無音検出」タブから")
             
+            # タイムライン編集（処理実行前に時間範囲を計算して表示）
+            # 編集テキストから時間範囲を計算
+            text_processor = TextProcessor()
+            
+            # 区切り文字の様々なパターンをチェック
+            separator_patterns = ["---", "——", "－－－"]
+            found_separator = None
+            
+            for pattern in separator_patterns:
+                if pattern in edited_text:
+                    found_separator = pattern
+                    break
+            
+            # 時間範囲を取得（エラーチェックなし、表示用）
+            preview_time_ranges = []
+            try:
+                if found_separator:
+                    preview_time_ranges = text_processor.find_differences_with_separator(full_text, edited_text, transcription, found_separator)
+                else:
+                    diff = text_processor.find_differences(full_text, edited_text)
+                    preview_time_ranges = diff.get_time_ranges(transcription)
+            except:
+                # エラーがあっても表示は続行
+                pass
+            
+            # タイムライン編集UIを表示
+            timeline = None
+            if preview_time_ranges:
+                st.markdown("#### 🎬 タイムライン編集")
+                
+                # 動画情報を取得
+                from core.video import VideoInfo
+                try:
+                    video_info = VideoInfo.from_file(video_path)
+                    video_duration = video_info.duration
+                except:
+                    # エラー時は仮の値を使用
+                    video_duration = max(end for _, end in preview_time_ranges) + 10
+                
+                # タイムライン編集UIを表示
+                timeline = show_timeline_editor(preview_time_ranges, video_duration)
+            
             # 出力先の表示
             st.markdown("#### 📁 出力先")
             video_name = Path(video_path).stem
@@ -1263,9 +1306,14 @@ def main() -> None:
                         
                         # 残す時間範囲を決定
                         if process_type == "切り抜きのみ":
-                            # 切り抜きのみの場合はtime_rangesをそのまま使用
-                            keep_ranges = time_ranges
-                            show_progress(0.5, "切り抜き箇所を処理中...", progress_bar, status_text)
+                            # タイムライン編集がある場合はそれを使用
+                            if timeline:
+                                keep_ranges = timeline.get_adjusted_ranges()
+                                show_progress(0.5, "調整された切り抜き箇所を処理中...", progress_bar, status_text)
+                            else:
+                                # 切り抜きのみの場合はtime_rangesをそのまま使用
+                                keep_ranges = time_ranges
+                                show_progress(0.5, "切り抜き箇所を処理中...", progress_bar, status_text)
                             
                         else:
                             # 無音削除付きで処理（新フロー）
@@ -1277,9 +1325,12 @@ def main() -> None:
                             from core.models import TranscriptionResultV2
                             from core import TranscriptionSegment
                             
+                            # タイムライン編集がある場合は調整後の範囲を使用
+                            ranges_for_silence_removal = timeline.get_adjusted_ranges() if timeline else time_ranges
+                            
                             # time_rangesからセグメントを作成
                             segments_for_removal = []
-                            for start, end in time_ranges:
+                            for start, end in ranges_for_silence_removal:
                                 segments_for_removal.append(TranscriptionSegment(
                                     start=start,
                                     end=end,
