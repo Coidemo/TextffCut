@@ -1142,8 +1142,58 @@ def main() -> None:
                     total_duration = sum(end - start for start, end in preview_time_ranges)
                     st.caption(f"📊 文字数: {len(display_text)}文字 | 🎵 音声: {total_duration:.1f}秒")
         
-        # 切り抜き処理
+        # タイムライン編集セクション
         if edited_text and 'edited_text' in st.session_state:
+            # 時間範囲を計算
+            time_ranges = calculate_time_ranges(full_text, edited_text, transcription)
+            
+            # 複数セグメントがある場合のみタイムライン編集を表示
+            if time_ranges and len(time_ranges) > 1:
+                st.markdown("---")
+                
+                # タイムラインオブジェクトを作成または取得
+                from core.timeline import Timeline
+                from ui.timeline_editor_enhanced import render_timeline_editor_with_preview
+                
+                # セッション状態でタイムラインを管理
+                timeline_key = f"timeline_{video_path}"
+                if timeline_key not in st.session_state:
+                    st.session_state[timeline_key] = Timeline.from_time_ranges(time_ranges)
+                else:
+                    # 時間範囲が変更された場合は新しいタイムラインを作成
+                    current_ranges = [(seg.start_time, seg.end_time) for seg in st.session_state[timeline_key].segments]
+                    if current_ranges != time_ranges:
+                        st.session_state[timeline_key] = Timeline.from_time_ranges(time_ranges)
+                
+                # 動画の長さを取得
+                from services.video_processing_service import VideoProcessingService
+                video_service = VideoProcessingService(config)
+                video_info = video_service.get_video_info(video_path)
+                
+                # 安全なファイル名を生成
+                video_name = Path(video_path).stem
+                safe_name = get_safe_filename(video_name)
+                
+                # タイムライン編集UIを表示
+                timeline = render_timeline_editor_with_preview(
+                    timeline=st.session_state[timeline_key],
+                    video_path=video_path,
+                    video_duration=video_info.duration,
+                    key_prefix=f"timeline_{safe_name}"
+                )
+                
+                # 更新されたタイムラインを保存
+                st.session_state[timeline_key] = timeline
+            
+            # セグメントが1つの場合は時間範囲をそのまま使用
+            elif time_ranges and len(time_ranges) == 1:
+                from core.timeline import Timeline
+                timeline = Timeline.from_time_ranges(time_ranges)
+            else:
+                timeline = None
+        
+        # 切り抜き処理
+        if edited_text and 'edited_text' in st.session_state and timeline:
             st.markdown("---")
             st.subheader("🎬 切り抜き箇所の抽出")
             
@@ -1183,44 +1233,48 @@ def main() -> None:
                 else:
                     config.transcription.use_api = False
                 
-                # 区切り文字対応の差分検索を使用
-                text_processor = TextProcessor()
-                
-                # 区切り文字の様々なパターンをチェック（処理実行時）
-                separator_patterns = ["---", "——", "－－－"]
-                found_separator = None
-                
-                for pattern in separator_patterns:
-                    if pattern in edited_text:
-                        found_separator = pattern
-                        break
-                
-                if found_separator:
-                    # 区切り文字対応処理
-                    time_ranges = text_processor.find_differences_with_separator(full_text, edited_text, transcription, found_separator)
+                # タイムラインから調整後の時間範囲を取得
+                if timeline:
+                    time_ranges = timeline.get_adjusted_ranges()
+                else:
+                    # タイムラインがない場合は従来の処理
+                    text_processor = TextProcessor()
                     
-                    # 各セクションで追加文字チェック
-                    sections = text_processor.split_text_by_separator(edited_text, found_separator)
-                    has_additions = False
-                    for section in sections:
-                        diff = text_processor.find_differences(full_text, section)
-                        if diff.has_additions():
-                            has_additions = True
+                    # 区切り文字の様々なパターンをチェック（処理実行時）
+                    separator_patterns = ["---", "——", "－－－"]
+                    found_separator = None
+                    
+                    for pattern in separator_patterns:
+                        if pattern in edited_text:
+                            found_separator = pattern
                             break
                     
-                    if has_additions:
-                        st.error("元の動画に存在しない部分が含まれています。各セクションを確認してください。")
-                        return
+                    if found_separator:
+                        # 区切り文字対応処理
+                        time_ranges = text_processor.find_differences_with_separator(full_text, edited_text, transcription, found_separator)
                         
-                else:
-                    # 従来の処理
-                    diff = text_processor.find_differences(full_text, edited_text)
-                    
-                    if diff.has_additions():
-                        st.error("元の動画に存在しない部分が含まれています。赤いハイライト部分を確認してください。")
-                        return
-                    
-                    time_ranges = diff.get_time_ranges(transcription)
+                        # 各セクションで追加文字チェック
+                        sections = text_processor.split_text_by_separator(edited_text, found_separator)
+                        has_additions = False
+                        for section in sections:
+                            diff = text_processor.find_differences(full_text, section)
+                            if diff.has_additions():
+                                has_additions = True
+                                break
+                        
+                        if has_additions:
+                            st.error("元の動画に存在しない部分が含まれています。各セクションを確認してください。")
+                            return
+                            
+                    else:
+                        # 従来の処理
+                        diff = text_processor.find_differences(full_text, edited_text)
+                        
+                        if diff.has_additions():
+                            st.error("元の動画に存在しない部分が含まれています。赤いハイライト部分を確認してください。")
+                            return
+                        
+                        time_ranges = diff.get_time_ranges(transcription)
                 
                 if not time_ranges:
                     st.error("切り抜き箇所が見つかりませんでした。")

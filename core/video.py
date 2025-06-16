@@ -954,3 +954,98 @@ class VideoProcessor:
                     
             except Exception:
                 pass
+    
+    def combine_videos_with_timeline(
+        self,
+        input_path: str,
+        timeline: 'Timeline',
+        output_file: str,
+        progress_callback: Optional[Callable[[float, str], None]] = None
+    ) -> bool:
+        """
+        タイムライン情報を使用して動画を結合（ギャップ調整対応）
+        
+        Args:
+            input_path: 入力動画パス
+            timeline: タイムラインオブジェクト
+            output_file: 出力ファイルパス
+            progress_callback: 進捗コールバック
+            
+        Returns:
+            成功したかどうか
+        """
+        try:
+            from core.timeline import Timeline
+            
+            # 調整後の時間範囲を取得
+            adjusted_ranges = timeline.get_adjusted_ranges()
+            if not adjusted_ranges:
+                logger.warning("有効なセグメントがありません")
+                return False
+            
+            # 出力ディレクトリを確保
+            output_dir = ensure_directory(Path(output_file).parent)
+            temp_dir = output_dir / f"temp_{int(time.time())}"
+            temp_dir.mkdir(exist_ok=True)
+            
+            # 各セグメントを抽出
+            segment_files = []
+            total_segments = len(adjusted_ranges)
+            
+            for i, (start, end) in enumerate(adjusted_ranges):
+                if progress_callback:
+                    progress = i / total_segments * 0.7
+                    progress_callback(progress, f"セグメント {i+1}/{total_segments} を抽出中...")
+                
+                segment_file = temp_dir / f"segment_{i:04d}.mp4"
+                
+                if self.extract_segment(
+                    input_path,
+                    start,
+                    end,
+                    str(segment_file)
+                ):
+                    segment_files.append(str(segment_file))
+                    logger.info(f"セグメント {i+1} 抽出成功: {start:.2f}s - {end:.2f}s")
+                else:
+                    logger.error(f"セグメント {i+1} 抽出失敗")
+            
+            # セグメントを結合
+            if len(segment_files) > 1:
+                if progress_callback:
+                    progress_callback(0.7, "セグメントを結合中...")
+                
+                success = self.combine_videos(
+                    segment_files,
+                    output_file,
+                    lambda p, s: progress_callback(0.7 + p * 0.3, s) if progress_callback else None
+                )
+            elif len(segment_files) == 1:
+                # 単一ファイルの場合はコピー
+                import shutil
+                shutil.copy2(segment_files[0], output_file)
+                success = True
+            else:
+                logger.error("結合するセグメントがありません")
+                success = False
+            
+            # 一時ファイルをクリーンアップ
+            for segment_file in segment_files:
+                try:
+                    Path(segment_file).unlink()
+                except Exception as e:
+                    logger.warning(f"一時ファイル削除エラー: {e}")
+            
+            try:
+                temp_dir.rmdir()
+            except Exception as e:
+                logger.warning(f"一時ディレクトリ削除エラー: {e}")
+            
+            if progress_callback and success:
+                progress_callback(1.0, "処理完了")
+            
+            return success
+            
+        except Exception as e:
+            logger.error(f"タイムライン結合エラー: {e}")
+            return False
