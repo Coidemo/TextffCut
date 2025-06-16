@@ -43,6 +43,7 @@ from ui import (
     show_red_highlight_modal,
     show_help,
     show_optimization_status,
+    show_chatgpt_integration,
     cleanup_temp_files,
     apply_dark_mode_styles,
     SessionStateAdapter
@@ -1141,6 +1142,14 @@ def main() -> None:
                 if preview_time_ranges:
                     total_duration = sum(end - start for start, end in preview_time_ranges)
                     st.caption(f"📊 文字数: {len(display_text)}文字 | 🎵 音声: {total_duration:.1f}秒")
+            
+            # ChatGPT連携機能を追加
+            st.markdown("---")
+            chatgpt_config = show_chatgpt_integration(
+                transcription_text=full_text,
+                edited_text=edited_text,
+                is_processing=False
+            )
         
         # 切り抜き処理
         if edited_text and 'edited_text' in st.session_state:

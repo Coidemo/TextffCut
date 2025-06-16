@@ -13,7 +13,8 @@ from .components import (
     show_edited_text_with_highlights,
     show_red_highlight_modal,
     show_help,
-    show_optimization_status
+    show_optimization_status,
+    show_chatgpt_integration
 )
 from .file_upload import (
     show_video_input,
@@ -42,6 +43,7 @@ __all__ = [
     'show_red_highlight_modal',
     'show_help',
     'show_optimization_status',
+    'show_chatgpt_integration',
     'show_video_input',
     'cleanup_temp_files',
     'apply_dark_mode_styles',

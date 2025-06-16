@@ -21,6 +21,7 @@ from .video_processing_service import VideoProcessingService
 from .export_service import ExportService
 from .workflow_service import WorkflowService, WorkflowSettings
 from .integration_service import IntegrationService
+from .chatgpt_service import ChatGPTService, ChatGPTPromptConfig, PromptTemplate
 
 __all__ = [
     # Base
@@ -39,7 +40,10 @@ __all__ = [
     'ExportService',
     'WorkflowService',
     'IntegrationService',
+    'ChatGPTService',
     
     # Settings
-    'WorkflowSettings'
+    'WorkflowSettings',
+    'ChatGPTPromptConfig',
+    'PromptTemplate'
 ]

@@ -666,3 +666,148 @@ def show_optimization_status():
             st.caption("メモリ情報を取得できませんでした")
 
 
+def show_chatgpt_integration(
+    transcription_text: str = "",
+    edited_text: str = "",
+    is_processing: bool = False
+) -> Dict[str, Any]:
+    """
+    ChatGPT連携UI
+    
+    Args:
+        transcription_text: 文字起こし結果の全文
+        edited_text: 切り抜き箇所のテキスト
+        is_processing: 処理中かどうか
+        
+    Returns:
+        ChatGPT連携の設定情報
+    """
+    from services.chatgpt_service import ChatGPTService, ChatGPTPromptConfig, PromptTemplate
+    
+    service = ChatGPTService()
+    
+    with st.container(border=True):
+        st.markdown("#### 🤖 ChatGPT連携")
+        
+        # テキストソース選択
+        text_source = st.radio(
+            "使用するテキスト",
+            options=["切り抜き箇所", "文字起こし結果全文"],
+            help="ChatGPTに送信するテキストを選択します",
+            disabled=is_processing,
+            horizontal=True
+        )
+        
+        # プロンプトテンプレート選択
+        prompt_examples = service.get_prompt_examples()
+        template_options = ["カスタム"] + [ex["name"] for ex in prompt_examples]
+        
+        selected_template = st.selectbox(
+            "プロンプトテンプレート",
+            options=template_options,
+            help="よく使うプロンプトのテンプレートを選択できます",
+            disabled=is_processing
+        )
+        
+        # カスタムプロンプト入力
+        if selected_template == "カスタム":
+            custom_prompt = st.text_area(
+                "カスタムプロンプト",
+                value="以下のテキストについて分析してください：\n\n{text}",
+                height=100,
+                help="{text}の部分に選択したテキストが挿入されます",
+                disabled=is_processing
+            )
+            template_type = PromptTemplate.CUSTOM
+        else:
+            custom_prompt = None
+            # テンプレート名からenumを取得
+            for ex in prompt_examples:
+                if ex["name"] == selected_template:
+                    template_type = PromptTemplate(ex["template"])
+                    break
+        
+        # アクションボタン
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            copy_button = st.button(
+                "📋 プロンプトをコピー",
+                use_container_width=True,
+                disabled=is_processing or (text_source == "切り抜き箇所" and not edited_text),
+                help="プロンプトをクリップボードにコピーします"
+            )
+        
+        with col2:
+            open_button = st.button(
+                "🌐 ChatGPTを開く",
+                use_container_width=True,
+                disabled=is_processing,
+                help="ChatGPTを新しいタブで開きます（プロンプトは手動でペーストしてください）"
+            )
+        
+        # ボタンアクション処理
+        if copy_button:
+            # 使用するテキストを決定
+            if text_source == "切り抜き箇所":
+                target_text = edited_text
+            else:
+                target_text = transcription_text
+            
+            if target_text:
+                # プロンプト設定を作成
+                config = ChatGPTPromptConfig(
+                    template=template_type,
+                    custom_prompt=custom_prompt
+                )
+                
+                try:
+                    # プロンプトを生成してコピー
+                    prompt = service.prepare_for_clipboard(target_text, config)
+                    
+                    # JavaScriptを使用してクリップボードにコピー
+                    st.markdown(f"""
+                    <script>
+                    navigator.clipboard.writeText(`{prompt.replace('`', '\\`').replace('\\', '\\\\')}`);
+                    </script>
+                    """, unsafe_allow_html=True)
+                    
+                    st.success("✅ プロンプトをクリップボードにコピーしました！")
+                    
+                    # プレビューを表示
+                    with st.expander("コピーした内容をプレビュー", expanded=False):
+                        st.text_area("プロンプト内容", value=prompt, height=200, disabled=True)
+                except Exception as e:
+                    st.error(f"エラーが発生しました: {str(e)}")
+            else:
+                st.warning("コピーするテキストがありません")
+        
+        if open_button:
+            # ChatGPTを新しいタブで開く
+            st.markdown(
+                '<script>window.open("https://chat.openai.com", "_blank");</script>',
+                unsafe_allow_html=True
+            )
+            st.info("💡 ChatGPTが開いたら、コピーしたプロンプトをペーストしてください")
+        
+        # 使い方の説明
+        with st.expander("💡 使い方", expanded=False):
+            st.markdown("""
+            1. **テキストを選択**: 「切り抜き箇所」または「文字起こし結果全文」を選択
+            2. **プロンプトを選択**: テンプレートまたはカスタムプロンプトを設定
+            3. **コピー＆ペースト**: プロンプトをコピーしてChatGPTに貼り付け
+            
+            **活用例**:
+            - 🎯 バズる切り抜き案を提案してもらう
+            - 📝 魅力的なタイトルを考えてもらう
+            - 📊 内容を要約してもらう
+            - 💡 その他、自由なアイデア出し
+            """)
+    
+    return {
+        "text_source": text_source,
+        "template": selected_template,
+        "custom_prompt": custom_prompt
+    }
+
+

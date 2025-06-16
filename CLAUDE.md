@@ -208,14 +208,37 @@ streamlit run main.py
 - 日本語でOK
 - プレフィックスを使用: `feat:`, `fix:`, `docs:`, `refactor:`
 
+## 🤖 新機能: ChatGPT連携（v1.2.0-dev）
+
+### 基本的なChatGPT連携機能
+- ✅ 文字起こし結果/切り抜き箇所をChatGPTで活用
+- ✅ プロンプトテンプレート（バズる切り抜き案、タイトル提案等）
+- ✅ ワンクリックでプロンプトをコピー
+- ✅ ChatGPTを新規タブで開く
+
+### 実装詳細
+- `services/chatgpt_service.py`: プロンプト管理とテキスト処理
+- `ui/components.py`: `show_chatgpt_integration()`関数
+- 右カラムの下部に統合（切り抜き箇所エディタの下）
+
+### 将来的な拡張（v2）
+- [ ] ChatGPT API統合（直接リクエスト）
+- [ ] インライン結果表示
+- [ ] 自動提案機能（バズる切り抜きを自動で右テキストエリアに挿入）
+- [ ] 「次の案」ボタンで複数提案を順次表示
+
+詳細は`docs/CHATGPT_INTEGRATION.md`を参照
+
 ## 🚀 今後の開発方針
 
 ### 優先度高
+- [x] ChatGPT連携機能（基本版実装済み）
 - [ ] YouTube URL直接入力対応
 - [ ] バッチ処理機能
 - [ ] プリセット機能（よく使う設定の保存）
 
 ### 優先度中
+- [ ] ChatGPT API完全統合（v2）
 - [ ] EDL/OTIO形式のエクスポート
 - [ ] AIによる自動切り抜き候補提案
 - [ ] Web API化
