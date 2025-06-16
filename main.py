@@ -999,6 +999,10 @@ def main() -> None:
                         st.session_state.last_preview_update_time = current_time
                         st.session_state.edited_text = edited_text
                         st.session_state.show_cooldown_warning = False
+                        
+                        # テキストが変更されたらタイムラインをリセット
+                        if 'timeline' in st.session_state:
+                            del st.session_state.timeline
                     
                     # 現在の音声ファイルを削除
                     cleanup_current_preview()
@@ -1174,6 +1178,44 @@ def main() -> None:
             
             st.code(display_path, language=None)
             
+            # タイムライン編集（切り抜きのみで複数セグメントがある場合）
+            # 先にtime_rangesを計算して、タイムライン編集UIの表示判定を行う
+            preview_time_ranges = None
+            if process_type == "切り抜きのみ":
+                # プレビュー用に時間範囲を計算
+                text_processor_preview = TextProcessor()
+                separator_patterns_preview = ["---", "——", "－－－"]
+                found_separator_preview = None
+                
+                for pattern in separator_patterns_preview:
+                    if pattern in edited_text:
+                        found_separator_preview = pattern
+                        break
+                
+                if found_separator_preview:
+                    preview_time_ranges = text_processor_preview.find_differences_with_separator(
+                        full_text, edited_text, transcription, found_separator_preview
+                    )
+                else:
+                    diff_preview = text_processor_preview.find_differences(full_text, edited_text)
+                    if not diff_preview.has_additions():
+                        preview_time_ranges = diff_preview.get_time_ranges(transcription)
+                
+                # 複数セグメントがある場合にタイムライン編集UIを表示
+                if preview_time_ranges and len(preview_time_ranges) > 1:
+                    st.markdown("---")
+                    with st.expander("🎬 タイムライン編集", expanded=True):
+                        st.info("各セグメント間のギャップを調整できます。元動画から追加で含める秒数を指定してください。")
+                        
+                        # セッション状態でタイムラインを管理
+                        if 'timeline' not in st.session_state:
+                            from core import Timeline
+                            st.session_state.timeline = Timeline.from_time_ranges(preview_time_ranges)
+                        
+                        # タイムライン編集UIをレンダリング
+                        edited_timeline = render_timeline_editor(st.session_state.timeline, key_prefix="main")
+                        st.session_state.timeline = edited_timeline
+            
             # 処理実行ボタン
             if st.button("🚀 処理を実行", type="primary", use_container_width=True):
                 # 実行前にAPI設定を反映
@@ -1263,9 +1305,15 @@ def main() -> None:
                         
                         # 残す時間範囲を決定
                         if process_type == "切り抜きのみ":
-                            # 切り抜きのみの場合はtime_rangesをそのまま使用
-                            keep_ranges = time_ranges
-                            show_progress(0.5, "切り抜き箇所を処理中...", progress_bar, status_text)
+                            # タイムライン編集が有効な場合は調整後の範囲を使用
+                            if 'timeline' in st.session_state and len(time_ranges) > 1:
+                                # タイムラインから調整後の範囲を取得
+                                keep_ranges = st.session_state.timeline.get_adjusted_ranges()
+                                show_progress(0.5, "タイムライン調整を適用中...", progress_bar, status_text)
+                            else:
+                                # 切り抜きのみの場合はtime_rangesをそのまま使用
+                                keep_ranges = time_ranges
+                                show_progress(0.5, "切り抜き箇所を処理中...", progress_bar, status_text)
                             
                         else:
                             # 無音削除付きで処理（新フロー）
@@ -1369,67 +1417,97 @@ def main() -> None:
                                 st.error(f"{output_format}ファイルの生成に失敗しました。")
                         else:
                             # 動画ファイル出力（時間範囲から抽出）
-                            show_progress(0.0, "動画セグメントを抽出中...", progress_bar, status_text)
+                            from utils.file_utils import get_unique_path
+                            combined_path = get_unique_path(project_path / f"{safe_name}_TextffCut_{type_suffix}.mp4")
                             
-                            output_files = []
-                            total_ranges = len(keep_ranges)
-                            
-                            for i, (start, end) in enumerate(keep_ranges):
-                                progress = (i + 1) / total_ranges * 0.8  # 最大80%まで
-                                show_progress(progress, f"セグメント {i+1}/{total_ranges} を抽出中...", progress_bar, status_text)
+                            # タイムライン編集が有効で複数セグメントの場合は専用の処理
+                            if process_type == "切り抜きのみ" and 'timeline' in st.session_state and len(time_ranges) > 1:
+                                show_progress(0.0, "タイムライン調整済み動画を作成中...", progress_bar, status_text)
                                 
-                                segment_file = project_path / f"segment_{i+1}.mp4"
-                                # VideoProcessingServiceを使用
-                                if 'video_service' not in locals():
-                                    video_service = VideoProcessingService(config)
+                                # VideoProcessorを直接使用（タイムライン対応）
+                                video_processor = VideoProcessor(config)
                                 
-                                # 一つのセグメントを抽出するためのVideoSegmentを作成
-                                from core import VideoSegment
-                                segments_to_extract = [VideoSegment(
-                                    start=start,
-                                    end=end
-                                )]
+                                # タイムライン情報から元の範囲と調整後の範囲を取得
+                                timeline_segments = []
+                                current_time = 0.0
                                 
-                                extract_result = video_service.extract_segments(
-                                    video_path=video_path,
-                                    segments=segments_to_extract,
-                                    output_dir=str(project_path),
-                                    format="mp4"
+                                for i, (start, end) in enumerate(keep_ranges):
+                                    # タイムライン上の配置位置を計算
+                                    segment_duration = end - start
+                                    timeline_segments.append((current_time, current_time + segment_duration))
+                                    current_time += segment_duration
+                                
+                                # タイムライン対応の結合を実行
+                                success = video_processor.combine_videos_with_timeline(
+                                    input_path=video_path,
+                                    segments=keep_ranges,  # 調整後の時間範囲
+                                    output_file=str(combined_path),
+                                    timeline_segments=None,  # ギャップなしで結合
+                                    progress_callback=lambda p, s: show_progress(p * 0.9, s, progress_bar, status_text)
                                 )
                                 
-                                if extract_result.success:
-                                    extracted_files = extract_result.data
-                                    if extracted_files:
-                                        # ファイル名をリネーム
-                                        import shutil
-                                        shutil.move(extracted_files[0], str(segment_file))
-                                        success = True
+                                output_files = [str(combined_path)] if success else []
+                                
+                            else:
+                                # 従来の処理（セグメントを個別に抽出して結合）
+                                show_progress(0.0, "動画セグメントを抽出中...", progress_bar, status_text)
+                                
+                                output_files = []
+                                total_ranges = len(keep_ranges)
+                                
+                                for i, (start, end) in enumerate(keep_ranges):
+                                    progress = (i + 1) / total_ranges * 0.8  # 最大80%まで
+                                    show_progress(progress, f"セグメント {i+1}/{total_ranges} を抽出中...", progress_bar, status_text)
+                                    
+                                    segment_file = project_path / f"segment_{i+1}.mp4"
+                                    # VideoProcessingServiceを使用
+                                    if 'video_service' not in locals():
+                                        video_service = VideoProcessingService(config)
+                                    
+                                    # 一つのセグメントを抽出するためのVideoSegmentを作成
+                                    from core import VideoSegment
+                                    segments_to_extract = [VideoSegment(
+                                        start=start,
+                                        end=end
+                                    )]
+                                    
+                                    extract_result = video_service.extract_segments(
+                                        video_path=video_path,
+                                        segments=segments_to_extract,
+                                        output_dir=str(project_path),
+                                        format="mp4"
+                                    )
+                                    
+                                    if extract_result.success:
+                                        extracted_files = extract_result.data
+                                        if extracted_files:
+                                            # ファイル名をリネーム
+                                            import shutil
+                                            shutil.move(extracted_files[0], str(segment_file))
+                                            success = True
+                                        else:
+                                            success = False
                                     else:
                                         success = False
-                                else:
-                                    success = False
+                                    
+                                    if success:
+                                        output_files.append(str(segment_file))
                                 
-                                if success:
-                                    output_files.append(str(segment_file))
-                            
-                            # 結合処理
-                            if len(output_files) > 1:
-                                # 統一された命名規則で出力
-                                from utils.file_utils import get_unique_path
-                                combined_path = get_unique_path(project_path / f"{safe_name}_TextffCut_{type_suffix}.mp4")
-                                show_progress(0.8, "動画を統合しています...", progress_bar, status_text)
-                                
-                                # VideoProcessingServiceを使用して動画を結合
-                                if 'video_service' not in locals():
-                                    video_service = VideoProcessingService(config)
-                                
-                                merge_result = video_service.merge_videos(
-                                    video_files=output_files,
-                                    output_path=str(combined_path),
-                                    progress_callback=lambda p, s: show_progress(0.8 + p * 0.2, s, progress_bar, status_text)
-                                )
-                                
-                                success = merge_result.success
+                                # 結合処理
+                                if len(output_files) > 1:
+                                    show_progress(0.8, "動画を統合しています...", progress_bar, status_text)
+                                    
+                                    # VideoProcessingServiceを使用して動画を結合
+                                    if 'video_service' not in locals():
+                                        video_service = VideoProcessingService(config)
+                                    
+                                    merge_result = video_service.merge_videos(
+                                        video_files=output_files,
+                                        output_path=str(combined_path),
+                                        progress_callback=lambda p, s: show_progress(0.8 + p * 0.2, s, progress_bar, status_text)
+                                    )
+                                    
+                                    success = merge_result.success
                                 
                                 if success:
                                     # 100%完了を表示

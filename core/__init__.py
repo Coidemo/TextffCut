@@ -5,6 +5,7 @@ from .transcription import Transcriber, TranscriptionResult, TranscriptionSegmen
 from .video import VideoProcessor, VideoSegment, VideoInfo, SilenceInfo
 from .text_processor import TextProcessor, TextDifference, TextPosition
 from .export import FCPXMLExporter, XMEMLExporter, EDLExporter, ExportSegment
+from .timeline import Timeline, TimelineSegment
 
 __all__ = [
     'Transcriber',
@@ -20,5 +21,7 @@ __all__ = [
     'FCPXMLExporter',
     'XMEMLExporter',
     'EDLExporter',
-    'ExportSegment'
+    'ExportSegment',
+    'Timeline',
+    'TimelineSegment'
 ]

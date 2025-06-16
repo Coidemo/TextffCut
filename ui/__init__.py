@@ -28,6 +28,10 @@ from .session_state_adapter import (
     EditingState,
     ProcessingState
 )
+from .timeline_editor import (
+    render_timeline_editor,
+    should_show_timeline_editor
+)
 
 __all__ = [
     'show_api_key_manager',
@@ -48,5 +52,7 @@ __all__ = [
     'SessionStateAdapter',
     'TranscriptionState',
     'EditingState',
-    'ProcessingState'
+    'ProcessingState',
+    'render_timeline_editor',
+    'should_show_timeline_editor'
 ]
