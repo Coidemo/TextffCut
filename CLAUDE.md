@@ -16,7 +16,24 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 📌 安定版情報 (重要)
 
-### v0.9.6 (2025-06-09) ⭐ **最新安定版**
+### v0.9.7 (2025-06-16) ⭐ **最新安定版**
+- **タグ**: `v0.9.7`
+- **リモート**: GitHubにプッシュ済み
+
+#### 主な特徴
+- ✅ 音声プレビュー機能（時間範囲選択時に音声を確認可能）
+- ✅ タイムスタンプ推定の大幅改善（3段階のフォールバック方式）
+- ✅ テキスト検索の精度向上
+- ✅ Docker Desktop割り当てメモリの80%を自動計算して使用
+- ✅ 効率的なWAVベース無音検出（90分動画対応）
+- ✅ FCPXMLエクスポート最適化
+
+#### 新機能 (v0.9.7)
+- **音声プレビュー**: 各時間範囲の音声をその場で確認
+- **タイムスタンプ推定改善**: APIベースの文字起こしでも高精度
+- **メモリ効率**: プレビュー用音声を16kHz/モノラルで最適化
+
+### v0.9.6 (2025-06-09)
 - **タグ**: `v0.9.6`
 - **コミット**: `b5c1ce1`
 - **リモート**: GitHubにプッシュ済み
@@ -59,10 +76,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 #### 安定版に戻る方法
 ```bash
 # 最新安定版に戻る（推奨）
-git checkout v0.9.6
+git checkout v0.9.7
 
 # 前バージョンの安定版に戻る
-git checkout v1.01
+git checkout v0.9.6
 
 # 旧安定版に戻る
 git checkout v1.0.0-stable
