@@ -47,6 +47,8 @@ from ui import (
     apply_dark_mode_styles,
     SessionStateAdapter
 )
+from ui.timeline_editor import render_timeline_editor, should_show_timeline_editor
+from core.timeline import Timeline
 from services import ConfigurationService, TextEditingService, VideoProcessingService, WorkflowService, ExportService
 
 
@@ -1155,6 +1157,14 @@ def main() -> None:
                 st.markdown("##### 🔇 無音削除の設定")
                 st.info(f"現在の設定: 閾値{noise_threshold}dB | 無音{min_silence_duration}秒 | セグメント{min_segment_duration}秒 | パディング{padding_start}-{padding_end}秒 | 設定変更は左サイドパネルの「無音検出」タブから")
             
+            # タイムライン編集（セグメント間のギャップ調整）
+            if should_show_timeline_editor():
+                timeline = Timeline.load_from_session_state("timeline")
+                if timeline:
+                    st.markdown("---")
+                    timeline = render_timeline_editor(timeline)
+                    timeline.save_to_session_state("timeline")
+            
             # 出力先の表示
             st.markdown("#### 📁 出力先")
             video_name = Path(video_path).stem
@@ -1225,6 +1235,11 @@ def main() -> None:
                 if not time_ranges:
                     st.error("切り抜き箇所が見つかりませんでした。")
                     return
+                
+                # タイムラインを作成してセッションステートに保存
+                timeline = Timeline.from_time_ranges(time_ranges)
+                timeline.save_to_session_state("timeline")
+                st.session_state.target_ranges = time_ranges
                 
                 # 出力ディレクトリの設定（動画と同じ場所にTextffCutフォルダ作成）
                 video_name = Path(video_path).stem
@@ -1423,9 +1438,18 @@ def main() -> None:
                                 if 'video_service' not in locals():
                                     video_service = VideoProcessingService(config)
                                 
+                                # タイムラインからギャップ情報を取得
+                                timeline = Timeline.load_from_session_state("timeline")
+                                gaps = None
+                                if timeline:
+                                    enabled_segments = timeline.get_enabled_segments()
+                                    # 各セグメントのギャップを取得（最後のセグメントは0）
+                                    gaps = [seg.gap_after for seg in enabled_segments]
+                                
                                 merge_result = video_service.merge_videos(
                                     video_files=output_files,
                                     output_path=str(combined_path),
+                                    gaps=gaps,
                                     progress_callback=lambda p, s: show_progress(0.8 + p * 0.2, s, progress_bar, status_text)
                                 )
                                 

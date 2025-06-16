@@ -237,6 +237,7 @@ class VideoProcessingService(BaseService):
         self,
         video_files: List[str],
         output_path: str,
+        gaps: Optional[List[float]] = None,
         progress_callback: Optional[Callable[[float, str], None]] = None
     ) -> ServiceResult:
         """複数の動画ファイルを結合
@@ -244,6 +245,7 @@ class VideoProcessingService(BaseService):
         Args:
             video_files: 結合する動画ファイルのリスト
             output_path: 出力ファイルパス
+            gaps: 各動画後のギャップ（秒）のリスト（オプション）
             progress_callback: 進捗通知コールバック
             
         Returns:
@@ -275,11 +277,21 @@ class VideoProcessingService(BaseService):
             
             try:
                 # ffmpegで結合
-                success = self.video_processor.combine_videos(
-                    input_files=video_files,
-                    output_file=output_path,
-                    progress_callback=progress_callback
-                )
+                if gaps is not None:
+                    # ギャップがある場合は新しいメソッドを使用
+                    success = self.video_processor.combine_videos_with_gaps(
+                        input_files=video_files,
+                        gaps=gaps,
+                        output_file=output_path,
+                        progress_callback=progress_callback
+                    )
+                else:
+                    # 通常の結合
+                    success = self.video_processor.combine_videos(
+                        input_files=video_files,
+                        output_file=output_path,
+                        progress_callback=progress_callback
+                    )
                 
                 if not success or not Path(output_path).exists():
                     raise ProcessingError("動画の結合に失敗しました")

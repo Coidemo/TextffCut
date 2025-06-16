@@ -916,6 +916,136 @@ class VideoProcessor:
             from utils.exceptions import VideoProcessingError
             raise VideoProcessingError(f"動画結合エラー: {str(e)}")
     
+    def combine_videos_with_gaps(
+        self,
+        input_files: List[str],
+        gaps: List[float],
+        output_file: str,
+        progress_callback: Optional[Callable[[float, str], None]] = None
+    ) -> bool:
+        """
+        複数の動画を間隔を空けて結合
+        
+        Args:
+            input_files: 入力ファイルのリスト
+            gaps: 各動画後の間隔（秒）のリスト（最後の要素は使用されない）
+            output_file: 出力ファイル
+            progress_callback: 進捗コールバック
+            
+        Returns:
+            成功したかどうか
+        """
+        try:
+            # 入力ファイルの検証
+            if not input_files:
+                logger.error("入力ファイルがありません")
+                return False
+            
+            if len(gaps) != len(input_files):
+                logger.error(f"ギャップ数({len(gaps)})とファイル数({len(input_files)})が一致しません")
+                return False
+            
+            # 動画情報を取得（最初の動画から）
+            first_video_info = self.get_video_info(input_files[0])
+            if not first_video_info:
+                logger.error("動画情報の取得に失敗しました")
+                return False
+            
+            width = first_video_info.get("width", 1920)
+            height = first_video_info.get("height", 1080)
+            fps = first_video_info.get("fps", 30)
+            
+            # FFmpegのフィルターグラフを構築
+            if any(gap > 0 for gap in gaps[:-1]):
+                # ギャップがある場合は複雑なフィルターグラフ
+                filter_parts = []
+                concat_inputs = []
+                
+                for i, (video_file, gap) in enumerate(zip(input_files, gaps)):
+                    # 動画入力を追加
+                    concat_inputs.extend([f"[{i}:v]", f"[{i}:a]"])
+                    
+                    # 最後の動画でなく、ギャップが0より大きい場合は黒画面を追加
+                    if i < len(input_files) - 1 and gap > 0:
+                        # 黒画面と無音を生成
+                        filter_parts.append(
+                            f"color=c=black:s={width}x{height}:d={gap}:r={fps}[black{i}]"
+                        )
+                        filter_parts.append(
+                            f"aevalsrc=0:d={gap}:s=48000:c=stereo[silence{i}]"
+                        )
+                        concat_inputs.extend([f"[black{i}]", f"[silence{i}]"])
+                
+                # フィルターグラフを組み立て
+                filter_complex = ";".join(filter_parts) + ";" if filter_parts else ""
+                filter_complex += f"{''.join(concat_inputs)}concat=n={len(concat_inputs)//2}:v=1:a=1[outv][outa]"
+                
+                cmd = ["ffmpeg", "-y"]
+                
+                # 入力ファイルを追加
+                for video_file in input_files:
+                    cmd.extend(["-i", str(video_file)])
+                
+                cmd.extend([
+                    "-filter_complex", filter_complex,
+                    "-map", "[outv]",
+                    "-map", "[outa]",
+                    "-c:v", "libx264",
+                    "-c:a", "aac",
+                    str(output_file)
+                ])
+            else:
+                # ギャップがない場合は通常の結合
+                return self.combine_videos(input_files, output_file, progress_callback)
+            
+            logger.info(f"ギャップ付き動画結合開始: {len(input_files)}ファイル -> {output_file}")
+            logger.info(f"ギャップ: {gaps}")
+            
+            # FFmpegを実行
+            if self.verbose:
+                result = subprocess.run(cmd, capture_output=True, text=True)
+                if result.returncode != 0:
+                    logger.error(f"FFmpegエラー: {result.stderr}")
+                    return False
+            else:
+                # 進捗監視付き実行
+                process = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    universal_newlines=True
+                )
+                
+                if progress_callback:
+                    # 合計時間を計算
+                    total_duration = sum(
+                        self.get_video_info(f).get("duration", 0) 
+                        for f in input_files
+                    ) + sum(gaps[:-1])
+                    
+                    self._monitor_ffmpeg_progress(process, total_duration, progress_callback)
+                
+                process.wait()
+                
+                if process.returncode != 0:
+                    stderr = process.stderr.read()
+                    logger.error(f"FFmpegエラー: {stderr}")
+                    return False
+            
+            success = Path(output_file).exists()
+            if success:
+                size = Path(output_file).stat().st_size
+                logger.info(f"ギャップ付き動画結合完了: {output_file} (サイズ: {size} bytes)")
+            else:
+                logger.error(f"ギャップ付き動画結合失敗: {output_file}")
+            
+            return success
+            
+        except Exception as e:
+            logger.error(f"ギャップ付き動画結合エラー: {str(e)}")
+            from utils.exceptions import VideoProcessingError
+            raise VideoProcessingError(f"ギャップ付き動画結合エラー: {str(e)}")
+    
     def _monitor_ffmpeg_progress(
         self,
         process: subprocess.Popen,
