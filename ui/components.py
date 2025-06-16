@@ -666,3 +666,283 @@ def show_optimization_status():
             st.caption("メモリ情報を取得できませんでした")
 
 
+def show_chatgpt_integration(
+    transcription_text: str = "",
+    edited_text: str = "",
+    api_key: Optional[str] = None
+):
+    """
+    ChatGPT統合機能のUI
+    
+    Args:
+        transcription_text: 文字起こし結果全文
+        edited_text: 切り抜き箇所のテキスト
+        api_key: OpenAI APIキー
+    """
+    from services.chatgpt_service import ChatGPTService
+    import pyperclip
+    import webbrowser
+    
+    st.markdown("#### 🤖 ChatGPT連携")
+    
+    # APIキーのチェック
+    if not api_key:
+        api_key = st.session_state.get('api_key', '') or st.session_state.get('chatgpt_api_key', '')
+    
+    # ChatGPTサービスの初期化
+    service = ChatGPTService(api_key)
+    
+    # API統合モードと外部タブモードの切り替え
+    mode = st.radio(
+        "連携モード",
+        ["外部タブで開く（無料）", "API統合（有料）"],
+        help="外部タブ：ChatGPTのWebサイトを開きプロンプトをコピー\nAPI統合：TextffCut内で直接結果を取得"
+    )
+    
+    if mode == "外部タブで開く（無料）":
+        # 既存の外部タブモード
+        show_chatgpt_external_mode(transcription_text, edited_text)
+    else:
+        # API統合モード
+        if not service.is_configured():
+            st.warning("⚠️ ChatGPT API統合を使用するには、OpenAI APIキーが必要です")
+            
+            # APIキー入力
+            chatgpt_key = st.text_input(
+                "ChatGPT APIキー",
+                type="password",
+                value=st.session_state.get('chatgpt_api_key', ''),
+                help="OpenAIのAPIキーを入力してください（sk-で始まる文字列）"
+            )
+            
+            if chatgpt_key:
+                st.session_state.chatgpt_api_key = chatgpt_key
+                st.rerun()
+            
+            st.info("💡 APIキーは [OpenAI Platform](https://platform.openai.com/api-keys) で取得できます")
+            st.caption("料金目安: GPT-4o-mini使用で約$0.001-0.005/リクエスト")
+            
+        else:
+            show_chatgpt_api_mode(service, transcription_text, edited_text)
+
+
+def show_chatgpt_external_mode(transcription_text: str, edited_text: str):
+    """
+    ChatGPT外部タブモードのUI
+    
+    Args:
+        transcription_text: 文字起こし結果全文
+        edited_text: 切り抜き箇所のテキスト
+    """
+    # 使用するテキストの選択
+    text_source = st.radio(
+        "使用するテキスト",
+        ["切り抜き箇所", "文字起こし結果全文"],
+        help="ChatGPTに送信するテキストを選択"
+    )
+    
+    # 選択されたテキストを取得
+    selected_text = edited_text if text_source == "切り抜き箇所" else transcription_text
+    
+    if not selected_text:
+        st.info("💡 先に文字起こしを実行するか、切り抜き箇所を指定してください")
+        return
+    
+    # プロンプトテンプレート
+    templates = {
+        "バズる切り抜き案": f"""以下の動画の文字起こしから、SNSでバズりそうな切り抜き部分を3つ提案してください。各提案は30秒〜1分程度で話せる長さにしてください。
+
+文字起こしテキスト:
+{selected_text}
+
+提案形式:
+1. 【タイトル案】
+   切り抜き部分: （該当するテキスト部分）
+   理由: （なぜバズると思うか）
+""",
+        "タイトル提案": f"""以下の動画切り抜きに対して、YouTubeやTikTokでバズりそうなタイトルを5つ提案してください。
+
+切り抜きテキスト:
+{selected_text}
+
+条件:
+- 15-30文字程度
+- 視聴者の興味を引く
+- クリックしたくなる
+""",
+        "要約": f"""以下のテキストを簡潔に要約してください:
+
+{selected_text}
+""",
+        "カスタムプロンプト": ""
+    }
+    
+    # プロンプト選択
+    template_name = st.selectbox(
+        "プロンプトテンプレート",
+        list(templates.keys()),
+        help="使用するプロンプトのテンプレートを選択"
+    )
+    
+    # プロンプトの編集
+    if template_name == "カスタムプロンプト":
+        prompt = st.text_area(
+            "プロンプト",
+            height=200,
+            placeholder="ChatGPTに送信するプロンプトを入力してください"
+        )
+    else:
+        prompt = templates[template_name]
+        st.text_area(
+            "プロンプト（編集可能）",
+            value=prompt,
+            height=200,
+            key=f"prompt_{template_name}"
+        )
+    
+    # ボタンを横並びに配置
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if st.button("📋 プロンプトをコピー", use_container_width=True):
+            try:
+                import pyperclip
+                pyperclip.copy(prompt)
+                st.success("✅ プロンプトをコピーしました")
+            except:
+                st.error("コピーに失敗しました。手動でコピーしてください。")
+    
+    with col2:
+        if st.button("🌐 ChatGPTを開く", use_container_width=True):
+            import webbrowser
+            webbrowser.open_new_tab("https://chatgpt.com")
+            st.info("ChatGPTを新しいタブで開きました")
+
+
+def show_chatgpt_api_mode(service, transcription_text: str, edited_text: str):
+    """
+    ChatGPT API統合モードのUI
+    
+    Args:
+        service: ChatGPTService インスタンス
+        transcription_text: 文字起こし結果全文
+        edited_text: 切り抜き箇所のテキスト
+    """
+    # 使用するテキストの選択
+    text_source = st.radio(
+        "使用するテキスト",
+        ["文字起こし結果全文", "切り抜き箇所"],
+        help="バズる切り抜き案の生成に使用するテキスト"
+    )
+    
+    # 選択されたテキストを取得
+    selected_text = transcription_text if text_source == "文字起こし結果全文" else edited_text
+    
+    if not selected_text:
+        st.info("💡 先に文字起こしを実行するか、切り抜き箇所を指定してください")
+        return
+    
+    # 機能選択
+    function = st.selectbox(
+        "機能",
+        ["バズる切り抜き案を生成", "タイトル案を生成"],
+        help="実行する機能を選択"
+    )
+    
+    if function == "バズる切り抜き案を生成":
+        # バズる切り抜き案の生成
+        col1, col2 = st.columns([3, 1])
+        
+        with col1:
+            st.caption("元の文字起こしから単語を削除するだけで、バズる切り抜きを自動生成します")
+        
+        with col2:
+            if st.button("🎯 生成", type="primary", use_container_width=True):
+                with st.spinner("ChatGPT APIで生成中..."):
+                    suggestions = service.generate_buzz_clips(selected_text, num_suggestions=3)
+                    if suggestions:
+                        st.session_state.chatgpt_suggestions = suggestions
+                        st.session_state.current_suggestion_index = 0
+        
+        # 提案の表示
+        if 'chatgpt_suggestions' in st.session_state:
+            suggestions = st.session_state.chatgpt_suggestions
+            current_index = st.session_state.get('current_suggestion_index', 0)
+            
+            if suggestions:
+                # 現在の提案を表示
+                current = suggestions[current_index]
+                
+                # 提案のヘッダー
+                st.markdown(f"### 提案 {current_index + 1}/{len(suggestions)}: {current['title']}")
+                st.caption(current['reason'])
+                
+                # 提案テキストを表示
+                st.text_area(
+                    "生成された切り抜き案",
+                    value=current['text'],
+                    height=200,
+                    key=f"suggestion_{current_index}"
+                )
+                
+                # ナビゲーションボタン
+                col1, col2, col3 = st.columns([1, 2, 1])
+                
+                with col1:
+                    if current_index > 0:
+                        if st.button("◀ 前の案", use_container_width=True):
+                            st.session_state.current_suggestion_index = current_index - 1
+                            st.rerun()
+                
+                with col2:
+                    if st.button("✅ この案を切り抜き箇所に設定", type="primary", use_container_width=True):
+                        st.session_state.edited_text = current['text']
+                        st.success("切り抜き箇所に設定しました")
+                        st.rerun()
+                
+                with col3:
+                    if current_index < len(suggestions) - 1:
+                        if st.button("次の案 ▶", use_container_width=True):
+                            st.session_state.current_suggestion_index = current_index + 1
+                            st.rerun()
+                
+                # 新しい提案を生成
+                if st.button("🔄 新しい提案を生成", use_container_width=True):
+                    with st.spinner("新しい提案を生成中..."):
+                        new_suggestions = service.generate_buzz_clips(selected_text, num_suggestions=3)
+                        if new_suggestions:
+                            st.session_state.chatgpt_suggestions = new_suggestions
+                            st.session_state.current_suggestion_index = 0
+                            st.rerun()
+    
+    else:
+        # タイトル案の生成
+        if not edited_text:
+            st.info("💡 先に切り抜き箇所を指定してください")
+            return
+        
+        if st.button("🎯 タイトル案を生成", type="primary", use_container_width=True):
+            with st.spinner("タイトル案を生成中..."):
+                titles = service.generate_title_suggestions(edited_text, num_suggestions=5)
+                if titles:
+                    st.session_state.chatgpt_titles = titles
+        
+        # タイトル案の表示
+        if 'chatgpt_titles' in st.session_state:
+            titles = st.session_state.chatgpt_titles
+            
+            st.markdown("### 生成されたタイトル案")
+            for i, title in enumerate(titles, 1):
+                col1, col2 = st.columns([4, 1])
+                with col1:
+                    st.write(f"{i}. {title}")
+                with col2:
+                    if st.button("📋", key=f"copy_title_{i}", help="コピー"):
+                        try:
+                            import pyperclip
+                            pyperclip.copy(title)
+                            st.success(f"「{title}」をコピーしました")
+                        except:
+                            st.error("コピーに失敗しました")
+
+

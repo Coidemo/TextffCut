@@ -210,6 +210,10 @@ streamlit run main.py
 
 ## 🚀 今後の開発方針
 
+### 実装済み機能
+- [x] ChatGPT連携機能（外部タブモード）（v1.2.0-dev）
+- [x] ChatGPT API統合（元の文字から単語削除のみでバズる切り抜き案生成）（v1.2.0-dev）
+
 ### 優先度高
 - [ ] YouTube URL直接入力対応
 - [ ] バッチ処理機能
@@ -217,7 +221,6 @@ streamlit run main.py
 
 ### 優先度中
 - [ ] EDL/OTIO形式のエクスポート
-- [ ] AIによる自動切り抜き候補提案
 - [ ] Web API化
 
 ## 📝 開発時のコマンド

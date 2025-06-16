@@ -18,6 +18,7 @@ python-dotenv==1.0.0
 tqdm==4.66.1
 psutil==5.9.5
 cryptography==41.0.7
+pyperclip==1.8.2
 
 # API support
 openai==1.12.0

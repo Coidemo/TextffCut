@@ -43,6 +43,7 @@ from ui import (
     show_red_highlight_modal,
     show_help,
     show_optimization_status,
+    show_chatgpt_integration,
     cleanup_temp_files,
     apply_dark_mode_styles,
     SessionStateAdapter
@@ -978,6 +979,15 @@ def main() -> None:
             if saved_edited_text:
                 display_text = saved_edited_text
             
+            # ChatGPT連携機能を表示
+            if 'transcription_result' in st.session_state:
+                transcription_text = st.session_state.transcription_result.get_full_text()
+                api_key = st.session_state.get('api_key', '') or st.session_state.get('chatgpt_api_key', '')
+                show_chatgpt_integration(
+                    transcription_text=transcription_text,
+                    edited_text=display_text,
+                    api_key=api_key
+                )
             
             # ボタンとプレーヤーを横並びに配置（1:2の比率）
             button_col, player_col = st.columns([1, 2])
