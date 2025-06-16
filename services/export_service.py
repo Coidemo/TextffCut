@@ -11,7 +11,7 @@ import xml.etree.ElementTree as ET
 
 from .base import BaseService, ServiceResult, ValidationError, ProcessingError
 from config import Config
-from core.export import FCPXMLExporter, XMEMLExporter, ExportSegment
+from core.export import FCPXMLExporter, XMEMLExporter, SRTExporter, ExportSegment
 from core import TranscriptionSegment as Segment, VideoSegment
 from core.video import VideoInfo
 from utils.file_utils import ensure_directory, get_safe_filename
@@ -31,6 +31,7 @@ class ExportService(BaseService):
         """サービス固有の初期化"""
         self.fcpxml_exporter = FCPXMLExporter(self.config)
         self.xmeml_exporter = XMEMLExporter(self.config)
+        self.srt_exporter = SRTExporter(self.config)
     
     def execute(self, **kwargs) -> ServiceResult:
         """汎用実行メソッド（export_fcpxmlにデリゲート）"""
@@ -40,6 +41,8 @@ class ExportService(BaseService):
             return self.export_fcpxml(**kwargs)
         elif export_format == 'xmeml':
             return self.export_xmeml(**kwargs)
+        elif export_format == 'srt':
+            return self.export_srt(**kwargs)
         else:
             return self.create_error_result(
                 f"サポートされていないエクスポート形式: {export_format}",
@@ -318,6 +321,88 @@ class ExportService(BaseService):
                 ProcessingError(f"EDLエクスポート中にエラーが発生しました: {str(e)}")
             )
     
+    def export_srt(
+        self,
+        transcription_result: Any,
+        output_path: str,
+        time_ranges: Optional[List[Tuple[float, float]]] = None,
+        max_lines_per_subtitle: int = 2,
+        max_chars_per_line: int = 40,
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> ServiceResult:
+        """SRT字幕ファイルエクスポート
+        
+        Args:
+            transcription_result: 文字起こし結果
+            output_path: 出力SRTファイルパス
+            time_ranges: エクスポート対象の時間範囲
+            max_lines_per_subtitle: 1つの字幕あたりの最大行数
+            max_chars_per_line: 1行あたりの最大文字数
+            metadata: 追加メタデータ
+            
+        Returns:
+            ServiceResult: エクスポート結果
+        """
+        try:
+            # 入力検証
+            if not transcription_result:
+                raise ValidationError("文字起こし結果がありません")
+            
+            # 出力ディレクトリを確保
+            output_file = Path(output_path)
+            ensure_directory(output_file.parent)
+            
+            self.logger.info(
+                f"SRTエクスポート開始: {output_file.name} "
+                f"(最大{max_lines_per_subtitle}行, 1行{max_chars_per_line}文字)"
+            )
+            
+            # SRTエクスポート実行
+            self.srt_exporter.export(
+                transcription_result=transcription_result,
+                output_path=str(output_file),
+                time_ranges=time_ranges,
+                max_lines_per_subtitle=max_lines_per_subtitle,
+                max_chars_per_line=max_chars_per_line
+            )
+            
+            # エクスポートファイルの検証
+            if not output_file.exists():
+                raise ProcessingError("SRTファイルの作成に失敗しました")
+            
+            # エクスポート結果の統計
+            segment_count = len(transcription_result.segments) if hasattr(transcription_result, 'segments') else 0
+            
+            result_metadata = {
+                'format': 'SRT',
+                'segments_count': segment_count,
+                'max_lines_per_subtitle': max_lines_per_subtitle,
+                'max_chars_per_line': max_chars_per_line,
+                'file_size': output_file.stat().st_size
+            }
+            
+            # 追加メタデータがあれば統合
+            if metadata:
+                result_metadata.update(metadata)
+            
+            self.logger.info(
+                f"SRTエクスポート完了: {output_file.name} "
+                f"({result_metadata['file_size'] / 1024:.1f}KB)"
+            )
+            
+            return self.create_success_result(
+                data={'output_path': str(output_file)},
+                metadata=result_metadata
+            )
+            
+        except ValidationError as e:
+            return self.wrap_error(e)
+        except Exception as e:
+            self.logger.error(f"SRTエクスポートエラー: {e}", exc_info=True)
+            return self.wrap_error(
+                ProcessingError(f"SRTエクスポート中にエラーが発生しました: {str(e)}")
+            )
+    
     def validate_export_file(self, file_path: str, format: str) -> ServiceResult:
         """エクスポートファイルの検証
         
@@ -343,6 +428,8 @@ class ExportService(BaseService):
                 validation_result = self._validate_xmeml(file)
             elif format.lower() == 'edl':
                 validation_result = self._validate_edl(file)
+            elif format.lower() == 'srt':
+                validation_result = self._validate_srt(file)
             else:
                 validation_result['errors'].append(
                     f"サポートされていない形式: {format}"
@@ -592,6 +679,59 @@ class ExportService(BaseService):
             if entry_count == 0:
                 result['errors'].append("EDLエントリが見つかりません")
                 result['valid'] = False
+            
+        except Exception as e:
+            result['errors'].append(f"ファイル読み込みエラー: {e}")
+            result['valid'] = False
+        
+        return result
+    
+    def _validate_srt(self, file: Path) -> Dict[str, Any]:
+        """SRTファイルの検証
+        
+        Args:
+            file: 検証するファイル
+            
+        Returns:
+            検証結果
+        """
+        result = {'valid': True, 'errors': [], 'warnings': []}
+        
+        try:
+            with open(file, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            # 基本的な形式チェック
+            if not content.strip():
+                result['errors'].append("ファイルが空です")
+                result['valid'] = False
+                return result
+            
+            # SRTエントリのパターン
+            import re
+            srt_pattern = re.compile(
+                r'(\d+)\s*\n'  # インデックス
+                r'(\d{2}:\d{2}:\d{2},\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2},\d{3})\s*\n'  # タイムスタンプ
+                r'(.+?)(?:\n\n|\n*$)',  # テキスト
+                re.DOTALL
+            )
+            
+            matches = list(srt_pattern.finditer(content))
+            
+            if not matches:
+                result['errors'].append("有効なSRTエントリが見つかりません")
+                result['valid'] = False
+            else:
+                # インデックスの連続性をチェック
+                for i, match in enumerate(matches, 1):
+                    index = int(match.group(1))
+                    if index != i:
+                        result['warnings'].append(f"インデックス{i}が期待されましたが{index}でした")
+                
+                result['info'] = {
+                    'entry_count': len(matches),
+                    'total_duration': matches[-1].group(3) if matches else '00:00:00,000'
+                }
             
         except Exception as e:
             result['errors'].append(f"ファイル読み込みエラー: {e}")

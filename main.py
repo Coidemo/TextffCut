@@ -1149,7 +1149,7 @@ def main() -> None:
             
             # 処理オプション
             st.markdown("#### ⚙️ 処理オプション")
-            process_type, output_format, timeline_fps = show_export_settings()
+            process_type, output_format, timeline_fps, max_lines_per_subtitle, max_chars_per_line = show_export_settings()
             
             if process_type == "無音削除付き":
                 st.markdown("##### 🔇 無音削除の設定")
@@ -1307,47 +1307,67 @@ def main() -> None:
                                 return
                         
                         # 出力形式に応じて処理
-                        if output_format in ["FCPXMLファイル", "Premiere Pro XML"]:
-                            # ExportServiceを使用してXMLを生成
+                        if output_format in ["FCPXMLファイル", "Premiere Pro XML", "SRTファイル"]:
+                            # ExportServiceを使用してXML/SRTを生成
                             export_service = ExportService(config)
                             from utils.file_utils import get_unique_path
                             
                             # 形式を決定
                             if output_format == "FCPXMLファイル":
                                 export_format = "fcpxml"
-                                xml_ext = ".fcpxml"
-                            else:  # Premiere Pro XML
+                                file_ext = ".fcpxml"
+                            elif output_format == "Premiere Pro XML":
                                 export_format = "xmeml"
-                                xml_ext = ".xml"
+                                file_ext = ".xml"
+                            else:  # SRTファイル
+                                export_format = "srt"
+                                file_ext = ".srt"
                             
-                            xml_path = get_unique_path(project_path / f"{safe_name}_TextffCut_{type_suffix}{xml_ext}")
+                            output_path = get_unique_path(project_path / f"{safe_name}_TextffCut_{type_suffix}{file_ext}")
                             
-                            # keep_rangesからセグメントを作成
-                            from core import TranscriptionSegment
-                            export_segments = []
-                            for i, (start, end) in enumerate(keep_ranges):
-                                export_segments.append(TranscriptionSegment(
-                                    start=start,
-                                    end=end,
-                                    text="",
-                                    words=[]
-                                ))
-                            
-                            # エクスポート実行
-                            export_result = export_service.execute(
-                                format=export_format,
-                                video_path=video_path,
-                                segments=export_segments,
-                                output_path=str(xml_path),
-                                project_name=f"{safe_name} Project",
-                                event_name="TextffCut",
-                                remove_silence=(process_type != "切り抜きのみ")
-                            )
+                            if export_format == "srt":
+                                # SRTエクスポートの場合は文字起こし結果を使用
+                                export_result = export_service.execute(
+                                    format=export_format,
+                                    transcription_result=transcription,
+                                    output_path=str(output_path),
+                                    time_ranges=keep_ranges,
+                                    max_lines_per_subtitle=max_lines_per_subtitle,
+                                    max_chars_per_line=max_chars_per_line
+                                )
+                            else:
+                                # XML形式の場合は従来通り
+                                # keep_rangesからセグメントを作成
+                                from core import TranscriptionSegment
+                                export_segments = []
+                                for i, (start, end) in enumerate(keep_ranges):
+                                    export_segments.append(TranscriptionSegment(
+                                        start=start,
+                                        end=end,
+                                        text="",
+                                        words=[]
+                                    ))
+                                
+                                # エクスポート実行
+                                export_result = export_service.execute(
+                                    format=export_format,
+                                    video_path=video_path,
+                                    segments=export_segments,
+                                    output_path=str(output_path),
+                                    project_name=f"{safe_name} Project",
+                                    event_name="TextffCut",
+                                    remove_silence=(process_type != "切り抜きのみ")
+                                )
                             
                             success = export_result.success
                             if success:
                                 # メタデータから統計情報を取得
-                                timeline_pos = export_result.metadata.get('used_duration', 0)
+                                if export_format == "srt":
+                                    segments_count = export_result.metadata.get('segments_count', 0)
+                                    timeline_pos = sum(end - start for start, end in keep_ranges)
+                                else:
+                                    timeline_pos = export_result.metadata.get('used_duration', 0)
+                                    segments_count = len(keep_ranges)
                             
                             if success:
                                 # 100%完了を表示
@@ -1356,14 +1376,18 @@ def main() -> None:
                                     # Docker環境：ホストパスに変換
                                     host_base = os.getenv('HOST_VIDEOS_PATH', os.getenv('PWD', '/app') + '/videos')
                                     # /app/videos/xxx を host_path/xxx に変換
-                                    relative_path = str(xml_path).replace('/app/videos/', '')
+                                    relative_path = str(output_path).replace('/app/videos/', '')
                                     display_path = os.path.join(host_base, relative_path)
                                 else:
-                                    display_path = xml_path
-                                show_progress(1.0, f"処理が完了しました！ 出力先: {display_path} | 📊 {len(keep_ranges)}個のクリップ、総時間: {timeline_pos:.1f}秒", progress_bar, status_text)
+                                    display_path = output_path
                                 
-                                # XMLの場合は中間ファイルを削除（TextffCutファイルと文字起こしを保護）
-                                cleanup_intermediate_files(project_path, keep_patterns=[f"{safe_name}_TextffCut_*.fcpxml", f"{safe_name}_TextffCut_*.xml", f"{safe_name}_TextffCut_*.mp4", "transcriptions/"])
+                                if export_format == "srt":
+                                    show_progress(1.0, f"処理が完了しました！ 出力先: {display_path} | 📊 {segments_count}個の字幕、総時間: {timeline_pos:.1f}秒", progress_bar, status_text)
+                                else:
+                                    show_progress(1.0, f"処理が完了しました！ 出力先: {display_path} | 📊 {segments_count}個のクリップ、総時間: {timeline_pos:.1f}秒", progress_bar, status_text)
+                                
+                                # 中間ファイルを削除（TextffCutファイルと文字起こしを保護）
+                                cleanup_intermediate_files(project_path, keep_patterns=[f"{safe_name}_TextffCut_*.fcpxml", f"{safe_name}_TextffCut_*.xml", f"{safe_name}_TextffCut_*.mp4", f"{safe_name}_TextffCut_*.srt", "transcriptions/"])
                                 
                             else:
                                 st.error(f"{output_format}ファイルの生成に失敗しました。")

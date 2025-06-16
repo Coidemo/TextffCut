@@ -724,3 +724,190 @@ class EDLExporter:
         except Exception as e:
             from utils.exceptions import VideoProcessingError
             raise VideoProcessingError(f"EDLエクスポートエラー: {str(e)}")
+
+
+class SRTExporter:
+    """SRT（SubRip）字幕ファイルエクスポートクラス"""
+    
+    def __init__(self, config: Config):
+        self.config = config
+    
+    def export(
+        self,
+        transcription_result: TranscriptionResult,
+        output_path: str,
+        time_ranges: Optional[List[Tuple[float, float]]] = None,
+        max_lines_per_subtitle: int = 2,
+        max_chars_per_line: int = 40
+    ) -> bool:
+        """
+        SRT字幕ファイルをエクスポート
+        
+        Args:
+            transcription_result: 文字起こし結果
+            output_path: 出力ファイルパス
+            time_ranges: エクスポート対象の時間範囲（Noneの場合は全範囲）
+            max_lines_per_subtitle: 1つの字幕あたりの最大行数
+            max_chars_per_line: 1行あたりの最大文字数
+            
+        Returns:
+            成功したかどうか
+        """
+        try:
+            # セグメントをフィルタリング
+            segments = self._filter_segments(transcription_result.segments, time_ranges)
+            
+            # SRTコンテンツを生成
+            srt_content = self._generate_srt(segments, max_lines_per_subtitle, max_chars_per_line)
+            
+            # ファイルに保存
+            Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+            with open(output_path, 'w', encoding='utf-8') as f:
+                f.write(srt_content)
+            
+            return True
+            
+        except OSError as e:
+            from utils.exceptions import FileNotFoundError as BuzzFileNotFoundError
+            raise BuzzFileNotFoundError(f"SRT書き込みエラー: {str(e)}")
+        except PermissionError as e:
+            from utils.exceptions import VideoProcessingError
+            raise VideoProcessingError(f"SRT書き込み権限エラー: {str(e)}")
+        except Exception as e:
+            from utils.exceptions import VideoProcessingError
+            raise VideoProcessingError(f"SRTエクスポートエラー: {str(e)}")
+    
+    def _filter_segments(self, segments: List[Dict], time_ranges: Optional[List[Tuple[float, float]]]) -> List[Dict]:
+        """時間範囲に基づいてセグメントをフィルタリング"""
+        if not time_ranges:
+            return segments
+        
+        filtered_segments = []
+        for segment in segments:
+            start = segment.get('start', 0)
+            end = segment.get('end', 0)
+            
+            # いずれかの時間範囲に含まれるかチェック
+            for range_start, range_end in time_ranges:
+                if start < range_end and end > range_start:
+                    # 時間範囲内にある場合は追加
+                    filtered_segments.append(segment)
+                    break
+        
+        return filtered_segments
+    
+    def _generate_srt(self, segments: List[Dict], max_lines: int, max_chars: int) -> str:
+        """SRT形式のコンテンツを生成"""
+        srt_content = ""
+        subtitle_index = 1
+        
+        for segment in segments:
+            # テキストを取得
+            text = segment.get('text', '').strip()
+            if not text:
+                continue
+            
+            # テキストを行に分割
+            lines = self._split_text_into_lines(text, max_lines, max_chars)
+            
+            # タイムスタンプを取得
+            start = segment.get('start', 0)
+            end = segment.get('end', 0)
+            
+            # SRT形式のタイムスタンプ
+            start_time = self._format_srt_timestamp(start)
+            end_time = self._format_srt_timestamp(end)
+            
+            # SRTエントリを追加
+            srt_content += f"{subtitle_index}\n"
+            srt_content += f"{start_time} --> {end_time}\n"
+            srt_content += "\n".join(lines) + "\n\n"
+            
+            subtitle_index += 1
+        
+        return srt_content
+    
+    def _split_text_into_lines(self, text: str, max_lines: int, max_chars: int) -> List[str]:
+        """テキストを指定の行数・文字数に分割"""
+        lines = []
+        
+        if self._is_japanese(text):
+            # 日本語テキストの処理（文字単位で分割）
+            remaining_text = text
+            
+            while remaining_text:
+                if len(remaining_text) <= max_chars:
+                    lines.append(remaining_text)
+                    break
+                
+                # 句読点で適切な分割位置を探す
+                split_pos = max_chars
+                best_split_pos = split_pos
+                
+                # 句読点を探す（優先順位: 。、！？ > 、 > その他）
+                for punct in ['。', '！', '？']:
+                    pos = remaining_text.rfind(punct, 0, split_pos)
+                    if pos > 0:
+                        best_split_pos = pos + 1
+                        break
+                
+                # 句点が見つからない場合は読点を探す
+                if best_split_pos == split_pos:
+                    pos = remaining_text.rfind('、', 0, split_pos)
+                    if pos > 0:
+                        best_split_pos = pos + 1
+                
+                # それでも見つからない場合は最大文字数で切る
+                lines.append(remaining_text[:best_split_pos].strip())
+                remaining_text = remaining_text[best_split_pos:].strip()
+        
+        else:
+            # 英語など空白区切りの言語
+            words = text.split()
+            current_line = ""
+            
+            for word in words:
+                test_line = f"{current_line} {word}" if current_line else word
+                if len(test_line) > max_chars:
+                    if current_line:
+                        lines.append(current_line)
+                        current_line = word
+                    else:
+                        # 単語が長すぎる場合は強制的に分割
+                        lines.append(word[:max_chars])
+                        current_line = word[max_chars:]
+                else:
+                    current_line = test_line
+            
+            if current_line:
+                lines.append(current_line)
+        
+        # 最大行数に制限
+        if len(lines) > max_lines:
+            # 行数が多すぎる場合は調整
+            # 最初のmax_lines行だけを使用し、残りは省略
+            result_lines = lines[:max_lines]
+            
+            # 最後の行に省略記号を追加（スペースがあれば）
+            if len(result_lines[-1]) <= max_chars - 3:
+                result_lines[-1] += "..."
+                
+            return result_lines
+        
+        return lines
+    
+    def _is_japanese(self, text: str) -> bool:
+        """テキストが日本語かどうか判定"""
+        # 簡易的な判定：ひらがな、カタカナ、漢字が含まれているか
+        import re
+        japanese_pattern = re.compile(r'[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]')
+        return bool(japanese_pattern.search(text))
+    
+    def _format_srt_timestamp(self, seconds: float) -> str:
+        """秒数をSRTタイムスタンプ形式に変換"""
+        hours = int(seconds // 3600)
+        minutes = int((seconds % 3600) // 60)
+        secs = int(seconds % 60)
+        millis = int((seconds % 1) * 1000)
+        
+        return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"

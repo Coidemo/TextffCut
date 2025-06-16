@@ -260,12 +260,12 @@ def show_silence_settings() -> Tuple[float, float, float, float, float]:
     return noise_threshold, min_silence_duration, min_segment_duration, padding_start, padding_end
 
 
-def show_export_settings() -> Tuple[str, str, int]:
+def show_export_settings() -> Tuple[str, str, int, int, int]:
     """
     エクスポート設定UI
     
     Returns:
-        (process_type, output_format, timeline_fps)
+        (process_type, output_format, timeline_fps, max_lines_per_subtitle, max_chars_per_line)
     """
     col1, col2, col3 = st.columns(3)
     
@@ -280,22 +280,43 @@ def show_export_settings() -> Tuple[str, str, int]:
     with col2:
         output_format = st.radio(
             "出力形式",
-            ["動画ファイル", "FCPXMLファイル", "Premiere Pro XML"],
+            ["動画ファイル", "FCPXMLファイル", "Premiere Pro XML", "SRTファイル"],
             index=1,
-            help="動画ファイル：MP4形式で出力\nFCPXMLファイル：Final Cut Pro用のXMLファイルを出力\nPremiere Pro XML：Premiere Pro用のXMEMLファイルを出力"
+            help="動画ファイル：MP4形式で出力\nFCPXMLファイル：Final Cut Pro用のXMLファイルを出力\nPremiere Pro XML：Premiere Pro用のXMEMLファイルを出力\nSRTファイル：字幕ファイル（SubRip形式）を出力"
         )
     
     with col3:
-        timeline_fps = st.number_input(
-            "タイムラインのフレームレート",
-            min_value=24,
-            max_value=60,
-            value=30,
-            step=1,
-            help="FCPXMLファイルを生成する際のフレームレート"
-        )
+        if output_format == "SRTファイル":
+            # SRT設定を表示
+            st.markdown("**字幕設定**")
+            max_lines_per_subtitle = st.number_input(
+                "1字幕の最大行数",
+                min_value=1,
+                max_value=4,
+                value=2,
+                help="1つの字幕に表示される最大行数"
+            )
+            max_chars_per_line = st.number_input(
+                "1行の最大文字数",
+                min_value=10,
+                max_value=80,
+                value=40,
+                help="1行に表示される最大文字数"
+            )
+            timeline_fps = 30  # SRTには不要だがデフォルト値を返す
+        else:
+            timeline_fps = st.number_input(
+                "タイムラインのフレームレート",
+                min_value=24,
+                max_value=60,
+                value=30,
+                step=1,
+                help="FCPXMLファイルを生成する際のフレームレート"
+            )
+            max_lines_per_subtitle = 2  # デフォルト値
+            max_chars_per_line = 40  # デフォルト値
     
-    return process_type, output_format, timeline_fps
+    return process_type, output_format, timeline_fps, max_lines_per_subtitle, max_chars_per_line
 
 
 
