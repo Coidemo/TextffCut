@@ -660,6 +660,112 @@ class XMEMLExporter:
         return xml_content
 
 
+class SRTExporter:
+    """SRT（SubRip Text）字幕エクスポートクラス"""
+    
+    def __init__(self, config: Config):
+        self.config = config
+    
+    def export(
+        self,
+        transcription_result: TranscriptionResult,
+        output_path: str,
+        time_ranges: Optional[List[Tuple[float, float]]] = None
+    ) -> bool:
+        """
+        SRT字幕ファイルをエクスポート
+        
+        Args:
+            transcription_result: 文字起こし結果
+            output_path: 出力ファイルパス
+            time_ranges: エクスポートする時間範囲のリスト（Noneの場合は全体）
+            
+        Returns:
+            成功したかどうか
+        """
+        try:
+            # 出力するセグメントを準備
+            segments_to_export = []
+            
+            if time_ranges:
+                # 指定された時間範囲内のセグメントのみを抽出
+                for segment in transcription_result.segments:
+                    for start_time, end_time in time_ranges:
+                        # セグメントが時間範囲と重なる場合
+                        if segment.start < end_time and segment.end > start_time:
+                            # 時間範囲内にクリップ
+                            clipped_start = max(segment.start, start_time)
+                            clipped_end = min(segment.end, end_time)
+                            
+                            # クリップされたセグメントを追加
+                            segments_to_export.append({
+                                'start': clipped_start,
+                                'end': clipped_end,
+                                'text': segment.text
+                            })
+                            break
+            else:
+                # 全セグメントをエクスポート
+                for segment in transcription_result.segments:
+                    segments_to_export.append({
+                        'start': segment.start,
+                        'end': segment.end,
+                        'text': segment.text
+                    })
+            
+            # SRTファイルの内容を構築
+            srt_content = self._build_srt(segments_to_export)
+            
+            # ファイルに保存
+            Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+            with open(output_path, 'w', encoding='utf-8') as f:
+                f.write(srt_content)
+            
+            return True
+            
+        except OSError as e:
+            from utils.exceptions import FileNotFoundError as BuzzFileNotFoundError
+            raise BuzzFileNotFoundError(f"SRT書き込みエラー: {str(e)}")
+        except PermissionError as e:
+            from utils.exceptions import VideoProcessingError
+            raise VideoProcessingError(f"SRT書き込み権限エラー: {str(e)}")
+        except Exception as e:
+            from utils.exceptions import VideoProcessingError
+            raise VideoProcessingError(f"SRTエクスポートエラー: {str(e)}")
+    
+    def _build_srt(self, segments: List[Dict[str, Any]]) -> str:
+        """SRTコンテンツを構築"""
+        srt_content = ""
+        
+        for i, segment in enumerate(segments, 1):
+            # 番号
+            srt_content += f"{i}\n"
+            
+            # タイムスタンプ（HH:MM:SS,mmm --> HH:MM:SS,mmm）
+            start_time = self._seconds_to_srt_time(segment['start'])
+            end_time = self._seconds_to_srt_time(segment['end'])
+            srt_content += f"{start_time} --> {end_time}\n"
+            
+            # テキスト
+            srt_content += f"{segment['text']}\n"
+            
+            # 空行（最後のセグメント以外）
+            if i < len(segments):
+                srt_content += "\n"
+        
+        return srt_content
+    
+    def _seconds_to_srt_time(self, seconds: float) -> str:
+        """秒数をSRTタイムスタンプ形式に変換（HH:MM:SS,mmm）"""
+        hours = int(seconds // 3600)
+        minutes = int((seconds % 3600) // 60)
+        seconds_part = seconds % 60
+        whole_seconds = int(seconds_part)
+        milliseconds = int((seconds_part - whole_seconds) * 1000)
+        
+        return f"{hours:02d}:{minutes:02d}:{whole_seconds:02d},{milliseconds:03d}"
+
+
 class EDLExporter:
     """EDL（Edit Decision List）エクスポートクラス"""
     

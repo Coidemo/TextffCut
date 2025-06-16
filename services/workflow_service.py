@@ -462,7 +462,8 @@ class WorkflowService(BaseService):
         extension_map = {
             'fcpxml': '.fcpxml',
             'xmeml': '.xml',
-            'edl': '.edl'
+            'edl': '.edl',
+            'srt': '.srt'
         }
         
         extension = extension_map.get(export_format.lower(), '.xml')

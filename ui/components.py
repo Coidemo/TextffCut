@@ -280,9 +280,9 @@ def show_export_settings() -> Tuple[str, str, int]:
     with col2:
         output_format = st.radio(
             "出力形式",
-            ["動画ファイル", "FCPXMLファイル", "Premiere Pro XML"],
+            ["動画ファイル", "FCPXMLファイル", "Premiere Pro XML", "SRTファイル"],
             index=1,
-            help="動画ファイル：MP4形式で出力\nFCPXMLファイル：Final Cut Pro用のXMLファイルを出力\nPremiere Pro XML：Premiere Pro用のXMEMLファイルを出力"
+            help="動画ファイル：MP4形式で出力\nFCPXMLファイル：Final Cut Pro用のXMLファイルを出力\nPremiere Pro XML：Premiere Pro用のXMEMLファイルを出力\nSRTファイル：字幕ファイル（SubRip形式）を出力"
         )
     
     with col3:
