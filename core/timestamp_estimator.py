@@ -6,6 +6,10 @@ from utils.logging import get_logger
 
 logger = get_logger(__name__)
 
+# 異常な単語継続時間の検出用定数（text_processorと同じ値）
+ABNORMAL_DURATION_THRESHOLD = 0.5  # 通常の短い単語は0.1-0.3秒程度
+SHORT_WORD_LENGTH = 2  # 「す」「つ」などの短い音節
+
 
 class TimestampEstimator:
     """タイムスタンプ推定クラス"""
@@ -97,13 +101,18 @@ class TimestampEstimator:
             estimated_start = prev_end + time_gap * position_ratio
             
             # 終了時間は局所的な平均発話速度から
-            local_speed = (char_count_before + char_count_after) / (next_end - prev_start)
-            if local_speed > 0:
-                estimated_duration = char_count_current / local_speed
+            # 句読点の場合は特別処理
+            if word_text in ['。', '、', '！', '？', '．', '，']:
+                # 句読点は瞬間的（継続時間なし）
+                estimated_end = estimated_start
             else:
-                estimated_duration = (prev_end - prev_start + next_end - next_start) / 2
-            
-            estimated_end = estimated_start + estimated_duration
+                local_speed = (char_count_before + char_count_after) / (next_end - prev_start)
+                if local_speed > 0:
+                    estimated_duration = char_count_current / local_speed
+                else:
+                    estimated_duration = (prev_end - prev_start + next_end - next_start) / 2
+                
+                estimated_end = estimated_start + estimated_duration
             
             logger.debug(f"タイムスタンプを近隣から推定（補間）: {word_text} "
                         f"({estimated_start:.2f}秒 - {estimated_end:.2f}秒)")
@@ -112,6 +121,34 @@ class TimestampEstimator:
         elif prev_timestamps:
             # 前のタイムスタンプのみ
             prev_idx, prev_start, prev_end = prev_timestamps[-1]
+            
+            # 句読点の特別処理
+            if word_text in ['。', '、', '！', '？', '．', '，']:
+                # 前の単語が異常に長い場合（APIが延ばしている可能性）
+                prev_word = seg.words[prev_idx]
+                prev_word_text = self._get_word_text(prev_word)
+                prev_duration = prev_end - prev_start
+                
+                # 短い単語で閾値以上は異常
+                if len(prev_word_text) <= SHORT_WORD_LENGTH and prev_duration > ABNORMAL_DURATION_THRESHOLD:
+                    # さらに前の単語の終了時刻を使用
+                    if prev_idx > 0:
+                        prev_prev_word = seg.words[prev_idx - 1]
+                        prev_prev_end = self._extract_timestamp(prev_prev_word)[1]
+                        if prev_prev_end is not None:
+                            estimated_start = prev_prev_end
+                            estimated_end = prev_prev_end
+                            logger.debug(f"句読点の前の単語が異常に長いため調整: {word_text} "
+                                        f"前の単語「{prev_word_text}」({prev_duration:.3f}秒) "
+                                        f"-> {estimated_start:.2f}秒")
+                            return estimated_start, estimated_end
+                
+                # 通常の句読点処理
+                estimated_start = prev_end
+                estimated_end = prev_end  # 句読点は瞬間的
+                logger.debug(f"句読点のタイムスタンプを推定: {word_text} "
+                            f"({estimated_start:.2f}秒)")
+                return estimated_start, estimated_end
             
             # 前の単語からの文字数
             char_count = sum(len(self._get_word_text(seg.words[i])) 
@@ -176,6 +213,17 @@ class TimestampEstimator:
         Returns:
             (推定開始時間, 推定終了時間) または (None, None)
         """
+        # 句読点の特別処理
+        if word_text in ['。', '、', '！', '？', '．', '，']:
+            # 句読点は前のwordの直後に配置
+            if word_idx > 0:
+                prev_word = seg.words[word_idx - 1]
+                prev_end = self._extract_timestamp(prev_word)[1]
+                if prev_end is not None:
+                    logger.debug(f"句読点を発話速度推定でスキップ: {word_text} -> {prev_end}秒")
+                    return prev_end, prev_end
+            # 前のwordがない場合はセグメント開始
+            return seg.start, seg.start
         # セグメント内の有効なタイムスタンプを持つwordを収集
         valid_words = []
         for i, word in enumerate(seg.words):

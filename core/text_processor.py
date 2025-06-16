@@ -12,6 +12,10 @@ from utils.logging import get_logger
 
 logger = get_logger(__name__)
 
+# 異常な単語継続時間の検出用定数
+ABNORMAL_DURATION_THRESHOLD = 0.5  # 通常の短い単語は0.1-0.3秒程度
+SHORT_WORD_LENGTH = 2  # 「す」「つ」などの短い音節
+
 
 @dataclass
 class TextPosition:
@@ -47,7 +51,8 @@ class TextDifference:
             start_time, end_time = self._get_timestamp_for_position(
                 transcription.segments, 
                 pos.start, 
-                pos.end
+                pos.end,
+                transcription.language
             )
             if start_time is not None and end_time is not None:
                 time_ranges.append((start_time, end_time))
@@ -98,11 +103,13 @@ class TextDifference:
         
         return time_ranges
     
+    
     def _get_timestamp_for_position(
         self, 
         segments: List[TranscriptionSegment], 
         start_pos: int, 
-        end_pos: int
+        end_pos: int,
+        language: str = 'ja'
     ) -> Tuple[Optional[float], Optional[float]]:
         """文字位置からタイムスタンプを取得（改善版：フォールバック階層アプローチ）"""
         # デバッグ情報の収集
@@ -172,6 +179,11 @@ class TextDifference:
                                 start_time = estimated_start
                             if end_time is None and current_pos < end_pos <= current_pos + word_len:
                                 end_time = estimated_end
+                                logger.debug(
+                                    f"タイムスタンプなしwordの終了時刻設定: "
+                                    f"word[{word_idx}]=\"{word_text}\" pos={current_pos}-{current_pos+word_len} "
+                                    f"end_pos={end_pos} -> end_time={end_time}"
+                                )
                             
                             current_pos += word_len
                             continue
@@ -180,7 +192,108 @@ class TextDifference:
                         if start_time is None and current_pos <= start_pos < current_pos + word_len:
                             start_time = word_start
                         if end_time is None and current_pos < end_pos <= current_pos + word_len:
+                            # まず通常の終了時刻を設定
                             end_time = word_end
+                            
+                        # 現在のwordが検索範囲の最後の実質的な単語かチェック
+                        # (後続が句読点のみの場合も含む)
+                        if end_time is None or (word_start is not None and word_end is not None):
+                            is_last_meaningful_word = False
+                            
+                            # このwordの後の文字をチェック
+                            remaining_pos = current_pos + word_len
+                            remaining_words_are_punctuation = True
+                            
+                            # 残りの検索範囲を確認
+                            if remaining_pos < end_pos:
+                                # 残りのwordsをチェック
+                                check_idx = word_idx + 1
+                                check_pos = remaining_pos
+                                
+                                while check_idx < len(seg.words) and check_pos < end_pos:
+                                    check_word = seg.words[check_idx]
+                                    # wordオブジェクトからテキストを取得
+                                    if hasattr(check_word, 'word'):
+                                        check_text = check_word.word
+                                    elif isinstance(check_word, dict):
+                                        check_text = check_word.get('word', '')
+                                    else:
+                                        check_text = ''
+                                    
+                                    # 句読点以外が見つかったら、このwordは最後の実質的な単語ではない
+                                    if check_text not in ['。', '、', '！', '？', '．', '，']:
+                                        remaining_words_are_punctuation = False
+                                        break
+                                    
+                                    check_pos += len(check_text)
+                                    check_idx += 1
+                                
+                                # 残りが全て句読点なら、このwordが最後の実質的な単語
+                                if remaining_words_are_punctuation:
+                                    is_last_meaningful_word = True
+                            
+                            # 検索範囲がこのwordで終わる場合も最後の実質的な単語
+                            elif end_pos == current_pos + word_len:
+                                is_last_meaningful_word = True
+                            
+                            if is_last_meaningful_word and word_start is not None and word_end is not None:
+                                # 単語の継続時間が異常に長い場合の処理（文末でAPIが延ばしている可能性）
+                                if word_start is not None and word_end is not None:
+                                    word_duration = word_end - word_start
+                                    
+                                    # 日本語の場合のみ、閾値以上は異常に長い（特に「す」「つ」などの短い音）
+                                    if language == 'ja' and word_duration > ABNORMAL_DURATION_THRESHOLD and len(word_text) <= SHORT_WORD_LENGTH:
+                                        # 前の単語の終了時刻を使用
+                                        if word_idx > 0:
+                                            prev_word = seg.words[word_idx - 1]
+                                            if hasattr(prev_word, 'end'):
+                                                prev_end = prev_word.end
+                                            else:
+                                                prev_end = prev_word.get('end') if isinstance(prev_word, dict) else None
+                                            
+                                            if prev_end is not None:
+                                                end_time = prev_end
+                                                logger.debug(
+                                                    f"[{language}] 文末の単語が異常に長いため、前の単語の終了時刻を使用: "
+                                                    f"word「{word_text}」({word_start:.3f}-{word_end:.3f}, {word_duration:.3f}秒) "
+                                                    f"-> {end_time:.3f}秒（前の単語の終了）"
+                                                )
+                                                # 次の処理をスキップ
+                                                current_pos += word_len
+                                                continue
+                                
+                                # 次のwordがタイムスタンプを持たない場合の処理
+                                if word_idx + 1 < len(seg.words):
+                                    next_word = seg.words[word_idx + 1]
+                                    # 次のwordのタイムスタンプを確認
+                                    if hasattr(next_word, 'start'):
+                                        next_start = next_word.start
+                                    else:
+                                        next_start = next_word.get('start') if isinstance(next_word, dict) else None
+                                    
+                                    # 次のwordにタイムスタンプがない場合
+                                    if next_start is None:
+                                        # より適切な終了時刻を計算
+                                        # 現在のwordの継続時間から推定
+                                        if word_start is not None and word_end is not None:
+                                            word_duration = word_end - word_start
+                                            # 文字数に基づいて比例配分
+                                            char_ratio = 1.0  # デフォルトは全体
+                                            
+                                            # 現在のword内での終了位置を計算
+                                            end_pos_in_word = end_pos - current_pos
+                                            if end_pos_in_word < word_len:
+                                                char_ratio = end_pos_in_word / word_len
+                                            
+                                            # 調整された終了時刻
+                                            adjusted_end = word_start + (word_duration * char_ratio)
+                                            end_time = adjusted_end
+                                            
+                                            logger.debug(
+                                                f"次のwordにタイムスタンプがないため、終了時刻を調整: "
+                                                f"word「{word_text}」({word_start:.3f}-{word_end:.3f}) "
+                                                f"-> {end_time:.3f}秒（{char_ratio:.1%}の位置）"
+                                            )
                         current_pos += word_len
                         
                     except (KeyError, TypeError) as e:
@@ -386,6 +499,14 @@ class TextProcessor:
             original_pos += 1
         
         return original_pos
+    
+    def _get_word_text(self, word: Any) -> str:
+        """wordオブジェクトからテキストを取得"""
+        if hasattr(word, 'word'):
+            return word.word
+        elif isinstance(word, dict):
+            return word.get('word', '')
+        return ''
     
     def _calculate_length_with_spaces(self, text: str, start_pos: int, length_no_spaces: int) -> int:
         """空白を除去した長さから、元のテキストでの長さを計算"""
