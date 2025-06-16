@@ -1174,6 +1174,50 @@ def main() -> None:
             
             st.code(display_path, language=None)
             
+            # タイムライン編集（切り抜き箇所が決まっている場合のみ表示）
+            if 'edited_text' in st.session_state and st.session_state.edited_text:
+                # 時間範囲を計算（プレビューと同じロジック）
+                text_processor = TextProcessor()
+                edited_text_for_timeline = st.session_state.edited_text
+                
+                # 区切り文字の処理
+                separator_patterns = ["---", "——", "－－－"]
+                found_separator = None
+                for pattern in separator_patterns:
+                    if pattern in edited_text_for_timeline:
+                        found_separator = pattern
+                        break
+                
+                if found_separator:
+                    time_ranges = text_processor.find_differences_with_separator(
+                        full_text, edited_text_for_timeline, transcription, found_separator
+                    )
+                else:
+                    diff = text_processor.find_differences(full_text, edited_text_for_timeline)
+                    time_ranges = diff.get_time_ranges(transcription)
+                
+                if time_ranges:
+                    st.markdown("---")
+                    
+                    # タイムラインを作成
+                    from core.timeline import Timeline
+                    from core.video import VideoInfo
+                    
+                    # 動画情報を取得
+                    video_info = VideoInfo.from_file(video_path)
+                    
+                    # タイムラインを初期化
+                    if 'timeline' not in st.session_state:
+                        timeline = Timeline(video_duration=video_info.duration)
+                        for start, end in time_ranges:
+                            timeline.add_segment(start, end)
+                        st.session_state.timeline = timeline
+                    
+                    # タイムライン編集UIを表示
+                    from ui.timeline_editor import show_timeline_editor
+                    edited_timeline = show_timeline_editor(st.session_state.timeline)
+                    st.session_state.timeline = edited_timeline
+            
             # 処理実行ボタン
             if st.button("🚀 処理を実行", type="primary", use_container_width=True):
                 # 実行前にAPI設定を反映
@@ -1225,6 +1269,14 @@ def main() -> None:
                 if not time_ranges:
                     st.error("切り抜き箇所が見つかりませんでした。")
                     return
+                
+                # タイムライン編集が有効な場合は、調整後の時間範囲を使用
+                if 'timeline' in st.session_state and st.session_state.timeline:
+                    # タイムラインの調整後の時間範囲を取得
+                    adjusted_ranges = st.session_state.timeline.get_adjusted_ranges()
+                    if adjusted_ranges:
+                        time_ranges = adjusted_ranges
+                        logger.info(f"タイムライン調整後の時間範囲を使用: {len(time_ranges)}セグメント")
                 
                 # 出力ディレクトリの設定（動画と同じ場所にTextffCutフォルダ作成）
                 video_name = Path(video_path).stem
@@ -1419,17 +1471,31 @@ def main() -> None:
                                 combined_path = get_unique_path(project_path / f"{safe_name}_TextffCut_{type_suffix}.mp4")
                                 show_progress(0.8, "動画を統合しています...", progress_bar, status_text)
                                 
-                                # VideoProcessingServiceを使用して動画を結合
-                                if 'video_service' not in locals():
-                                    video_service = VideoProcessingService(config)
-                                
-                                merge_result = video_service.merge_videos(
-                                    video_files=output_files,
-                                    output_path=str(combined_path),
-                                    progress_callback=lambda p, s: show_progress(0.8 + p * 0.2, s, progress_bar, status_text)
-                                )
-                                
-                                success = merge_result.success
+                                # タイムライン調整がある場合は新しい結合方法を使用
+                                if 'timeline' in st.session_state and st.session_state.timeline:
+                                    # VideoProcessorを直接使用してタイムライン付き結合
+                                    from core.video import VideoProcessor
+                                    video_processor = VideoProcessor()
+                                    
+                                    success = video_processor.combine_videos_with_timeline(
+                                        input_video=video_path,
+                                        time_ranges=keep_ranges,
+                                        output_file=str(combined_path),
+                                        progress_callback=lambda p, s: show_progress(0.8 + p * 0.2, s, progress_bar, status_text)
+                                    )
+                                else:
+                                    # 通常の結合処理
+                                    # VideoProcessingServiceを使用して動画を結合
+                                    if 'video_service' not in locals():
+                                        video_service = VideoProcessingService(config)
+                                    
+                                    merge_result = video_service.merge_videos(
+                                        video_files=output_files,
+                                        output_path=str(combined_path),
+                                        progress_callback=lambda p, s: show_progress(0.8 + p * 0.2, s, progress_bar, status_text)
+                                    )
+                                    
+                                    success = merge_result.success
                                 
                                 if success:
                                     # 100%完了を表示
