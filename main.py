@@ -1151,7 +1151,7 @@ def main() -> None:
             st.markdown("#### ⚙️ 処理オプション")
             process_type, output_format, timeline_fps = show_export_settings()
             
-            if process_type == "無音削除付き":
+            if process_type in ["無音削除付き", "タイムライン調整 + 無音削除"]:
                 st.markdown("##### 🔇 無音削除の設定")
                 st.info(f"現在の設定: 閾値{noise_threshold}dB | 無音{min_silence_duration}秒 | セグメント{min_segment_duration}秒 | パディング{padding_start}-{padding_end}秒 | 設定変更は左サイドパネルの「無音検出」タブから")
             
@@ -1173,6 +1173,44 @@ def main() -> None:
                 display_path = str(project_path)
             
             st.code(display_path, language=None)
+            
+            # タイムライン編集のために時間範囲を事前計算
+            preview_time_ranges = None
+            if process_type in ["切り抜きのみ", "タイムライン調整 + 無音削除"]:
+                # 区切り文字対応の差分検索を使用
+                text_processor = TextProcessor()
+                separator_patterns = ["---", "——", "－－－"]
+                found_separator = None
+                
+                for pattern in separator_patterns:
+                    if pattern in edited_text:
+                        found_separator = pattern
+                        break
+                
+                if found_separator:
+                    preview_time_ranges = text_processor.find_differences_with_separator(full_text, edited_text, transcription, found_separator)
+                else:
+                    diff = text_processor.find_differences(full_text, edited_text)
+                    if not diff.has_additions():
+                        preview_time_ranges = diff.get_time_ranges(transcription)
+            
+            # タイムライン編集（切り抜きのみモード、またはタイムライン調整+無音削除モードで複数セグメントがある場合）
+            if process_type in ["切り抜きのみ", "タイムライン調整 + 無音削除"] and preview_time_ranges and len(preview_time_ranges) > 1:
+                from core import Timeline, VideoInfo
+                from ui import show_timeline_editor
+                
+                # 動画情報を取得（すでに取得済みなら再利用）
+                video_info = VideoInfo.from_file(video_path)
+                
+                # タイムラインオブジェクトを作成または取得
+                if 'timeline' not in st.session_state or st.session_state.get('timeline_text') != edited_text:
+                    # テキストが変更されたら新しいタイムラインを作成
+                    st.session_state.timeline = Timeline.from_time_ranges(preview_time_ranges, video_info.duration)
+                    st.session_state.timeline_text = edited_text
+                
+                # タイムライン編集UIを表示
+                with st.expander("🎬 タイムライン編集", expanded=True):
+                    st.session_state.timeline = show_timeline_editor(st.session_state.timeline)
             
             # 処理実行ボタン
             if st.button("🚀 処理を実行", type="primary", use_container_width=True):
@@ -1250,6 +1288,8 @@ def main() -> None:
                 # 処理タイプに応じたサフィックス（アルファベット表現）
                 if process_type == "切り抜きのみ":
                     type_suffix = "Clip"
+                elif process_type == "タイムライン調整 + 無音削除":
+                    type_suffix = "TimelineNoSilence"
                 else:
                     type_suffix = "NoSilence"
                 
@@ -1263,11 +1303,69 @@ def main() -> None:
                         
                         # 残す時間範囲を決定
                         if process_type == "切り抜きのみ":
-                            # 切り抜きのみの場合はtime_rangesをそのまま使用
-                            keep_ranges = time_ranges
-                            show_progress(0.5, "切り抜き箇所を処理中...", progress_bar, status_text)
+                            # タイムライン調整がある場合は調整後の範囲を使用
+                            if 'timeline' in st.session_state and len(time_ranges) > 1:
+                                keep_ranges = st.session_state.timeline.get_adjusted_ranges()
+                                show_progress(0.5, "タイムライン調整を適用中...", progress_bar, status_text)
+                            else:
+                                # 切り抜きのみの場合はtime_rangesをそのまま使用
+                                keep_ranges = time_ranges
+                                show_progress(0.5, "切り抜き箇所を処理中...", progress_bar, status_text)
                             
-                        else:
+                        elif process_type == "タイムライン調整 + 無音削除":
+                            # タイムライン調整後に無音削除を実行
+                            if 'timeline' in st.session_state and len(time_ranges) > 1:
+                                # 調整後の範囲を取得
+                                adjusted_ranges = st.session_state.timeline.get_adjusted_ranges()
+                                show_progress(0.2, "タイムライン調整を適用中...", progress_bar, status_text)
+                                
+                                # 調整後の範囲に対して無音削除を実行
+                                def progress_callback(progress, status):
+                                    # 無音削除は全体の20-90%
+                                    overall_progress = 0.2 + (progress * 0.7)
+                                    show_progress(overall_progress, status, progress_bar, status_text)
+                                
+                                # VideoProcessingServiceを使用して無音削除
+                                video_service = VideoProcessingService(config)
+                                from core.models import TranscriptionResultV2
+                                from core import TranscriptionSegment
+                                
+                                # adjusted_rangesからセグメントを作成
+                                segments_for_removal = []
+                                for start, end in adjusted_ranges:
+                                    segments_for_removal.append(TranscriptionSegment(
+                                        start=start,
+                                        end=end,
+                                        text="",
+                                        words=[]
+                                    ))
+                                
+                                silence_result = video_service.remove_silence(
+                                    video_path=video_path,
+                                    segments=segments_for_removal,
+                                    threshold=noise_threshold,
+                                    min_silence_duration=min_silence_duration,
+                                    pad_start=padding_start,
+                                    pad_end=padding_end,
+                                    min_segment_duration=min_segment_duration,
+                                    progress_callback=progress_callback
+                                )
+                                
+                                if silence_result.success:
+                                    # 調整されたセグメントから時間範囲を抽出
+                                    adjusted_segments = silence_result.data
+                                    keep_ranges = [(seg.start, seg.end) for seg in adjusted_segments]
+                                    show_progress(0.9, "無音削除完了", progress_bar, status_text)
+                                else:
+                                    st.error(f"無音削除エラー: {silence_result.error}")
+                                    return
+                            else:
+                                # タイムライン調整がない場合は通常の無音削除
+                                st.warning("タイムライン調整が設定されていません。通常の無音削除を実行します。")
+                                # 通常の無音削除処理にフォールバック
+                                process_type = "無音削除付き"
+                        
+                        if process_type == "無音削除付き":
                             # 無音削除付きで処理（新フロー）
                             def progress_callback(progress, status):
                                 show_progress(progress, status, progress_bar, status_text)
