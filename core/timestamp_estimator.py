@@ -6,6 +6,10 @@ from utils.logging import get_logger
 
 logger = get_logger(__name__)
 
+# 異常な単語継続時間の検出用定数（text_processorと同じ値）
+ABNORMAL_DURATION_THRESHOLD = 0.5  # 通常の短い単語は0.1-0.3秒程度
+SHORT_WORD_LENGTH = 2  # 「す」「つ」などの短い音節
+
 
 class TimestampEstimator:
     """タイムスタンプ推定クラス"""
@@ -125,8 +129,8 @@ class TimestampEstimator:
                 prev_word_text = self._get_word_text(prev_word)
                 prev_duration = prev_end - prev_start
                 
-                # 短い単語（2文字以下）で0.5秒以上は異常
-                if len(prev_word_text) <= 2 and prev_duration > 0.5:
+                # 短い単語で閾値以上は異常
+                if len(prev_word_text) <= SHORT_WORD_LENGTH and prev_duration > ABNORMAL_DURATION_THRESHOLD:
                     # さらに前の単語の終了時刻を使用
                     if prev_idx > 0:
                         prev_prev_word = seg.words[prev_idx - 1]

@@ -12,6 +12,10 @@ from utils.logging import get_logger
 
 logger = get_logger(__name__)
 
+# 異常な単語継続時間の検出用定数
+ABNORMAL_DURATION_THRESHOLD = 0.5  # 通常の短い単語は0.1-0.3秒程度
+SHORT_WORD_LENGTH = 2  # 「す」「つ」などの短い音節
+
 
 @dataclass
 class TextPosition:
@@ -47,7 +51,8 @@ class TextDifference:
             start_time, end_time = self._get_timestamp_for_position(
                 transcription.segments, 
                 pos.start, 
-                pos.end
+                pos.end,
+                transcription.language
             )
             if start_time is not None and end_time is not None:
                 time_ranges.append((start_time, end_time))
@@ -98,19 +103,13 @@ class TextDifference:
         
         return time_ranges
     
-    def _get_word_text_from_word(self, word: Any) -> str:
-        """wordオブジェクトからテキストを取得（内部用）"""
-        if hasattr(word, 'word'):
-            return word.word
-        elif isinstance(word, dict):
-            return word.get('word', '')
-        return ''
     
     def _get_timestamp_for_position(
         self, 
         segments: List[TranscriptionSegment], 
         start_pos: int, 
-        end_pos: int
+        end_pos: int,
+        language: str = 'ja'
     ) -> Tuple[Optional[float], Optional[float]]:
         """文字位置からタイムスタンプを取得（改善版：フォールバック階層アプローチ）"""
         # デバッグ情報の収集
@@ -213,7 +212,13 @@ class TextDifference:
                                 
                                 while check_idx < len(seg.words) and check_pos < end_pos:
                                     check_word = seg.words[check_idx]
-                                    check_text = self._get_word_text_from_word(check_word)
+                                    # wordオブジェクトからテキストを取得
+                                    if hasattr(check_word, 'word'):
+                                        check_text = check_word.word
+                                    elif isinstance(check_word, dict):
+                                        check_text = check_word.get('word', '')
+                                    else:
+                                        check_text = ''
                                     
                                     # 句読点以外が見つかったら、このwordは最後の実質的な単語ではない
                                     if check_text not in ['。', '、', '！', '？', '．', '，']:
@@ -236,8 +241,8 @@ class TextDifference:
                                 if word_start is not None and word_end is not None:
                                     word_duration = word_end - word_start
                                     
-                                    # 0.5秒以上は異常に長い（特に「す」「つ」などの短い音）
-                                    if word_duration > 0.5 and len(word_text) <= 2:
+                                    # 日本語の場合のみ、閾値以上は異常に長い（特に「す」「つ」などの短い音）
+                                    if language == 'ja' and word_duration > ABNORMAL_DURATION_THRESHOLD and len(word_text) <= SHORT_WORD_LENGTH:
                                         # 前の単語の終了時刻を使用
                                         if word_idx > 0:
                                             prev_word = seg.words[word_idx - 1]
@@ -249,7 +254,7 @@ class TextDifference:
                                             if prev_end is not None:
                                                 end_time = prev_end
                                                 logger.debug(
-                                                    f"文末の単語が異常に長いため、前の単語の終了時刻を使用: "
+                                                    f"[{language}] 文末の単語が異常に長いため、前の単語の終了時刻を使用: "
                                                     f"word「{word_text}」({word_start:.3f}-{word_end:.3f}, {word_duration:.3f}秒) "
                                                     f"-> {end_time:.3f}秒（前の単語の終了）"
                                                 )
