@@ -60,24 +60,127 @@ echo ""
 # 4. 配布用ファイルの作成
 echo "4. 配布用ファイルを作成しています..."
 
-# START.bat の作成（v7ベースのシンプル版）
-cat > release/START.bat <<EOF
+# START.bat の作成（メモリ最適化・ポート競合対応版）
+cat > release/START.bat <<'EOF'
 @echo off
 chcp 65001 >nul
-echo Starting TextffCut v${VERSION}...
+echo Starting TextffCut vVERSION_PLACEHOLDER...
 echo.
 
+REM 環境変数を設定
+set "HOST_VIDEOS_PATH=%cd%\videos"
+
+REM ===========================================
+REM メモリ最適化設定
+REM ===========================================
+echo Checking memory configuration...
+
+REM システムの総メモリを取得（KB単位）
+for /f "tokens=2 delims==" %%i in ('wmic OS get TotalVisibleMemorySize /value 2^>nul') do (
+    if not "%%i"=="" set /a TOTAL_MEM_KB=%%i
+)
+if not defined TOTAL_MEM_KB (
+    echo Warning: Could not detect system memory
+    set TOTAL_MEM_GB=8
+) else (
+    set /a TOTAL_MEM_GB=%TOTAL_MEM_KB% / 1024 / 1024
+)
+echo System memory: %TOTAL_MEM_GB%GB
+
+REM Docker Desktopに割り当てられたメモリを取得
+set DOCKER_MEM_GB=
+for /f "tokens=3" %%i in ('docker system info 2^>nul ^| findstr /C:"Total Memory"') do (
+    set DOCKER_MEM_STR=%%i
+)
+if defined DOCKER_MEM_STR (
+    REM GiBを削除して数値のみ取得
+    set DOCKER_MEM_STR=%DOCKER_MEM_STR:GiB=%
+    REM 小数点を削除（整数部分のみ）
+    for /f "tokens=1 delims=." %%j in ("%DOCKER_MEM_STR%") do set /a DOCKER_MEM_GB=%%j
+)
+
+if not defined DOCKER_MEM_GB (
+    echo Warning: Could not detect Docker memory allocation
+    REM デフォルトとしてシステムメモリの半分を推定
+    set /a DOCKER_MEM_GB=%TOTAL_MEM_GB% / 2
+    echo Estimated Docker allocation: %DOCKER_MEM_GB%GB
+) else (
+    echo Docker Desktop allocation: %DOCKER_MEM_GB%GB
+)
+
+REM 推奨メモリを計算（Docker割り当ての80%）
+set /a RECOMMENDED_MEM=%DOCKER_MEM_GB% * 80 / 100
+if %RECOMMENDED_MEM% LSS 1 set RECOMMENDED_MEM=1
+echo Allocated memory: %RECOMMENDED_MEM%GB
+echo.
+
+REM docker-compose.override.ymlを生成
+(
+echo version: '3.8'
+echo services:
+echo   textffcut:
+echo     deploy:
+echo       resources:
+echo         limits:
+echo           memory: %RECOMMENDED_MEM%g
+echo     environment:
+echo       - TEXTFFCUT_MEMORY_LIMIT=%RECOMMENDED_MEM%g
+echo       - HOST_VIDEOS_PATH=%HOST_VIDEOS_PATH%
+) > docker-compose.override.yml
+
+REM ===========================================
+REM Docker Desktop確認
+REM ===========================================
 echo Checking Docker...
 docker version >nul 2>&1
 if errorlevel 1 (
-    echo Docker Desktop not running
+    echo ERROR: Docker Desktop not running
     echo Please start Docker Desktop and try again.
+    echo.
+    echo Memory recommendation:
+    echo 1. Open Docker Desktop - Settings - Resources
+    echo 2. Set Memory to %RECOMMENDED_MEM%GB or higher
+    echo.
     pause
     exit /b
 )
 echo Docker OK
 echo.
 
+REM ===========================================
+REM ポート競合チェック
+REM ===========================================
+set PORT=8501
+netstat -an | findstr ":8501 " >nul 2>&1
+if not errorlevel 1 (
+    echo Warning: Port %PORT% is already in use
+    
+    REM TextffCutコンテナが使用しているか確認
+    docker ps --format "{{.Names}}" | findstr /i "textffcut" >nul 2>&1
+    if not errorlevel 1 (
+        echo Existing TextffCut container detected
+        echo Stopping existing container...
+        docker stop TextffCut >nul 2>&1
+        docker rm TextffCut >nul 2>&1
+    ) else (
+        echo Another application is using port %PORT%
+        REM 代替ポートを探す
+        for %%p in (8502 8503 8504 8505) do (
+            netstat -an | findstr ":%%p " >nul 2>&1
+            if errorlevel 1 (
+                set PORT=%%p
+                echo Using alternative port: %%p
+                goto :port_found
+            )
+        )
+        echo ERROR: No available ports found (8501-8505)
+        pause
+        exit /b
+    )
+)
+:port_found
+
+REM Docker Compose バージョンチェック
 echo Checking Docker Compose v2...
 docker compose version >nul 2>&1
 if errorlevel 1 (
@@ -89,44 +192,92 @@ if errorlevel 1 (
 )
 echo.
 
+REM 必要なフォルダを作成
 echo Creating folders...
 for %%f in (videos logs models) do (
-    if not exist %%f (
-        mkdir %%f
+    if not exist "%%f" (
+        mkdir "%%f"
         echo Created %%f folder
     )
 )
 echo.
 
+REM Docker イメージのロード
 echo Loading Docker image...
-docker images | findstr textffcut:${VERSION} >nul 2>&1
+docker images | findstr "textffcut.*VERSION_PLACEHOLDER" >nul 2>&1
 if errorlevel 1 (
     echo Loading image (first time only)...
-    docker load -i textffcut_v${VERSION}_docker.tar.gz
+    docker load -i textffcut_vVERSION_PLACEHOLDER_docker.tar.gz
 ) else (
     echo Image already loaded
 )
 echo.
 
-echo Starting TextffCut...
-echo URL: http://localhost:8501
+REM ===========================================
+REM 起動設定の表示
+REM ===========================================
+echo ========================================
+echo Starting TextffCut
+echo ========================================
+echo URL: http://localhost:%PORT%
+echo Memory allocation: %RECOMMENDED_MEM%GB
 echo Videos folder: %cd%\videos
+echo ========================================
 echo.
-echo Opening browser...
-start http://localhost:8501
 
-%COMPOSE_CMD% -f docker-compose-simple.yml up
+REM メモリ不足の警告
+if %RECOMMENDED_MEM% LSS 4 (
+    echo WARNING: Allocated memory is less than 4GB
+    echo Large videos may fail to process
+    echo Consider increasing Docker Desktop memory allocation
+    echo.
+)
+
+echo Opening browser...
+timeout /t 2 /nobreak >nul
+start http://localhost:%PORT%
+
+REM ポートが変更された場合の対応
+if NOT "%PORT%"=="8501" (
+    REM docker-compose-temp.ymlを作成
+    powershell -Command "(Get-Content docker-compose-simple.yml) -replace '8501:8501', '%PORT%:8501' | Set-Content docker-compose-temp.yml"
+    %COMPOSE_CMD% -f docker-compose-temp.yml -f docker-compose.override.yml up
+    del docker-compose-temp.yml
+    del docker-compose.override.yml
+) else (
+    %COMPOSE_CMD% -f docker-compose-simple.yml -f docker-compose.override.yml up
+    del docker-compose.override.yml
+)
 
 pause
 EOF
 
-# START_CLEAN.bat の作成（v7ベースのクリーン起動版）
-cat > release/START_CLEAN.bat <<EOF
+# ${VERSION}をVERSION_PLACEHOLDERに置換した後、sedで実際の値に置換
+# macOS互換性のため -i '' を使用
+sed -i '' "s/VERSION_PLACEHOLDER/${VERSION}/g" release/START.bat
+
+# START_CLEAN.bat の作成（メモリ最適化対応のクリーン起動版）
+cat > release/START_CLEAN.bat <<'EOF'
 @echo off
 chcp 65001 >nul
-echo TextffCut v${VERSION} Clean Start
+echo ===========================================
+echo TextffCut vVERSION_PLACEHOLDER Clean Start
+echo ===========================================
 echo.
 
+REM 環境変数を設定
+set "HOST_VIDEOS_PATH=%cd%\videos"
+
+echo This script will:
+echo - Stop existing containers
+echo - Remove Docker images and reload
+echo - Start with fresh container
+echo.
+echo Continue? (Y/N): 
+choice /C YN /M "Select"
+if errorlevel 2 goto :cancelled
+
+echo.
 echo Cleaning up existing containers and images...
 echo.
 
@@ -171,11 +322,13 @@ echo.
 echo Cleanup complete!
 echo.
 
-REM Check Docker
+REM ===========================================
+REM Docker Desktop確認
+REM ===========================================
 echo Checking Docker...
 docker version >nul 2>&1
 if errorlevel 1 (
-    echo Docker Desktop not running
+    echo ERROR: Docker Desktop not running
     echo Please start Docker Desktop and try again.
     pause
     exit /b
@@ -183,11 +336,61 @@ if errorlevel 1 (
 echo Docker OK
 echo.
 
-REM Create folders
+REM ===========================================
+REM メモリ最適化設定（クリーン起動でも適用）
+REM ===========================================
+echo Checking memory configuration...
+
+REM システムの総メモリを取得
+for /f "tokens=2 delims==" %%i in ('wmic OS get TotalVisibleMemorySize /value 2^>nul') do (
+    if not "%%i"=="" set /a TOTAL_MEM_KB=%%i
+)
+if not defined TOTAL_MEM_KB (
+    set TOTAL_MEM_GB=8
+) else (
+    set /a TOTAL_MEM_GB=%TOTAL_MEM_KB% / 1024 / 1024
+)
+echo System memory: %TOTAL_MEM_GB%GB
+
+REM Docker Desktopのメモリ取得
+set DOCKER_MEM_GB=
+for /f "tokens=3" %%i in ('docker system info 2^>nul ^| findstr /C:"Total Memory"') do (
+    set DOCKER_MEM_STR=%%i
+)
+if defined DOCKER_MEM_STR (
+    set DOCKER_MEM_STR=%DOCKER_MEM_STR:GiB=%
+    for /f "tokens=1 delims=." %%j in ("%DOCKER_MEM_STR%") do set /a DOCKER_MEM_GB=%%j
+)
+if not defined DOCKER_MEM_GB (
+    set /a DOCKER_MEM_GB=%TOTAL_MEM_GB% / 2
+)
+echo Docker Desktop allocation: %DOCKER_MEM_GB%GB
+
+REM 推奨メモリを計算
+set /a RECOMMENDED_MEM=%DOCKER_MEM_GB% * 80 / 100
+if %RECOMMENDED_MEM% LSS 1 set RECOMMENDED_MEM=1
+echo Allocated memory: %RECOMMENDED_MEM%GB
+echo.
+
+REM docker-compose.override.ymlを生成
+(
+echo version: '3.8'
+echo services:
+echo   textffcut:
+echo     deploy:
+echo       resources:
+echo         limits:
+echo           memory: %RECOMMENDED_MEM%g
+echo     environment:
+echo       - TEXTFFCUT_MEMORY_LIMIT=%RECOMMENDED_MEM%g
+echo       - HOST_VIDEOS_PATH=%HOST_VIDEOS_PATH%
+) > docker-compose.override.yml
+
+REM 必要なフォルダを作成
 echo Creating folders...
 for %%f in (videos logs models) do (
-    if not exist %%f (
-        mkdir %%f
+    if not exist "%%f" (
+        mkdir "%%f"
         echo Created %%f folder
     )
 )
@@ -195,20 +398,45 @@ echo.
 
 REM Load fresh image
 echo Loading Docker image...
-docker load -i textffcut_v${VERSION}_docker.tar.gz
+echo (This may take a few minutes on first run)
+if exist textffcut_vVERSION_PLACEHOLDER_docker.tar.gz (
+    docker load -i textffcut_vVERSION_PLACEHOLDER_docker.tar.gz
+) else (
+    echo ERROR: Docker image file not found
+    echo Please ensure textffcut_vVERSION_PLACEHOLDER_docker.tar.gz exists in this folder
+    pause
+    exit /b
+)
 echo.
 
-echo Starting TextffCut...
+echo ===========================================
+echo Starting TextffCut
+echo ===========================================
 echo URL: http://localhost:8501
+echo Memory allocation: %RECOMMENDED_MEM%GB
 echo Videos folder: %cd%\videos
+echo ===========================================
 echo.
+
 echo Opening browser...
+timeout /t 2 /nobreak >nul
 start http://localhost:8501
 
-%COMPOSE_CMD% -f docker-compose-simple.yml up
+%COMPOSE_CMD% -f docker-compose-simple.yml -f docker-compose.override.yml up
 
+del docker-compose.override.yml
 pause
+goto :eof
+
+:cancelled
+echo Cancelled by user
+pause
+exit /b
 EOF
+
+# ${VERSION}をVERSION_PLACEHOLDERに置換した後、sedで実際の値に置換
+# macOS互換性のため -i '' を使用
+sed -i '' "s/VERSION_PLACEHOLDER/${VERSION}/g" release/START_CLEAN.bat
 
 # START.command の作成（通常起動 - 高速版）
 cat > release/START.command <<'EOF'
