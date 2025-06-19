@@ -422,11 +422,16 @@ class AlignmentProcessor(IAlignmentProcessor):
                         }
                         chars.append(char)
                 
-                # セグメントの更新（辞書形式）
-                segment.words = words
-                segment.chars = chars
-                segment.alignment_completed = True
-                segment.confidence = aligned_seg.get("score")
+                # wordsが空の場合、推定処理を使用
+                if not words:
+                    logger.warning(f"WhisperXがwordsを生成しませんでした。推定処理を使用します。")
+                    segment = self._estimate_segment_timestamps(segment)
+                else:
+                    # セグメントの更新（辞書形式）
+                    segment.words = words
+                    segment.chars = chars
+                    segment.alignment_completed = True
+                    segment.confidence = aligned_seg.get("score")
                 
             else:
                 # アライメント失敗

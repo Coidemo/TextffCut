@@ -1206,10 +1206,23 @@ class APITranscriber:
                     if result_data.get('success'):
                         aligned_segments = result_data.get('segments', [])
                         # wordsが正しく生成されているか確認
+                        has_any_words = False
                         for seg in aligned_segments:
-                            if not seg.get('words'):
-                                logger.error(f"アライメント結果にwordsがありません: {seg.get('text', '')[:50]}...")
-                                raise RuntimeError("アライメント処理は成功しましたが、文字位置情報（words）が生成されませんでした")
+                            if seg.get('words'):
+                                has_any_words = True
+                                break
+                        
+                        if not has_any_words:
+                            logger.warning("アライメント結果にwordsがありません。推定処理でフォールバックします。")
+                            # 推定処理を適用
+                            for seg in aligned_segments:
+                                if not seg.get('words'):
+                                    seg['words'] = self._estimate_word_timestamps(
+                                        seg.get('text', ''),
+                                        seg.get('start', 0),
+                                        seg.get('end', 0)
+                                    )
+                        
                         return aligned_segments
                     else:
                         error_msg = result_data.get('error', '不明なエラー')
@@ -1313,3 +1326,40 @@ class APITranscriber:
                 })
         
         return silences
+    
+    def _estimate_word_timestamps(self, text: str, start: float, end: float) -> List[Dict[str, Any]]:
+        """単語のタイムスタンプを推定"""
+        if not text:
+            return []
+        
+        # 日本語の場合は文字単位で分割
+        if self.api_config.language == "ja":
+            # スペースと句読点で分割
+            import re
+            parts = re.split(r'([、。！？\s]+)', text)
+            words = [part for part in parts if part and not part.isspace()]
+        else:
+            # その他の言語は単語単位
+            words = text.split()
+        
+        if not words:
+            return []
+        
+        # 各単語に均等に時間を割り当て
+        duration = end - start
+        word_duration = duration / len(words)
+        
+        estimated_words = []
+        current_time = start
+        
+        for word in words:
+            word_info = {
+                "word": word,
+                "start": current_time,
+                "end": min(current_time + word_duration, end),
+                "confidence": 0.5  # 推定値なので低い信頼度
+            }
+            estimated_words.append(word_info)
+            current_time += word_duration
+        
+        return estimated_words
