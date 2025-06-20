@@ -308,6 +308,8 @@ class APITranscriber:
             all_segments = []
             completed_chunks = 0
             
+            logger.info(f"並列処理設定: max_workers={max_workers}, チャンク数={len(chunk_files)}")
+            
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 # アライメントモデルを事前に読み込み（全チャンクで共有）
                 align_model = None
@@ -362,28 +364,44 @@ class APITranscriber:
                     futures.append(future)
                 
                 # 完了したものから結果を取得
+                logger.info(f"APIチャンク処理開始: {len(futures)}個のfutureを待機中")
+                logger.info(f"最大ワーカー数: {max_workers}")
+                
+                # futureとチャンク情報のマッピング
+                future_to_chunk = {futures[i]: (chunk_files[i], i) for i in range(len(futures))}
+                
                 for future in as_completed(futures):
+                    chunk_info, idx = future_to_chunk[future]
                     try:
                         segments = future.result()
                         all_segments.extend(segments)
                         completed_chunks += 1
+                        
+                        logger.info(f"チャンク[{idx}]完了 {completed_chunks}/{len(chunk_files)}: {len(segments)}セグメント取得")
                         
                         if progress_callback:
                             progress = 0.2 + (0.7 * completed_chunks / len(chunk_files))
                             progress_callback(progress, f"チャンク {completed_chunks}/{len(chunk_files)} 完了")
                     
                     except openai.RateLimitError as e:
-                        logger.warning(f"レート制限でチャンク失敗、リトライ: {e}")
+                        logger.warning(f"チャンク[{idx}] レート制限エラー: {e}")
                         completed_chunks += 1
-                        continue
+                        # レート制限の場合は空のリストを追加
+                        all_segments.extend([])
                     except openai.APIError as e:
-                        logger.warning(f"API エラーでチャンク失敗: {e}")
+                        logger.warning(f"チャンク[{idx}] API エラー: {e}")
                         completed_chunks += 1
-                        continue
+                        # APIエラーの場合も空のリストを追加
+                        all_segments.extend([])
                     except Exception as e:
-                        logger.warning(f"チャンク処理失敗: {e}")
+                        logger.warning(f"チャンク[{idx}] 処理失敗: {e}")
+                        import traceback
+                        logger.error(f"詳細なエラー: {traceback.format_exc()}")
                         completed_chunks += 1
-                        continue
+                        # その他のエラーも空のリストを追加
+                        all_segments.extend([])
+                
+                logger.info(f"すべてのAPIチャンク処理完了: 合計{len(all_segments)}セグメント")
             
             if progress_callback:
                 progress_callback(0.9, "結果を統合中...")
@@ -456,8 +474,14 @@ class APITranscriber:
     def _transcribe_chunk_api(self, client, chunk_file: str, start_offset: float, chunk_idx: int,
                              align_model=None, align_meta=None) -> List[TranscriptionSegment]:
         """単一チャンクのAPI処理"""
+        logger.info(f"[開始] チャンク[{chunk_idx}] API処理開始 (offset: {start_offset:.1f}s, file: {os.path.basename(chunk_file)})")
         try:
+            # ファイルサイズを確認
+            file_size_mb = os.path.getsize(chunk_file) / (1024 * 1024)
+            logger.info(f"チャンク[{chunk_idx}] ファイルサイズ: {file_size_mb:.2f}MB")
+            
             with open(chunk_file, 'rb') as audio_file:
+                logger.info(f"チャンク[{chunk_idx}] OpenAI APIを呼び出し中...")
                 response = client.audio.transcriptions.create(
                     model="whisper-1",
                     file=audio_file,
@@ -465,6 +489,7 @@ class APITranscriber:
                     response_format="verbose_json",
                     timestamp_granularities=["segment"]
                 )
+                logger.info(f"チャンク[{chunk_idx}] API応答受信 - 成功")
             
             segments = []
             if hasattr(response, 'segments') and response.segments:
@@ -498,10 +523,12 @@ class APITranscriber:
             
             # アライメント処理
             if align_model and align_meta and len(segments) > 0:
+                logger.info(f"チャンク {chunk_idx} アライメント処理開始")
                 try:
                     # チャンクファイルから音声データを読み込み
                     import whisperx
                     chunk_audio = whisperx.load_audio(chunk_file)
+                    logger.info(f"チャンク {chunk_idx} 音声データ読み込み完了")
                     
                     # API結果をWhisperX形式に変換
                     whisperx_segments = []
@@ -567,23 +594,25 @@ class APITranscriber:
                     logger.error(f"チャンク {chunk_idx} のアライメント処理に失敗: {e}")
                     raise RuntimeError(f"文字位置情報の取得に失敗しました。アライメント処理でエラーが発生しました: {str(e)}")
             
-            logger.info(f"チャンク {chunk_idx} 処理完了: {len(segments)}セグメント")
+            logger.info(f"[完了] チャンク[{chunk_idx}] 処理完了: {len(segments)}セグメント")
             if segments:
-                logger.info(f"チャンク {chunk_idx} 最初のテキスト: {segments[0].text[:30] if segments[0].text else '(空)'}")
+                logger.info(f"チャンク[{chunk_idx}] 最初のテキスト: {segments[0].text[:30] if segments[0].text else '(空)'}")
             return segments
         
         except openai.RateLimitError as e:
-            logger.error(f"チャンク {chunk_idx}: レート制限エラー - {e}")
-            return []
+            logger.error(f"[エラー] チャンク[{chunk_idx}]: レート制限エラー - {e}")
+            raise  # エラーを再発生させて、親の処理でキャッチさせる
         except openai.AuthenticationError as e:
-            logger.error(f"チャンク {chunk_idx}: 認証エラー - {e}")
-            return []
+            logger.error(f"[エラー] チャンク[{chunk_idx}]: 認証エラー - {e}")
+            raise
         except openai.APIError as e:
-            logger.error(f"チャンク {chunk_idx}: API エラー - {e}")
-            return []
+            logger.error(f"[エラー] チャンク[{chunk_idx}]: API エラー - {e}")
+            raise
         except Exception as e:
-            logger.error(f"チャンク {chunk_idx}: 予期しないエラー - {e}")
-            return []
+            logger.error(f"[エラー] チャンク[{chunk_idx}]: 予期しないエラー - {e}")
+            import traceback
+            logger.error(f"トレースバック:\n{traceback.format_exc()}")
+            raise
     
     def _perform_alignment(self, audio, segments: List[TranscriptionSegment], 
                           progress_callback: Optional[callable] = None):
@@ -1177,10 +1206,23 @@ class APITranscriber:
                     if result_data.get('success'):
                         aligned_segments = result_data.get('segments', [])
                         # wordsが正しく生成されているか確認
+                        has_any_words = False
                         for seg in aligned_segments:
-                            if not seg.get('words'):
-                                logger.error(f"アライメント結果にwordsがありません: {seg.get('text', '')[:50]}...")
-                                raise RuntimeError("アライメント処理は成功しましたが、文字位置情報（words）が生成されませんでした")
+                            if seg.get('words'):
+                                has_any_words = True
+                                break
+                        
+                        if not has_any_words:
+                            logger.warning("アライメント結果にwordsがありません。推定処理でフォールバックします。")
+                            # 推定処理を適用
+                            for seg in aligned_segments:
+                                if not seg.get('words'):
+                                    seg['words'] = self._estimate_word_timestamps(
+                                        seg.get('text', ''),
+                                        seg.get('start', 0),
+                                        seg.get('end', 0)
+                                    )
+                        
                         return aligned_segments
                     else:
                         error_msg = result_data.get('error', '不明なエラー')
@@ -1284,3 +1326,40 @@ class APITranscriber:
                 })
         
         return silences
+    
+    def _estimate_word_timestamps(self, text: str, start: float, end: float) -> List[Dict[str, Any]]:
+        """単語のタイムスタンプを推定"""
+        if not text:
+            return []
+        
+        # 日本語の場合は文字単位で分割
+        if self.api_config.language == "ja":
+            # スペースと句読点で分割
+            import re
+            parts = re.split(r'([、。！？\s]+)', text)
+            words = [part for part in parts if part and not part.isspace()]
+        else:
+            # その他の言語は単語単位
+            words = text.split()
+        
+        if not words:
+            return []
+        
+        # 各単語に均等に時間を割り当て
+        duration = end - start
+        word_duration = duration / len(words)
+        
+        estimated_words = []
+        current_time = start
+        
+        for word in words:
+            word_info = {
+                "word": word,
+                "start": current_time,
+                "end": min(current_time + word_duration, end),
+                "confidence": 0.5  # 推定値なので低い信頼度
+            }
+            estimated_words.append(word_info)
+            current_time += word_duration
+        
+        return estimated_words

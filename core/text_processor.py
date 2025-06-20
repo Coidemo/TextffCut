@@ -475,11 +475,8 @@ class TextProcessor:
         Returns:
             分割されたテキストのリスト
         """
-        print(f"split_text_into_lines: 入力テキスト='{text}', 1行{chars_per_line}文字, 最大{max_lines}行")
-        
         # 空文字列の場合は空リストを返す
         if not text.strip():
-            print("  結果: 空テキストのため空リスト")
             return []
         
         # 文末で分割（簡単な方法に変更）
@@ -494,14 +491,12 @@ class TextProcessor:
                 line = text[i:i+chars_per_line]
                 if line.strip():
                     lines.append(line.strip())
-            print(f"  単純分割結果: {lines}")
             return lines
         
         # 長いテキストの場合は既存の方法
         sentences = re.split(r'([。．！？、])', text)
         sentences = [''.join(i) for i in zip(sentences[::2], sentences[1::2] + [''])]
         sentences = [s for s in sentences if s.strip()]  # 空文字列を除去
-        print(f"  文に分割: {sentences}")
         
         lines = []
         current_line = ""
@@ -546,7 +541,6 @@ class TextProcessor:
                 last_line = last_line[:chars_per_line-3] + '...'
             lines.append(last_line)
         
-        print(f"  最終結果: {lines}")
         return lines
     
     def split_text_by_separator(self, text: str, separator: str = None) -> List[str]:

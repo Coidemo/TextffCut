@@ -22,6 +22,12 @@ from .file_upload import (
 from .dark_mode_styles import (
     apply_dark_mode_styles
 )
+from .session_state_adapter import (
+    SessionStateAdapter,
+    TranscriptionState,
+    EditingState,
+    ProcessingState
+)
 
 __all__ = [
     'show_api_key_manager',
@@ -38,5 +44,9 @@ __all__ = [
     'show_optimization_status',
     'show_video_input',
     'cleanup_temp_files',
-    'apply_dark_mode_styles'
+    'apply_dark_mode_styles',
+    'SessionStateAdapter',
+    'TranscriptionState',
+    'EditingState',
+    'ProcessingState'
 ]

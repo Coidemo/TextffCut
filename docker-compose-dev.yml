@@ -1,30 +1,35 @@
 version: '3.8'
 
 services:
-  textffcut-dev:
+  textffcut:
+    build: .
     image: textffcut:latest
-    container_name: textffcut_dev
+    container_name: textffcut
     ports:
-      - "8503:8501"
+      - "8501:8501"
     volumes:
-      # コードをマウントしてリアルタイム編集可能に
-      - ./main.py:/app/main.py
-      - ./config.py:/app/config.py
-      - ./core:/app/core
-      - ./ui:/app/ui
-      - ./utils:/app/utils
-      # データディレクトリ
+      # 動画ファイルディレクトリをマウント
       - ./videos:/app/videos
-      - ./output:/app/output
+      # 出力用ディレクトリをマウント（videosの下に作成）
+      - ./videos/output:/app/output
+      # 文字起こし結果用ディレクトリ
+      - ./transcriptions:/app/transcriptions
+      # ログ用ディレクトリ
       - ./logs:/app/logs
+      # モデルキャッシュ用ディレクトリ（永続化）
+      - ./models:/home/appuser/.cache
     environment:
-      - TZ=Asia/Tokyo
-      - PYTHONUNBUFFERED=1
-      - STREAMLIT_SERVER_HEADLESS=true
-      - STREAMLIT_SERVER_PORT=8501
-      - STREAMLIT_SERVER_ADDRESS=0.0.0.0
-      # ホスト側のパス表示用
+      # サブプロセス分離を有効化（メモリリーク対策）
+      - TEXTFFCUT_ISOLATION_MODE=subprocess
+      # API設定（.envファイルからも読み込み可能）
+      - TEXTFFCUT_USE_API=${TEXTFFCUT_USE_API:-false}
+      - TEXTFFCUT_API_KEY=${TEXTFFCUT_API_KEY:-}
+      # メモリ節約モード（無音検出をスキップ）
+      - SKIP_SILENCE_DETECTION=true
+      # 並列処理の閾値（GB）- Docker環境では低めに設定
+      - PARALLEL_MEMORY_THRESHOLD=${PARALLEL_MEMORY_THRESHOLD:-4}
+      # ホスト側のビデオパス（表示用）
       - HOST_VIDEOS_PATH=${PWD}/videos
-      # デバッグ用環境変数
-      - DEBUG=1
-    command: ["streamlit", "run", "main.py", "--server.runOnSave", "true"]
+    restart: unless-stopped
+    # メモリ制限を増やす（または削除）
+    # mem_limit: 8g  # コメントアウトして制限を解除

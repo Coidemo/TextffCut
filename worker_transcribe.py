@@ -100,6 +100,7 @@ def main():
             from core.transcription import Transcriber
             transcriber = Transcriber(config)
             logger.info("APIモードで処理")
+            task_type = 'transcribe_only'  # APIモードではtranscribe_onlyを使用
         else:
             # ローカルモードでは常に分離モード + SmartBoundaryTranscriberを使用
             logger.info("ローカルモード: 自動最適化による分離処理")

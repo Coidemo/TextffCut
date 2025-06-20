@@ -32,7 +32,7 @@ def show_video_input() -> Optional[Tuple[str, str]]:
         video_files = sorted(video_files)
         
         # 動画選択UI
-        col1, col2 = st.columns([4, 1])
+        col1, col2 = st.columns([5, 1])
         with col1:
             selected_file = st.selectbox(
                 "編集する動画を選択してください",

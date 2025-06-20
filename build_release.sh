@@ -60,386 +60,152 @@ echo ""
 # 4. 配布用ファイルの作成
 echo "4. 配布用ファイルを作成しています..."
 
-# START.bat の作成（通常起動 - 高速版）
+# START.bat の作成（v7ベースのシンプル版）
 cat > release/START.bat <<EOF
 @echo off
-echo TextffCut v${VERSION} を起動します...
+chcp 65001 >nul
+echo Starting TextffCut v${VERSION}...
 echo.
 
-REM 環境変数を設定
-set HOST_VIDEOS_PATH=%cd%\videos
-
-REM ===========================================
-REM メモリ最適化設定
-REM ===========================================
-echo [メモリ] Docker Desktopのメモリ設定を確認しています...
-
-REM Docker Desktopに割り当てられたメモリを取得
-for /f "tokens=3" %%i in ('docker system info 2^>nul ^| findstr "Total Memory"') do (
-    set DOCKER_MEM_STR=%%i
-    goto :gotdockermem
-)
-:gotdockermem
-
-REM GiBからGBに変換
-if defined DOCKER_MEM_STR (
-    REM GiBを削除して数値のみ取得（小数点は切り捨て）
-    set DOCKER_MEM_STR=%DOCKER_MEM_STR:GiB=%
-    for /f "tokens=1 delims=." %%a in ("%DOCKER_MEM_STR%") do set DOCKER_MEM_GB=%%a
-) else (
-    REM 取得できない場合はPCの物理メモリから推定
-    for /f "tokens=2 delims==" %%i in ('wmic computersystem get TotalPhysicalMemory /value ^| findstr "="') do set TOTAL_MEM_BYTES=%%i
-    set /a TOTAL_MEM_GB=%TOTAL_MEM_BYTES:~0,-9%+1
-    REM Docker Desktopのデフォルトは物理メモリの半分程度
-    set /a DOCKER_MEM_GB=%TOTAL_MEM_GB%/2
-    echo    ※ Docker Desktopのメモリ設定を取得できませんでした
-    echo    物理メモリ(%TOTAL_MEM_GB%GB)から推定: %DOCKER_MEM_GB%GB
-)
-
-echo    Docker Desktop割り当て: %DOCKER_MEM_GB%GB
-
-REM Docker Desktopの割り当てメモリに基づいて推奨値を計算（80%を基本）
-set /a RECOMMENDED_MEM=%DOCKER_MEM_GB%*80/100
-
-REM 最低1GBは確保（極小環境用の安全策）
-if %RECOMMENDED_MEM% lss 1 (
-    set RECOMMENDED_MEM=1
-)
-
-REM 推奨値がDocker割り当てを超えないようにチェック（念のため）
-if %RECOMMENDED_MEM% gtr %DOCKER_MEM_GB% (
-    set RECOMMENDED_MEM=%DOCKER_MEM_GB%
-    echo    ※ Docker Desktop割り当てを超えないよう、%RECOMMENDED_MEM%GBに調整しました
-)
-
-echo    割り当てメモリ: %RECOMMENDED_MEM%GB
-echo.
-
-REM docker-compose.override.ymlを生成
-echo version: '3.8' > docker-compose.override.yml
-echo services: >> docker-compose.override.yml
-echo   textffcut: >> docker-compose.override.yml
-echo     deploy: >> docker-compose.override.yml
-echo       resources: >> docker-compose.override.yml
-echo         limits: >> docker-compose.override.yml
-echo           memory: %RECOMMENDED_MEM%g >> docker-compose.override.yml
-echo     environment: >> docker-compose.override.yml
-echo       - TEXTFFCUT_MEMORY_LIMIT=%RECOMMENDED_MEM%g >> docker-compose.override.yml
-
-REM ===========================================
-REM Docker Desktop確認
-REM ===========================================
+echo Checking Docker...
 docker version >nul 2>&1
-if %errorlevel% neq 0 (
-    echo エラー: Docker Desktopが起動していません。
-    echo Docker Desktopを起動してから、もう一度実行してください。
-    echo.
-    echo ヒント: Docker Desktopのメモリ設定を確認してください
-    echo         Settings → Resources → Memory を %RECOMMENDED_MEM%GB 以上に設定
-    echo.
+if errorlevel 1 (
+    echo Docker Desktop not running
+    echo Please start Docker Desktop and try again.
     pause
-    exit /b 1
+    exit /b
 )
+echo Docker OK
+echo.
 
-REM 必要なフォルダを作成
+echo Checking Docker Compose v2...
+docker compose version >nul 2>&1
+if errorlevel 1 (
+    echo Docker Compose v2 not found. Using v1...
+    set COMPOSE_CMD=docker-compose
+) else (
+    echo Docker Compose v2 OK
+    set COMPOSE_CMD=docker compose
+)
+echo.
+
+echo Creating folders...
 for %%f in (videos logs models) do (
     if not exist %%f (
-        echo [フォルダ] %%f フォルダを作成しています...
         mkdir %%f
+        echo Created %%f folder
     )
 )
+echo.
 
-REM 既存のTextffCutコンテナをチェック
-docker ps --format "{{.Names}}" | findstr "^TextffCut$" >nul 2>&1
-if %errorlevel% equ 0 (
-    echo 既存のTextffCutコンテナが起動中です。
-    echo.
-    echo ===========================================
-    echo 起動設定
-    echo ===========================================
-    echo    URL: http://localhost:8501
-    echo    メモリ割り当て: %RECOMMENDED_MEM%GB
-    echo    動画フォルダ: %cd%\videos
-    echo.
-    echo ブラウザで http://localhost:8501 を開いています...
-    start http://localhost:8501
-    echo.
-    echo 既に起動しているため、そのまま使用します。
-    echo 終了するには Ctrl+C を押してください。
-    pause
-    exit /b 0
-)
-
-REM 停止したコンテナがあるかチェック
-docker ps -a --format "{{.Names}}" | findstr "^TextffCut$" >nul 2>&1
-if %errorlevel% equ 0 (
-    echo 停止中のTextffCutコンテナを再起動しています...
-    docker start TextffCut
-    echo.
-    echo ===========================================
-    echo 起動設定
-    echo ===========================================
-    echo    URL: http://localhost:8501
-    echo    メモリ割り当て: %RECOMMENDED_MEM%GB
-    echo    動画フォルダ: %cd%\videos
-    echo.
-    echo ブラウザで http://localhost:8501 を開いています...
-    start http://localhost:8501
-    
-    REM ログを表示
-    docker logs -f TextffCut
-    pause
-    exit /b 0
-)
-
-REM イメージをロード（まだロードされていない場合）
+echo Loading Docker image...
 docker images | findstr textffcut:${VERSION} >nul 2>&1
-if %errorlevel% neq 0 (
-    echo Dockerイメージをロードしています（初回のみ）...
+if errorlevel 1 (
+    echo Loading image (first time only)...
     docker load -i textffcut_v${VERSION}_docker.tar.gz
+) else (
+    echo Image already loaded
 )
-
-echo.
-echo ===========================================
-echo 起動設定
-echo ===========================================
-echo    URL: http://localhost:8501
-echo    メモリ割り当て: %RECOMMENDED_MEM%GB
-echo    動画フォルダ: %cd%\videos
 echo.
 
-echo アプリケーションを起動しています...
-echo ブラウザで http://localhost:8501 を開いています...
+echo Starting TextffCut...
+echo URL: http://localhost:8501
+echo Videos folder: %cd%\videos
+echo.
+echo Opening browser...
 start http://localhost:8501
 
-REM overrideファイルと一緒に起動
-docker-compose -f ./docker-compose-simple.yml -f ./docker-compose.override.yml up
-
-REM overrideファイルを削除
-del /f docker-compose.override.yml 2>nul
+%COMPOSE_CMD% -f docker-compose-simple.yml up
 
 pause
 EOF
 
-# START_CLEAN.bat の作成（クリーン起動版）
+# START_CLEAN.bat の作成（v7ベースのクリーン起動版）
 cat > release/START_CLEAN.bat <<EOF
 @echo off
-echo TextffCut v${VERSION} を起動します...
+chcp 65001 >nul
+echo TextffCut v${VERSION} Clean Start
 echo.
 
-REM 環境変数を設定
-set HOST_VIDEOS_PATH=%cd%\videos
+echo Cleaning up existing containers and images...
+echo.
 
-REM ===========================================
-REM 既存のTextffCutコンテナ・イメージのクリーンアップ
-REM ===========================================
-echo [クリーンアップ] 既存のTextffCutコンテナとイメージを削除しています...
-
-REM textffcutという名前を含むコンテナを停止・削除
-echo    コンテナを停止・削除中...
+REM Stop and remove TextffCut containers
+echo Stopping containers...
 for /f "tokens=*" %%i in ('docker ps -a --format "{{.Names}}" ^| findstr /i textffcut') do (
-    echo    - %%i
+    echo - Stopping %%i
     docker stop %%i >nul 2>&1
     docker rm %%i >nul 2>&1
 )
 
-REM docker-composeで管理されているコンテナも削除
-if exist docker-compose-simple.yml (
-    docker-compose -f docker-compose-simple.yml down >nul 2>&1
+REM Check for Docker Compose v2
+docker compose version >nul 2>&1
+if errorlevel 1 (
+    set COMPOSE_CMD=docker-compose
+) else (
+    set COMPOSE_CMD=docker compose
 )
 
-REM textffcutという名前を含むイメージを削除（現在のバージョン以外）
-echo    イメージを削除中...
-for /f "tokens=*" %%i in ('docker images --format "{{.Repository}}:{{.Tag}}" ^| findstr /i textffcut ^| findstr /v ":%VERSION%$"') do (
-    echo    - %%i
+REM Clean up with docker-compose
+if exist docker-compose-simple.yml (
+    %COMPOSE_CMD% -f docker-compose-simple.yml down >nul 2>&1
+)
+
+REM Remove all textffcut images
+echo.
+echo Removing all images...
+for /f "tokens=*" %%i in ('docker images --format "{{.Repository}}:{{.Tag}}" ^| findstr /i textffcut') do (
+    echo - Removing %%i
     docker rmi %%i >nul 2>&1
 )
 
-REM ボリュームの削除
-echo    ボリュームを削除中...
+REM Remove volumes
+echo.
+echo Removing volumes...
 for /f "tokens=*" %%i in ('docker volume ls --format "{{.Name}}" ^| findstr /i textffcut') do (
-    echo    - %%i
+    echo - Removing %%i
     docker volume rm %%i >nul 2>&1
 )
 
-echo    クリーンアップ完了
+echo.
+echo Cleanup complete!
 echo.
 
-REM ===========================================
-REM メモリ最適化設定
-REM ===========================================
-echo [メモリ] Docker Desktopのメモリ設定を確認しています...
-
-REM Docker Desktopに割り当てられたメモリを取得
-for /f "tokens=3" %%i in ('docker system info 2^>nul ^| findstr "Total Memory"') do (
-    set DOCKER_MEM_STR=%%i
-    goto :gotdockermem
-)
-:gotdockermem
-
-REM GiBからGBに変換
-if defined DOCKER_MEM_STR (
-    REM GiBを削除して数値のみ取得（小数点は切り捨て）
-    set DOCKER_MEM_STR=%DOCKER_MEM_STR:GiB=%
-    for /f "tokens=1 delims=." %%a in ("%DOCKER_MEM_STR%") do set DOCKER_MEM_GB=%%a
-) else (
-    REM 取得できない場合はPCの物理メモリから推定
-    for /f "tokens=2 delims==" %%i in ('wmic computersystem get TotalPhysicalMemory /value ^| findstr "="') do set TOTAL_MEM_BYTES=%%i
-    set /a TOTAL_MEM_GB=%TOTAL_MEM_BYTES:~0,-9%+1
-    REM Docker Desktopのデフォルトは物理メモリの半分程度
-    set /a DOCKER_MEM_GB=%TOTAL_MEM_GB%/2
-    echo    ※ Docker Desktopのメモリ設定を取得できませんでした
-    echo    物理メモリ(%TOTAL_MEM_GB%GB)から推定: %DOCKER_MEM_GB%GB
-)
-
-echo    Docker Desktop割り当て: %DOCKER_MEM_GB%GB
-
-REM Docker Desktopの割り当てメモリに基づいて推奨値を計算（80%を基本）
-set /a RECOMMENDED_MEM=%DOCKER_MEM_GB%*80/100
-
-REM 最低1GBは確保（極小環境用の安全策）
-if %RECOMMENDED_MEM% lss 1 (
-    set RECOMMENDED_MEM=1
-)
-
-REM 推奨値がDocker割り当てを超えないようにチェック（念のため）
-if %RECOMMENDED_MEM% gtr %DOCKER_MEM_GB% (
-    set RECOMMENDED_MEM=%DOCKER_MEM_GB%
-    echo    ※ Docker Desktop割り当てを超えないよう、%RECOMMENDED_MEM%GBに調整しました
-)
-
-echo    割り当てメモリ: %RECOMMENDED_MEM%GB
-echo.
-
-REM docker-compose.override.ymlを生成
-echo version: '3.8' > docker-compose.override.yml
-echo services: >> docker-compose.override.yml
-echo   textffcut: >> docker-compose.override.yml
-echo     deploy: >> docker-compose.override.yml
-echo       resources: >> docker-compose.override.yml
-echo         limits: >> docker-compose.override.yml
-echo           memory: %RECOMMENDED_MEM%g >> docker-compose.override.yml
-echo     environment: >> docker-compose.override.yml
-echo       - TEXTFFCUT_MEMORY_LIMIT=%RECOMMENDED_MEM%g >> docker-compose.override.yml
-
-REM ===========================================
-REM Docker Desktop確認
-REM ===========================================
+REM Check Docker
+echo Checking Docker...
 docker version >nul 2>&1
-if %errorlevel% neq 0 (
-    echo エラー: Docker Desktopが起動していません。
-    echo Docker Desktopを起動してから、もう一度実行してください。
-    echo.
-    echo ヒント: Docker Desktopのメモリ設定を確認してください
-    echo         Settings → Resources → Memory を %RECOMMENDED_MEM%GB 以上に設定
-    echo.
+if errorlevel 1 (
+    echo Docker Desktop not running
+    echo Please start Docker Desktop and try again.
     pause
-    exit /b 1
+    exit /b
 )
+echo Docker OK
+echo.
 
-REM ポート8501を使用しているコンテナをチェック
-docker ps --format "table {{.Names}}	{{.Ports}}" | findstr "8501" >nul 2>&1
-if %errorlevel% equ 0 (
-    echo 警告: ポート8501が既に使用されています。
-    echo 既存のコンテナ:
-    docker ps --format "table {{.Names}}	{{.Ports}}" | findstr "8501"
-    echo.
-    set /p REPLY=既存のコンテナを停止してから起動しますか？ (y/n): 
-    if /i "%REPLY%"=="y" (
-        REM ポート8501を使用しているコンテナを停止
-        for /f "tokens=1" %%i in ('docker ps --format "{{.Names}}"') do (
-            docker port %%i | findstr "8501" >nul 2>&1
-            if %errorlevel% equ 0 (
-                echo 停止中: %%i
-                docker stop %%i
-            )
-        )
-    ) else (
-        echo 起動をキャンセルしました。
-        pause
-        exit /b 0
-    )
-)
-
-REM 必要なフォルダを作成
+REM Create folders
+echo Creating folders...
 for %%f in (videos logs models) do (
     if not exist %%f (
-        echo [フォルダ] %%f フォルダを作成しています...
         mkdir %%f
+        echo Created %%f folder
     )
 )
-
-REM 既存のTextffCutコンテナを停止・削除
-docker ps -a --format "{{.Names}}" | findstr "^TextffCut$" >nul 2>&1
-if %errorlevel% equ 0 (
-    echo 既存のTextffCutコンテナを停止・削除しています...
-    docker stop TextffCut 2>nul
-    docker rm TextffCut 2>nul
-)
-
-REM 現在のバージョンのイメージが存在するかチェック
-docker images | findstr textffcut:${VERSION} >nul 2>&1
-if %errorlevel% equ 0 (
-    echo 既存のイメージ textffcut:${VERSION} を使用します。
-) else (
-    REM 古いバージョンのイメージを削除
-    echo 古いバージョンのイメージをクリーンアップしています...
-    
-    REM まず古いバージョンのコンテナを全て削除
-    echo 古いバージョンのコンテナを削除しています...
-    for /f "tokens=1,2" %%a in ('docker ps -a --format "{{.Names}} {{.Image}}" ^| findstr "textffcut:" ^| findstr /v ":${VERSION}"') do (
-        echo コンテナ削除中: %%a (%%b)
-        docker rm -f %%a 2>nul
-    )
-    
-    REM 古いバージョンのイメージを削除（強制削除）
-    set OLD_IMAGES_FOUND=0
-    for /f "tokens=*" %%a in ('docker images --format "{{.Repository}}:{{.Tag}}" ^| findstr "^textffcut:" ^| findstr /v ":${VERSION}$"') do (
-        set OLD_IMAGES_FOUND=1
-        echo 削除中: %%a
-        docker rmi -f %%a 2>nul
-    )
-    if %OLD_IMAGES_FOUND% equ 0 (
-        echo 削除する古いイメージはありません。
-    )
-)
-
-REM イメージをロード（まだロードされていない場合）
-docker images | findstr textffcut:${VERSION} >nul 2>&1
-if %errorlevel% neq 0 (
-    echo Dockerイメージをロードしています（初回のみ）...
-    docker load -i textffcut_v${VERSION}_docker.tar.gz
-)
-
-echo.
-echo ===========================================
-echo 起動設定
-echo ===========================================
-echo    URL: http://localhost:8501
-echo    メモリ割り当て: %RECOMMENDED_MEM%GB
-echo    動画フォルダ: %cd%\videos
 echo.
 
-REM メモリ不足の警告
-if %AVAILABLE_MEM_GB% lss 4 (
-    echo ※※※ 警告 ※※※
-    echo    利用可能メモリが4GB未満です
-    echo    大きな動画の処理に失敗する可能性があります
-    echo    他のアプリケーションを終了することを推奨します
-    echo.
-    echo    ヒント: 2時間以上の動画は12GB以上推奨
-    echo.
-)
+REM Load fresh image
+echo Loading Docker image...
+docker load -i textffcut_v${VERSION}_docker.tar.gz
+echo.
 
-echo アプリケーションを起動しています...
-echo ブラウザで http://localhost:8501 を開いています...
+echo Starting TextffCut...
+echo URL: http://localhost:8501
+echo Videos folder: %cd%\videos
+echo.
+echo Opening browser...
 start http://localhost:8501
 
-REM overrideファイルと一緒に起動
-docker-compose -f ./docker-compose-simple.yml -f ./docker-compose.override.yml up
-
-REM overrideファイルを削除
-del /f docker-compose.override.yml 2>nul
+%COMPOSE_CMD% -f docker-compose-simple.yml up
 
 pause
 EOF
@@ -654,7 +420,7 @@ open "http://localhost:$PORT"
 
 if [ -n "$TEXTFFCUT_PORT" ]; then
     # docker-compose.ymlを一時的に作成（ポート変更対応）
-    sed "s/8501:8501/$TEXTFFCUT_PORT:8501/g" ./docker-compose-simple.yml > ./docker-compose-temp.yml
+    sed "s/8501:8501/$TEXTFFCUT_PORT:8501/g" ./docker-compose.yml > ./docker-compose-temp.yml
     
     # overrideファイルと一緒に起動
     docker-compose -f ./docker-compose-temp.yml -f ./docker-compose.override.yml up
@@ -664,7 +430,7 @@ if [ -n "$TEXTFFCUT_PORT" ]; then
     rm -f ./docker-compose.override.yml
 else
     # overrideファイルと一緒に起動
-    docker-compose -f ./docker-compose-simple.yml -f ./docker-compose.override.yml up
+    docker-compose -f ./docker-compose.yml -f ./docker-compose.override.yml up
     
     # overrideファイルを削除
     rm -f ./docker-compose.override.yml
@@ -676,7 +442,99 @@ EOF
 # ${VERSION}を実際の値に置換
 sed -i '' "s/\${VERSION}/${VERSION}/g" release/START.command
 
-# docker-compose-simple.yml の作成
+# (START_CLEAN.bat は既に作成済み)
+
+# START_CLEAN.command の作成（Mac版クリーンスタート）
+cat > release/START_CLEAN.command <<'EOF'
+#!/bin/bash
+# TextffCut クリーンスタート (Mac版)
+# Dockerイメージを再読み込みして起動します
+
+echo "=== TextffCut クリーンスタート (Mac) ==="
+echo ""
+echo "このスクリプトは以下を実行します:"
+echo "- 既存のコンテナを停止"
+echo "- Dockerイメージを削除して再読み込み"
+echo "- 新しいコンテナを起動"
+echo ""
+echo "続行しますか？ (y/N): "
+read -r response
+
+if [[ ! "$response" =~ ^[Yy]$ ]]; then
+    echo "キャンセルしました"
+    exit 0
+fi
+
+# スクリプトの場所に移動
+cd "$(dirname "$0")"
+
+echo ""
+echo "1. 既存のコンテナを停止しています..."
+docker-compose down 2>/dev/null
+
+echo ""
+echo "2. 既存のイメージを削除しています..."
+docker images | grep textffcut | awk '{print $3}' | xargs docker rmi -f 2>/dev/null || true
+
+echo ""
+echo "3. Dockerイメージを読み込んでいます..."
+for file in textffcut_*.tar.gz; do
+    if [ -f "$file" ]; then
+        echo "   読み込み中: $file"
+        docker load -i "$file"
+    fi
+done
+
+echo ""
+echo "4. コンテナを起動しています..."
+docker-compose up -d
+
+echo ""
+echo "起動を確認中..."
+sleep 5
+
+# ヘルスチェック
+if curl -s http://localhost:8501 > /dev/null; then
+    echo "✅ クリーンスタート完了！"
+    echo "🌐 ブラウザで http://localhost:8501 を開いています..."
+    open http://localhost:8501
+else
+    echo "⚠️ アプリケーションの起動に時間がかかっています"
+    echo "しばらくお待ちください..."
+fi
+
+echo ""
+echo "終了するにはEnterキーを押してください"
+read
+EOF
+
+# 実行権限を付与
+chmod +x release/START_CLEAN.command
+
+# ${VERSION}を実際の値に置換
+sed -i '' "s/\${VERSION}/${VERSION}/g" release/START.command
+
+# docker-compose.yml の作成（配布用）
+cat > release/docker-compose.yml <<EOF
+version: '3.8'
+
+services:
+  textffcut:
+    image: textffcut:${VERSION}
+    container_name: TextffCut
+    restart: unless-stopped
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./videos:/app/videos
+      - ./transcriptions:/app/transcriptions
+      - ./logs:/app/logs
+    environment:
+      - TZ=Asia/Tokyo
+      - HOST_VIDEOS_PATH=\${HOST_VIDEOS_PATH}
+EOF
+
+# docker-compose-simple.yml の作成（配布用）
 cat > release/docker-compose-simple.yml <<EOF
 version: '3.8'
 
@@ -730,6 +588,13 @@ TextffCut
 
 4. 終了方法
    ターミナル/コマンドプロンプトで Ctrl+C を押す
+
+【トラブルシューティング】
+
+問題が発生した場合:
+   - Windows: START_CLEAN.bat をダブルクリック
+   - macOS: START_CLEAN.command をダブルクリック
+   （Dockerイメージを削除して再読み込みします）
 
 【詳しい使い方】
 
