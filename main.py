@@ -21,6 +21,7 @@ from utils.file_utils import ensure_directory, get_safe_filename
 from utils.time_utils import format_time
 from utils import ProcessingContext, cleanup_intermediate_files
 from utils.exceptions import BuzzClipError, VideoProcessingError, TranscriptionError
+from utils.logging import get_logger
 from core.alignment_processor import AlignmentProcessor
 from core.exceptions import WordsFieldMissingError
 from core.error_handling import ErrorHandler
@@ -48,7 +49,6 @@ from services import ConfigurationService, TextEditingService, VideoProcessingSe
 
 # Streamlitの設定
 # アイコンファイルのパスを設定
-from pathlib import Path
 
 icon_path = Path(__file__).parent / "assets" / "icon.png"
 if icon_path.exists():
@@ -142,7 +142,6 @@ apply_dark_mode_styles()
 
 def debug_words_status(result: Any) -> None:
     """wordsフィールドの状態を詳細に出力（デバッグ用）"""
-    from utils.logging import get_logger
     logger = get_logger(__name__)
     
     if hasattr(result, 'segments'):
@@ -161,6 +160,10 @@ def debug_words_status(result: Any) -> None:
 
 def main() -> None:
     """メインアプリケーション"""
+    
+    # ロガーを初期化
+    from utils.logging import get_logger as _get_logger
+    logger = _get_logger(__name__)
     
     # ロゴを表示（ダークモード対応）
     icon_svg = '''
@@ -387,8 +390,10 @@ def main() -> None:
                     
                     if cost_result.success:
                         cost_data = cost_result.data
+                        estimated_cost_usd = cost_data['cost_usd']
+                        estimated_cost_jpy = cost_data['cost_jpy']
                         st.markdown("**💰 推定料金**")
-                        st.markdown(f"${cost_data['cost_usd']:.3f} (約{cost_data['cost_jpy']:.0f}円)")
+                        st.markdown(f"${estimated_cost_usd:.3f} (約{estimated_cost_jpy:.0f}円)")
                     else:
                         # フォールバック（サービスエラー時）
                         estimated_cost_usd = duration_minutes * ApiSettings.OPENAI_COST_PER_MINUTE
@@ -468,7 +473,6 @@ def main() -> None:
                 details={"path": str(video_path)}
             )
             
-            logger = get_logger(__name__)
             error_handler = ErrorHandler(logger)
             error_info = error_handler.handle_error(file_error)
             st.error(f"📁 {error_info['user_message']}")
@@ -480,13 +484,15 @@ def main() -> None:
             
             resource_error = ResourceError(
                 f"ファイルアクセスエラー: {str(e)}",
-                original_error=e
+                cause=e
             )
             
-            logger = get_logger(__name__)
-            error_handler = ErrorHandler(logger)
-            error_info = error_handler.handle_error(resource_error)
-            st.error(f"💾 {error_info['user_message']}")
+            try:
+                error_handler = ErrorHandler(logger)
+                error_info = error_handler.handle_error(resource_error, context="動画情報取得", raise_after=False)
+                st.error(f"💾 {error_info['user_message']}")
+            except:
+                st.error(f"💾 ファイルアクセスエラー: {str(e)}")
             return
             
         except Exception as e:
@@ -495,13 +501,15 @@ def main() -> None:
             
             wrapped_error = ProcessingError(
                 f"動画情報の取得に失敗: {str(e)}",
-                original_error=e
+                cause=e
             )
             
-            logger = get_logger(__name__)
-            error_handler = ErrorHandler(logger)
-            error_info = error_handler.handle_error(wrapped_error)
-            st.error(error_info['user_message'])
+            try:
+                error_handler = ErrorHandler(logger)
+                error_info = error_handler.handle_error(wrapped_error, context="動画情報取得", raise_after=False)
+                st.error(error_info['user_message'])
+            except:
+                st.error(f"動画情報の取得に失敗: {str(e)}")
             return
     
     # 文字起こし実行の判定
@@ -689,21 +697,25 @@ def main() -> None:
                 from core.error_handling import ResourceError
                 memory_error = ResourceError(
                     f"メモリ不足エラー: {str(e)}",
-                    original_error=e,
-                    recovery_suggestions=[
+                    cause=e,
+                    details={
+                        'recovery_suggestions': [
                         f"より小さなモデル（{ModelSettings.DEFAULT_SIZE}等）を使用してください",
                         "他のアプリケーションを終了してメモリを解放してください",
                         "システムのメモリを増設してください"
-                    ]
+                        ]
+                    }
                 )
                 
-                logger = get_logger(__name__)
-                error_handler = ErrorHandler(logger)
-                error_info = error_handler.handle_error(memory_error)
-                
-                st.error(f"❌ {error_info['user_message']}")
-                for suggestion in error_info.get('recovery_suggestions', []):
-                    st.error(f"💡 {suggestion}")
+                try:
+                    error_handler = ErrorHandler(logger)
+                    error_info = error_handler.handle_error(memory_error, context="文字起こし", raise_after=False)
+                    st.error(f"❌ {error_info['user_message']}")
+                    if 'details' in error_info and 'recovery_suggestions' in error_info['details']:
+                        for suggestion in error_info['details']['recovery_suggestions']:
+                            st.error(f"💡 {suggestion}")
+                except Exception:
+                    st.error(f"❌ メモリ不足エラー: {str(e)}")
                 
             except Exception as e:
                 # その他のエラー
@@ -716,23 +728,25 @@ def main() -> None:
                 from core.error_handling import ProcessingError, TranscriptionError as NewTranscriptionError
                 from utils.exceptions import TranscriptionError as LegacyTranscriptionError
                 
-                logger = get_logger(__name__)
-                error_handler = ErrorHandler(logger)
-                
-                # 既存のエラー型との互換性を維持
-                if isinstance(e, LegacyTranscriptionError):
-                    st.error(e.get_user_message())
-                elif isinstance(e, (ProcessingError, NewTranscriptionError)):
-                    error_info = error_handler.handle_error(e)
-                    st.error(error_info["user_message"])
-                else:
-                    # 未知のエラーをProcessingErrorでラップ
-                    wrapped_error = ProcessingError(
-                        f"文字起こし処理でエラーが発生しました: {str(e)}",
-                        original_error=e
-                    )
-                    error_info = error_handler.handle_error(wrapped_error)
-                    st.error(error_info["user_message"])
+                try:
+                    error_handler = ErrorHandler(logger)
+                    
+                    # 既存のエラー型との互換性を維持
+                    if isinstance(e, LegacyTranscriptionError):
+                        st.error(e.get_user_message())
+                    elif isinstance(e, (ProcessingError, NewTranscriptionError)):
+                        error_info = error_handler.handle_error(e, context="文字起こし", raise_after=False)
+                        st.error(error_info["user_message"])
+                    else:
+                        # 未知のエラーをProcessingErrorでラップ
+                        wrapped_error = ProcessingError(
+                            f"文字起こし処理でエラーが発生しました: {str(e)}",
+                            cause=e
+                        )
+                        error_info = error_handler.handle_error(wrapped_error, context="文字起こし", raise_after=False)
+                        st.error(error_info["user_message"])
+                except Exception:
+                    st.error(f"文字起こし処理でエラーが発生しました: {str(e)}")
     
     # 文字起こし結果の処理
     if 'transcription_result' in st.session_state and st.session_state.transcription_result:
@@ -1285,26 +1299,27 @@ def main() -> None:
                     except Exception as e:
                         # 新しい統一エラーハンドリングシステムを使用
                         from core.error_handling import ProcessingError, ValidationError
-                        from utils.logging import get_logger
                         
-                        logger = get_logger(__name__)
-                        error_handler = ErrorHandler(logger)
-                        
-                        # 既存のエラー型の互換性を維持
-                        from utils.exceptions import VideoProcessingError
-                        if isinstance(e, VideoProcessingError):
-                            st.error(e.get_user_message())
-                        elif isinstance(e, (ProcessingError, ValidationError)):
-                            error_info = error_handler.handle_error(e)
-                            st.error(error_info["user_message"])
-                        else:
-                            # 未知のエラーをProcessingErrorでラップ
-                            wrapped_error = ProcessingError(
-                                f"動画処理中にエラーが発生しました: {str(e)}",
-                                original_error=e
-                            )
-                            error_info = error_handler.handle_error(wrapped_error)
-                            st.error(error_info["user_message"])
+                        try:
+                            error_handler = ErrorHandler(logger)
+                            
+                            # 既存のエラー型の互換性を維持
+                            from utils.exceptions import VideoProcessingError
+                            if isinstance(e, VideoProcessingError):
+                                st.error(e.get_user_message())
+                            elif isinstance(e, (ProcessingError, ValidationError)):
+                                error_info = error_handler.handle_error(e, context="動画処理", raise_after=False)
+                                st.error(error_info["user_message"])
+                            else:
+                                # 未知のエラーをProcessingErrorでラップ
+                                wrapped_error = ProcessingError(
+                                    f"動画処理中にエラーが発生しました: {str(e)}",
+                                    cause=e
+                                )
+                                error_info = error_handler.handle_error(wrapped_error, context="動画処理", raise_after=False)
+                                st.error(error_info["user_message"])
+                        except Exception:
+                            st.error(f"動画処理中にエラーが発生しました: {str(e)}")
 
     # モーダル表示
     if st.session_state.get('show_modal', False):
