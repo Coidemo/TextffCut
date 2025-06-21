@@ -36,10 +36,13 @@ class ExportService(BaseService):
         """汎用実行メソッド（export_fcpxmlにデリゲート）"""
         export_format = kwargs.get('format', 'fcpxml').lower()
         
+        # formatパラメータを削除してから各メソッドに渡す
+        kwargs_without_format = {k: v for k, v in kwargs.items() if k != 'format'}
+        
         if export_format == 'fcpxml':
-            return self.export_fcpxml(**kwargs)
+            return self.export_fcpxml(**kwargs_without_format)
         elif export_format == 'xmeml':
-            return self.export_xmeml(**kwargs)
+            return self.export_xmeml(**kwargs_without_format)
         else:
             return self.create_error_result(
                 f"サポートされていないエクスポート形式: {export_format}",
@@ -95,8 +98,8 @@ class ExportService(BaseService):
                 f"FCPXMLエクスポート開始: {len(segments)} セグメント -> {output_file.name}"
             )
             
-            # ExportSegmentに変換
-            export_segments = self._convert_to_export_segments(segments)
+            # ExportSegmentに変換（video_pathを渡す）
+            export_segments = self._convert_to_export_segments(segments, str(video_file))
             
             # FCPXMLエクスポート実行
             self.fcpxml_exporter.export(
@@ -186,8 +189,8 @@ class ExportService(BaseService):
                 f"XMEMLエクスポート開始: {len(segments)} セグメント -> {output_file.name}"
             )
             
-            # ExportSegmentに変換
-            export_segments = self._convert_to_export_segments(segments)
+            # ExportSegmentに変換（video_pathを渡す）
+            export_segments = self._convert_to_export_segments(segments, str(video_file))
             
             # XMEMLエクスポート実行
             self.xmeml_exporter.export(
@@ -368,7 +371,8 @@ class ExportService(BaseService):
     
     def _convert_to_export_segments(
         self,
-        segments: List[Union[Segment, VideoSegment, ExportSegment]]
+        segments: List[Union[Segment, VideoSegment, ExportSegment]],
+        video_path: str
     ) -> List[ExportSegment]:
         """セグメントをExportSegment形式に変換
         
@@ -379,27 +383,33 @@ class ExportService(BaseService):
             ExportSegmentのリスト
         """
         export_segments = []
+        timeline_position = 0.0
         
         for i, segment in enumerate(segments):
             if isinstance(segment, ExportSegment):
                 export_segments.append(segment)
             elif isinstance(segment, (Segment, VideoSegment)):
+                # 正しいパラメータ名で作成
                 export_segment = ExportSegment(
-                    start=segment.start,
-                    end=segment.end,
-                    text=getattr(segment, 'text', ''),
-                    index=i
+                    source_path=video_path,
+                    start_time=segment.start,
+                    end_time=segment.end,
+                    timeline_start=timeline_position
                 )
                 export_segments.append(export_segment)
+                timeline_position += export_segment.duration
             else:
                 # 辞書形式の場合
+                start_time = segment.get('start', 0)
+                end_time = segment.get('end', 0)
                 export_segment = ExportSegment(
-                    start=segment.get('start', 0),
-                    end=segment.get('end', 0),
-                    text=segment.get('text', ''),
-                    index=i
+                    source_path=video_path,
+                    start_time=start_time,
+                    end_time=end_time,
+                    timeline_start=timeline_position
                 )
                 export_segments.append(export_segment)
+                timeline_position += export_segment.duration
         
         return export_segments
     
@@ -418,7 +428,7 @@ class ExportService(BaseService):
             統計情報
         """
         # 使用される総時間
-        used_duration = sum(seg.end - seg.start for seg in segments)
+        used_duration = sum(seg.end_time - seg.start_time for seg in segments)
         
         # 動画の総時間
         total_duration = video_info.duration

@@ -387,14 +387,15 @@ class VideoProcessingService(BaseService):
             
             # keep_rangeがある場合は調整されたセグメントを作成
             if segment_keep_ranges:
-                # 複数のkeep_rangeがある場合は最初と最後を使用
-                adjusted_segment = Segment(
-                    start=segment_keep_ranges[0].start,
-                    end=segment_keep_ranges[-1].end,
-                    text=segment.text,
-                    words=segment.words
-                )
-                adjusted_segments.append(adjusted_segment)
+                # 各keep_rangeを個別のセグメントとして追加（無音削除の結果を反映）
+                for keep_range in segment_keep_ranges:
+                    adjusted_segment = Segment(
+                        start=keep_range.start,
+                        end=keep_range.end,
+                        text=segment.text,
+                        words=segment.words
+                    )
+                    adjusted_segments.append(adjusted_segment)
         
         return adjusted_segments
     
