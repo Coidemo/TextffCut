@@ -67,15 +67,16 @@
 sequenceDiagram
     participant User
     participant UI
-    participant WorkflowController as WC
-    participant TranscriptionManager as TM
-    participant CacheRepository as Cache
-    participant VideoValidator as VV
-    participant FFmpegWrapper as FFmpeg
-    participant AudioProcessor as AP
-    participant WhisperXWrapper as WX
-    participant AlignmentProcessor as Align
-    participant ErrorHandler as EH
+    participant WC as WorkflowController
+    participant TM as TranscriptionManager
+    participant Cache as CacheRepository
+    participant VV as VideoValidator
+    participant FFmpeg as FFmpegWrapper
+    participant AP as AudioProcessor
+    participant WX as WhisperXWrapper
+    participant APIClient
+    participant Align as AlignmentProcessor
+    participant EH as ErrorHandler
     
     User->>UI: 動画ファイル選択
     UI->>WC: start_transcription(file_path, config)
@@ -194,11 +195,11 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    participant TextEditor as TE
-    participant DiffProcessor as DP
-    participant TextNormalizer as TN
-    participant LCSEngine as LCS
-    participant TimeRangeCalculator as TRC
+    participant TE as TextEditor
+    participant DP as DiffProcessor
+    participant TN as TextNormalizer
+    participant LCS as LCSEngine
+    participant TRC as TimeRangeCalculator
     
     TE->>DP: find_differences(original_text, edited_text)
     
@@ -254,10 +255,10 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    participant VideoProcessor as VP
-    participant FFmpegWrapper as FFmpeg
-    participant SilenceDetector as SD
-    participant RangeOptimizer as RO
+    participant VP as VideoProcessor
+    participant FFmpeg as FFmpegWrapper
+    participant SD as SilenceDetector
+    participant RO as RangeOptimizer
     
     VP->>VP: prepare_silence_removal(video_path, target_ranges, params)
     Note over VP: params = {<br/>  threshold: -35dB,<br/>  min_silence: 0.3s,<br/>  min_segment: 0.3s,<br/>  padding: {start: 0.1s, end: 0.1s}<br/>}
