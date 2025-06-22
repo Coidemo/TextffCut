@@ -191,7 +191,80 @@ sequenceDiagram
     WC-->>UI: display_result(transcript)
 ```
 
-### 3.2 テキスト差分検出の詳細処理
+### 3.2 YouTube動画ダウンロード処理
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant UI
+    participant YDL as YouTubeDownloader
+    participant YTD as yt-dlp
+    participant FS as FileSystem
+    participant WC as WorkflowController
+    
+    User->>UI: YouTube URL入力
+    UI->>YDL: download_video(url, quality="best")
+    
+    %% URL検証
+    YDL->>YDL: validate_url(url)
+    Note over YDL: パターンマッチ:<br/>- youtube.com/watch?v=...<br/>- youtu.be/...<br/>- youtube.com/embed/...
+    
+    alt URL無効
+        YDL-->>UI: ValidationError("無効なYouTube URL")
+    else URL有効
+        YDL->>YTD: extract_info(url, download=False)
+        Note over YTD: 動画情報取得（メタデータのみ）
+        YTD-->>YDL: VideoInfo{title, duration, formats[]}
+    end
+    
+    %% ダウンロード確認
+    YDL->>YDL: estimate_size_and_time(video_info)
+    Note over YDL: サイズ推定: 1080p = 約150MB/10分<br/>時間推定: 帯域幅から計算
+    
+    YDL->>UI: show_download_confirmation(info)
+    UI->>User: ダウンロード確認ダイアログ
+    
+    alt ユーザーキャンセル
+        User->>UI: キャンセル
+        UI-->>YDL: UserCancelled
+    else ユーザー承認
+        User->>UI: ダウンロード開始
+    end
+    
+    %% ダウンロード実行
+    YDL->>YDL: prepare_download_options()
+    Note over YDL: options = {<br/>  format: 'bestvideo[ext=mp4]+bestaudio/best',<br/>  outtmpl: '/app/videos/%(title)s.%(ext)s',<br/>  merge_output_format: 'mp4',<br/>  postprocessors: [{<br/>    'key': 'FFmpegVideoConvertor',<br/>    'preferedformat': 'mp4'<br/>  }]<br/>}
+    
+    YDL->>YTD: download([url], options)
+    
+    loop ダウンロード進捗
+        YTD-->>YDL: progress_hook(d)
+        Note over YDL: d = {<br/>  status: 'downloading',<br/>  downloaded_bytes: N,<br/>  total_bytes: M,<br/>  speed: bps<br/>}
+        YDL->>UI: update_progress(percent, speed, eta)
+    end
+    
+    %% 後処理
+    YTD->>YTD: merge_formats(video, audio)
+    Note over YTD: FFmpegで映像と音声を結合
+    
+    YTD->>FS: save_file(merged_video)
+    FS-->>YTD: final_path
+    
+    YTD-->>YDL: download_complete(final_path)
+    
+    %% ファイル検証
+    YDL->>FS: verify_file(final_path)
+    Note over FS: 1. ファイル存在確認<br/>2. サイズ > 0<br/>3. FFprobeで形式確認
+    
+    YDL->>YDL: sanitize_filename(title)
+    Note over YDL: 特殊文字除去: <>:"/\|?*<br/>最大長: 200文字
+    
+    YDL-->>UI: DownloadResult{path, size, duration}
+    UI->>WC: set_video_path(downloaded_path)
+    UI->>UI: 自動的に文字起こし画面へ遷移
+```
+
+### 3.3 テキスト差分検出の詳細処理（正規化とタイムスタンプ整合性）
 
 ```mermaid
 sequenceDiagram
@@ -201,57 +274,76 @@ sequenceDiagram
     participant LCS as LCSEngine
     participant TRC as TimeRangeCalculator
     
-    TE->>DP: find_differences(original_text, edited_text)
+    TE->>DP: find_differences(transcript, edited_text)
+    Note over DP: transcript = {<br/>  segments: [{<br/>    text: "今日はとてもいい天気です",<br/>    words: [<br/>      {word: "今日は", start: 0.0, end: 1.0},<br/>      {word: "とても", start: 1.0, end: 1.5},<br/>      {word: "いい", start: 1.5, end: 2.0},<br/>      {word: "天気", start: 2.0, end: 2.5},<br/>      {word: "です", start: 2.5, end: 3.0}<br/>    ]<br/>  }]<br/>}
     
-    %% テキスト正規化
-    DP->>TN: normalize(original_text)
-    Note over TN: 1. unicodedata.normalize('NFKC')<br/>2. 全角英数→半角: A-Z,0-9<br/>3. カナ統一: ｱ-ﾝ→ア-ン<br/>4. 空白統一: \s+ → ' '<br/>5. 改行除去: \r\n|\r|\n → ' '
-    TN-->>DP: normalized_original
+    %% ステップ1: インデックスマップの作成
+    DP->>DP: create_character_to_word_map(transcript)
+    Note over DP: 各文字が属する単語と時間を記録:<br/>char_map = {<br/>  0-2: {word_id: 0, word: "今日は", start: 0.0, end: 1.0},<br/>  3-5: {word_id: 1, word: "とても", start: 1.0, end: 1.5},<br/>  6-7: {word_id: 2, word: "いい", start: 1.5, end: 2.0},<br/>  8-9: {word_id: 3, word: "天気", start: 2.0, end: 2.5},<br/>  10-12: {word_id: 4, word: "です", start: 2.5, end: 3.0}<br/>}
     
-    DP->>TN: normalize(edited_text)
-    TN-->>DP: normalized_edited
+    %% ステップ2: 正規化用マッピングテーブル作成
+    DP->>TN: create_normalization_mapping(original_text)
+    Note over TN: 正規化前後の文字位置対応表:<br/>norm_map = {<br/>  "Ａ": {"char": "A", "positions": [15, 28]},<br/>  "　": {"char": " ", "positions": [20]},<br/>  "１": {"char": "1", "positions": [35]}<br/>}<br/>※正規化しても元の位置を追跡可能
     
-    %% LCS計算
-    DP->>LCS: compute_lcs(normalized_original, normalized_edited)
-    Note over LCS: アルゴリズム: Hirschberg (空間効率版)<br/>時間計算量: O(mn)<br/>空間計算量: O(min(m,n))
+    %% ステップ3: 両テキストの正規化（マッピング付き）
+    DP->>TN: normalize_with_mapping(transcript.full_text)
+    TN-->>DP: {normalized: "今日はとてもいい天気です", mapping: norm_map_original}
     
-    LCS->>LCS: build_dp_table()
-    Note over LCS: dp[i][j] = {<br/>  0 if i=0 or j=0<br/>  dp[i-1][j-1]+1 if X[i]=Y[j]<br/>  max(dp[i-1][j], dp[i][j-1]) otherwise<br/>}
+    DP->>TN: normalize_with_mapping(edited_text)
+    TN-->>DP: {normalized: "とてもいい天気", mapping: norm_map_edited}
     
-    LCS->>LCS: backtrack_path()
-    Note over LCS: 右下から左上へ逆算<br/>一致文字の位置を記録
+    %% ステップ4: LCS計算（位置情報付き）
+    DP->>LCS: compute_lcs_with_positions(normalized_original, normalized_edited)
+    Note over LCS: マッチ位置を記録しながらLCS計算:<br/>matches = [<br/>  {<br/>    original_range: {start: 3, end: 10},  // "とてもいい天気"<br/>    edited_range: {start: 0, end: 7},<br/>    text: "とてもいい天気"<br/>  }<br/>]
     
-    LCS-->>DP: MatchResult{matches[{start_orig, end_orig, start_edit, end_edit}]}
+    %% ステップ5: 正規化前の位置に逆変換
+    DP->>DP: denormalize_positions(matches, norm_map_original)
+    Note over DP: 正規化マップを使って元の文字位置を復元<br/>例: 正規化後の位置3 → 元の位置3（変化なし）<br/>例: 全角"Ａ"があった場合は位置を調整
     
-    %% マッチ率計算と閾値判定
-    DP->>DP: calculate_match_rate(matches)
-    Note over DP: match_rate = Σ(match_length) / len(original)<br/>閾値 = 0.8 (80%)
-    
-    alt マッチ率 < 80%
-        DP->>DP: apply_fuzzy_matching()
-        Note over DP: 1. 3-gram類似度計算<br/>2. 編集距離 ≤ 3の部分マッチ<br/>3. 音韻類似度チェック
-    end
-    
-    %% 時間範囲計算
-    DP->>TRC: calculate_time_ranges(matches, word_timestamps)
+    %% ステップ6: 文字位置から単語・時間への変換
+    DP->>TRC: convert_char_positions_to_time_ranges(matches, char_map)
     
     loop 各マッチ
-        TRC->>TRC: find_word_boundaries(match)
-        Note over TRC: 1. 開始: first_word.start - 0.1秒<br/>2. 終了: last_word.end + 0.1秒<br/>3. 最小長: 0.5秒
+        TRC->>TRC: find_word_boundaries_from_char_positions(match)
+        Note over TRC: 文字位置3-10が含む単語を特定:<br/>- 位置3-5: "とても" (word_id: 1)<br/>- 位置6-7: "いい" (word_id: 2)<br/>- 位置8-9: "天気" (word_id: 3)<br/>→ 時間範囲: 1.0秒〜2.5秒
         
-        TRC->>TRC: validate_range(time_range)
-        Note over TRC: - 0 ≤ start < end<br/>- end ≤ video_duration<br/>- 他範囲との重複チェック
+        TRC->>TRC: adjust_boundaries_for_natural_speech()
+        Note over TRC: 単語の途中で切れないよう調整:<br/>- 開始: 最初の完全な単語の開始時刻<br/>- 終了: 最後の完全な単語の終了時刻<br/>- パディング: ±0.1秒
     end
     
-    TRC->>TRC: merge_adjacent_ranges()
-    Note over TRC: 隣接判定: gap < 1.0秒<br/>マージ後も意味的まとまりを保持
+    TRC-->>DP: TimeRanges[{start: 1.0, end: 2.5, text: "とてもいい天気", word_ids: [1,2,3]}]
     
-    TRC-->>DP: TimeRanges[{start, end, text, confidence}]
+    %% ステップ7: 検証と最終調整
+    DP->>DP: validate_time_ranges(time_ranges)
+    Note over DP: 1. 重複チェック<br/>2. 最小長チェック (≥0.5秒)<br/>3. 隣接範囲のマージ (gap<1.0秒)
     
-    DP-->>TE: DiffResult{time_ranges, statistics}
+    DP-->>TE: DiffResult{time_ranges, char_map, statistics}
 ```
 
-### 3.3 無音削除処理の詳細
+#### 差分検出の重要ポイント：正規化とタイムスタンプの整合性
+
+**問題**: テキストを正規化（全角→半角変換など）すると、文字位置がずれてタイムスタンプとの対応が失われる
+
+**解決策**: 
+1. **文字単位のインデックスマップ**: 各文字がどの単語に属し、その単語の時間情報を保持
+2. **正規化マッピングテーブル**: 正規化前後の文字位置の対応関係を記録
+3. **逆変換処理**: LCS計算後、正規化前の位置に戻してからタイムスタンプを取得
+
+**具体例**:
+```
+元テキスト: "今日は　とても　いい天気です"  # 全角スペース
+正規化後:   "今日は とても いい天気です"    # 半角スペース
+
+正規化マップ:
+- 位置3の全角スペース → 半角スペースに変換
+- 位置9の全角スペース → 半角スペースに変換
+
+文字→単語マップ:
+- "今日は"（位置0-2） → word_id:0, time:0.0-1.0
+- "とても"（位置4-6） → word_id:1, time:1.0-1.5  # 正規化前の位置で管理
+```
+
+### 3.4 無音削除処理の詳細
 
 ```mermaid
 sequenceDiagram
