@@ -94,9 +94,9 @@ sequenceDiagram
     end
     
     %% キャッシュ確認
-    WC->>Cache: generate_cache_key(file_path)
-    Note over Cache: key = sha256(file_content + str(file_stat.st_mtime))
-    Cache->>Cache: check_exists(key)
+    WC->>Cache: check_video_cache(video_path)
+    Note over Cache: video_folder = video_path.stem<br/>cache_path = video_dir / video_folder / "transcription.json"
+    Cache->>Cache: check_exists(cache_path)
     
     alt キャッシュヒット
         Cache-->>WC: cached_transcript
@@ -184,8 +184,8 @@ sequenceDiagram
     TM->>TM: post_process(aligned_transcript)
     Note over TM: 1. 信頼度スコア計算<br/>2. 句読点の調整<br/>3. タイムスタンプ検証
     
-    TM->>Cache: save_transcript(key, final_transcript)
-    Note over Cache: 保存形式: JSON (pretty print)<br/>圧縮: gzip<br/>メタデータ: 作成日時、バージョン
+    TM->>Cache: save_transcript(video_path, final_transcript)
+    Note over Cache: 保存先: video_dir/{video_name}/transcription.json<br/>形式: JSON (pretty print, 非圧縮)<br/>メタデータ: cache.jsonに記録
     
     TM-->>WC: TranscriptionResult
     WC-->>UI: display_result(transcript)
@@ -741,11 +741,15 @@ key = sha256(
 ).hexdigest()
 
 キャッシュ構造:
-cache/
-├── {key}/
-│   ├── manifest.json      # メタデータ
-│   ├── transcript.json.gz # 圧縮済み結果
-│   └── checksum.txt       # 整合性確認用
+video_folder/
+├── transcription.json     # 文字起こし結果（非圧縮）
+├── cache.json            # キャッシュメタデータ
+└── *.mp4, *.fcpxml, *.srt # 各種出力ファイル（連番付き）
+
+出力ファイル命名規則:
+- 切り抜きのみ: {base_name}_cut_{連番:03d}.mp4
+- 切り抜き＋無音削除: {base_name}_cut_ns_{連番:03d}.mp4
+- その他: {base_name}_{連番:03d}.{拡張子}
 
 キャッシュ有効性:
 - ファイル変更検出: mtime + size
@@ -760,10 +764,16 @@ cache/
 ```
 ディレクトリ構造:
 /app/
-├── videos/      # 入力動画（ホストとマウント）
-├── cache/       # キャッシュ（永続化）
+├── videos/              # 入力動画（ホストとマウント）
+│   ├── sample_video.mp4
+│   └── sample_video/    # 動画と同名のフォルダで関連データを管理
+│       ├── transcription.json       # 文字起こし結果
+│       ├── cache.json               # キャッシュメタデータ
+│       ├── sample_video_cut_001.mp4 # 切り抜き（連番）
+│       ├── sample_video_cut_ns_001.mp4 # 切り抜き＋無音削除
+│       ├── sample_video_001.fcpxml  # FCPXML出力
+│       └── sample_video_001.srt     # 字幕ファイル
 ├── temp/        # 一時ファイル（tmpfs推奨）
-├── output/      # 出力ファイル（ホストとマウント）
 └── config/      # 設定ファイル（永続化）
 
 環境変数:
@@ -783,6 +793,55 @@ CUDA_VISIBLE_DEVICES=0 (GPU使用時)
 | **Windows** | Path.as_posix() | CRLF→LF変換 | WSL2推奨、UAC確認 |
 | **macOS** | UTF-8正規化 | LF | Apple Silicon対応 |
 | **Linux** | そのまま | LF | SELinux/AppArmor |
+
+### 7.3 ファイル出力の連番管理
+
+```python
+def get_next_output_path(base_dir: Path, base_name: str, suffix: str, extension: str) -> Path:
+    """
+    連番付きの出力ファイルパスを生成
+    
+    Args:
+        base_dir: 出力先ディレクトリ（例: /app/videos/sample_video/）
+        base_name: 基本ファイル名（例: sample_video）
+        suffix: ファイルタイプを示すサフィックス（例: _cut, _cut_ns）
+        extension: ファイル拡張子（例: mp4, fcpxml, srt）
+    
+    Returns:
+        次の連番を持つファイルパス
+    
+    例:
+        base_dir = Path("/app/videos/sample_video")
+        path = get_next_output_path(base_dir, "sample_video", "_cut", "mp4")
+        # → /app/videos/sample_video/sample_video_cut_001.mp4
+    """
+    pattern = f"{base_name}{suffix}_*.{extension}" if suffix else f"{base_name}_*.{extension}"
+    existing_files = list(base_dir.glob(pattern))
+    
+    if not existing_files:
+        next_num = 1
+    else:
+        numbers = []
+        for file in existing_files:
+            try:
+                num_str = file.stem.split('_')[-1]
+                numbers.append(int(num_str))
+            except ValueError:
+                continue
+        next_num = max(numbers) + 1 if numbers else 1
+    
+    filename = f"{base_name}{suffix}_{next_num:03d}.{extension}" if suffix else f"{base_name}_{next_num:03d}.{extension}"
+    return base_dir / filename
+
+# 出力例
+output_paths = {
+    'cut_video': get_next_output_path(video_dir, base_name, "_cut", "mp4"),
+    'cut_ns_video': get_next_output_path(video_dir, base_name, "_cut_ns", "mp4"),
+    'fcpxml': get_next_output_path(video_dir, base_name, "", "fcpxml"),
+    'premiere': get_next_output_path(video_dir, base_name, "", "xml"),
+    'subtitle': get_next_output_path(video_dir, base_name, "", "srt")
+}
+```
 
 ## 8. 外部ツールインターフェース
 
