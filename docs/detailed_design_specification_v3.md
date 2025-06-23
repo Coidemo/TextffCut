@@ -23,16 +23,16 @@
 
 | 要件ID | 要件概要 | 対応モジュール | テストケースID |
 |--------|----------|----------------|----------------|
-| REQ-001 | YouTube動画ダウンロード | core.youtube_downloader | TC-001〜TC-003 |
+| REQ-001 | YouTube動画ダウンロード | 未実装 | - |
 | REQ-002 | ローカル版文字起こし | core.transcription.UnifiedTranscriber | TC-004〜TC-008 |
 | REQ-003 | API版文字起こし | core.transcription_api.APITranscriber | TC-009〜TC-012 |
 | REQ-004 | テキスト編集（diff表示） | services.text_editing_service | TC-013〜TC-015 |
-| REQ-005 | タイムライン編集 | ui.components.timeline_editor | TC-016〜TC-020 |
+| REQ-005 | タイムライン編集 | 未実装 | - |
 | REQ-006 | 無音検出・削除 | core.video.VideoProcessor | TC-021〜TC-025 |
 | REQ-007 | 動画切り出し・結合 | core.video.VideoProcessor | TC-026〜TC-030 |
 | REQ-008 | FCPXMLエクスポート | core.export.FCPXMLExporter | TC-031〜TC-033 |
 | REQ-009 | Premiere XMLエクスポート | core.export.PremiereExporter | TC-034〜TC-036 |
-| REQ-010 | SRT字幕エクスポート | core.export.SRTExporter | TC-037〜TC-038 |
+| REQ-010 | SRT字幕エクスポート | 未実装 | - |
 | REQ-011 | キャッシュ管理 | core.transcription（内蔵） | TC-039〜TC-042 |
 | REQ-012 | 設定管理（永続化） | config.ConfigManager | TC-043〜TC-045 |
 
@@ -72,10 +72,6 @@
 │  - ワークフロー統合                           │
 │  - ビジネスロジックの調整                      │
 │  - エラーハンドリングの統一                    │
-├─────────────────────────────────────────────┤
-│         アプリケーション層                     │
-│  - プロセス管理（orchestrator）               │
-│  - トランザクション管理                        │
 │  - 進捗管理                                  │
 ├─────────────────────────────────────────────┤
 │        ビジネスロジック層                      │
@@ -83,6 +79,7 @@
 │  - 動画処理                                  │
 │  - テキスト処理                              │
 │  - アライメント処理                          │
+│  - ワーカープロセス管理（orchestrator）        │
 ├─────────────────────────────────────────────┤
 │         データアクセス層                       │
 │  - ファイルI/O                               │
@@ -101,10 +98,9 @@
 | 通信元 | 通信先 | インターフェース | データ形式 |
 |--------|--------|-----------------|------------|
 | UI層 | サービス層 | サービスメソッド | Pythonオブジェクト |
-| サービス層 | アプリ層 | 非同期関数 | ServiceResult |
 | サービス層 | ビジネス層 | 直接呼び出し | ドメインモデル |
-| アプリ層 | ビジネス層 | orchestrator経由 | 辞書/JSON |
-| ビジネス層 | データ層 | Repository pattern | 辞書/JSON |
+| ビジネス層（文字起こし） | orchestrator | サブプロセス起動 | 辞書/JSON |
+| ビジネス層 | データ層 | ファイルI/O | 辞書/JSON |
 | データ層 | インフラ層 | Wrapper関数 | プリミティブ型 |
 
 ## 4. 主要処理の詳細シーケンス
@@ -118,7 +114,6 @@ sequenceDiagram
     participant WS as WorkflowService
     participant TS as TranscriptionService
     participant TM as TranscriptionManager
-    participant Cache as CacheRepository
     participant VV as VideoValidator
     participant FFmpeg as FFmpegWrapper
     participant AP as AudioProcessor
@@ -144,18 +139,14 @@ sequenceDiagram
     end
     
     %% キャッシュ確認
-    TS->>Cache: check_video_cache(video_path)
-    Note over Cache: video_folder = video_path.stem<br/>cache_path = video_dir / video_folder / "transcription.json"
-    Cache->>Cache: check_exists(cache_path)
+    TS->>TS: check_cache(video_path, model_size)
+    Note over TS: TranscriptionService内で<br/>キャッシュキーを生成し<br/>ファイル存在確認
     
     alt キャッシュヒット
-        Cache-->>TS: cached_transcript
-        TS->>UI: display_cache_dialog(cached_info)
-        alt ユーザーがキャッシュ使用を選択
-            TS-->>UI: transcript_result
-        else ユーザーが再処理を選択
-            Note right of TS: キャッシュミスとして続行
-        end
+        TS-->>WS: キャッシュされた結果
+        WS-->>UI: transcript_result（from_cache=true）
+    else キャッシュミス
+        Note over TS: 新規文字起こし処理へ
     end
     
     %% 音声抽出フェーズ
@@ -850,11 +841,17 @@ video_folder_TextffCut/              # 動画名_TextffCutフォルダ
 ```
 
 **キャッシュ管理の実装**:
-- UnifiedTranscriberクラス内のメソッドとして実装
-- get_cache_path(): キャッシュパスの生成
-- load_from_cache(): キャッシュからの読み込み
-- save_to_cache(): キャッシュへの保存
-- get_available_caches(): 利用可能なキャッシュ一覧取得
+キャッシュ管理は2層構造で実装されています：
+
+1. **TranscriptionService層**（services/transcription_service.py）
+   - キャッシュキーの生成（ハッシュベース）
+   - キャッシュの有効性判定
+   - キャッシュの読み書き制御
+
+2. **UnifiedTranscriber層**（core/transcription.py）
+   - 実際のファイルパス管理
+   - JSONファイルの読み書き
+   - 利用可能なキャッシュの列挙
 
 **キャッシュの有効性チェック**:
 1️⃣ ファイルの変更検出：最終更新時刻とサイズで高速判定
@@ -1123,7 +1120,7 @@ CUDA_VISIBLE_DEVICES=0 (GPU使用時)
 7. **WorkflowService** - ワークフロー統合
    - 全体の処理フローの調整
    - サービス間の連携
-   - トランザクション管理
+   - 処理状態の管理
 
 ### 12.2 Orchestratorによるワーカー管理
 
