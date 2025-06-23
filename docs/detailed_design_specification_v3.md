@@ -169,7 +169,7 @@ sequenceDiagram
     
     %% 文字起こし処理
     alt ローカルモード
-        TM->>WX: load_model(config.model_size)
+        TM->>WX: load_model("medium")
         Note over WX: model = whisperx.load_model(<br/>  "medium",<br/>  device="cuda" if available else "cpu",<br/>  compute_type="float16" if GPU else "float32"<br/>)
         
         TM->>TM: split_audio_chunks(processed_audio)
@@ -688,14 +688,14 @@ TimeRange:
 
 2️⃣ **処理前のメモリ要件計算**
    - 動画サイズ×3（入力、処理、出力用）
-   - モデルサイズ（tiny:500MB、base:1GB、small:2GB、medium:3GB、large:5GB）
+   - モデルサイズ（medium固定：3GB）
    - 作業用バッファ500MBを加算
    - 不足時は具体的な対処法を3つ提案
 
 3️⃣ **メモリベースの自動パラメータ調整**
-   - 2GB未満：最小構成（バッチ4、チャンク5分、ワーカー1、tinyモデル）
-   - 2-4GB：中間構成（バッチ8、チャンク10分、ワーカー2、baseモデル）  
-   - 4GB以上：最適構成（バッチ16、チャンク15分、ワーカー4、mediumモデル）
+   - 4GB未満：エラー（mediumモデル（3GB）＋作業用メモリが必要）
+   - 4-8GB：最小構成（バッチ4、チャンク5分、ワーカー1）  
+   - 8GB以上：最適構成（バッチ16、チャンク15分、ワーカー4）
 
 4️⃣ **Docker環境の特別対応**
    - `/.dockerenv`ファイルの存在でDocker環境を判定
@@ -799,8 +799,8 @@ TimeRange:
    - 16kHzモノラル16ビット音声：1秒あたり32KB
    - 90分動画の場合：約170MBの音声データ
 
-2️⃣ **モデルサイズ別のメモリ要件**
-   - tiny: 500MB、base: 1GB、small: 2GB、medium: 3GB、large: 5GB
+2️⃣ **文字起こしモデルのメモリ要件**
+   - mediumモデル固定: 3GB（要件定義書に基づく中程度の精度モデル）
    - 作業用バッファとして追加で500MB確保
 
 **Docker環境でのメモリ制限実装**:
@@ -941,7 +941,7 @@ CUDA_VISIBLE_DEVICES=0 (GPU使用時)
    - GPUが利用可能な場合はCUDAを使用、そうでない場合はCPU
    - GPUではfloat16で高速化、CPUではfloat32で精度保持
    - 言語コードを指定して特定言語に最適化
-   - モデルサイズ（tiny/base/small/medium/large）を選択
+   - mediumモデルを固定使用（要件定義書に基づく）
 
 2️⃣ **文字起こしの実行**
    - 音声ファイルパスを指定
