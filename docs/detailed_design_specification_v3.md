@@ -24,26 +24,28 @@
 | 要件ID | 要件概要 | 対応モジュール | テストケースID |
 |--------|----------|----------------|----------------|
 | REQ-001 | YouTube動画ダウンロード | core.youtube_downloader | TC-001〜TC-003 |
-| REQ-002 | ローカル版文字起こし | core.transcription.LocalTranscriber | TC-004〜TC-008 |
+| REQ-002 | ローカル版文字起こし | core.transcription.UnifiedTranscriber | TC-004〜TC-008 |
 | REQ-003 | API版文字起こし | core.transcription_api.APITranscriber | TC-009〜TC-012 |
-| REQ-004 | テキスト編集（diff表示） | ui.components.text_editor | TC-013〜TC-015 |
+| REQ-004 | テキスト編集（diff表示） | services.text_editing_service | TC-013〜TC-015 |
 | REQ-005 | タイムライン編集 | ui.components.timeline_editor | TC-016〜TC-020 |
 | REQ-006 | 無音検出・削除 | core.video.VideoProcessor | TC-021〜TC-025 |
 | REQ-007 | 動画切り出し・結合 | core.video.VideoProcessor | TC-026〜TC-030 |
 | REQ-008 | FCPXMLエクスポート | core.export.FCPXMLExporter | TC-031〜TC-033 |
 | REQ-009 | Premiere XMLエクスポート | core.export.PremiereExporter | TC-034〜TC-036 |
 | REQ-010 | SRT字幕エクスポート | core.export.SRTExporter | TC-037〜TC-038 |
-| REQ-011 | キャッシュ管理 | utils.cache_manager | TC-039〜TC-042 |
+| REQ-011 | キャッシュ管理 | core.transcription（内蔵） | TC-039〜TC-042 |
 | REQ-012 | 設定管理（永続化） | config.ConfigManager | TC-043〜TC-045 |
 
 ### 2.2 モジュール間依存関係と影響分析
 
 | 変更対象モジュール | 影響を受けるモジュール | 影響内容 |
 |-------------------|---------------------|----------|
-| core.transcription | ui.components.text_editor | 文字起こし結果形式変更 |
+| core.transcription | services.text_editing_service | 文字起こし結果形式変更 |
 | core.video | core.export.* | セグメント情報の変更 |
-| utils.cache_manager | 全モジュール | キャッシュ形式の変更 |
+| core.transcription | services.transcription_service | キャッシュAPIの変更 |
 | config.py | 全モジュール | 設定項目の追加/変更 |
+| services/* | UI層 | サービスAPIの変更 |
+| core.alignment_processor | core.transcription | アライメント処理のインターフェース |
 
 ### 2.3 テストケース分類
 
@@ -66,8 +68,13 @@
 │  - セッション状態管理                          │
 │  - イベントハンドリング                        │
 ├─────────────────────────────────────────────┤
+│              サービス層                       │
+│  - ワークフロー統合                           │
+│  - ビジネスロジックの調整                      │
+│  - エラーハンドリングの統一                    │
+├─────────────────────────────────────────────┤
 │         アプリケーション層                     │
-│  - ワークフロー制御                           │
+│  - プロセス管理（orchestrator）               │
 │  - トランザクション管理                        │
 │  - 進捗管理                                  │
 ├─────────────────────────────────────────────┤
@@ -75,6 +82,7 @@
 │  - 文字起こし処理                            │
 │  - 動画処理                                  │
 │  - テキスト処理                              │
+│  - アライメント処理                          │
 ├─────────────────────────────────────────────┤
 │         データアクセス層                       │
 │  - ファイルI/O                               │
@@ -92,8 +100,10 @@
 
 | 通信元 | 通信先 | インターフェース | データ形式 |
 |--------|--------|-----------------|------------|
-| UI層 | アプリ層 | 関数呼び出し | Pythonオブジェクト |
-| アプリ層 | ビジネス層 | 非同期関数 | Pydanticモデル |
+| UI層 | サービス層 | サービスメソッド | Pythonオブジェクト |
+| サービス層 | アプリ層 | 非同期関数 | ServiceResult |
+| サービス層 | ビジネス層 | 直接呼び出し | ドメインモデル |
+| アプリ層 | ビジネス層 | orchestrator経由 | 辞書/JSON |
 | ビジネス層 | データ層 | Repository pattern | 辞書/JSON |
 | データ層 | インフラ層 | Wrapper関数 | プリミティブ型 |
 
@@ -105,7 +115,8 @@
 sequenceDiagram
     participant User
     participant UI
-    participant WC as WorkflowController
+    participant WS as WorkflowService
+    participant TS as TranscriptionService
     participant TM as TranscriptionManager
     participant Cache as CacheRepository
     participant VV as VideoValidator
@@ -117,37 +128,38 @@ sequenceDiagram
     participant EH as ErrorHandler
     
     User->>UI: 動画ファイル選択
-    UI->>WC: start_transcription(file_path, config)
+    UI->>WS: start_transcription(file_path, config)
+    WS->>TS: transcribe(file_path, config)
     
     %% 検証フェーズ
-    WC->>VV: validate_video_file(file_path)
+    TS->>VV: validate_video_file(file_path)
     Note over VV: 1. os.path.exists(file_path)<br/>2. magic.from_file(file_path, mime=True)<br/>3. os.path.getsize(file_path) <= 2GB<br/>4. extension in [.mp4, .mov, .avi, .mkv, .webm]
     
     alt 検証失敗
-        VV-->>WC: ValidationError(詳細)
-        WC->>EH: handle_validation_error(error)
+        VV-->>TS: ValidationError(詳細)
+        TS->>EH: handle_validation_error(error)
         EH-->>UI: エラーダイアログ表示
     else 検証成功
-        VV-->>WC: VideoInfo{path, duration, fps, codec}
+        VV-->>TS: VideoInfo{path, duration, fps, codec}
     end
     
     %% キャッシュ確認
-    WC->>Cache: check_video_cache(video_path)
+    TS->>Cache: check_video_cache(video_path)
     Note over Cache: video_folder = video_path.stem<br/>cache_path = video_dir / video_folder / "transcription.json"
     Cache->>Cache: check_exists(cache_path)
     
     alt キャッシュヒット
-        Cache-->>WC: cached_transcript
-        WC->>UI: display_cache_dialog(cached_info)
+        Cache-->>TS: cached_transcript
+        TS->>UI: display_cache_dialog(cached_info)
         alt ユーザーがキャッシュ使用を選択
-            WC-->>UI: transcript_result
+            TS-->>UI: transcript_result
         else ユーザーが再処理を選択
-            Note right of WC: キャッシュミスとして続行
+            Note right of TS: キャッシュミスとして続行
         end
     end
     
     %% 音声抽出フェーズ
-    WC->>TM: transcribe(video_path, config)
+    TS->>TM: transcribe(video_path, config)
     TM->>FFmpeg: probe_video(video_path)
     Note over FFmpeg: ffprobe -v quiet -print_format json -show_streams
     FFmpeg-->>TM: StreamInfo{audio_streams, video_streams}
@@ -201,7 +213,7 @@ sequenceDiagram
                 APIClient-->>TM: api_result
             end
         else ユーザーキャンセル
-            TM-->>WC: UserCancelled
+            TM-->>TS: UserCancelled
         end
     end
     
@@ -225,8 +237,8 @@ sequenceDiagram
     TM->>Cache: save_transcript(video_path, final_transcript)
     Note over Cache: 保存先: video_dir/{video_name}/transcription.json<br/>形式: JSON (pretty print, 非圧縮)<br/>メタデータ: cache.jsonに記録
     
-    TM-->>WC: TranscriptionResult
-    WC-->>UI: display_result(transcript)
+    TM-->>TS: TranscriptionResult
+    TS-->>UI: display_result(transcript)
 ```
 
 ### 3.2 YouTube動画ダウンロード処理
@@ -450,7 +462,7 @@ sequenceDiagram
 Transcript:
   video_id: str          # SHA256ハッシュ (64文字)
   language: str          # ISO 639-1 (例: "ja", "en")
-  model: str             # モデル名 (例: "whisper-medium")
+  model: str             # モデル名 (固定: "medium")
   segments: Segment[]    # セグメント配列
   created_at: datetime   # ISO 8601形式
   processing_time: float # 秒単位、小数第2位まで
@@ -826,14 +838,23 @@ TimeRange:
 
 **ファイル構成と命名規則**:
 ```
-video_folder/                        # 動画と同名のフォルダ
-├── transcription.json              # 文字起こし結果（整形済みJSON）
-├── cache.json                      # キャッシュ情報（作成日時、バージョン等）
-├── {base}_cut_001.mp4              # 切り抜きのみ（3桁連番）
-├── {base}_cut_ns_001.mp4           # 切り抜き＋無音削除
-├── {base}_001.fcpxml               # FCPXMLエクスポート
-└── {base}_001.srt                  # 字幕ファイル
+video_folder_TextffCut/              # 動画名_TextffCutフォルダ
+├── transcriptions/                  # 文字起こし結果フォルダ
+│   ├── medium.json                  # ローカル版結果（モデル名）
+│   └── whisper-1_api.json          # API版結果
+├── performance/                     # パフォーマンス記録
+│   └── history.json                # 処理履歴
+├── {base}_TextffCut_NoSilence_01.mp4   # 切り抜き＋無音削除
+├── {base}_TextffCut_NoSilence_01.fcpxml # FCPXMLエクスポート
+└── {base}_TextffCut_NoSilence_01.xml    # Premiere XMLエクスポート
 ```
+
+**キャッシュ管理の実装**:
+- UnifiedTranscriberクラス内のメソッドとして実装
+- get_cache_path(): キャッシュパスの生成
+- load_from_cache(): キャッシュからの読み込み
+- save_to_cache(): キャッシュへの保存
+- get_available_caches(): 利用可能なキャッシュ一覧取得
 
 **キャッシュの有効性チェック**:
 1️⃣ ファイルの変更検出：最終更新時刻とサイズで高速判定
@@ -1061,9 +1082,99 @@ CUDA_VISIBLE_DEVICES=0 (GPU使用時)
 | エラー率 | 1%以下 | ログ分析 |
 | 文字起こし精度 | 85%以上 | WER測定 |
 
-## 12. セキュリティ設計
+## 12. サービス層とワーカー管理の詳細設計
 
-### 12.1 コマンドインジェクション対策
+### 12.1 サービス層アーキテクチャ
+
+サービス層は、UIとビジネスロジックの間を仲介し、複雑な処理フローを管理します。
+
+**主要サービスクラス**:
+
+1. **BaseService** - サービス基底クラス
+   - ServiceResult型による統一的な戻り値
+   - エラーハンドリングの標準化
+   - ロギングとメトリクス収集
+
+2. **ConfigurationService** - 設定管理
+   - 設定の読み込み・保存
+   - デフォルト値の管理
+   - 環境変数との統合
+
+3. **TranscriptionService** - 文字起こしサービス
+   - API/ローカルモードの切り替え
+   - キャッシュ管理の統合
+   - 進捗報告の抽象化
+
+4. **TextEditingService** - テキスト編集サービス
+   - diff計算とハイライト処理
+   - 切り抜き範囲の管理
+   - 検証とエラーチェック
+
+5. **VideoProcessingService** - 動画処理サービス
+   - 無音検出の実行管理
+   - セグメント切り出しと結合
+   - 進捗とキャンセル処理
+
+6. **ExportService** - エクスポートサービス
+   - 各種フォーマットへの統一インターフェース
+   - ファイル出力の管理
+   - メタデータの付与
+
+7. **WorkflowService** - ワークフロー統合
+   - 全体の処理フローの調整
+   - サービス間の連携
+   - トランザクション管理
+
+### 12.2 Orchestratorによるワーカー管理
+
+**orchestrator/transcription_worker.py**:
+
+ワーカープロセスの管理を独立したモジュールとして実装し、以下を実現：
+
+1. **プロセス分離**
+   - メモリリークの防止
+   - クラッシュ時の影響局所化
+   - リソース使用量の制御
+
+2. **通信プロトコル**
+   - JSON形式でのメッセージング
+   - 標準入出力による通信
+   - タイムアウト処理
+
+3. **エラーハンドリング**
+   - ワーカー異常終了の検知
+   - 自動リトライ機能
+   - 親プロセスへのエラー伝播
+
+4. **スケーラビリティ**
+   - 将来的な分散処理への対応
+   - 動的なワーカー数調整
+   - ロードバランシング
+
+### 12.3 アライメント処理の独立性
+
+**core/alignment_processor.py**:
+
+アライメント処理を独立モジュール化することで：
+
+1. **依存性の管理**
+   - WhisperXとtransformersの互換性問題を局所化
+   - バージョン固有の処理を隔離
+   - 将来的な変更への対応を容易に
+
+2. **再利用性**
+   - 他の音声認識エンジンでも利用可能
+   - テスト容易性の向上
+   - モック化の簡素化
+
+3. **保守性**
+   - 単一責任原則の遵守
+   - 明確なインターフェース定義
+   - ドキュメント化の簡素化
+
+## 13. セキュリティ設計
+
+### 13.1 コマンドインジェクション対策
 
 #### FFmpeg/yt-dlp呼び出しの安全な実装
 
@@ -1194,7 +1305,7 @@ def extract_audio_secure(video_path: str, output_path: str):
     return result
 ```
 
-### 12.2 APIキー暗号化実装
+### 13.2 APIキー暗号化実装
 
 ```python
 import os
@@ -1320,181 +1431,95 @@ config_manager.save_api_key("sk-xxxxxxxx", "openai")
 api_key = config_manager.get_api_key("openai")
 ```
 
-## 13. 共通エラーコンテキスト
+## 14. エラー処理設計
 
-### 13.1 ErrorContext定義
+### 14.1 エラー処理の基本設計
 
-```python
-from dataclasses import dataclass
-from typing import Optional, Dict, Any
-from datetime import datetime
-import traceback
-import json
+実装では、シンプルで実用的なエラー処理構造を採用しています。過度な複雑性を避け、必要な情報を確実に伝えることに重点を置いています。
 
-@dataclass
-class ErrorContext:
-    """エラー情報の統一的な管理"""
-    
-    # 基本情報
-    error_id: str  # UUID
-    timestamp: datetime
-    error_type: str  # 例: "ValidationError", "ProcessingError"
-    severity: str  # "low", "medium", "high", "critical"
-    
-    # エラー詳細
-    message: str  # ユーザー向けメッセージ
-    technical_message: str  # 技術的な詳細
-    error_code: str  # アプリケーション固有のエラーコード
-    
-    # コンテキスト情報
-    module: str  # 発生モジュール
-    function: str  # 発生関数
-    line_number: int  # 発生行番号
-    
-    # 追加情報
-    user_action: Optional[str] = None  # ユーザーが実行していた操作
-    recovery_suggestion: Optional[str] = None  # リカバリー方法の提案
-    metadata: Optional[Dict[str, Any]] = None  # その他のメタデータ
-    stack_trace: Optional[str] = None  # スタックトレース
-    
-    def to_user_message(self) -> str:
-        """ユーザー向けメッセージの生成"""
-        msg = f"エラーが発生しました: {self.message}"
-        if self.recovery_suggestion:
-            msg += f"\n\n対処方法: {self.recovery_suggestion}"
-        return msg
-    
-    def to_log_entry(self) -> dict:
-        """ログエントリーの生成"""
-        return {
-            "error_id": self.error_id,
-            "timestamp": self.timestamp.isoformat(),
-            "error_type": self.error_type,
-            "severity": self.severity,
-            "error_code": self.error_code,
-            "module": self.module,
-            "function": self.function,
-            "line_number": self.line_number,
-            "message": self.technical_message,
-            "user_action": self.user_action,
-            "metadata": self.metadata,
-            "stack_trace": self.stack_trace
-        }
+**基本構造**:
 
-class ErrorContextManager:
-    """エラーコンテキストの一元管理"""
-    
-    def __init__(self):
-        self.error_mappings = {
-            # エラータイプ -> (ユーザーメッセージ, リカバリー提案)
-            "FileNotFoundError": (
-                "指定されたファイルが見つかりません",
-                "ファイルパスを確認してください"
-            ),
-            "MemoryError": (
-                "メモリが不足しています",
-                "他のアプリケーションを終了するか、処理する動画を分割してください"
-            ),
-            "FFmpegError": (
-                "動画処理でエラーが発生しました",
-                "動画ファイルが破損していないか確認してください"
-            ),
-            "WhisperError": (
-                "文字起こしでエラーが発生しました",
-                "音声トラックが含まれているか確認してください"
-            ),
-            "APIError": (
-                "API通信でエラーが発生しました",
-                "インターネット接続とAPIキーを確認してください"
-            )
-        }
-    
-    def create_context(
-        self,
-        exception: Exception,
-        user_action: str = None,
-        metadata: dict = None
-    ) -> ErrorContext:
-        """例外からエラーコンテキストを生成"""
-        import uuid
-        import inspect
-        
-        # エラーIDの生成
-        error_id = str(uuid.uuid4())
-        
-        # 例外情報の取得
-        error_type = type(exception).__name__
-        frame = inspect.currentframe().f_back
-        
-        # マッピングからメッセージ取得
-        user_msg, recovery = self.error_mappings.get(
-            error_type,
-            ("処理中にエラーが発生しました", "アプリケーションを再起動してください")
-        )
-        
-        return ErrorContext(
-            error_id=error_id,
-            timestamp=datetime.now(),
-            error_type=error_type,
-            severity=self._determine_severity(error_type),
-            message=user_msg,
-            technical_message=str(exception),
-            error_code=f"ERR_{error_type.upper()}",
-            module=frame.f_globals.get('__name__', 'unknown'),
-            function=frame.f_code.co_name,
-            line_number=frame.f_lineno,
-            user_action=user_action,
-            recovery_suggestion=recovery,
-            metadata=metadata,
-            stack_trace=traceback.format_exc()
-        )
-    
-    def _determine_severity(self, error_type: str) -> str:
-        """エラータイプから重要度を判定"""
-        critical_errors = {"MemoryError", "SystemError"}
-        high_errors = {"FFmpegError", "WhisperError", "IOError"}
-        medium_errors = {"APIError", "ValidationError"}
-        
-        if error_type in critical_errors:
-            return "critical"
-        elif error_type in high_errors:
-            return "high"
-        elif error_type in medium_errors:
-            return "medium"
-        else:
-            return "low"
+1️⃣ **TextffCutError基底クラス**
+   - すべてのプロジェクト固有エラーの基底
+   - error_code: エラー識別子
+   - severity: エラーの重要度（ErrorSeverity enum）
+   - category: エラーカテゴリ（ErrorCategory enum）
+   - user_message: ユーザー向けメッセージ
+   - details: 追加の詳細情報（辞書形式）
 
-# グローバルインスタンス
-error_manager = ErrorContextManager()
+2️⃣ **エラーカテゴリ**
+   - VALIDATION: 入力検証エラー
+   - PROCESSING: 処理エラー
+   - RESOURCE: リソース不足エラー
+   - CONFIGURATION: 設定エラー
+   - EXTERNAL: 外部ツール/APIエラー
+   - SYSTEM: システムエラー
 
-# 使用例
-def process_video(video_path: str):
-    try:
-        # 処理実行
-        result = video_processor.process(video_path)
-        return result
-    except Exception as e:
-        # エラーコンテキストの生成
-        context = error_manager.create_context(
-            exception=e,
-            user_action="動画処理",
-            metadata={"video_path": video_path}
-        )
-        
-        # ログ出力
-        logger.error(json.dumps(context.to_log_entry()))
-        
-        # UI表示
-        st.error(context.to_user_message())
-        
-        # エラートラッキング（オプション）
-        if st.session_state.get('send_error_reports', False):
-            send_error_report(context)
-        
-        raise
-```
+3️⃣ **エラー重要度**
+   - INFO: 情報レベル
+   - WARNING: 警告レベル
+   - ERROR: エラーレベル
+   - CRITICAL: 致命的エラー
+    
+### 14.2 主要なエラークラス
 
-## 14. Docker再起動時のステート永続化
+**具体的なエラークラス**:
+
+1️⃣ **VideoProcessingError**
+   - 動画処理に関するエラー
+   - FFmpegの実行失敗、形式不正など
+
+2️⃣ **TranscriptionError**
+   - 文字起こしに関するエラー
+   - WhisperXエラー、メモリ不足など
+
+3️⃣ **ConfigurationError**
+   - 設定に関するエラー
+   - 無効な設定値、必須項目の欠落など
+
+4️⃣ **FileNotFoundError**（カスタム版）
+   - ファイルが見つからないエラー
+   - 標準のFileNotFoundErrorを拡張
+
+### 14.3 エラー処理のメリット
+
+**シンプルな構造の利点**:
+
+1️⃣ **理解しやすさ**
+   - 新規開発者でもすぐに理解可能
+   - 過度な抽象化を避ける
+
+2️⃣ **メンテナンス性**
+   - エラークラスの追加が容易
+   - 既存コードへの影響が最小限
+
+3️⃣ **実用性**
+   - 必要な情報は確実に記録
+   - ユーザーへの適切なフィードバック
+
+4️⃣ **拡張性**
+   - 必要に応じて属性を追加可能
+   - 段階的な改善が可能
+
+### 14.4 エラーハンドリングのベストプラクティス
+
+1️⃣ **早期リターン**
+   - エラーを検出したら即座に処理を中断
+   - ネストを深くしない
+
+2️⃣ **具体的なエラーメッセージ**
+   - 何が問題なのかを明確に伝える
+   - 可能な対処法を提示
+
+3️⃣ **ログとユーザー通知の分離**
+   - 技術的詳細はログに記録
+   - ユーザーには分かりやすいメッセージを表示
+
+4️⃣ **リトライ可能性の明示**
+   - recoverable属性で再試行可能かを示す
+   - 一時的なエラーと恒久的なエラーを区別
+
+## 15. Docker再起動時のステート永続化
 
 ### 14.1 処理状態の管理
 
