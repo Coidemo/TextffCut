@@ -17,9 +17,47 @@
 - FFmpeg公式ドキュメント
 - WhisperX技術仕様書
 
-## 2. システムアーキテクチャ詳細
+## 2. 要件トレーサビリティマトリクス
 
-### 2.1 レイヤー構成と責務
+### 2.1 要件からモジュールへの対応表
+
+| 要件ID | 要件概要 | 対応モジュール | テストケースID |
+|--------|----------|----------------|----------------|
+| REQ-001 | YouTube動画ダウンロード | core.youtube_downloader | TC-001〜TC-003 |
+| REQ-002 | ローカル版文字起こし | core.transcription.LocalTranscriber | TC-004〜TC-008 |
+| REQ-003 | API版文字起こし | core.transcription_api.APITranscriber | TC-009〜TC-012 |
+| REQ-004 | テキスト編集（diff表示） | ui.components.text_editor | TC-013〜TC-015 |
+| REQ-005 | タイムライン編集 | ui.components.timeline_editor | TC-016〜TC-020 |
+| REQ-006 | 無音検出・削除 | core.video.VideoProcessor | TC-021〜TC-025 |
+| REQ-007 | 動画切り出し・結合 | core.video.VideoProcessor | TC-026〜TC-030 |
+| REQ-008 | FCPXMLエクスポート | core.export.FCPXMLExporter | TC-031〜TC-033 |
+| REQ-009 | Premiere XMLエクスポート | core.export.PremiereExporter | TC-034〜TC-036 |
+| REQ-010 | SRT字幕エクスポート | core.export.SRTExporter | TC-037〜TC-038 |
+| REQ-011 | キャッシュ管理 | utils.cache_manager | TC-039〜TC-042 |
+| REQ-012 | 設定管理（永続化） | config.ConfigManager | TC-043〜TC-045 |
+
+### 2.2 モジュール間依存関係と影響分析
+
+| 変更対象モジュール | 影響を受けるモジュール | 影響内容 |
+|-------------------|---------------------|----------|
+| core.transcription | ui.components.text_editor | 文字起こし結果形式変更 |
+| core.video | core.export.* | セグメント情報の変更 |
+| utils.cache_manager | 全モジュール | キャッシュ形式の変更 |
+| config.py | 全モジュール | 設定項目の追加/変更 |
+
+### 2.3 テストケース分類
+
+| 分類 | テストケースID範囲 | カバレッジ目標 |
+|------|-------------------|---------------|
+| 単体テスト | TC-001〜TC-050 | 90% |
+| 統合テスト | TC-051〜TC-070 | 主要フロー100% |
+| E2Eテスト | TC-071〜TC-080 | ユーザーシナリオ100% |
+| 境界値テスト | TC-081〜TC-090 | エッジケース網羅 |
+| エラーテスト | TC-091〜TC-100 | 異常系100% |
+
+## 3. システムアーキテクチャ詳細
+
+### 3.1 レイヤー構成と責務
 
 ```
 ┌─────────────────────────────────────────────┐
@@ -50,7 +88,7 @@
 └─────────────────────────────────────────────┘
 ```
 
-### 2.2 モジュール間通信
+### 3.2 モジュール間通信
 
 | 通信元 | 通信先 | インターフェース | データ形式 |
 |--------|--------|-----------------|------------|
@@ -59,9 +97,9 @@
 | ビジネス層 | データ層 | Repository pattern | 辞書/JSON |
 | データ層 | インフラ層 | Wrapper関数 | プリミティブ型 |
 
-## 3. 主要処理の詳細シーケンス
+## 4. 主要処理の詳細シーケンス
 
-### 3.1 文字起こし処理完全シーケンス
+### 4.1 文字起こし処理完全シーケンス
 
 ```mermaid
 sequenceDiagram
@@ -457,128 +495,67 @@ TimeRange:
 
 #### 4.2.1 LCS（最長共通部分列）アルゴリズム
 
-```
-入力:
-  X: 文字列（長さm）
-  Y: 文字列（長さn）
+**目的**: 原文と編集文の共通部分を効率的に検出し、削除された文字の位置を特定する。
 
-出力:
-  matches: [(x_start, x_end, y_start, y_end)]
+**処理概要**:
+1️⃣ **動的計画法テーブルの構築**
+   - 原文（長さm）と編集文（長さn）に対して(m+1)×(n+1)のテーブルを作成
+   - 各セルに「その位置までの最長共通部分列の長さ」を記録
+   - 文字が一致する場合は左上セルの値+1、不一致の場合は上か左の最大値を採用
 
-アルゴリズム:
-1. DPテーブル初期化
-   dp[m+1][n+1] = 0
-   
-2. DPテーブル構築
-   for i = 1 to m:
-     for j = 1 to n:
-       if X[i-1] == Y[j-1]:
-         dp[i][j] = dp[i-1][j-1] + 1
-       else:
-         dp[i][j] = max(dp[i-1][j], dp[i][j-1])
+2️⃣ **バックトラッキングによるマッチ位置の特定**
+   - テーブルの右下から左上に向かって逆算
+   - 文字が一致している箇所を連続的なマッチ区間として記録
+   - マッチ区間の境界で区切り、削除された部分を特定
 
-3. バックトラック
-   i = m, j = n
-   matches = []
-   current_match = null
-   
-   while i > 0 and j > 0:
-     if X[i-1] == Y[j-1]:
-       if current_match is null:
-         current_match = {x_end: i, y_end: j}
-       current_match.x_start = i
-       current_match.y_start = j
-       i -= 1
-       j -= 1
-     else:
-       if current_match is not null:
-         matches.append(current_match)
-         current_match = null
-       if dp[i-1][j] > dp[i][j-1]:
-         i -= 1
-       else:
-         j -= 1
-
-計算量:
-  時間: O(mn)
-  空間: O(mn) → Hirschberg法で O(min(m,n))
-```
+3️⃣ **性能特性**
+   - 時間計算量：文字数の積に比例（10,000文字同士なら約1億回の計算）
+   - 空間効率化：Hirschberg法により、メモリ使用量を最小文字数に比例する量まで削減可能
+   - 実用上の制限：20,000文字を超える場合は分割処理を推奨
 
 #### 4.2.2 音声レベル計算（RMS）
 
-```
-入力:
-  samples: int16[]     # 音声サンプル配列
-  frame_size: int      # フレームサイズ（サンプル数）
-  hop_size: int        # ホップサイズ（サンプル数）
+**目的**: 音声データから無音区間を検出するため、時間窓ごとの音量レベルを計算する。
 
-出力:
-  rms_values: float[]  # 各フレームのRMS値（dB）
+**処理概要**:
+1️⃣ **音声データの窓分割**
+   - 16kHzサンプリングの音声を20ミリ秒の窓（320サンプル）に分割
+   - 10ミリ秒ずつスライド（50%オーバーラップ）して詳細な変化を捉える
+   - 90分の動画では約54万個の窓が生成される
 
-アルゴリズム:
-1. フレーム分割
-   num_frames = (len(samples) - frame_size) // hop_size + 1
-   
-2. 各フレームのRMS計算
-   for i in range(num_frames):
-     start = i * hop_size
-     end = start + frame_size
-     frame = samples[start:end]
-     
-     # RMS計算
-     sum_squares = sum(s^2 for s in frame)
-     rms_linear = sqrt(sum_squares / frame_size)
-     
-     # dB変換（16bitの最大値で正規化）
-     if rms_linear > 0:
-       rms_db = 20 * log10(rms_linear / 32768)
-     else:
-       rms_db = -inf
-     
-     rms_values[i] = rms_db
+2️⃣ **RMS（二乗平均平方根）による音量計算**
+   - 各窓内の音声サンプルを二乗して平均を取り、平方根を計算
+   - これにより瞬間的なノイズの影響を抑えた安定した音量値を取得
+   - 16ビット音声の最大値（32768）で正規化
 
-パラメータ設定:
-  frame_size = 320     # 20ms @ 16kHz
-  hop_size = 160       # 10ms @ 16kHz
-```
+3️⃣ **デシベル変換と無音判定**
+   - 線形スケールの音量値を人間の聴覚に近い対数スケール（dB）に変換
+   - -35dB以下を無音と判定（調整可能：-60〜-20dB）
+   - 完全無音の場合は負の無限大として処理
+
+**パラメータの意味**:
+- 窓サイズ20ms：音声の基本周波数（50-400Hz）を捉えるのに十分な長さ
+- オーバーラップ50%：急激な音量変化を見逃さないための安全マージン
 
 #### 4.2.3 セグメント結合アルゴリズム
 
-```
-入力:
-  segments: TimeRange[]     # ソート済みセグメント
-  min_gap: float           # 結合する最小間隔（秒）
-  min_duration: float      # 最小セグメント長（秒）
+**目的**: 細切れになった音声セグメントを適切に結合し、自然な編集結果を生成する。
 
-出力:
-  merged: TimeRange[]      # 結合後のセグメント
+**処理概要**:
+1️⃣ **結合判定の3条件**
+   - **間隔条件**: セグメント間の無音が0.3秒以下なら結合（短い息継ぎは残す）
+   - **最小長条件**: 0.3秒未満の短いセグメントは前後と結合（言い淀みの除去）
+   - **コンテキスト保持**: 短いセグメントでも重要な単語なら独立させる
 
-アルゴリズム:
-1. 初期化
-   merged = []
-   current = segments[0]
-   
-2. 結合処理
-   for i = 1 to len(segments)-1:
-     next = segments[i]
-     gap = next.start - current.end
-     
-     # 結合条件判定
-     should_merge = (
-       gap <= min_gap OR
-       current.duration < min_duration OR
-       next.duration < min_duration
-     )
-     
-     if should_merge:
-       # 結合
-       current.end = next.end
-       current.text += " " + next.text
-       current.segment_ids.extend(next.segment_ids)
-     else:
-       # 現在のセグメントを確定
-       merged.append(current)
-       current = next
+2️⃣ **結合処理の実行**
+   - 時系列順にセグメントを走査し、条件を満たす隣接セグメントを統合
+   - テキストは空白で連結し、セグメントIDリストも統合
+   - 結合により新たに短いセグメントが生まれた場合は再評価
+
+3️⃣ **品質保証**
+   - 結合後も元の音声タイミング情報は保持（後で分割可能）
+   - 過度な結合を防ぐため、5秒を超える結合は警告
+   - ユーザーが後から結合パラメータを調整できるよう設計
    
    # 最後のセグメント追加
    merged.append(current)
@@ -685,43 +662,26 @@ finally:
 
 #### 5.4.1 Docker環境エラーメッセージ
 
-```python
-# Docker特有のエラーに対する具体的なメッセージ
-DOCKER_ERROR_MESSAGES = {
-    "no space left on device": 
-        "Dockerの容量が不足しています。\n"
-        "解決方法:\n"
-        "1. docker system prune -a を実行\n"
-        "2. Docker Desktopの設定でディスク容量を増やす",
-    
-    "cannot allocate memory":
-        "Dockerのメモリ割り当てが不足しています。\n"
-        "解決方法:\n"
-        "1. Docker Desktop → Settings → Resources\n"
-        "2. Memoryを8GB以上に設定\n"
-        "3. Docker Desktopを再起動",
-    
-    "permission denied":
-        "ファイルアクセス権限エラー。\n"
-        "解決方法:\n"
-        "- Windows: Docker Desktop → Settings → Resources → File Sharing\n"
-        "- Mac: Docker Desktop → Preferences → Resources → File Sharing",
-        
-    "port is already allocated":
-        "ポート8501が既に使用されています。\n"
-        "解決方法:\n"
-        "1. 他のStreamlitアプリを終了\n"
-        "2. または docker-compose.yml でポートを変更"
-}
+**Docker環境固有のエラーハンドリング**:
 
-def handle_docker_error(error: Exception) -> str:
-    """Docker特有のエラーを分かりやすいメッセージに変換"""
-    error_str = str(error).lower()
-    for pattern, message in DOCKER_ERROR_MESSAGES.items():
-        if pattern in error_str:
-            return message
-    return f"Docker関連のエラー: {error}"
-```
+1️⃣ **容量不足エラー** ("no space left on device")
+   - Dockerの不要なイメージやコンテナを削除するコマンドを案内
+   - Docker Desktopのディスク割り当て設定へのナビゲーションを提供
+
+2️⃣ **メモリ不足エラー** ("cannot allocate memory")
+   - Docker Desktopのメモリ設定画面への具体的なパスを表示
+   - 推奨メモリサイズ（8GB以上）を明記
+   - 設定変更後のDocker再起動をリマインド
+
+3️⃣ **ファイルアクセス権限エラー** ("permission denied")
+   - Windows/Mac別のFile Sharing設定手順を表示
+   - 共有すべきフォルダの具体例を提示
+
+4️⃣ **ポート競合エラー** ("port is already allocated")
+   - 他のStreamlitインスタンスの終了方法を案内
+   - docker-compose.ymlでのポート変更方法を提示
+
+これらのエラーは自動的に検出され、ユーザーに分かりやすい日本語の解決策を表示します。
 
 #### 5.4.2 ファイル操作の競合防止
 
@@ -940,238 +900,114 @@ class TempFileManager:
 
 ### 5.5 処理キャンセルとグレースフルシャットダウン
 
-```python
-import signal
-import threading
-from typing import Optional, Callable
+**安全な処理中断メカニズム**:
 
-class ProcessingManager:
-    """処理の実行管理とキャンセル機能"""
-    
-    def __init__(self):
-        self._cancelled = False
-        self._current_task = None
-        self._cleanup_callbacks = []
-        self._lock = threading.Lock()
-        
-        # シグナルハンドラの設定
-        signal.signal(signal.SIGINT, self._signal_handler)
-        signal.signal(signal.SIGTERM, self._signal_handler)
-        
-    def _signal_handler(self, signum, frame):
-        """Ctrl+Cなどのシグナルを受け取った時の処理"""
-        logger.info(f"Received signal {signum}, initiating graceful shutdown...")
-        self.cancel()
-        
-    def register_cleanup(self, callback: Callable):
-        """クリーンアップ処理を登録"""
-        self._cleanup_callbacks.append(callback)
-        
-    def cancel(self):
-        """処理をキャンセル"""
-        with self._lock:
-            self._cancelled = True
-            logger.info("Processing cancelled by user")
-            
-    def is_cancelled(self) -> bool:
-        """キャンセル状態を確認"""
-        return self._cancelled
-        
-    def check_cancelled(self):
-        """キャンセルされていれば例外を投げる"""
-        if self._cancelled:
-            raise ProcessingCancelledException("処理がキャンセルされました")
-            
-    def set_current_task(self, task_name: str):
-        """現在のタスクを設定"""
-        with self._lock:
-            self._current_task = task_name
-            
-    def run_with_cancellation(self, func: Callable, *args, **kwargs):
-        """キャンセル可能な処理を実行"""
-        try:
-            # 定期的にキャンセル状態をチェック
-            result = func(*args, **kwargs, cancel_check=self.check_cancelled)
-            return result
-            
-        except ProcessingCancelledException:
-            logger.info(f"Task '{self._current_task}' was cancelled")
-            self._run_cleanup()
-            raise
-            
-        except Exception as e:
-            logger.error(f"Error in task '{self._current_task}': {e}")
-            self._run_cleanup()
-            raise
-            
-    def _run_cleanup(self):
-        """登録されたクリーンアップ処理を実行"""
-        for callback in self._cleanup_callbacks:
-            try:
-                callback()
-            except Exception as e:
-                logger.error(f"Cleanup error: {e}")
-                
-class ProcessingCancelledException(Exception):
-    """処理キャンセル時の例外"""
-    pass
+1️⃣ **シグナルハンドリング**
+   - Ctrl+C（SIGINT）やDockerの停止シグナル（SIGTERM）を適切に処理
+   - シグナル受信時は処理中のタスクを安全に停止してからクリーンアップ
+   - 強制終了ではなく、適切なタイミングでの停止を保証
 
-# 使用例
-def process_video_with_cancellation(video_path: Path, manager: ProcessingManager):
-    # クリーンアップ処理を登録
-    temp_manager = TempFileManager()
-    manager.register_cleanup(temp_manager.cleanup_all)
-    
-    # 各処理ステップでキャンセルチェック
-    for i, chunk in enumerate(chunks):
-        manager.check_cancelled()  # キャンセルチェック
-        manager.set_current_task(f"Processing chunk {i+1}/{len(chunks)}")
-        
-        result = process_chunk(chunk)
-        
-        # 定期的な進捗保存
-        if i % 5 == 0:
-            save_checkpoint(i, result)
-```
+2️⃣ **キャンセル状態の管理**
+   - スレッドセーフな状態管理でマルチスレッド環境でも安全
+   - 現在実行中のタスク名を記録して、何が中断されたか明確化
+   - キャンセル要求後も進行中の処理は完了まで待機
+
+3️⃣ **クリーンアップ処理の登録と実行**
+   - 一時ファイルの削除、メモリ解放、ログのフラッシュなどを自動実行
+   - 複数のクリーンアップ処理を登録可能で、エラー時も全て実行
+   - クリーンアップ中のエラーもログに記録して見逃さない
+
+4️⃣ **定期的なチェックポイント**
+   - 長時間処理では5チャンクごとに進捗を保存
+   - 中断時も最後のチェックポイントから再開可能
+   - 各処理ループの開始時にキャンセル状態を確認
+
+**実装のポイント**:
+- 処理の各段階でキャンセルチェックを挿入し、応答性を確保
+- クリーンアップは逆順で実行し、依存関係を適切に処理
+- エラーとキャンセルを区別して、適切なメッセージを表示
 
 ## 6. パフォーマンス最適化詳細
 
 ### 6.1 並列処理の実装
 
-```python
-import platform
-import os
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+### 6.1 並列処理最適化
 
-class ParallelProcessingOptimizer:
-    """ローカル環境に最適化された並列処理"""
-    
-    @staticmethod
-    def get_optimal_workers() -> int:
-        """最適なワーカー数を決定"""
-        cpu_count = os.cpu_count() or 1
-        
-        # プラットフォーム別の最適化
-        if platform.system() == "Darwin":  # macOS
-            # Apple Siliconの場合、Efficiency coreを考慮
-            if platform.processor() == "arm":
-                # M1/M2: Performance coreのみ使用
-                return min(4, cpu_count // 2)
-            else:
-                # Intel Mac
-                return max(1, cpu_count - 1)
-                
-        elif platform.system() == "Windows":
-            # Windowsは1コア余裕を持たせる
-            return max(1, cpu_count - 1)
-            
-        else:  # Linux
-            # Dockerコンテナ内では控えめに
-            return min(4, max(1, cpu_count - 1))
-    
-    @staticmethod
-    def get_chunk_size(available_memory_mb: float) -> int:
-        """利用可能メモリに基づくチャンクサイズ（秒）"""
-        if available_memory_mb < 2000:
-            return 300  # 5分
-        elif available_memory_mb < 4000:
-            return 600  # 10分
-        else:
-            return 900  # 15分
-    
-    @staticmethod
-    def should_use_gpu() -> bool:
-        """GPU使用可否を判定"""
-        try:
-            import torch
-            return torch.cuda.is_available()
-        except ImportError:
-            return False
+**プラットフォーム別のワーカー数決定ロジック**:
 
-# 並列処理の実装例
-class ChunkProcessor:
-    def __init__(self):
-        self.workers = ParallelProcessingOptimizer.get_optimal_workers()
-        self.executor = ProcessPoolExecutor(max_workers=self.workers)
-        
-    def process_chunks(self, chunks: List[AudioChunk], cancel_check: Callable):
-        """チャンクを並列処理"""
-        futures = []
-        
-        for i, chunk in enumerate(chunks):
-            # キャンセルチェック
-            cancel_check()
-            
-            # 非同期でタスクを投入
-            future = self.executor.submit(self._process_single_chunk, chunk)
-            futures.append((i, future))
-            
-        # 結果の収集（順序を保持）
-        results = [None] * len(chunks)
-        for i, future in futures:
-            try:
-                result = future.result(timeout=300)  # 5分タイムアウト
-                results[i] = result
-            except TimeoutError:
-                logger.error(f"Chunk {i} processing timeout")
-                raise
-            except Exception as e:
-                logger.error(f"Chunk {i} processing error: {e}")
-                raise
-                
-        return results
-```
+1️⃣ **macOS (Apple Silicon)**
+   - CPUコア数の半分をPerformance coreとみなして使用
+   - 最大4ワーカーに制限（電力効率とパフォーマンスのバランス）
+   - Efficiency coreはシステムタスク用に予約
+
+2️⃣ **macOS (Intel) / Windows**
+   - 全CPUコア数から1コアをOS用に予約
+   - システムの快適性を保つためUIの応答性を優先
+
+3️⃣ **Linux (Docker内)**
+   - 最大4ワーカーに制限（コンテナの安定性を重視）
+   - 他のコンテナとのリソース競合を回避
+
+**メモリ基準のチャンクサイズ自動調整**:
+- 2GB未満：5分チャンク（安全マージンを最大化）
+- 2-4GB：10分チャンク（バランス重視）
+- 4GB以上：15分チャンク（パフォーマンス優先）
+
+**非同期チャンク処理の実行フロー**:
+1️⃣ 動画を指定サイズ（既定600秒）のチャンクに分割
+2️⃣ 各チャンクをプロセスプールに非同期投入
+3️⃣ 各タスクは最大5分でタイムアウトし、失敗時は全体を中断
+4️⃣ 正常終了したチャンク結果を元の順序でマージ
+5️⃣ キャンセルチェックは各チャンク投入前に実施
 
 ### 6.2 メモリ管理戦略
 
-```
-メモリ使用量の推定:
-- 音声データ: duration_sec * 16000 * 2 bytes
-- 文字起こしモデル: 1.5GB (medium)
-- 作業用バッファ: 500MB
-- 合計: model_size + audio_size + buffer
+**メモリ使用量の事前計算**:
+1️⃣ **音声データのサイズ推定**
+   - 16kHzモノラル16ビット音声：1秒あたり32KB
+   - 90分動画の場合：約170MBの音声データ
 
-メモリ制限の実装:
-1. Docker割り当ての80%を上限に設定
-2. 処理前にメモリチェック
-3. 不足時は以下を調整:
-   - バッチサイズ: 16 → 8 → 4
-   - チャンクサイズ: 600秒 → 300秒 → 150秒
-   - ワーカー数: 4 → 2 → 1
+2️⃣ **モデルサイズ別のメモリ要件**
+   - tiny: 500MB、base: 1GB、small: 2GB、medium: 3GB、large: 5GB
+   - 作業用バッファとして追加で500MB確保
 
-ガベージコレクション:
-- 大きなオブジェクト解放後に明示的にGC実行
-- 循環参照の回避
-- weakrefの活用
-```
+**Docker環境でのメモリ制限実装**:
+1️⃣ Docker Desktopの割り当てメモリの80%を上限に設定
+2️⃣ 処理開始前に必要メモリを計算してチェック
+3️⃣ メモリ不足時の段階的パラメータ調整：
+   - 第1段階：バッチサイズを半減（16→48→4）
+   - 第2段階：チャンクサイズを半減（10分→5分→2.5分）
+   - 第3段階：並列数を減らす（4→2→1）
+
+**メモリ効率化の工夫**:
+- 大きなオブジェクト（動画ファイル、モデル等）の解放後にPythonのガベージコレクションを明示的に実行
+- 循環参照を避ける設計でメモリリークを防止
+- 大きなデータはweakrefを使用して必要時のみ保持
 
 ### 6.3 キャッシュ戦略
 
+**キャッシュキーの生成ロジック**:
+1️⃣ 動画ファイルの先頭1MBからSHA256ハッシュを計算
+2️⃣ ファイルの最終更新時刻とサイズを追加
+3️⃣ 使用モデル名と言語コードを結合
+4️⃣ これらを組み合わせて一意なキャッシュキーを生成
+
+**ファイル構成と命名規則**:
 ```
-キャッシュキー生成:
-key = sha256(
-    file_content_hash +
-    str(file_mtime) +
-    model_name +
-    language_code
-).hexdigest()
-
-キャッシュ構造:
-video_folder/
-├── transcription.json     # 文字起こし結果（非圧縮）
-├── cache.json            # キャッシュメタデータ
-└── *.mp4, *.fcpxml, *.srt # 各種出力ファイル（連番付き）
-
-出力ファイル命名規則:
-- 切り抜きのみ: {base_name}_cut_{連番:03d}.mp4
-- 切り抜き＋無音削除: {base_name}_cut_ns_{連番:03d}.mp4
-- その他: {base_name}_{連番:03d}.{拡張子}
-
-キャッシュ有効性:
-- ファイル変更検出: mtime + size
-- 整合性確認: SHA256チェックサム
-- バージョン管理: スキーマバージョン
+video_folder/                        # 動画と同名のフォルダ
+├── transcription.json              # 文字起こし結果（整形済みJSON）
+├── cache.json                      # キャッシュ情報（作成日時、バージョン等）
+├── {base}_cut_001.mp4              # 切り抜きのみ（3桁連番）
+├── {base}_cut_ns_001.mp4           # 切り抜き＋無音削除
+├── {base}_001.fcpxml               # FCPXMLエクスポート
+└── {base}_001.srt                  # 字幕ファイル
 ```
+
+**キャッシュの有効性チェック**:
+1️⃣ ファイルの変更検出：最終更新時刻とサイズで高速判定
+2️⃣ 整合性確認：SHA256チェックサムでファイルの同一性を保証
+3️⃣ バージョン管理：スキーマバージョンでフォーマット互換性を維持
+4️⃣ 自動クリーンアップ：30日以上古いキャッシュは起動時に削除
 
 ## 7. プラットフォーム別実装詳細
 
@@ -1438,8 +1274,647 @@ def update_progress(task: str, progress: float, detail: str = ""):
 | エラー率 | 1%以下 | ログ分析 |
 | 文字起こし精度 | 85%以上 | WER測定 |
 
+## 12. セキュリティ設計
+
+### 12.1 コマンドインジェクション対策
+
+#### FFmpeg/yt-dlp呼び出しの安全な実装
+
+```python
+import shlex
+import subprocess
+from pathlib import Path
+from typing import List, Optional
+
+class SecureCommandExecutor:
+    """外部コマンドの安全な実行"""
+    
+    # 許可されたコマンドのホワイトリスト
+    ALLOWED_COMMANDS = {
+        'ffmpeg', 'ffprobe', 'yt-dlp'
+    }
+    
+    @staticmethod
+    def validate_command(command: str) -> bool:
+        """コマンドの検証"""
+        cmd_name = Path(command).name
+        return cmd_name in SecureCommandExecutor.ALLOWED_COMMANDS
+    
+    @staticmethod
+    def sanitize_path(path: str) -> str:
+        """パスの安全性チェックとサニタイズ"""
+        # パストラバーサル対策
+        path = Path(path).resolve()
+        
+        # 許可されたディレクトリ内かチェック
+        allowed_dirs = [
+            Path("/app/videos"),
+            Path("/tmp"),
+            Path.home() / "videos"
+        ]
+        
+        if not any(path.is_relative_to(allowed) for allowed in allowed_dirs):
+            raise ValueError(f"Unauthorized path: {path}")
+            
+        return str(path)
+    
+    @staticmethod
+    def build_ffmpeg_command(
+        input_file: str,
+        output_file: str,
+        options: dict
+    ) -> List[str]:
+        """FFmpegコマンドの安全な構築"""
+        # パスのサニタイズ
+        input_file = SecureCommandExecutor.sanitize_path(input_file)
+        output_file = SecureCommandExecutor.sanitize_path(output_file)
+        
+        # 基本コマンド
+        cmd = ['ffmpeg', '-i', input_file]
+        
+        # オプションの安全な追加
+        safe_options = {
+            'codec': ['-c:v', '-c:a'],
+            'bitrate': ['-b:v', '-b:a'],
+            'framerate': ['-r'],
+            'resolution': ['-s'],
+            'duration': ['-t'],
+            'start_time': ['-ss']
+        }
+        
+        for key, value in options.items():
+            if key in safe_options:
+                for flag in safe_options[key]:
+                    cmd.extend([flag, str(value)])
+        
+        cmd.append(output_file)
+        return cmd
+    
+    @staticmethod
+    def execute_command(
+        command: List[str],
+        timeout: int = 3600
+    ) -> subprocess.CompletedProcess:
+        """コマンドの安全な実行"""
+        # コマンド検証
+        if not command or not SecureCommandExecutor.validate_command(command[0]):
+            raise ValueError("Invalid command")
+        
+        # 環境変数のクリーンアップ
+        env = {
+            'PATH': '/usr/local/bin:/usr/bin:/bin',
+            'LANG': 'C.UTF-8'
+        }
+        
+        try:
+            # シェル展開を無効化して実行
+            result = subprocess.run(
+                command,
+                shell=False,  # 重要: シェル展開を無効化
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                check=True
+            )
+            return result
+        except subprocess.TimeoutExpired:
+            raise TimeoutError(f"Command timed out after {timeout} seconds")
+        except subprocess.CalledProcessError as e:
+            raise RuntimeError(f"Command failed: {e.stderr}")
+
+# 使用例
+def extract_audio_secure(video_path: str, output_path: str):
+    """音声抽出の安全な実装"""
+    executor = SecureCommandExecutor()
+    
+    # オプションを辞書で管理
+    options = {
+        'codec': 'pcm_s16le',
+        'bitrate': '16k',
+        'channels': '1'
+    }
+    
+    # コマンド構築
+    command = executor.build_ffmpeg_command(
+        video_path,
+        output_path,
+        options
+    )
+    
+    # 安全に実行
+    result = executor.execute_command(command)
+    return result
+```
+
+### 12.2 APIキー暗号化実装
+
+```python
+import os
+import json
+from pathlib import Path
+from cryptography.fernet import Fernet
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+import base64
+
+class SecureConfigManager:
+    """APIキーなど機密情報の安全な管理"""
+    
+    def __init__(self, config_dir: Path = None):
+        self.config_dir = config_dir or Path.home() / ".textffcut"
+        self.config_dir.mkdir(exist_ok=True)
+        self.key_file = self.config_dir / ".key"
+        self.config_file = self.config_dir / "secure_config.enc"
+        
+    def _get_or_create_key(self) -> bytes:
+        """暗号化キーの取得または生成"""
+        if self.key_file.exists():
+            # 既存のキーを読み込み
+            with open(self.key_file, 'rb') as f:
+                return f.read()
+        else:
+            # 新しいキーを生成
+            # マシン固有の情報からキーを派生
+            machine_id = str(os.environ.get('HOSTNAME', 'default'))
+            salt = b'textffcut_salt_v1'  # アプリケーション固有の塩
+            
+            kdf = PBKDF2HMAC(
+                algorithm=hashes.SHA256(),
+                length=32,
+                salt=salt,
+                iterations=100000,
+            )
+            key = base64.urlsafe_b64encode(
+                kdf.derive(machine_id.encode())
+            )
+            
+            # キーを保存（権限600）
+            with open(self.key_file, 'wb') as f:
+                f.write(key)
+            self.key_file.chmod(0o600)
+            
+            return key
+    
+    def save_api_key(self, api_key: str, provider: str = 'openai'):
+        """APIキーの暗号化保存"""
+        # 暗号化オブジェクト生成
+        fernet = Fernet(self._get_or_create_key())
+        
+        # 既存の設定を読み込み
+        config = self._load_config()
+        
+        # APIキーを設定に追加
+        if 'api_keys' not in config:
+            config['api_keys'] = {}
+        config['api_keys'][provider] = api_key
+        
+        # 設定全体を暗号化して保存
+        encrypted_data = fernet.encrypt(
+            json.dumps(config).encode()
+        )
+        
+        with open(self.config_file, 'wb') as f:
+            f.write(encrypted_data)
+        self.config_file.chmod(0o600)
+    
+    def get_api_key(self, provider: str = 'openai') -> Optional[str]:
+        """APIキーの復号化取得"""
+        config = self._load_config()
+        return config.get('api_keys', {}).get(provider)
+    
+    def _load_config(self) -> dict:
+        """設定の読み込みと復号化"""
+        if not self.config_file.exists():
+            return {}
+            
+        fernet = Fernet(self._get_or_create_key())
+        
+        with open(self.config_file, 'rb') as f:
+            encrypted_data = f.read()
+            
+        try:
+            decrypted_data = fernet.decrypt(encrypted_data)
+            return json.loads(decrypted_data.decode())
+        except Exception as e:
+            logger.error(f"Failed to decrypt config: {e}")
+            return {}
+    
+    def rotate_keys(self):
+        """暗号化キーの更新"""
+        # 既存の設定を読み込み
+        config = self._load_config()
+        
+        # 古いキーを削除
+        if self.key_file.exists():
+            self.key_file.unlink()
+            
+        # 新しいキーで再暗号化
+        if config:
+            # 新しいキーを生成
+            new_key = self._get_or_create_key()
+            fernet = Fernet(new_key)
+            
+            # 再暗号化して保存
+            encrypted_data = fernet.encrypt(
+                json.dumps(config).encode()
+            )
+            
+            with open(self.config_file, 'wb') as f:
+                f.write(encrypted_data)
+
+# 使用例
+config_manager = SecureConfigManager()
+
+# APIキーの保存
+config_manager.save_api_key("sk-xxxxxxxx", "openai")
+
+# APIキーの取得
+api_key = config_manager.get_api_key("openai")
+```
+
+## 13. 共通エラーコンテキスト
+
+### 13.1 ErrorContext定義
+
+```python
+from dataclasses import dataclass
+from typing import Optional, Dict, Any
+from datetime import datetime
+import traceback
+import json
+
+@dataclass
+class ErrorContext:
+    """エラー情報の統一的な管理"""
+    
+    # 基本情報
+    error_id: str  # UUID
+    timestamp: datetime
+    error_type: str  # 例: "ValidationError", "ProcessingError"
+    severity: str  # "low", "medium", "high", "critical"
+    
+    # エラー詳細
+    message: str  # ユーザー向けメッセージ
+    technical_message: str  # 技術的な詳細
+    error_code: str  # アプリケーション固有のエラーコード
+    
+    # コンテキスト情報
+    module: str  # 発生モジュール
+    function: str  # 発生関数
+    line_number: int  # 発生行番号
+    
+    # 追加情報
+    user_action: Optional[str] = None  # ユーザーが実行していた操作
+    recovery_suggestion: Optional[str] = None  # リカバリー方法の提案
+    metadata: Optional[Dict[str, Any]] = None  # その他のメタデータ
+    stack_trace: Optional[str] = None  # スタックトレース
+    
+    def to_user_message(self) -> str:
+        """ユーザー向けメッセージの生成"""
+        msg = f"エラーが発生しました: {self.message}"
+        if self.recovery_suggestion:
+            msg += f"\n\n対処方法: {self.recovery_suggestion}"
+        return msg
+    
+    def to_log_entry(self) -> dict:
+        """ログエントリーの生成"""
+        return {
+            "error_id": self.error_id,
+            "timestamp": self.timestamp.isoformat(),
+            "error_type": self.error_type,
+            "severity": self.severity,
+            "error_code": self.error_code,
+            "module": self.module,
+            "function": self.function,
+            "line_number": self.line_number,
+            "message": self.technical_message,
+            "user_action": self.user_action,
+            "metadata": self.metadata,
+            "stack_trace": self.stack_trace
+        }
+
+class ErrorContextManager:
+    """エラーコンテキストの一元管理"""
+    
+    def __init__(self):
+        self.error_mappings = {
+            # エラータイプ -> (ユーザーメッセージ, リカバリー提案)
+            "FileNotFoundError": (
+                "指定されたファイルが見つかりません",
+                "ファイルパスを確認してください"
+            ),
+            "MemoryError": (
+                "メモリが不足しています",
+                "他のアプリケーションを終了するか、処理する動画を分割してください"
+            ),
+            "FFmpegError": (
+                "動画処理でエラーが発生しました",
+                "動画ファイルが破損していないか確認してください"
+            ),
+            "WhisperError": (
+                "文字起こしでエラーが発生しました",
+                "音声トラックが含まれているか確認してください"
+            ),
+            "APIError": (
+                "API通信でエラーが発生しました",
+                "インターネット接続とAPIキーを確認してください"
+            )
+        }
+    
+    def create_context(
+        self,
+        exception: Exception,
+        user_action: str = None,
+        metadata: dict = None
+    ) -> ErrorContext:
+        """例外からエラーコンテキストを生成"""
+        import uuid
+        import inspect
+        
+        # エラーIDの生成
+        error_id = str(uuid.uuid4())
+        
+        # 例外情報の取得
+        error_type = type(exception).__name__
+        frame = inspect.currentframe().f_back
+        
+        # マッピングからメッセージ取得
+        user_msg, recovery = self.error_mappings.get(
+            error_type,
+            ("処理中にエラーが発生しました", "アプリケーションを再起動してください")
+        )
+        
+        return ErrorContext(
+            error_id=error_id,
+            timestamp=datetime.now(),
+            error_type=error_type,
+            severity=self._determine_severity(error_type),
+            message=user_msg,
+            technical_message=str(exception),
+            error_code=f"ERR_{error_type.upper()}",
+            module=frame.f_globals.get('__name__', 'unknown'),
+            function=frame.f_code.co_name,
+            line_number=frame.f_lineno,
+            user_action=user_action,
+            recovery_suggestion=recovery,
+            metadata=metadata,
+            stack_trace=traceback.format_exc()
+        )
+    
+    def _determine_severity(self, error_type: str) -> str:
+        """エラータイプから重要度を判定"""
+        critical_errors = {"MemoryError", "SystemError"}
+        high_errors = {"FFmpegError", "WhisperError", "IOError"}
+        medium_errors = {"APIError", "ValidationError"}
+        
+        if error_type in critical_errors:
+            return "critical"
+        elif error_type in high_errors:
+            return "high"
+        elif error_type in medium_errors:
+            return "medium"
+        else:
+            return "low"
+
+# グローバルインスタンス
+error_manager = ErrorContextManager()
+
+# 使用例
+def process_video(video_path: str):
+    try:
+        # 処理実行
+        result = video_processor.process(video_path)
+        return result
+    except Exception as e:
+        # エラーコンテキストの生成
+        context = error_manager.create_context(
+            exception=e,
+            user_action="動画処理",
+            metadata={"video_path": video_path}
+        )
+        
+        # ログ出力
+        logger.error(json.dumps(context.to_log_entry()))
+        
+        # UI表示
+        st.error(context.to_user_message())
+        
+        # エラートラッキング（オプション）
+        if st.session_state.get('send_error_reports', False):
+            send_error_report(context)
+        
+        raise
+```
+
+## 14. Docker再起動時のステート永続化
+
+### 14.1 処理状態の管理
+
+```python
+import json
+import pickle
+from pathlib import Path
+from typing import Optional, Dict, Any
+from datetime import datetime
+import hashlib
+
+class ProcessingStateManager:
+    """処理状態の永続化とリカバリー"""
+    
+    def __init__(self, state_dir: Path = None):
+        self.state_dir = state_dir or Path("/app/state")
+        self.state_dir.mkdir(exist_ok=True)
+        
+    def save_state(
+        self,
+        video_path: str,
+        state: str,  # "transcribing", "processing", "exporting"
+        progress: float,
+        data: Dict[str, Any]
+    ):
+        """処理状態の保存"""
+        # 動画ファイルから一意のIDを生成
+        video_id = self._generate_video_id(video_path)
+        state_file = self.state_dir / f"{video_id}.state"
+        
+        state_data = {
+            "video_path": video_path,
+            "video_id": video_id,
+            "state": state,
+            "progress": progress,
+            "timestamp": datetime.now().isoformat(),
+            "data": data,
+            "checksum": self._calculate_checksum(video_path)
+        }
+        
+        # アトミックな書き込み
+        temp_file = state_file.with_suffix('.tmp')
+        with open(temp_file, 'w') as f:
+            json.dump(state_data, f, indent=2)
+        temp_file.replace(state_file)
+        
+    def load_state(self, video_path: str) -> Optional[Dict[str, Any]]:
+        """処理状態の読み込み"""
+        video_id = self._generate_video_id(video_path)
+        state_file = self.state_dir / f"{video_id}.state"
+        
+        if not state_file.exists():
+            return None
+            
+        try:
+            with open(state_file, 'r') as f:
+                state_data = json.load(f)
+                
+            # チェックサムの検証
+            if state_data['checksum'] != self._calculate_checksum(video_path):
+                logger.warning("Video file has been modified, ignoring saved state")
+                return None
+                
+            return state_data
+        except Exception as e:
+            logger.error(f"Failed to load state: {e}")
+            return None
+    
+    def clear_state(self, video_path: str):
+        """処理状態のクリア"""
+        video_id = self._generate_video_id(video_path)
+        state_file = self.state_dir / f"{video_id}.state"
+        
+        if state_file.exists():
+            state_file.unlink()
+    
+    def cleanup_old_states(self, days: int = 7):
+        """古い状態ファイルのクリーンアップ"""
+        import time
+        
+        now = time.time()
+        cutoff = now - (days * 24 * 60 * 60)
+        
+        for state_file in self.state_dir.glob("*.state"):
+            if state_file.stat().st_mtime < cutoff:
+                state_file.unlink()
+                logger.info(f"Cleaned up old state file: {state_file}")
+    
+    def _generate_video_id(self, video_path: str) -> str:
+        """動画ファイルパスから一意のIDを生成"""
+        return hashlib.md5(video_path.encode()).hexdigest()[:16]
+    
+    def _calculate_checksum(self, video_path: str) -> str:
+        """動画ファイルのチェックサム計算（最初の1MB）"""
+        hasher = hashlib.sha256()
+        
+        with open(video_path, 'rb') as f:
+            # 最初の1MBのみ読み込み（パフォーマンス考慮）
+            data = f.read(1024 * 1024)
+            hasher.update(data)
+            
+        # ファイルサイズも含める
+        file_size = Path(video_path).stat().st_size
+        hasher.update(str(file_size).encode())
+        
+        return hasher.hexdigest()
+
+class TranscriptionRecovery:
+    """文字起こし処理のリカバリー"""
+    
+    def __init__(self, state_manager: ProcessingStateManager):
+        self.state_manager = state_manager
+        
+    def check_recovery(self, video_path: str) -> Optional[Dict[str, Any]]:
+        """リカバリー可能な状態があるかチェック"""
+        state = self.state_manager.load_state(video_path)
+        
+        if not state:
+            return None
+            
+        # 24時間以内の状態のみリカバリー対象
+        timestamp = datetime.fromisoformat(state['timestamp'])
+        if (datetime.now() - timestamp).total_seconds() > 86400:
+            return None
+            
+        return state
+    
+    def recover_transcription(self, state: Dict[str, Any]):
+        """文字起こし処理の再開"""
+        video_path = state['video_path']
+        progress = state['progress']
+        data = state['data']
+        
+        # 進捗に応じて処理を再開
+        if progress < 0.1:
+            # 音声抽出から再開
+            return self._resume_from_extraction(video_path, data)
+        elif progress < 0.7:
+            # 文字起こしから再開
+            return self._resume_from_transcription(video_path, data)
+        elif progress < 0.9:
+            # アライメントから再開
+            return self._resume_from_alignment(video_path, data)
+        else:
+            # 後処理から再開
+            return self._resume_from_postprocess(video_path, data)
+    
+    def _resume_from_extraction(self, video_path: str, data: dict):
+        """音声抽出からの再開"""
+        # 一時ファイルが存在するかチェック
+        temp_wav = data.get('temp_wav_path')
+        if temp_wav and Path(temp_wav).exists():
+            logger.info("Resuming from existing audio file")
+            return self._continue_transcription(video_path, temp_wav, data)
+        else:
+            logger.info("Starting from audio extraction")
+            return self._start_fresh_transcription(video_path)
+    
+    def _resume_from_transcription(self, video_path: str, data: dict):
+        """文字起こしからの再開"""
+        # 処理済みチャンクを確認
+        processed_chunks = data.get('processed_chunks', [])
+        total_chunks = data.get('total_chunks', 0)
+        
+        if processed_chunks:
+            logger.info(f"Resuming transcription from chunk {len(processed_chunks)}/{total_chunks}")
+            return self._continue_chunk_processing(video_path, data)
+        else:
+            return self._resume_from_extraction(video_path, data)
+
+# アプリケーション起動時のリカバリーチェック
+def check_and_recover_on_startup():
+    """Docker再起動時のリカバリー処理"""
+    state_manager = ProcessingStateManager()
+    recovery = TranscriptionRecovery(state_manager)
+    
+    # 状態ファイルをスキャン
+    recovered_count = 0
+    for state_file in Path("/app/state").glob("*.state"):
+        try:
+            with open(state_file, 'r') as f:
+                state = json.load(f)
+                
+            video_path = state['video_path']
+            if Path(video_path).exists():
+                logger.info(f"Found recoverable state for: {video_path}")
+                
+                # UIでリカバリー確認
+                if st.button(f"前回の処理を再開しますか？\n{Path(video_path).name}"):
+                    recovery.recover_transcription(state)
+                    recovered_count += 1
+            else:
+                # 動画ファイルが存在しない場合は状態を削除
+                state_file.unlink()
+                
+        except Exception as e:
+            logger.error(f"Failed to recover state: {e}")
+            
+    # 古い状態ファイルのクリーンアップ
+    state_manager.cleanup_old_states()
+    
+    return recovered_count
+```
+
 ---
 
 **作成日**: 2025-06-22  
-**バージョン**: 3.0  
+**バージョン**: 3.1  
+**更新日**: 2025-06-23  
 **次回更新**: 実装完了時のフィードバック反映
