@@ -578,60 +578,32 @@ TimeRange:
 
 ### 5.2 エラーハンドリングフロー
 
-```
-try:
-    # メイン処理
-    result = process()
-    
-except ValidationError as e:
-    # 入力検証エラー（リトライ不要）
-    log.warning(f"Validation failed: {e}")
-    show_error_dialog(
-        title="入力エラー",
-        message=str(e),
-        details=e.details
-    )
-    return None
-    
-except MemoryError as e:
-    # メモリエラー（パラメータ調整して再試行）
-    log.error(f"Memory error: {e}")
-    if retry_count < 3:
-        adjust_memory_parameters()
-        return retry_with_adjusted_params()
-    else:
-        show_critical_error("メモリ不足で処理を継続できません")
-        
-except APIError as e:
-    # APIエラー（フォールバック可能）
-    log.error(f"API error: {e.status_code} - {e.message}")
-    if e.status_code == 429:  # Rate limit
-        wait_time = int(e.headers.get('Retry-After', 60))
-        return retry_after_wait(wait_time)
-    elif can_fallback_to_local():
-        return fallback_to_local_processing()
-    else:
-        show_api_error_dialog(e)
-        
-except Exception as e:
-    # 予期しないエラー
-    log.critical(f"Unexpected error: {e}", exc_info=True)
-    
-    # クラッシュレポート生成
-    crash_report = generate_crash_report(e)
-    save_crash_report(crash_report)
-    
-    # ユーザー通知
-    show_unexpected_error_dialog(
-        message="予期しないエラーが発生しました",
-        report_path=crash_report.path
-    )
-    
-finally:
-    # クリーンアップ
-    cleanup_temp_files()
-    release_resources()
-```
+**エラー種別に応じた段階的な処理戦略**:
+
+1️⃣ **入力検証エラー（ValidationError）**
+   - リトライ不要のエラーとして即座にユーザーに通知
+   - 警告レベルのログに記録し、詳細なエラー情報をダイアログで表示
+   - 処理を中断してNoneを返し、ユーザーの修正を待つ
+
+2️⃣ **メモリ不足エラー（MemoryError）**
+   - 最大3回まで自動的にパラメータを調整して再試行
+   - チャンクサイズやバッチサイズを段階的に削減
+   - 3回失敗したら重大エラーとしてユーザーに通知
+
+3️⃣ **API関連エラー（APIError）**
+   - レート制限（429）の場合：Retry-Afterヘッダーの時間だけ待機後に自動再試行
+   - 接続エラーの場合：ローカル処理へのフォールバックを試みる
+   - フォールバック不可の場合：APIエラー専用のダイアログを表示
+
+4️⃣ **予期しないエラー（Exception）**
+   - 重大エラーとしてスタックトレース付きでログ記録
+   - クラッシュレポートを生成して後の分析用に保存
+   - ユーザーには分かりやすいエラーメッセージとレポートパスを表示
+
+5️⃣ **必須クリーンアップ処理（finally）**
+   - エラーの有無に関わらず必ず実行
+   - 一時ファイルの削除とシステムリソースの解放
+   - クリーンアップ失敗時もアプリケーションは継続
 
 ### 5.3 チェックポイントとリカバリー
 
@@ -683,218 +655,80 @@ finally:
 
 #### 5.4.2 ファイル操作の競合防止
 
-```python
-from filelock import FileLock, Timeout
-from pathlib import Path
-import time
+**ファイルロック機構の実装**:
 
-class VideoFileLock:
-    """動画ファイルの排他制御"""
-    
-    def __init__(self, video_path: Path):
-        self.video_path = video_path
-        self.lock_path = video_path.parent / f".{video_path.stem}.lock"
-        self.lock = None
-        
-    def acquire(self, timeout: float = 1.0) -> bool:
-        """ロックを取得"""
-        try:
-            self.lock = FileLock(self.lock_path, timeout=timeout)
-            self.lock.acquire()
-            
-            # ロックファイルにプロセス情報を記録
-            with open(self.lock_path, 'w') as f:
-                f.write(f"pid: {os.getpid()}\n")
-                f.write(f"time: {time.time()}\n")
-                f.write(f"file: {self.video_path}\n")
-            
-            return True
-            
-        except Timeout:
-            # 他のプロセスが使用中
-            return False
-            
-    def release(self):
-        """ロックを解放"""
-        if self.lock:
-            self.lock.release()
-            try:
-                self.lock_path.unlink()
-            except:
-                pass
-                
-    def is_locked(self) -> bool:
-        """ロック状態を確認"""
-        if not self.lock_path.exists():
-            return False
-            
-        # 古いロックファイルは無効とする（10分以上）
-        try:
-            age = time.time() - self.lock_path.stat().st_mtime
-            if age > 600:  # 10分
-                self.lock_path.unlink()
-                return False
-        except:
-            pass
-            
-        return True
-        
-    def __enter__(self):
-        if not self.acquire():
-            raise RuntimeError(
-                f"ファイル '{self.video_path.name}' は他のタブで処理中です。\n"
-                "処理が完了するまでお待ちください。"
-            )
-        return self
-        
-    def __exit__(self, *args):
-        self.release()
-```
+1️⃣ **ロックファイルの管理**
+   - 動画ファイルと同じディレクトリに隠しファイル（.{filename}.lock）を作成
+   - ロックファイルにはプロセスID、タイムスタンプ、ファイルパスを記録
+   - FileLockライブラリを使用してOSレベルの排他制御を実現
+
+2️⃣ **ロック取得の試行**
+   - デフォルト1秒間ロック取得を試みる
+   - 取得成功時はTrue、タイムアウト時はFalseを返す
+   - 他のプロセスが使用中の場合は待機
+
+3️⃣ **古いロックの自動解除**
+   - 10分以上古いロックファイルは異常終了と判断
+   - 自動的に削除して新しいロックを許可
+   - クラッシュや強制終了時のデッドロックを防止
+
+4️⃣ **コンテキストマネージャー対応**
+   - with文での使用をサポート
+   - ロック取得失敗時は分かりやすいエラーメッセージを表示
+   - 処理終了時は確実にロックを解放
 
 #### 5.4.3 メモリ管理とチェック
 
-```python
-import psutil
-from typing import Tuple
+**インテリジェントなメモリ管理システム**:
 
-class MemoryManager:
-    """メモリ使用量の監視と制御"""
-    
-    @staticmethod
-    def get_memory_info() -> Tuple[float, float, float]:
-        """メモリ情報を取得 (使用中MB, 利用可能MB, 使用率%)"""
-        mem = psutil.virtual_memory()
-        used_mb = (mem.total - mem.available) / 1024 / 1024
-        available_mb = mem.available / 1024 / 1024
-        percent = mem.percent
-        return used_mb, available_mb, percent
-        
-    @staticmethod
-    def check_memory_before_processing(video_size_mb: float, model_size: str = "medium") -> None:
-        """処理前のメモリチェック"""
-        # モデルサイズによるメモリ要件
-        model_memory = {
-            "tiny": 500,
-            "base": 1000,
-            "small": 2000,
-            "medium": 3000,
-            "large": 5000
-        }
-        
-        # 必要メモリ = 動画サイズ×3 + モデルサイズ + バッファ
-        required_mb = video_size_mb * 3 + model_memory.get(model_size, 3000) + 500
-        
-        _, available_mb, _ = MemoryManager.get_memory_info()
-        
-        if available_mb < required_mb:
-            # Docker環境の場合の追加メッセージ
-            docker_msg = ""
-            if os.path.exists('/.dockerenv'):
-                docker_msg = "\n\nDocker Desktopのメモリ割り当てを増やすことも検討してください。"
-            
-            raise MemoryError(
-                f"メモリ不足: 処理には約{required_mb:.0f}MB必要ですが、\n"
-                f"利用可能なメモリは{available_mb:.0f}MBです。\n\n"
-                f"対処法:\n"
-                f"1. 他のアプリケーションを終了する\n"
-                f"2. より小さいモデルサイズを選択する\n"
-                f"3. 動画を分割して処理する{docker_msg}"
-            )
-    
-    @staticmethod
-    def adjust_parameters_for_memory(available_mb: float) -> dict:
-        """利用可能メモリに基づいてパラメータを自動調整"""
-        if available_mb < 2000:
-            return {
-                "batch_size": 4,
-                "chunk_length": 300,  # 5分
-                "workers": 1,
-                "model": "tiny"
-            }
-        elif available_mb < 4000:
-            return {
-                "batch_size": 8,
-                "chunk_length": 600,  # 10分
-                "workers": 2,
-                "model": "base"
-            }
-        else:
-            return {
-                "batch_size": 16,
-                "chunk_length": 900,  # 15分
-                "workers": 4,
-                "model": "medium"
-            }
-```
+1️⃣ **リアルタイムメモリ監視**
+   - psutilライブラリでシステムのメモリ情報を取得
+   - 使用中メモリ、利用可能メモリ、使用率をMB単位で返す
+   - Docker内でもコンテナに割り当てられたメモリを正確に取得
+
+2️⃣ **処理前のメモリ要件計算**
+   - 動画サイズ×3（入力、処理、出力用）
+   - モデルサイズ（tiny:500MB、base:1GB、small:2GB、medium:3GB、large:5GB）
+   - 作業用バッファ500MBを加算
+   - 不足時は具体的な対処法を3つ提案
+
+3️⃣ **メモリベースの自動パラメータ調整**
+   - 2GB未満：最小構成（バッチ4、チャンク5分、ワーカー1、tinyモデル）
+   - 2-4GB：中間構成（バッチ8、チャンク10分、ワーカー2、baseモデル）  
+   - 4GB以上：最適構成（バッチ16、チャンク15分、ワーカー4、mediumモデル）
+
+4️⃣ **Docker環境の特別対応**
+   - `/.dockerenv`ファイルの存在でDocker環境を判定
+   - メモリ不足時はDocker Desktopの設定変更を案内
+   - コンテナ内でのメモリ制限を考慮したアドバイス
 
 #### 5.4.4 一時ファイルの確実なクリーンアップ
 
-```python
-import tempfile
-import shutil
-from uuid import uuid4
-from contextlib import contextmanager
+**一時ファイル管理システム**:
 
-class TempFileManager:
-    """一時ファイルの安全な管理"""
-    
-    def __init__(self, base_dir: str = "/app/temp"):
-        self.base_dir = Path(base_dir)
-        self.base_dir.mkdir(parents=True, exist_ok=True)
-        self.temp_dirs = []
-        
-    @contextmanager
-    def create_temp_dir(self, prefix: str = "textffcut_") -> Path:
-        """一時ディレクトリを作成し、確実にクリーンアップ"""
-        temp_dir = self.base_dir / f"{prefix}{uuid4().hex}"
-        temp_dir.mkdir(parents=True, exist_ok=True)
-        self.temp_dirs.append(temp_dir)
-        
-        try:
-            yield temp_dir
-        finally:
-            # 例外が発生しても必ずクリーンアップ
-            self._cleanup_dir(temp_dir)
-            
-    def _cleanup_dir(self, temp_dir: Path):
-        """ディレクトリを安全に削除"""
-        try:
-            if temp_dir.exists():
-                shutil.rmtree(temp_dir, ignore_errors=True)
-            self.temp_dirs.remove(temp_dir)
-        except:
-            # クリーンアップ失敗はログに記録するが例外は投げない
-            logger.warning(f"Failed to cleanup {temp_dir}")
-            
-    def cleanup_old_temp_files(self, max_age_hours: int = 24):
-        """古い一時ファイルを削除"""
-        cutoff_time = time.time() - (max_age_hours * 3600)
-        
-        for temp_dir in self.base_dir.iterdir():
-            if temp_dir.is_dir() and temp_dir.name.startswith("textffcut_"):
-                try:
-                    if temp_dir.stat().st_mtime < cutoff_time:
-                        shutil.rmtree(temp_dir)
-                        logger.info(f"Cleaned up old temp dir: {temp_dir}")
-                except Exception as e:
-                    logger.warning(f"Failed to clean {temp_dir}: {e}")
-    
-    def get_temp_usage(self) -> dict:
-        """一時ファイルの使用状況を取得"""
-        total_size = 0
-        file_count = 0
-        
-        for item in self.base_dir.rglob("*"):
-            if item.is_file():
-                total_size += item.stat().st_size
-                file_count += 1
-                
-        return {
-            "total_size_mb": total_size / 1024 / 1024,
-            "file_count": file_count,
-            "dir_count": len(list(self.base_dir.iterdir()))
-        }
-```
+1️⃣ **コンテキストマネージャーによる安全な管理**
+   - with文を使用して一時ディレクトリを作成
+   - プレフィックス＋UUID（16進数）で一意なディレクトリ名を生成
+   - 処理が正常終了・異常終了に関わらず必ずクリーンアップを実行
+   - 作成したディレクトリを内部リストで追跡
+
+2️⃣ **確実なクリーンアップ処理**
+   - ディレクトリが存在する場合のみ削除を試行
+   - shutil.rmtreeでディレクトリを再帰的に削除
+   - エラーが発生しても無視して処理を継続（ignore_errors=True）
+   - クリーンアップ失敗は警告ログに記録するが例外は投げない
+
+3️⃣ **古い一時ファイルの自動削除**
+   - デフォルトで24時間以上古いファイルを削除
+   - アプリケーション起動時に自動実行
+   - textffcut_プレフィックスを持つディレクトリのみ対象
+   - 削除成功・失敗をログに記録
+
+4️⃣ **使用状況の監視**
+   - 一時ディレクトリ内の総ファイルサイズを計算
+   - ファイル数とディレクトリ数をカウント
+   - MB単位でサイズを返し、ディスク使用量を可視化
+   - 定期的な監視で容量不足を事前に検知
 
 ### 5.5 処理キャンセルとグレースフルシャットダウン
 
@@ -1046,52 +880,31 @@ CUDA_VISIBLE_DEVICES=0 (GPU使用時)
 
 ### 7.3 ファイル出力の連番管理
 
-```python
-def get_next_output_path(base_dir: Path, base_name: str, suffix: str, extension: str) -> Path:
-    """
-    連番付きの出力ファイルパスを生成
-    
-    Args:
-        base_dir: 出力先ディレクトリ（例: /app/videos/sample_video/）
-        base_name: 基本ファイル名（例: sample_video）
-        suffix: ファイルタイプを示すサフィックス（例: _cut, _cut_ns）
-        extension: ファイル拡張子（例: mp4, fcpxml, srt）
-    
-    Returns:
-        次の連番を持つファイルパス
-    
-    例:
-        base_dir = Path("/app/videos/sample_video")
-        path = get_next_output_path(base_dir, "sample_video", "_cut", "mp4")
-        # → /app/videos/sample_video/sample_video_cut_001.mp4
-    """
-    pattern = f"{base_name}{suffix}_*.{extension}" if suffix else f"{base_name}_*.{extension}"
-    existing_files = list(base_dir.glob(pattern))
-    
-    if not existing_files:
-        next_num = 1
-    else:
-        numbers = []
-        for file in existing_files:
-            try:
-                num_str = file.stem.split('_')[-1]
-                numbers.append(int(num_str))
-            except ValueError:
-                continue
-        next_num = max(numbers) + 1 if numbers else 1
-    
-    filename = f"{base_name}{suffix}_{next_num:03d}.{extension}" if suffix else f"{base_name}_{next_num:03d}.{extension}"
-    return base_dir / filename
+**連番付き出力ファイル名の生成ロジック**:
 
-# 出力例
-output_paths = {
-    'cut_video': get_next_output_path(video_dir, base_name, "_cut", "mp4"),
-    'cut_ns_video': get_next_output_path(video_dir, base_name, "_cut_ns", "mp4"),
-    'fcpxml': get_next_output_path(video_dir, base_name, "", "fcpxml"),
-    'premiere': get_next_output_path(video_dir, base_name, "", "xml"),
-    'subtitle': get_next_output_path(video_dir, base_name, "", "srt")
-}
-```
+1️⃣ **ファイル名パターンの構築**
+   - 基本形式：`{動画名}{タイプ}_{連番:03d}.{拡張子}`
+   - タイプ：`_cut`（切り抜きのみ）、`_cut_ns`（切り抜き＋無音削除）、または空（その他）
+   - 連番：001から始まる3桁のゼロパディング
+
+2️⃣ **既存ファイルの連番検索**
+   - 指定パターンに一致する既存ファイルをディレクトリから検索
+   - ファイル名の最後の部分から連番を抽出
+   - 数値以外の文字列は無視してスキップ
+
+3️⃣ **次の連番の決定**
+   - 既存ファイルがない場合：001から開始
+   - 既存ファイルがある場合：最大値＋1を使用
+   - 欠番があっても最大値の次を使用（例：001, 003がある場合→004）
+
+4️⃣ **出力ファイルパスの例**
+   ```
+   切り抜きのみ: sample_video_cut_001.mp4
+   切り抜き＋無音削除: sample_video_cut_ns_001.mp4  
+   FCPXML: sample_video_001.fcpxml
+   Premiere XML: sample_video_001.xml
+   字幕: sample_video_001.srt
+   ```
 
 ## 8. 外部ツールインターフェース
 
@@ -1123,92 +936,70 @@ output_paths = {
 
 ### 8.2 WhisperX実行詳細
 
-```
-モデルロード:
-model = whisperx.load_model(
-    model_size,
-    device="cuda" if torch.cuda.is_available() else "cpu",
-    compute_type="float16" if device=="cuda" else "float32",
-    language=language_code
-)
+**WhisperXの利用パターン**:
 
-文字起こし実行:
-result = model.transcribe(
-    audio_path,
-    batch_size=batch_size,
-    language=language,
-    task="transcribe",
-    chunk_length=30,
-    print_progress=False
-)
+1️⃣ **モデルのロード**
+   - GPUが利用可能な場合はCUDAを使用、そうでない場合はCPU
+   - GPUではfloat16で高速化、CPUではfloat32で精度保持
+   - 言語コードを指定して特定言語に最適化
+   - モデルサイズ（tiny/base/small/medium/large）を選択
 
-アライメント実行:
-model_a, metadata = whisperx.load_align_model(
-    language_code=language,
-    device=device
-)
+2️⃣ **文字起こしの実行**
+   - 音声ファイルパスを指定
+   - バッチサイズをメモリに応じて調整（4/8/16）
+   - 言語とタスク（transcribe）を指定
+   - 30秒ごとのチャンクで処理してメモリ効率化
+   - プログレス表示は無効化（Streamlitで別途管理）
 
-result_aligned = whisperx.align(
-    result["segments"],
-    model_a,
-    metadata,
-    audio_path,
-    device
-)
-```
+3️⃣ **アライメントの実行**
+   - 言語別のアライメントモデルをロード
+   - 文字起こし結果のセグメントを入力
+   - 音声ファイルと照合して単語レベルのタイムスタンプを生成
+   - メタデータとデバイス情報を渡して最適化
 
 ## 9. セッション管理詳細
 
 ### 9.1 Streamlitセッション状態
 
-```
-初期化:
-if 'initialized' not in st.session_state:
-    st.session_state.update({
-        'initialized': True,
-        'current_step': 'file_selection',
-        'video_path': None,
-        'video_info': None,
-        'transcript': None,
-        'edited_text': '',
-        'time_ranges': [],
-        'processing': False,
-        'progress': 0.0,
-        'progress_text': '',
-        'error': None,
-        'settings': load_user_settings()
-    })
+**セッション状態の管理**:
 
-状態遷移:
-file_selection → transcription → text_editing → 
-timeline_editing → export → completed
+1️⃣ **初期化処理**
+   - アプリケーション起動時に一度だけ実行
+   - 必要なすべての状態変数をセッションに登録
+   - ユーザー設定をファイルから読み込んで反映
+   - 初期ステップは「ファイル選択」に設定
 
-各状態での検証:
-- 前の状態が完了していること
-- 必要なデータが存在すること
-- エラー状態でないこと
-```
+2️⃣ **状態遷移フロー**
+   - ファイル選択 → 文字起こし → テキスト編集
+   - → タイムライン編集 → エクスポート → 完了
+   - 各ステップが完了したら次のステップに自動遷移
+
+3️⃣ **状態検証ロジック**
+   - 前のステップが正常に完了しているか確認
+   - 必要なデータ（動画パス、文字起こし結果等）が存在するか検証
+   - エラー状態の場合は遷移をブロック
+   - 不正な状態遷移を防ぐためのガード
 
 ### 9.2 進捗管理
 
-```
-進捗更新の実装:
-def update_progress(task: str, progress: float, detail: str = ""):
-    st.session_state.progress = progress
-    st.session_state.progress_text = f"{task}: {progress*100:.0f}%"
-    if detail:
-        st.session_state.progress_text += f" - {detail}"
-    
-    # UIの更新
-    progress_bar.progress(progress)
-    status_text.text(st.session_state.progress_text)
+**リアルタイム進捗更新システム**:
 
-進捗計算:
-- 音声抽出: 0-10%
-- 文字起こし: 10-70%
-- アライメント: 70-90%
-- 後処理: 90-100%
-```
+1️⃣ **進捗更新ロジック**
+   - タスク名、進捗率（0-1）、詳細情報を受け取る
+   - セッション状態に進捗情報を保存
+   - パーセンテージ表示と詳細テキストを組み合わせ
+   - UIのプログレスバーとステータステキストを同時更新
+
+2️⃣ **フェーズごとの進捗配分**
+   - 音声抽出：0-10%（高速処理）
+   - 文字起こし：10-70%（最も時間がかかるフェーズ）
+   - アライメント：70-90%（精密な調整）
+   - 後処理：90-100%（最終仕上げ）
+
+3️⃣ **チャンク単位の細かい進捗管理**
+   - 大きな処理を小さなチャンクに分割
+   - 各チャンク完了時に進捗を更新
+   - ユーザーに「動いている」感を与える
 
 ## 10. テスト仕様
 
@@ -1224,27 +1015,26 @@ def update_progress(task: str, progress: float, detail: str = ""):
 
 ### 10.2 統合テストシナリオ
 
-```
-シナリオ1: 正常系フロー
-1. 10分のMP4動画を選択
-2. ローカルモードで文字起こし
-3. テキストの50%を編集
-4. 無音削除を適用
-5. FCPXMLでエクスポート
-期待: 全工程がエラーなく完了
+**実使用を想定したテストシナリオ**:
 
-シナリオ2: エラーリカバリー
-1. 90分の動画で処理開始
-2. 50%でプロセスを強制終了
-3. アプリを再起動
-4. リカバリーダイアログから再開
-期待: 中断点から正常に再開
+1️⃣ **正常系フローテスト**
+   - 10分のMP4動画を選択してローカルモードで文字起こし
+   - 生成されたテキストの50%を削除して編集
+   - 無音削除オプションを有効にして処理
+   - FCPXML形式でエクスポート
+   - 期待結果：全工程がエラーなく完了し、出力ファイルが生成される
 
-シナリオ3: リソース制限
-1. メモリ4GB環境で実行
-2. 60分動画を処理
-期待: 自動的にパラメータ調整して完了
-```
+2️⃣ **エラーリカバリーテスト**
+   - 90分の長時間動画で文字起こし処理を開始
+   - 進捗が50%に達した時点でプロセスを強制終了
+   - アプリケーションを再起動
+   - リカバリーダイアログから「再開」を選択
+   - 期待結果：中断点から処理が再開され、残りの処理が完了する
+
+3️⃣ **リソース制限環境テスト**
+   - Dockerメモリ割り当てを4GBに制限
+   - 60分の動画を処理
+   - 期待結果：メモリ不足を検出し、パラメータを自動調整して処理完了
 
 ## 11. 実装チェックリスト
 
