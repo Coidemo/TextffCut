@@ -681,29 +681,445 @@ finally:
 4. 承認されたら最後のチェックポイントから再開
 ```
 
+### 5.4 ローカル環境特有のエラー処理
+
+#### 5.4.1 Docker環境エラーメッセージ
+
+```python
+# Docker特有のエラーに対する具体的なメッセージ
+DOCKER_ERROR_MESSAGES = {
+    "no space left on device": 
+        "Dockerの容量が不足しています。\n"
+        "解決方法:\n"
+        "1. docker system prune -a を実行\n"
+        "2. Docker Desktopの設定でディスク容量を増やす",
+    
+    "cannot allocate memory":
+        "Dockerのメモリ割り当てが不足しています。\n"
+        "解決方法:\n"
+        "1. Docker Desktop → Settings → Resources\n"
+        "2. Memoryを8GB以上に設定\n"
+        "3. Docker Desktopを再起動",
+    
+    "permission denied":
+        "ファイルアクセス権限エラー。\n"
+        "解決方法:\n"
+        "- Windows: Docker Desktop → Settings → Resources → File Sharing\n"
+        "- Mac: Docker Desktop → Preferences → Resources → File Sharing",
+        
+    "port is already allocated":
+        "ポート8501が既に使用されています。\n"
+        "解決方法:\n"
+        "1. 他のStreamlitアプリを終了\n"
+        "2. または docker-compose.yml でポートを変更"
+}
+
+def handle_docker_error(error: Exception) -> str:
+    """Docker特有のエラーを分かりやすいメッセージに変換"""
+    error_str = str(error).lower()
+    for pattern, message in DOCKER_ERROR_MESSAGES.items():
+        if pattern in error_str:
+            return message
+    return f"Docker関連のエラー: {error}"
+```
+
+#### 5.4.2 ファイル操作の競合防止
+
+```python
+from filelock import FileLock, Timeout
+from pathlib import Path
+import time
+
+class VideoFileLock:
+    """動画ファイルの排他制御"""
+    
+    def __init__(self, video_path: Path):
+        self.video_path = video_path
+        self.lock_path = video_path.parent / f".{video_path.stem}.lock"
+        self.lock = None
+        
+    def acquire(self, timeout: float = 1.0) -> bool:
+        """ロックを取得"""
+        try:
+            self.lock = FileLock(self.lock_path, timeout=timeout)
+            self.lock.acquire()
+            
+            # ロックファイルにプロセス情報を記録
+            with open(self.lock_path, 'w') as f:
+                f.write(f"pid: {os.getpid()}\n")
+                f.write(f"time: {time.time()}\n")
+                f.write(f"file: {self.video_path}\n")
+            
+            return True
+            
+        except Timeout:
+            # 他のプロセスが使用中
+            return False
+            
+    def release(self):
+        """ロックを解放"""
+        if self.lock:
+            self.lock.release()
+            try:
+                self.lock_path.unlink()
+            except:
+                pass
+                
+    def is_locked(self) -> bool:
+        """ロック状態を確認"""
+        if not self.lock_path.exists():
+            return False
+            
+        # 古いロックファイルは無効とする（10分以上）
+        try:
+            age = time.time() - self.lock_path.stat().st_mtime
+            if age > 600:  # 10分
+                self.lock_path.unlink()
+                return False
+        except:
+            pass
+            
+        return True
+        
+    def __enter__(self):
+        if not self.acquire():
+            raise RuntimeError(
+                f"ファイル '{self.video_path.name}' は他のタブで処理中です。\n"
+                "処理が完了するまでお待ちください。"
+            )
+        return self
+        
+    def __exit__(self, *args):
+        self.release()
+```
+
+#### 5.4.3 メモリ管理とチェック
+
+```python
+import psutil
+from typing import Tuple
+
+class MemoryManager:
+    """メモリ使用量の監視と制御"""
+    
+    @staticmethod
+    def get_memory_info() -> Tuple[float, float, float]:
+        """メモリ情報を取得 (使用中MB, 利用可能MB, 使用率%)"""
+        mem = psutil.virtual_memory()
+        used_mb = (mem.total - mem.available) / 1024 / 1024
+        available_mb = mem.available / 1024 / 1024
+        percent = mem.percent
+        return used_mb, available_mb, percent
+        
+    @staticmethod
+    def check_memory_before_processing(video_size_mb: float, model_size: str = "medium") -> None:
+        """処理前のメモリチェック"""
+        # モデルサイズによるメモリ要件
+        model_memory = {
+            "tiny": 500,
+            "base": 1000,
+            "small": 2000,
+            "medium": 3000,
+            "large": 5000
+        }
+        
+        # 必要メモリ = 動画サイズ×3 + モデルサイズ + バッファ
+        required_mb = video_size_mb * 3 + model_memory.get(model_size, 3000) + 500
+        
+        _, available_mb, _ = MemoryManager.get_memory_info()
+        
+        if available_mb < required_mb:
+            # Docker環境の場合の追加メッセージ
+            docker_msg = ""
+            if os.path.exists('/.dockerenv'):
+                docker_msg = "\n\nDocker Desktopのメモリ割り当てを増やすことも検討してください。"
+            
+            raise MemoryError(
+                f"メモリ不足: 処理には約{required_mb:.0f}MB必要ですが、\n"
+                f"利用可能なメモリは{available_mb:.0f}MBです。\n\n"
+                f"対処法:\n"
+                f"1. 他のアプリケーションを終了する\n"
+                f"2. より小さいモデルサイズを選択する\n"
+                f"3. 動画を分割して処理する{docker_msg}"
+            )
+    
+    @staticmethod
+    def adjust_parameters_for_memory(available_mb: float) -> dict:
+        """利用可能メモリに基づいてパラメータを自動調整"""
+        if available_mb < 2000:
+            return {
+                "batch_size": 4,
+                "chunk_length": 300,  # 5分
+                "workers": 1,
+                "model": "tiny"
+            }
+        elif available_mb < 4000:
+            return {
+                "batch_size": 8,
+                "chunk_length": 600,  # 10分
+                "workers": 2,
+                "model": "base"
+            }
+        else:
+            return {
+                "batch_size": 16,
+                "chunk_length": 900,  # 15分
+                "workers": 4,
+                "model": "medium"
+            }
+```
+
+#### 5.4.4 一時ファイルの確実なクリーンアップ
+
+```python
+import tempfile
+import shutil
+from uuid import uuid4
+from contextlib import contextmanager
+
+class TempFileManager:
+    """一時ファイルの安全な管理"""
+    
+    def __init__(self, base_dir: str = "/app/temp"):
+        self.base_dir = Path(base_dir)
+        self.base_dir.mkdir(parents=True, exist_ok=True)
+        self.temp_dirs = []
+        
+    @contextmanager
+    def create_temp_dir(self, prefix: str = "textffcut_") -> Path:
+        """一時ディレクトリを作成し、確実にクリーンアップ"""
+        temp_dir = self.base_dir / f"{prefix}{uuid4().hex}"
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        self.temp_dirs.append(temp_dir)
+        
+        try:
+            yield temp_dir
+        finally:
+            # 例外が発生しても必ずクリーンアップ
+            self._cleanup_dir(temp_dir)
+            
+    def _cleanup_dir(self, temp_dir: Path):
+        """ディレクトリを安全に削除"""
+        try:
+            if temp_dir.exists():
+                shutil.rmtree(temp_dir, ignore_errors=True)
+            self.temp_dirs.remove(temp_dir)
+        except:
+            # クリーンアップ失敗はログに記録するが例外は投げない
+            logger.warning(f"Failed to cleanup {temp_dir}")
+            
+    def cleanup_old_temp_files(self, max_age_hours: int = 24):
+        """古い一時ファイルを削除"""
+        cutoff_time = time.time() - (max_age_hours * 3600)
+        
+        for temp_dir in self.base_dir.iterdir():
+            if temp_dir.is_dir() and temp_dir.name.startswith("textffcut_"):
+                try:
+                    if temp_dir.stat().st_mtime < cutoff_time:
+                        shutil.rmtree(temp_dir)
+                        logger.info(f"Cleaned up old temp dir: {temp_dir}")
+                except Exception as e:
+                    logger.warning(f"Failed to clean {temp_dir}: {e}")
+    
+    def get_temp_usage(self) -> dict:
+        """一時ファイルの使用状況を取得"""
+        total_size = 0
+        file_count = 0
+        
+        for item in self.base_dir.rglob("*"):
+            if item.is_file():
+                total_size += item.stat().st_size
+                file_count += 1
+                
+        return {
+            "total_size_mb": total_size / 1024 / 1024,
+            "file_count": file_count,
+            "dir_count": len(list(self.base_dir.iterdir()))
+        }
+```
+
+### 5.5 処理キャンセルとグレースフルシャットダウン
+
+```python
+import signal
+import threading
+from typing import Optional, Callable
+
+class ProcessingManager:
+    """処理の実行管理とキャンセル機能"""
+    
+    def __init__(self):
+        self._cancelled = False
+        self._current_task = None
+        self._cleanup_callbacks = []
+        self._lock = threading.Lock()
+        
+        # シグナルハンドラの設定
+        signal.signal(signal.SIGINT, self._signal_handler)
+        signal.signal(signal.SIGTERM, self._signal_handler)
+        
+    def _signal_handler(self, signum, frame):
+        """Ctrl+Cなどのシグナルを受け取った時の処理"""
+        logger.info(f"Received signal {signum}, initiating graceful shutdown...")
+        self.cancel()
+        
+    def register_cleanup(self, callback: Callable):
+        """クリーンアップ処理を登録"""
+        self._cleanup_callbacks.append(callback)
+        
+    def cancel(self):
+        """処理をキャンセル"""
+        with self._lock:
+            self._cancelled = True
+            logger.info("Processing cancelled by user")
+            
+    def is_cancelled(self) -> bool:
+        """キャンセル状態を確認"""
+        return self._cancelled
+        
+    def check_cancelled(self):
+        """キャンセルされていれば例外を投げる"""
+        if self._cancelled:
+            raise ProcessingCancelledException("処理がキャンセルされました")
+            
+    def set_current_task(self, task_name: str):
+        """現在のタスクを設定"""
+        with self._lock:
+            self._current_task = task_name
+            
+    def run_with_cancellation(self, func: Callable, *args, **kwargs):
+        """キャンセル可能な処理を実行"""
+        try:
+            # 定期的にキャンセル状態をチェック
+            result = func(*args, **kwargs, cancel_check=self.check_cancelled)
+            return result
+            
+        except ProcessingCancelledException:
+            logger.info(f"Task '{self._current_task}' was cancelled")
+            self._run_cleanup()
+            raise
+            
+        except Exception as e:
+            logger.error(f"Error in task '{self._current_task}': {e}")
+            self._run_cleanup()
+            raise
+            
+    def _run_cleanup(self):
+        """登録されたクリーンアップ処理を実行"""
+        for callback in self._cleanup_callbacks:
+            try:
+                callback()
+            except Exception as e:
+                logger.error(f"Cleanup error: {e}")
+                
+class ProcessingCancelledException(Exception):
+    """処理キャンセル時の例外"""
+    pass
+
+# 使用例
+def process_video_with_cancellation(video_path: Path, manager: ProcessingManager):
+    # クリーンアップ処理を登録
+    temp_manager = TempFileManager()
+    manager.register_cleanup(temp_manager.cleanup_all)
+    
+    # 各処理ステップでキャンセルチェック
+    for i, chunk in enumerate(chunks):
+        manager.check_cancelled()  # キャンセルチェック
+        manager.set_current_task(f"Processing chunk {i+1}/{len(chunks)}")
+        
+        result = process_chunk(chunk)
+        
+        # 定期的な進捗保存
+        if i % 5 == 0:
+            save_checkpoint(i, result)
+```
+
 ## 6. パフォーマンス最適化詳細
 
 ### 6.1 並列処理の実装
 
-```
-並列化可能な処理:
-1. 音声チャンクの文字起こし
-   - 最大ワーカー数: min(4, CPU数 * 0.75)
-   - チャンクサイズ: 10分（600秒）
-   - オーバーラップ: 0.5秒
+```python
+import platform
+import os
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 
-2. 動画セグメントの抽出
-   - 最大同時処理: 3
-   - I/Oバウンドのため制限
+class ParallelProcessingOptimizer:
+    """ローカル環境に最適化された並列処理"""
+    
+    @staticmethod
+    def get_optimal_workers() -> int:
+        """最適なワーカー数を決定"""
+        cpu_count = os.cpu_count() or 1
+        
+        # プラットフォーム別の最適化
+        if platform.system() == "Darwin":  # macOS
+            # Apple Siliconの場合、Efficiency coreを考慮
+            if platform.processor() == "arm":
+                # M1/M2: Performance coreのみ使用
+                return min(4, cpu_count // 2)
+            else:
+                # Intel Mac
+                return max(1, cpu_count - 1)
+                
+        elif platform.system() == "Windows":
+            # Windowsは1コア余裕を持たせる
+            return max(1, cpu_count - 1)
+            
+        else:  # Linux
+            # Dockerコンテナ内では控えめに
+            return min(4, max(1, cpu_count - 1))
+    
+    @staticmethod
+    def get_chunk_size(available_memory_mb: float) -> int:
+        """利用可能メモリに基づくチャンクサイズ（秒）"""
+        if available_memory_mb < 2000:
+            return 300  # 5分
+        elif available_memory_mb < 4000:
+            return 600  # 10分
+        else:
+            return 900  # 15分
+    
+    @staticmethod
+    def should_use_gpu() -> bool:
+        """GPU使用可否を判定"""
+        try:
+            import torch
+            return torch.cuda.is_available()
+        except ImportError:
+            return False
 
-3. 無音検出
-   - セグメントごとに並列実行
-   - CPU数に応じて自動調整
-
-実装方法:
-- CPUバウンド: ProcessPoolExecutor
-- I/Oバウンド: ThreadPoolExecutor
-- 非同期処理: asyncio
+# 並列処理の実装例
+class ChunkProcessor:
+    def __init__(self):
+        self.workers = ParallelProcessingOptimizer.get_optimal_workers()
+        self.executor = ProcessPoolExecutor(max_workers=self.workers)
+        
+    def process_chunks(self, chunks: List[AudioChunk], cancel_check: Callable):
+        """チャンクを並列処理"""
+        futures = []
+        
+        for i, chunk in enumerate(chunks):
+            # キャンセルチェック
+            cancel_check()
+            
+            # 非同期でタスクを投入
+            future = self.executor.submit(self._process_single_chunk, chunk)
+            futures.append((i, future))
+            
+        # 結果の収集（順序を保持）
+        results = [None] * len(chunks)
+        for i, future in futures:
+            try:
+                result = future.result(timeout=300)  # 5分タイムアウト
+                results[i] = result
+            except TimeoutError:
+                logger.error(f"Chunk {i} processing timeout")
+                raise
+            except Exception as e:
+                logger.error(f"Chunk {i} processing error: {e}")
+                raise
+                
+        return results
 ```
 
 ### 6.2 メモリ管理戦略
