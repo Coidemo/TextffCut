@@ -201,8 +201,23 @@ class ProcessTranscriptionWorker(BaseWorker):
         current_time = time.time()
 
         if current_time - self._last_memory_report > self._memory_report_interval:
+            # 詳細なメモリ情報を収集
+            memory_info = self.process.memory_info()
+            memory_mb = memory_info.rss / 1024 / 1024
             memory_percent = self.process.memory_percent()
-            self.communicator.send_memory_status(memory_percent)
+            
+            # メモリステータスメッセージを送信
+            msg = ProcessMessage(
+                msg_type=MessageType.MEMORY_STATUS,
+                worker_id=self.communicator.worker_id,
+                data={
+                    "pid": self.process.pid,
+                    "memory_mb": memory_mb,
+                    "memory_percent": memory_percent,
+                    "memory_usage": memory_percent  # 互換性のため
+                }
+            )
+            self.communicator.response_queue.put(msg)
             self._last_memory_report = current_time
 
             # メモリ警告
