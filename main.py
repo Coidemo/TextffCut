@@ -34,6 +34,13 @@ from ui import (
     show_transcription_controls,
     show_video_input,
 )
+from ui.recovery_components import (
+    show_recovery_check,
+    show_recovery_history,
+    show_recovery_settings,
+    show_recovery_status,
+    show_startup_recovery,
+)
 from utils import ProcessingContext, cleanup_intermediate_files
 from utils.file_utils import ensure_directory, get_safe_filename
 from utils.logging import get_logger
@@ -190,6 +197,14 @@ def main() -> None:
             version = "v1.0.0"  # デフォルト値
     except:
         version = "v1.0.0"  # エラー時のフォールバック
+    
+    # 起動時のリカバリーチェック（自動リカバリーが有効な場合）
+    if st.session_state.get("auto_recovery", True) and "startup_recovery_checked" not in st.session_state:
+        st.session_state["startup_recovery_checked"] = True
+        recoverable = show_startup_recovery()
+        if recoverable:
+            # リカバリー可能な処理があれば停止
+            st.stop()
 
     # タイトル表示
     title_text = f'Text<span style="color: red; font-style: italic;">ff</span>Cut <span style="color: #666; font-size: 1rem;">{version}</span>'
@@ -209,7 +224,7 @@ def main() -> None:
         st.subheader("⚙️ 設定")
 
         # タブで設定を整理
-        tab1, tab2, tab3 = st.tabs(["🔑 APIキー", "🔇 無音検出", "❓ ヘルプ"])
+        tab1, tab2, tab3, tab4, tab5 = st.tabs(["🔑 APIキー", "🔇 無音検出", "🔄 リカバリー", "📋 履歴", "❓ ヘルプ"])
 
         with tab1:
             # APIキー管理のみ
@@ -222,6 +237,14 @@ def main() -> None:
             )
 
         with tab3:
+            # リカバリー設定
+            show_recovery_settings()
+            
+        with tab4:
+            # 処理履歴
+            show_recovery_history()
+
+        with tab5:
             show_help()
 
     # 動画ファイル選択（新しい入力方式）
@@ -264,6 +287,14 @@ def main() -> None:
     # 文字起こし処理
     st.markdown("---")
     st.subheader("📝 文字起こし")
+    
+    # リカバリーチェック
+    recovery_info = show_recovery_check(video_path)
+    if recovery_info and st.session_state.get("recovery_action") == "resume":
+        # リカバリー処理を実行
+        st.info("🔄 前回の処理を再開しています...")
+        # TODO: リカバリー処理の実装
+        pass
 
     # モード・モデル変更の検知と処理中止（確認画面で選択される前なので一時的にコメントアウト）
     # current_mode = st.session_state.get('use_api', False)
@@ -562,6 +593,9 @@ def main() -> None:
                         raise InterruptedError("処理が中止されました")
                     progress_bar.progress(min(progress, 1.0))
                     progress_text.info(status)
+                    
+                    # 状態を表示
+                    show_recovery_status(video_path, "transcribing", progress)
 
                 progress_callback = cancellable_progress_callback
 
