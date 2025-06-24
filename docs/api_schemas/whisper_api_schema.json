@@ -1,0 +1,158 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "OpenAI Whisper API",
+    "version": "1.0.0",
+    "description": "TextffCutで使用するWhisper APIの定義"
+  },
+  "servers": [
+    {
+      "url": "https://api.openai.com/v1"
+    }
+  ],
+  "paths": {
+    "/audio/transcriptions": {
+      "post": {
+        "summary": "音声ファイルの文字起こし",
+        "operationId": "createTranscription",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": ["file", "model"],
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "音声ファイル（mp3, mp4, mpeg, mpga, m4a, wav, webm）"
+                  },
+                  "model": {
+                    "type": "string",
+                    "enum": ["whisper-1"],
+                    "description": "使用するモデルID"
+                  },
+                  "language": {
+                    "type": "string",
+                    "description": "音声の言語（ISO-639-1形式）",
+                    "example": "ja"
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "description": "文字起こしのガイドとなるテキスト"
+                  },
+                  "response_format": {
+                    "type": "string",
+                    "enum": ["json", "text", "srt", "verbose_json", "vtt"],
+                    "default": "json",
+                    "description": "レスポンスフォーマット"
+                  },
+                  "temperature": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1,
+                    "default": 0,
+                    "description": "サンプリング温度"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TranscriptionResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "TranscriptionResponse": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "description": "文字起こしされたテキスト"
+          }
+        }
+      },
+      "VerboseTranscriptionResponse": {
+        "type": "object",
+        "properties": {
+          "task": {
+            "type": "string",
+            "enum": ["transcribe"]
+          },
+          "language": {
+            "type": "string",
+            "description": "検出された言語"
+          },
+          "duration": {
+            "type": "number",
+            "description": "音声の長さ（秒）"
+          },
+          "text": {
+            "type": "string",
+            "description": "文字起こしされたテキスト"
+          },
+          "segments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TranscriptionSegment"
+            }
+          }
+        }
+      },
+      "TranscriptionSegment": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "seek": {
+            "type": "integer"
+          },
+          "start": {
+            "type": "number",
+            "description": "セグメント開始時間（秒）"
+          },
+          "end": {
+            "type": "number",
+            "description": "セグメント終了時間（秒）"
+          },
+          "text": {
+            "type": "string",
+            "description": "セグメントのテキスト"
+          },
+          "tokens": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "temperature": {
+            "type": "number"
+          },
+          "avg_logprob": {
+            "type": "number"
+          },
+          "compression_ratio": {
+            "type": "number"
+          },
+          "no_speech_prob": {
+            "type": "number"
+          }
+        }
+      }
+    }
+  }
+}

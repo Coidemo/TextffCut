@@ -1,0 +1,84 @@
+{
+  "project": "TextffCut",
+  "version": "1.1.0-dev",
+  "description": "動画の文字起こしと切り抜きを効率化するツール",
+  
+  "apis": {
+    "whisper": {
+      "schema": "docs/api_schemas/whisper_api_schema.json",
+      "rate_limit": "50 requests/min",
+      "cost": "$0.006/min",
+      "max_file_size": "25MB",
+      "supported_formats": ["mp3", "mp4", "mpeg", "mpga", "m4a", "wav", "webm"]
+    },
+    "youtube_dl": {
+      "library": "yt-dlp",
+      "config_file": ".yt-dlp.conf",
+      "output_template": "%(title)s.%(ext)s"
+    }
+  },
+  
+  "commands": {
+    "lint": "make lint",
+    "format": "make format",
+    "test": "make test",
+    "test_fast": "make test-fast",
+    "check": "make check",
+    "pre_commit": "make pre-commit",
+    "clean": "make clean"
+  },
+  
+  "critical_files": [
+    "config.py",
+    "core/transcription.py",
+    "core/video.py",
+    "core/export.py",
+    "main.py"
+  ],
+  
+  "data_structures": {
+    "main_types": "docs/data_structures.md",
+    "error_types": "core/error_handling.py",
+    "models": "core/models.py"
+  },
+  
+  "testing": {
+    "framework": "pytest",
+    "config": "pyproject.toml",
+    "coverage_target": "80%",
+    "slow_tests": "pytest -m slow",
+    "fast_tests": "pytest -m 'not slow'"
+  },
+  
+  "dependencies": {
+    "production": "requirements.txt",
+    "development": "requirements-dev.txt",
+    "key_libraries": {
+      "streamlit": "UI framework",
+      "whisperx": "Local transcription",
+      "openai": "API transcription",
+      "ffmpeg-python": "Video processing"
+    }
+  },
+  
+  "docker": {
+    "compose_file": "docker-compose.yml",
+    "dockerfile": "Dockerfile",
+    "volume_mounts": {
+      "/app/videos": "Input/output directory",
+      "/app/models": "Model cache directory"
+    }
+  },
+  
+  "environment_variables": {
+    "TEXTFFCUT_USE_API": "Use API mode (true/false)",
+    "TEXTFFCUT_API_KEY": "OpenAI API key",
+    "STREAMLIT_SERVER_PORT": "UI port (default: 8501)"
+  },
+  
+  "common_issues": {
+    "memory_error": "Check Docker Desktop memory allocation",
+    "api_error": "Verify API key and network connection",
+    "ffmpeg_error": "Ensure FFmpeg is installed and in PATH"
+  }
+}

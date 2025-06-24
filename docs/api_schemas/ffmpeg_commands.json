@@ -1,0 +1,88 @@
+{
+  "name": "FFmpeg Commands Reference",
+  "description": "TextffCutで使用するFFmpegコマンドパターン",
+  "version": "1.0.0",
+  "commands": {
+    "extract_audio": {
+      "description": "動画から音声を抽出",
+      "pattern": "ffmpeg -i {input_video} -vn -acodec pcm_s16le -ar 16000 -ac 1 {output_audio}",
+      "parameters": {
+        "input_video": "入力動画ファイルパス",
+        "output_audio": "出力音声ファイルパス（.wav推奨）"
+      },
+      "options": {
+        "-vn": "ビデオストリームを無効化",
+        "-acodec pcm_s16le": "16bit PCMコーデック",
+        "-ar 16000": "サンプリングレート16kHz",
+        "-ac 1": "モノラル"
+      }
+    },
+    "extract_segment": {
+      "description": "指定時間範囲の動画を切り出し",
+      "pattern": "ffmpeg -ss {start_time} -i {input_video} -to {end_time} -c copy {output_video}",
+      "parameters": {
+        "start_time": "開始時間（秒またはHH:MM:SS形式）",
+        "end_time": "終了時間（秒またはHH:MM:SS形式）",
+        "input_video": "入力動画ファイル",
+        "output_video": "出力動画ファイル"
+      },
+      "options": {
+        "-ss": "シーク位置（入力前に指定で高速化）",
+        "-to": "終了時間",
+        "-c copy": "再エンコードせずコピー"
+      }
+    },
+    "concat_videos": {
+      "description": "複数の動画を結合",
+      "pattern": "ffmpeg -f concat -safe 0 -i {concat_list} -c copy {output_video}",
+      "parameters": {
+        "concat_list": "結合リストファイル",
+        "output_video": "出力動画ファイル"
+      },
+      "concat_list_format": "file 'video1.mp4'\\nfile 'video2.mp4'\\n..."
+    },
+    "detect_silence": {
+      "description": "無音区間を検出",
+      "pattern": "ffmpeg -i {input_audio} -af silencedetect=n={noise_level}:d={min_duration} -f null -",
+      "parameters": {
+        "input_audio": "入力音声ファイル",
+        "noise_level": "ノイズレベル（例：-35dB）",
+        "min_duration": "最小無音時間（秒）"
+      },
+      "output_parsing": {
+        "silence_start": "silence_start: ([0-9.]+)",
+        "silence_end": "silence_end: ([0-9.]+)"
+      }
+    },
+    "get_duration": {
+      "description": "メディアファイルの長さを取得",
+      "pattern": "ffprobe -v quiet -print_format json -show_format {input_file}",
+      "parameters": {
+        "input_file": "入力ファイル"
+      },
+      "output_format": {
+        "duration": "format.duration"
+      }
+    },
+    "extract_frame": {
+      "description": "指定時間のフレームを画像として抽出",
+      "pattern": "ffmpeg -ss {time} -i {input_video} -vframes 1 -q:v 2 {output_image}",
+      "parameters": {
+        "time": "抽出時間",
+        "input_video": "入力動画",
+        "output_image": "出力画像ファイル"
+      }
+    }
+  },
+  "error_patterns": {
+    "file_not_found": "No such file or directory",
+    "invalid_data": "Invalid data found when processing input",
+    "codec_not_supported": "Codec not supported",
+    "permission_denied": "Permission denied"
+  },
+  "performance_tips": {
+    "seek_optimization": "-ssを入力ファイルの前に配置すると高速シーク",
+    "hardware_acceleration": "-hwaccel autoで自動的にハードウェアアクセラレーション",
+    "thread_optimization": "-threads 0で自動的に最適なスレッド数を選択"
+  }
+}

@@ -299,6 +299,40 @@ python -c "from core.video import VideoProcessor; print('Video OK')"
 python -c "from core.export import FCPXMLExporter; print('Export OK')"
 ```
 
+### 自己検証の実施
+
+#### コード品質チェック
+実装後、以下のコマンドを必ず実行：
+```bash
+make check  # フォーマット、Lint、テストを一括実行
+```
+
+問題がある場合は自己修正を試みる。修正できない場合はユーザーに相談。
+
+#### API/外部リソースの確認
+外部APIを使用する前に：
+1. `/docs/api_schemas/`で仕様を確認
+2. 不明な点は`make validate-api`で検証
+3. 新しいAPIは必ずスキーマを文書化
+
+#### デバッグ支援
+問題が発生した場合：
+- `make debug-transcription` - 文字起こしのデバッグ
+- `pytest -v -k "test_name"` - 特定テストの実行
+- ログファイルは`logs/`ディレクトリを確認
+
+#### 実装時の確認事項
+1. **コミット前チェック**
+   ```bash
+   make pre-commit  # 必ず実行
+   ```
+2. **データ構造の参照**
+   - `/docs/data_structures.md`で正確な型定義を確認
+   - 特にWordInfo、CharInfoは辞書形式であることに注意
+3. **エラーハンドリング**
+   - `core/error_handling.py`の既存エラークラスを使用
+   - 新しいエラーパターンは必ず`ErrorCategory`に分類
+
 ## 🔄 定期メンテナンスタスク
 
 ### API料金情報の更新確認
