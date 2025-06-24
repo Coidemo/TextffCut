@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from config import Config
 from core.error_handling import ValidationError
+from orchestrator.gc_optimizer import optimize_for_transcription
 from orchestrator.process_communication import MessageType, ProcessCommunicator, ProcessMessage
 from orchestrator.transcription_worker import TranscriptionWorker as BaseWorker
 from utils.logging import get_logger
@@ -41,6 +42,10 @@ class ProcessTranscriptionWorker(BaseWorker):
         self.process = psutil.Process()
         self._last_memory_report = time.time()
         self._memory_report_interval = 10.0  # 10秒ごとにメモリ報告
+        
+        # GCオプティマイザーを初期化
+        self.gc_optimizer = optimize_for_transcription()
+        logger.info(f"GC optimizer initialized for worker {communicator.worker_id}")
 
     def run(self) -> None:
         """ワーカーのメインループ"""
@@ -171,10 +176,13 @@ class ProcessTranscriptionWorker(BaseWorker):
                 )
                 results.append(result)
 
-                # メモリチェック
+                # メモリチェックとGC最適化
                 if self._check_memory_pressure():
-                    logger.warning("Memory pressure detected, forcing GC")
-                    gc.collect()
+                    logger.warning("Memory pressure detected, optimizing GC")
+                    memory_percent = self.process.memory_percent()
+                    gc_metrics = self.gc_optimizer.optimize_based_on_memory_pressure(memory_percent)
+                    if gc_metrics:
+                        logger.info(f"GC collected {gc_metrics.collected} objects in {gc_metrics.duration:.1f}ms")
                     time.sleep(0.1)  # 短い休憩
 
             # バッチ結果を送信
@@ -206,6 +214,9 @@ class ProcessTranscriptionWorker(BaseWorker):
             memory_mb = memory_info.rss / 1024 / 1024
             memory_percent = self.process.memory_percent()
             
+            # GC最適化を実行
+            gc_metrics = self.gc_optimizer.optimize_based_on_memory_pressure(memory_percent)
+            
             # メモリステータスメッセージを送信
             msg = ProcessMessage(
                 msg_type=MessageType.MEMORY_STATUS,
@@ -214,7 +225,12 @@ class ProcessTranscriptionWorker(BaseWorker):
                     "pid": self.process.pid,
                     "memory_mb": memory_mb,
                     "memory_percent": memory_percent,
-                    "memory_usage": memory_percent  # 互換性のため
+                    "memory_usage": memory_percent,  # 互換性のため
+                    "gc_metrics": {
+                        "collected": gc_metrics.collected if gc_metrics else 0,
+                        "duration_ms": gc_metrics.duration if gc_metrics else 0,
+                        "strategy": self.gc_optimizer.strategy.value
+                    } if gc_metrics else None
                 }
             )
             self.communicator.response_queue.put(msg)
