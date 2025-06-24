@@ -42,7 +42,7 @@ class ProcessTranscriptionWorker(BaseWorker):
         self.process = psutil.Process()
         self._last_memory_report = time.time()
         self._memory_report_interval = 10.0  # 10秒ごとにメモリ報告
-        
+
         # GCオプティマイザーを初期化
         self.gc_optimizer = optimize_for_transcription()
         logger.info(f"GC optimizer initialized for worker {communicator.worker_id}")
@@ -213,10 +213,10 @@ class ProcessTranscriptionWorker(BaseWorker):
             memory_info = self.process.memory_info()
             memory_mb = memory_info.rss / 1024 / 1024
             memory_percent = self.process.memory_percent()
-            
+
             # GC最適化を実行
             gc_metrics = self.gc_optimizer.optimize_based_on_memory_pressure(memory_percent)
-            
+
             # メモリステータスメッセージを送信
             msg = ProcessMessage(
                 msg_type=MessageType.MEMORY_STATUS,
@@ -226,12 +226,16 @@ class ProcessTranscriptionWorker(BaseWorker):
                     "memory_mb": memory_mb,
                     "memory_percent": memory_percent,
                     "memory_usage": memory_percent,  # 互換性のため
-                    "gc_metrics": {
-                        "collected": gc_metrics.collected if gc_metrics else 0,
-                        "duration_ms": gc_metrics.duration if gc_metrics else 0,
-                        "strategy": self.gc_optimizer.strategy.value
-                    } if gc_metrics else None
-                }
+                    "gc_metrics": (
+                        {
+                            "collected": gc_metrics.collected if gc_metrics else 0,
+                            "duration_ms": gc_metrics.duration if gc_metrics else 0,
+                            "strategy": self.gc_optimizer.strategy.value,
+                        }
+                        if gc_metrics
+                        else None
+                    ),
+                },
             )
             self.communicator.response_queue.put(msg)
             self._last_memory_report = current_time

@@ -61,7 +61,7 @@ class TranscriptionWorker:
 
             # Transcriberはconfigのみで初期化
             self.transcriber = Transcriber(config=self.config)
-            
+
             # モデルサイズなどは後で使用するため保存
             self.model_size = model_size
             self.language = language
@@ -304,7 +304,11 @@ class TranscriptionWorker:
         """
         # エラーをラップ
         if not isinstance(error, ProcessingError):
-            error = ProcessingError(f"セグメント処理エラー: {str(error)}", original_error=error)
+            error = ProcessingError(
+                f"セグメント処理エラー: {str(error)}",
+                stage="process_batch",
+                details={"error_type": type(error).__name__, "error_message": str(error)},
+            )
 
         # エラーハンドラで処理
         handled_error = self.error_handler.handle_error(error)
