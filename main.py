@@ -197,7 +197,7 @@ def main() -> None:
             version = "v1.0.0"  # デフォルト値
     except:
         version = "v1.0.0"  # エラー時のフォールバック
-    
+
     # 起動時のリカバリーチェック（自動リカバリーが有効な場合）
     if st.session_state.get("auto_recovery", True) and "startup_recovery_checked" not in st.session_state:
         st.session_state["startup_recovery_checked"] = True
@@ -239,7 +239,7 @@ def main() -> None:
         with tab3:
             # リカバリー設定
             show_recovery_settings()
-            
+
         with tab4:
             # 処理履歴
             show_recovery_history()
@@ -287,7 +287,7 @@ def main() -> None:
     # 文字起こし処理
     st.markdown("---")
     st.subheader("📝 文字起こし")
-    
+
     # リカバリーチェック
     recovery_info = show_recovery_check(video_path)
     if recovery_info and st.session_state.get("recovery_action") == "resume":
@@ -593,7 +593,7 @@ def main() -> None:
                         raise InterruptedError("処理が中止されました")
                     progress_bar.progress(min(progress, 1.0))
                     progress_text.info(status)
-                    
+
                     # 状態を表示
                     show_recovery_status(video_path, "transcribing", progress)
 

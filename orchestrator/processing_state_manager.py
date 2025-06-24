@@ -6,11 +6,10 @@ Docker環境での処理中断時に状態を保存し、
 """
 
 import json
-import pickle
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 # プロジェクトルートをパスに追加
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -31,7 +30,7 @@ class ProcessingStateManager:
         """
         # Docker環境かどうかを判定
         is_docker = Path("/.dockerenv").exists()
-        
+
         if state_dir:
             self.state_dir = state_dir
         elif is_docker:
@@ -39,7 +38,7 @@ class ProcessingStateManager:
         else:
             # ローカル環境では一時ディレクトリを使用
             self.state_dir = Path.home() / ".textffcut" / "state"
-            
+
         self.state_dir.mkdir(parents=True, exist_ok=True)
         logger.info(f"ProcessingStateManager initialized with state_dir: {self.state_dir}")
 
@@ -95,7 +94,7 @@ class ProcessingStateManager:
             return None
 
         try:
-            with open(state_file, "r", encoding="utf-8") as f:
+            with open(state_file, encoding="utf-8") as f:
                 state_data = json.load(f)
 
             # タイムスタンプをチェック（24時間以内）
@@ -138,7 +137,7 @@ class ProcessingStateManager:
 
         for state_file in self.state_dir.glob("*.state"):
             try:
-                with open(state_file, "r", encoding="utf-8") as f:
+                with open(state_file, encoding="utf-8") as f:
                     state_data = json.load(f)
 
                 # タイムスタンプをチェック
@@ -168,7 +167,7 @@ class ProcessingStateManager:
 
         for state_file in self.state_dir.glob("*.state"):
             try:
-                with open(state_file, "r", encoding="utf-8") as f:
+                with open(state_file, encoding="utf-8") as f:
                     state_data = json.load(f)
 
                 timestamp = datetime.fromisoformat(state_data["timestamp"])

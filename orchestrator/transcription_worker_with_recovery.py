@@ -10,13 +10,10 @@ import time
 from pathlib import Path
 from typing import Any
 
-import psutil
-
 # プロジェクトルートをパスに追加
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from config import Config
-from orchestrator.gc_optimizer import optimize_for_transcription
 from orchestrator.process_communication import MessageType, ProcessCommunicator, ProcessMessage
 from orchestrator.processing_state_manager import ProcessingStateManager, TranscriptionRecovery
 from orchestrator.transcription_worker_process import ProcessTranscriptionWorker
@@ -36,14 +33,14 @@ class ProcessTranscriptionWorkerWithRecovery(ProcessTranscriptionWorker):
             communicator: プロセス間通信オブジェクト
         """
         super().__init__(config, communicator)
-        
+
         # 状態管理を初期化
         self.state_manager = ProcessingStateManager()
         self.recovery = TranscriptionRecovery(self.state_manager)
-        
+
         # 現在処理中の動画パス
         self.current_video_path: str | None = None
-        
+
         logger.info(f"ProcessTranscriptionWorkerWithRecovery initialized for worker {communicator.worker_id}")
 
     def _handle_transcribe_segment(self, task_id: str, task_data: dict[str, Any]) -> None:
@@ -53,13 +50,13 @@ class ProcessTranscriptionWorkerWithRecovery(ProcessTranscriptionWorker):
             audio_path = task_data.get("audio_path")
             chunk_duration = task_data.get("chunk_duration")
             video_path = task_data.get("video_path")
-            
+
             # 動画パスが指定されている場合は状態を保存
             if video_path:
                 self.current_video_path = video_path
                 segment_index = task_data.get("segment_index", 0)
                 total_segments = task_data.get("total_segments", 1)
-                
+
                 # 処理開始前に状態を保存
                 self.state_manager.save_state(
                     video_path,
@@ -71,7 +68,7 @@ class ProcessTranscriptionWorkerWithRecovery(ProcessTranscriptionWorker):
                         "audio_path": audio_path,
                         "chunk_duration": chunk_duration,
                     },
-                    progress=segment_index / total_segments
+                    progress=segment_index / total_segments,
                 )
 
             # 進捗通知
@@ -84,14 +81,11 @@ class ProcessTranscriptionWorkerWithRecovery(ProcessTranscriptionWorker):
 
             # 結果送信
             self.communicator.send_result(task_id, result)
-            
+
             # 成功した場合、チャンク進捗を保存
             if video_path and "segment_index" in task_data:
                 self.recovery.save_chunk_progress(
-                    video_path,
-                    task_data["segment_index"],
-                    task_data.get("total_segments", 1),
-                    result
+                    video_path, task_data["segment_index"], task_data.get("total_segments", 1), result
                 )
 
             # メモリ解放
@@ -99,7 +93,7 @@ class ProcessTranscriptionWorkerWithRecovery(ProcessTranscriptionWorker):
 
         except Exception as e:
             self.communicator.send_error(task_id, e)
-            
+
             # エラー時も状態を保存（リカバリー用）
             if self.current_video_path:
                 self.state_manager.save_state(
@@ -110,7 +104,7 @@ class ProcessTranscriptionWorkerWithRecovery(ProcessTranscriptionWorker):
                         "error": str(e),
                         "segment_data": segment_data,
                     },
-                    progress=task_data.get("segment_index", 0) / task_data.get("total_segments", 1)
+                    progress=task_data.get("segment_index", 0) / task_data.get("total_segments", 1),
                 )
 
     def _handle_batch_transcribe(self, task_id: str, task_data: dict[str, Any]) -> None:
@@ -120,12 +114,12 @@ class ProcessTranscriptionWorkerWithRecovery(ProcessTranscriptionWorker):
             audio_path = task_data.get("audio_path")
             chunk_duration = task_data.get("chunk_duration")
             video_path = task_data.get("video_path")
-            
+
             # リカバリーチェック
             pending_indices = None
             if video_path:
                 self.current_video_path = video_path
-                
+
                 # リカバリー情報をチェック
                 recovery_info = self.recovery.check_recovery(video_path)
                 if recovery_info and recovery_info.get("can_resume"):
@@ -144,34 +138,30 @@ class ProcessTranscriptionWorkerWithRecovery(ProcessTranscriptionWorker):
                             "chunk_duration": chunk_duration,
                             "chunks": [],
                         },
-                        progress=0.0
+                        progress=0.0,
                     )
 
             results = []
-            
+
             # 処理するセグメントのインデックスを決定
             indices_to_process = pending_indices if pending_indices is not None else range(len(segments))
 
             for idx, i in enumerate(indices_to_process):
                 if i >= len(segments):
                     continue
-                    
+
                 segment = segments[i]
-                
+
                 # 進捗通知
                 actual_progress = (len(segments) - len(indices_to_process) + idx + 1) / len(segments)
-                self.communicator.send_progress(
-                    task_id, 
-                    actual_progress, 
-                    f"セグメント {i+1}/{len(segments)} を処理中"
-                )
+                self.communicator.send_progress(task_id, actual_progress, f"セグメント {i+1}/{len(segments)} を処理中")
 
                 # セグメント処理
                 result = self.process_segment(
                     segment_data=segment, audio_path=audio_path, chunk_duration=chunk_duration
                 )
                 results.append(result)
-                
+
                 # チャンク進捗を保存
                 if video_path:
                     self.recovery.save_chunk_progress(video_path, i, len(segments), result)
@@ -188,14 +178,14 @@ class ProcessTranscriptionWorkerWithRecovery(ProcessTranscriptionWorker):
             # バッチ結果を送信
             batch_result = {"results": results, "processed_count": len(results)}
             self.communicator.send_result(task_id, batch_result)
-            
+
             # 処理完了時に状態をクリア
             if video_path:
                 self.state_manager.clear_state(video_path)
 
         except Exception as e:
             self.communicator.send_error(task_id, e)
-            
+
             # エラー時の状態保存
             if self.current_video_path:
                 self.state_manager.save_state(
@@ -206,32 +196,29 @@ class ProcessTranscriptionWorkerWithRecovery(ProcessTranscriptionWorker):
                         "error": str(e),
                         "batch_info": {
                             "total_segments": len(segments),
-                            "processed": len(results) if 'results' in locals() else 0,
-                        }
+                            "processed": len(results) if "results" in locals() else 0,
+                        },
                     },
-                    progress=len(results) / len(segments) if 'results' in locals() else 0.0
+                    progress=len(results) / len(segments) if "results" in locals() else 0.0,
                 )
 
     def _handle_recovery_check(self, task_id: str, task_data: dict[str, Any]) -> None:
         """リカバリーチェックタスクを処理"""
         try:
             video_path = task_data.get("video_path")
-            
+
             if not video_path:
                 self.communicator.send_result(task_id, {"recoverable": False})
                 return
-            
+
             # リカバリー情報をチェック
             recovery_info = self.recovery.check_recovery(video_path)
-            
+
             if recovery_info:
-                self.communicator.send_result(task_id, {
-                    "recoverable": True,
-                    "recovery_info": recovery_info
-                })
+                self.communicator.send_result(task_id, {"recoverable": True, "recovery_info": recovery_info})
             else:
                 self.communicator.send_result(task_id, {"recoverable": False})
-                
+
         except Exception as e:
             self.communicator.send_error(task_id, e)
 
@@ -276,9 +263,9 @@ class ProcessTranscriptionWorkerWithRecovery(ProcessTranscriptionWorker):
                     "worker_id": self.communicator.worker_id,
                     "timestamp": time.time(),
                 },
-                progress=-1  # 中断を示す特別な値
+                progress=-1,  # 中断を示す特別な値
             )
-        
+
         # 親クラスのクリーンアップを実行
         super().cleanup()
 
@@ -287,38 +274,36 @@ class ProcessTranscriptionWorkerWithRecovery(ProcessTranscriptionWorker):
 def test_recovery_worker():
     """リカバリー機能付きワーカーのテスト"""
     from multiprocessing import Queue
+
     from orchestrator.process_communication import ProcessCommunicator
-    
+
     print("=== Recovery Worker Test ===")
-    
+
     # キューを作成
     request_queue = Queue()
     response_queue = Queue()
-    
+
     # 通信オブジェクトを作成
     communicator = ProcessCommunicator(request_queue, response_queue, "test_worker")
-    
+
     # 設定を作成
     config = Config()
-    
+
     # ワーカーを作成
     worker = ProcessTranscriptionWorkerWithRecovery(config, communicator)
-    
+
     print("✓ Recovery worker created successfully")
-    
+
     # リカバリーチェックタスクをシミュレート
     test_msg = ProcessMessage(
         msg_type=MessageType.TASK_REQUEST,
         task_id="recovery_test",
-        data={
-            "type": "recovery_check",
-            "video_path": "/test/video.mp4"
-        }
+        data={"type": "recovery_check", "video_path": "/test/video.mp4"},
     )
-    
+
     worker._process_task(test_msg)
     print("✓ Recovery check processed")
-    
+
     # クリーンアップ
     worker.cleanup()
     print("✓ Test completed!")
