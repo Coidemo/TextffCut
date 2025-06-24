@@ -2,6 +2,7 @@
 ダークモード対応のスタイル定義
 """
 
+
 def get_dark_mode_styles():
     """ダークモード対応のCSSスタイルを返す"""
     return """
@@ -69,4 +70,5 @@ def get_dark_mode_styles():
 def apply_dark_mode_styles():
     """ダークモード対応のスタイルを適用"""
     import streamlit as st
+
     st.markdown(get_dark_mode_styles(), unsafe_allow_html=True)

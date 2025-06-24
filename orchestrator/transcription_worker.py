@@ -19,7 +19,7 @@ from core.error_handling import ErrorHandler, ProcessingError, ResourceError, Va
 from core.models import TranscriptionSegmentV2
 from core.transcription import Transcriber
 from utils.cleanup import TempFileManager
-from utils.logging import BuzzClipLogger
+from utils.logging import get_logger
 
 
 class TranscriptionWorker:
@@ -32,7 +32,7 @@ class TranscriptionWorker:
             config: 設定オブジェクト
         """
         self.config = config
-        self.logger = BuzzClipLogger("TranscriptionWorker")
+        self.logger = get_logger("TranscriptionWorker")
         self.error_handler = ErrorHandler(self.logger)
         self.transcriber: Transcriber | None = None
         self.temp_manager = TempFileManager()
@@ -59,13 +59,18 @@ class TranscriptionWorker:
                 f"device={device}, compute={compute_type}"
             )
 
-            self.transcriber = Transcriber(
-                config=self.config, model_size=model_size, language=language, device=device, compute_type=compute_type
-            )
+            # Transcriberはconfigのみで初期化
+            self.transcriber = Transcriber(config=self.config)
+            
+            # モデルサイズなどは後で使用するため保存
+            self.model_size = model_size
+            self.language = language
+            self.device = device
+            self.compute_type = compute_type
 
         except Exception as e:
-            error = ResourceError(f"文字起こしエンジンの初期化に失敗: {str(e)}", original_error=e)
-            self.error_handler.handle_error(error)
+            error = ResourceError(f"文字起こしエンジンの初期化に失敗: {str(e)}", cause=e)
+            self.error_handler.handle_error(error, "initialize_transcriber")
             raise
 
     def process_segment(
@@ -328,7 +333,7 @@ class TranscriptionWorker:
 
     def cleanup(self) -> None:
         """リソースのクリーンアップ"""
-        self.temp_manager.cleanup_all()
+        self.temp_manager.cleanup()
 
         if self.transcriber:
             # 文字起こしエンジンのクリーンアップ

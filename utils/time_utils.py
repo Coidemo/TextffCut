@@ -1,7 +1,6 @@
 """
 時間関連のユーティリティ関数
 """
-from typing import Tuple
 
 
 def format_time(seconds: float) -> str:
@@ -9,7 +8,7 @@ def format_time(seconds: float) -> str:
     hours = int(seconds // 3600)
     minutes = int((seconds % 3600) // 60)
     seconds = int(seconds % 60)
-    
+
     if hours > 0:
         return f"{hours}時間{minutes}分{seconds}秒"
     elif minutes > 0:
@@ -24,7 +23,7 @@ def format_timestamp(seconds: float, fps: float = None) -> str:
     if fps:
         frame_number = round(seconds * fps)
         seconds = frame_number / fps
-    
+
     hours = int(seconds // 3600)
     minutes = int((seconds % 3600) // 60)
     seconds = seconds % 60
@@ -34,7 +33,7 @@ def format_timestamp(seconds: float, fps: float = None) -> str:
 
 def time_to_seconds(time_str: str) -> float:
     """SRT形式のタイムスタンプを秒数に変換"""
-    hours, minutes, seconds = time_str.replace(',', '.').split(':')
+    hours, minutes, seconds = time_str.replace(",", ".").split(":")
     return float(hours) * 3600 + float(minutes) * 60 + float(seconds)
 
 
@@ -53,25 +52,25 @@ def frames_to_timecode(frames: int, fps: int = 30) -> str:
     return seconds_to_timecode(seconds, fps)
 
 
-def calculate_frame_boundaries(start: float, end: float, fps: float, timeline_fps: int = 30) -> Tuple[int, int]:
+def calculate_frame_boundaries(start: float, end: float, fps: float, timeline_fps: int = 30) -> tuple[int, int]:
     """
     開始・終了時間をフレーム境界に変換
-    
+
     Args:
         start: 開始時間（秒）
         end: 終了時間（秒）
         fps: ソース動画のFPS
         timeline_fps: タイムラインのFPS
-        
+
     Returns:
         タイムライン上の開始フレーム、期間フレーム数
     """
     # ソース動画のフレーム番号に変換
     start_frames = int(round(start * fps))
     duration_frames = int(round((end - start) * fps))
-    
+
     # タイムラインのフレームレートに合わせて変換
     timeline_start_frames = int(round(start_frames * (timeline_fps / fps)))
     timeline_duration_frames = int(round(duration_frames * (timeline_fps / fps)))
-    
+
     return timeline_start_frames, timeline_duration_frames
