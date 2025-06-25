@@ -540,7 +540,36 @@ TimeRange:
 - 窓サイズ20ms：音声の基本周波数（50-400Hz）を捉えるのに十分な長さ
 - オーバーラップ50%：急激な音量変化を見逃さないための安全マージン
 
-#### 4.2.3 セグメント結合アルゴリズム
+#### 4.2.3 時間マッピング（TimeMapper）
+
+**目的**: 無音削除により分割・移動した時間範囲を正確に追跡し、元動画の時間と処理後の時間を対応付ける。
+
+**処理概要**:
+1️⃣ **基本的な時間マッピング**
+   - 元動画の時間範囲（original_ranges）と保持される範囲（kept_ranges）の対応を管理
+   - 各範囲の開始・終了時間を記録し、線形補間で中間点も計算可能
+   
+2️⃣ **範囲分割の検出（map_range_to_segments）**
+   - 単一の時間範囲が無音削除により複数のセグメントに分割される場合を検出
+   - 元の範囲と重なるすべての保持範囲を抽出し、それぞれの時間を計算
+   - 例：[35.5-40.8秒]が[0.0-1.5秒]、[1.6-2.5秒]、[2.6-4.3秒]の3つに分割
+   
+3️⃣ **実装の詳細**
+   ```python
+   def map_range_to_segments(self, start: float, end: float) -> list[tuple[float, float]]:
+       segments = []
+       for mapping in self.mappings:
+           # 重なる部分を計算
+           overlap_start = max(start, mapping.original_start)
+           overlap_end = min(end, mapping.original_end)
+           
+           if overlap_start < overlap_end:
+               # 相対位置を計算してマッピング
+               segments.append((mapped_start, mapped_end))
+       return segments
+   ```
+
+#### 4.2.4 セグメント結合アルゴリズム
 
 **目的**: 細切れになった音声セグメントを適切に結合し、自然な編集結果を生成する。
 
@@ -837,7 +866,8 @@ video_folder_TextffCut/              # 動画名_TextffCutフォルダ
 │   └── history.json                # 処理履歴
 ├── {base}_TextffCut_NoSilence_01.mp4   # 切り抜き＋無音削除
 ├── {base}_TextffCut_NoSilence_01.fcpxml # FCPXMLエクスポート
-└── {base}_TextffCut_NoSilence_01.xml    # Premiere XMLエクスポート
+├── {base}_TextffCut_NoSilence_01.xml    # Premiere XMLエクスポート
+└── {base}_TextffCut_NoSilence_01.srt    # SRT字幕エクスポート（同じ連番を使用）
 ```
 
 **キャッシュ管理の実装**:
@@ -921,6 +951,329 @@ CUDA_VISIBLE_DEVICES=0 (GPU使用時)
    FCPXML: sample_video_001.fcpxml
    Premiere XML: sample_video_001.xml
    字幕: sample_video_001.srt
+   ```
+
+### 7.4 SRT字幕エクスポート
+
+**SRTエクスポート機能の実装**:
+
+1️⃣ **コアモジュール**
+   - `core/srt_exporter.py`: SRT形式のエクスポート処理（セグメントベース）
+   - `core/srt_timing_adjuster.py`: 字幕タイミングの最適化
+   - `core/srt_diff_exporter.py`: 差分検出結果を利用したSRTエクスポート
+   
+   **重要な実装詳細**:
+   - SRTEntryクラスの`to_srt`メソッドは、各エントリの最後に空行を含める必要がある
+   - DaVinci Resolve互換性のため、字幕テキストを`<b>`タグで囲む
+   ```python
+   def to_srt(self) -> str:
+       """SRT形式の文字列に変換"""
+       # DaVinci Resolveで改行を認識させるため<b>タグで囲む
+       formatted_text = f"<b>{text}</b>"
+       return f"{self.index}\n{start_str} --> {end_str}\n{formatted_text}\n\n"
+   ```
+
+2️⃣ **スマートセグメント結合（_smart_segment_merge）**
+   - 無音削除により分割されたセグメントを、ユーザー設定の文字数制限内で賢く結合
+   - 結合ロジック：
+     ```python
+     def _smart_segment_merge(self, segments: list[dict]) -> list[dict]:
+         # 現在のセグメントと次のセグメントの合計文字数を計算
+         combined_text = current['text'] + seg['text']
+         
+         # max_line_length * max_lines以内なら結合
+         if len(combined_text) <= self.max_line_length * self.max_lines:
+             current['text'] = combined_text
+             current['end_time'] = seg['end_time']
+     ```
+   - 例：「6月5日の木曜日かな」（10文字）＋「木曜日」（3文字）= 13文字 ≤ 22文字（11×2）→ 結合
+
+3️⃣ **改行位置の最適化（_apply_natural_line_breaks）**
+   - ユーザー設定の文字数制限を最大限活用する改行処理
+   - 改善点：
+     ```python
+     # 旧：テキストの中央で分割しようとする
+     target_split = len(text) // 2
+     
+     # 新：1行目はmax_line_lengthまで使い切る
+     target_split = min(self.max_line_length, len(text) - 1)
+     ```
+   - 例：「6月5日の木曜日かな木曜日」（13文字）を11文字制限で改行
+     - 旧：「6月5日の／木曜日かな木曜日」（6文字目で改行）
+     - 新：「6月5日の木曜日かな／木曜日」（10文字目で改行）
+
+4️⃣ **タイミング調整アルゴリズム**
+   - 最小/最大表示時間の制約
+   - 読取速度に基づく表示時間計算
+   - 字幕間のギャップ調整
+   - 長いセグメントの自動分割
+   - ショット変更へのスナップ（オプション）
+
+3️⃣ **UI設定**
+   - サイドバーに「SRT字幕」タブを追加
+   - タイミング自動調整のON/OFF
+   - 1行の最大文字数（デフォルト: 42文字、最小: 10文字）
+   - 最大行数（デフォルト: 2行）
+   - 最小/最大表示時間
+   - 読取速度（文字/秒）
+   - 文字エンコーディング選択
+
+4️⃣ **差分検出結果を利用した字幕生成**
+   - TextProcessorの差分検出で特定した共通部分（切り抜き箇所の文字）を使用
+   - 共通部分ごとに時間情報を持つ字幕エントリを作成
+   - 適切な長さで字幕を分割（文の区切り、読みやすさを考慮）
+   - 元の文字起こしセグメントの境界に依存しない
+   - ユーザーが指定した文字のみが確実に字幕化される
+
+5️⃣ **無音削除時のタイミング調整**
+   - **問題**: 無音削除により動画の時間が詰まるが、字幕は元動画の時間を使用するためずれる
+   - **解決策**: TimeMapperクラスによる時間マッピング
+   
+   **TimeMapperクラスの設計**:
+   ```python
+   class TimeMapper:
+       """無音削除による時間マッピングを管理"""
+       
+       def __init__(self, original_ranges: list[tuple[float, float]], 
+                    kept_ranges: list[tuple[float, float]]):
+           # original_ranges: 差分検出で取得した時間範囲
+           # kept_ranges: 無音削除後の時間範囲
+           
+       def map_time(self, original_time: float) -> float | None:
+           """元動画の時間を無音削除後の時間に変換"""
+           
+       def map_range(self, start: float, end: float) -> tuple[float, float] | None:
+           """時間範囲をマッピング"""
+   ```
+   
+   **処理フロー**:
+   - 無音削除なし: 従来のexport_from_diffメソッドを使用
+   - 無音削除あり: TimeMapperで時間を変換してからSRTを生成
+   - 各字幕エントリの開始・終了時間を無音削除後の時間に調整
+
+6️⃣ **自然なSRTエントリ分割（Phase 2b）**
+   - **実装方針**: 無音位置での物理的な分割を優先し、意味的な調整を加える
+   
+   **分割アルゴリズム**:
+   ```python
+   def create_natural_srt_entries(
+       text: str,
+       time_ranges: list[tuple[float, float]],
+       words_with_timing: list[dict]
+   ) -> list[SRTEntry]:
+       """無音位置と意味的な単位を考慮した自然なSRTエントリ生成"""
+       
+       if len(time_ranges) > 1:
+           # 無音削除で複数セグメントに分かれた場合
+           text_segments = distribute_text_to_segments(
+               text, time_ranges, words_with_timing
+           )
+           
+           entries = []
+           for i, (text_seg, (start, end)) in enumerate(zip(text_segments, time_ranges)):
+               entries.append(SRTEntry(
+                   index=i+1,
+                   start_time=start,
+                   end_time=end,
+                   text=apply_line_breaks(text_seg)
+               ))
+           return entries
+       else:
+           # 単一セグメントの場合、意味的に分割
+           return split_single_segment_semantically(
+               text, time_ranges[0], words_with_timing
+           )
+   ```
+   
+   **意味的な分割ルール**:
+   - 終助詞（かな、ね、よ、な等）の後で優先的に分割
+   - 同じ単語の繰り返しは独立セグメント化（例：「木曜日」の繰り返し）
+   - 応答詞（はい、ええ、うん等）の前で分割
+   - 形態素解析の品詞情報を活用
+   
+   **テキスト分配アルゴリズム**:
+   ```python
+   def distribute_text_to_segments(
+       text: str,
+       time_ranges: list[tuple[float, float]],
+       words_with_timing: list[dict]
+   ) -> list[str]:
+       """時間範囲に基づいてテキストを各セグメントに分配"""
+       
+       segments = []
+       for start, end in time_ranges:
+           # この時間範囲に含まれる単語を抽出
+           words_in_range = extract_words_in_time_range(
+               words_with_timing, start, end
+           )
+           
+           if words_in_range:
+               segment_text = ''.join(w['text'] for w in words_in_range)
+               segments.append(segment_text)
+           else:
+               # フォールバック：文字数で分配
+               segments.append("")
+       
+       return segments
+   ```
+
+7️⃣ **シンプルで高品質な自動分割（最終設計）**
+   
+   **設計思想**: ユーザーに複雑な設定を要求せず、内部で賢く処理
+   
+   **実装方針**:
+   ```python
+   class AutoSubtitleSplitter:
+       """内部で賢く処理する字幕分割器"""
+       
+       def __init__(self):
+           # 固定の内部ルール（ユーザー設定なし）
+           self.min_segment_chars = 5
+           self.max_total_chars = 22  # 11文字×2行
+       
+       def split_automatically(
+           self, 
+           text: str, 
+           silence_ranges: list[tuple[float, float]] = None,
+           words_with_timing: list[dict] = None
+       ) -> list[dict]:
+           """完全自動の分割処理"""
+           
+           # 1. 無音位置がある場合は最優先
+           if silence_ranges and len(silence_ranges) > 1:
+               segments = self.split_by_silence(text, silence_ranges, words_with_timing)
+               return self.optimize_segments(segments)
+           
+           # 2. なければ意味的な分割
+           segments = self.split_by_semantics(text, words_with_timing)
+           return self.optimize_segments(segments)
+       
+       def split_by_semantics(self, text: str, words: list[dict]) -> list[dict]:
+           """意味的な単位で分割（内部処理）"""
+           split_positions = []
+           
+           # シンプルなルールベース
+           for i, word in enumerate(words):
+               # 終助詞の後
+               if word.get('pos') == '助詞-終助詞' and word['surface'] in ['かな', 'ね', 'よ']:
+                   split_positions.append(word['end'])
+               
+               # 応答詞の前
+               elif word['surface'] in ['はい', 'ええ'] and i > 0:
+                   split_positions.append(word['start'])
+               
+               # 同じ単語の繰り返し（3文字以上）
+               elif i > 0 and word['surface'] == words[i-1]['surface'] and len(word['surface']) >= 3:
+                   split_positions.append(word['start'])
+           
+           return self.create_segments_from_positions(text, split_positions)
+       
+       def optimize_segments(self, segments: list[dict]) -> list[dict]:
+           """短すぎるセグメントを自動調整"""
+           optimized = []
+           buffer = None
+           
+           for seg in segments:
+               text_len = len(seg['text'].replace('\n', ''))
+               
+               # 5文字未満は結合を検討
+               if text_len < self.min_segment_chars:
+                   if buffer and len(buffer['text']) + text_len <= self.max_total_chars:
+                       # 前と結合
+                       buffer['text'] = self.merge_texts(buffer['text'], seg['text'])
+                       buffer['end_time'] = seg['end_time']
+                       continue
+                   else:
+                       buffer = seg
+                       continue
+               
+               # バッファ確定
+               if buffer:
+                   optimized.append(buffer)
+                   buffer = None
+               
+               # 改行位置を自動調整
+               seg['text'] = self.apply_line_breaks(seg['text'])
+               optimized.append(seg)
+           
+           if buffer:
+               optimized.append(buffer)
+           
+           return optimized
+   ```
+   
+   **ユーザーインターフェース（超シンプル）**:
+   ```python
+   # main.pyでの実装
+   # SRT設定エリア（既存のUI内）
+   st.subheader("SRT字幕設定")
+   col1, col2 = st.columns(2)
+   
+   with col1:
+       max_line_length = st.number_input(
+           "1行の最大文字数",
+           min_value=10,
+           max_value=42,
+           value=11
+       )
+   
+   with col2:
+       max_lines = st.number_input(
+           "最大行数",
+           min_value=1,
+           max_value=3,
+           value=2
+       )
+   
+   # これだけ！パラメータ地獄なし！
+   
+   # 内部処理（ユーザーは知らない）
+   if st.button("SRT生成"):
+       # 無音位置情報を自動で活用
+       silence_info = get_silence_ranges() if has_silence_removal else None
+       
+       # 単語タイミングを自動で活用
+       word_timing = transcription.get_word_timing() if available else None
+       
+       # あとは全自動
+       exporter = SRTDiffExporter(config)
+       exporter.export_from_diff(
+           diff=diff_result,
+           transcription_result=transcription,
+           output_path=output_path,
+           srt_settings={
+               'max_line_length': max_line_length,
+               'max_lines': max_lines
+               # 他の複雑な設定は一切なし！
+           }
+       )
+   ```
+   
+   **内部最適化（見せない部分）**:
+   ```python
+   # 形態素解析の軽量化
+   _tokenizer = None
+   
+   def get_tokenizer():
+       """シングルトンパターンで初期化コスト削減"""
+       global _tokenizer
+       if _tokenizer is None:
+           from janome.tokenizer import Tokenizer
+           _tokenizer = Tokenizer()
+       return _tokenizer
+   
+   # よくあるパターンのキャッシュ
+   _pattern_cache = {}
+   
+   def check_pattern(text: str, pattern_type: str) -> bool:
+       """パターンマッチングの結果をキャッシュ"""
+       cache_key = f"{pattern_type}:{text}"
+       if cache_key in _pattern_cache:
+           return _pattern_cache[cache_key]
+       
+       result = _check_pattern_internal(text, pattern_type)
+       _pattern_cache[cache_key] = result
+       return result
    ```
 
 ## 8. 外部ツールインターフェース
@@ -1066,6 +1419,8 @@ CUDA_VISIBLE_DEVICES=0 (GPU使用時)
 - [ ] 無音削除
 - [ ] 動画結合
 - [ ] FCPXML生成
+- [ ] SRT字幕エクスポート（差分検出ベース）
+- [ ] 無音削除時の字幕タイミング調整（TimeMapper）
 - [ ] エラーハンドリング
 - [ ] 進捗表示
 - [ ] セッション管理
@@ -1768,7 +2123,12 @@ def check_and_recover_on_startup():
      - ✅ EnhancedMemoryMonitor: ワーカーごとのメモリ状態追跡
      - ✅ WorkerLifecycleManager: 自動ワーカー再起動機能
      - ✅ GarbageCollectionOptimizer: 動的GC最適化
-   - SRT字幕エクスポート
+   - SRT字幕エクスポート（✅ 実装完了）
+     - ✅ 差分検出ベースの字幕生成
+     - ✅ 自然な日本語改行処理（禁則処理対応）
+     - ✅ 無音削除時の時間マッピング対応
+     - ✅ 字幕は文字起こしのタイムスタンプを基準に生成（クリップ数との一致は不要）
+     - ✅ 字幕全体が動画全体の時間範囲内に収まることを保証
 
 2. **優先度中**
    - Docker状態永続化の完全実装
@@ -1778,9 +2138,344 @@ def check_and_recover_on_startup():
    - YouTube動画ダウンロード（法的検討が必要）
    - タイムライン編集UI（大規模な開発が必要）
 
+## 17. 環境統一実装
+
+### 17.1 概要
+
+Docker環境とローカル環境で完全に同一の動作を実現するための詳細実装設計です。
+
+### 17.2 環境判定とパス管理
+
+#### utils/environment.py
+```python
+import os
+from pathlib import Path
+
+# 環境判定
+IS_DOCKER = os.path.exists('/.dockerenv')
+
+# 基準パスの設定
+if IS_DOCKER:
+    # Docker環境の固定パス
+    VIDEOS_DIR = "/app/videos"
+    OUTPUT_DIR = "/app/videos"
+    LOGS_DIR = "/app/logs"
+    TEMP_DIR = "/app/temp"
+    CACHE_DIR = "/app/cache"
+else:
+    # ローカル環境の相対パス
+    BASE_DIR = os.getcwd()
+    VIDEOS_DIR = os.path.join(BASE_DIR, "videos")
+    OUTPUT_DIR = os.path.join(BASE_DIR, "videos")
+    LOGS_DIR = os.path.join(BASE_DIR, "logs")
+    TEMP_DIR = os.path.join(BASE_DIR, "temp")
+    CACHE_DIR = os.path.join(BASE_DIR, "cache")
+
+# ディレクトリの自動作成
+def ensure_directories():
+    """必要なディレクトリを作成"""
+    for dir_path in [VIDEOS_DIR, LOGS_DIR, TEMP_DIR, CACHE_DIR]:
+        Path(dir_path).mkdir(parents=True, exist_ok=True)
+```
+
+### 17.3 ファイル入力UIの統一実装
+
+#### ui/file_upload.py
+```python
+"""
+Docker/ローカル両対応ファイル選択UIコンポーネント
+"""
+
+import os
+from pathlib import Path
+import streamlit as st
+from utils.environment import VIDEOS_DIR, ensure_directories
+
+def show_video_input() -> tuple[str, str] | None:
+    """
+    統一動画選択UI
+    
+    Returns:
+        (動画ファイルパス, 出力ディレクトリパス) のタプル
+    """
+    st.markdown("### 🎬 動画ファイルの選択")
+    
+    # 必要なディレクトリを作成
+    ensure_directories()
+    
+    videos_dir = Path(VIDEOS_DIR)
+    
+    # 動画ファイル一覧を取得
+    video_files = []
+    for ext in ["*.mp4", "*.mov", "*.avi", "*.mkv", "*.webm"]:
+        video_files.extend([f.name for f in videos_dir.glob(ext) if f.is_file()])
+    video_files = sorted(video_files)
+    
+    # 動画選択UI（環境によらず同一）
+    col1, col2 = st.columns([5, 1])
+    with col1:
+        selected_file = st.selectbox(
+            "編集する動画を選択してください",
+            [""] + video_files if video_files else ["（動画ファイルがありません）"],
+            disabled=not video_files,
+        )
+    with col2:
+        st.markdown("<div style='margin-top: 1.875rem;'></div>", unsafe_allow_html=True)
+        if st.button("🔄 更新", help="ファイルリストを更新", use_container_width=True):
+            st.rerun()
+    
+    # 動画フォルダのパスを表示（ユーザーフレンドリーな形式）
+    st.caption("📁 動画フォルダのパス:")
+    display_path = VIDEOS_DIR
+    if not os.path.exists('/.dockerenv'):
+        # ローカル環境では相対パスで表示
+        display_path = os.path.relpath(VIDEOS_DIR, os.getcwd())
+    st.code(display_path, language=None)
+    
+    if video_files and selected_file:
+        # フルパスを返す
+        video_path = str(videos_dir / selected_file)
+        # 動画と同じディレクトリを出力先として返す
+        return video_path, str(videos_dir)
+    
+    return None
+```
+
+### 17.4 その他の環境依存処理
+
+#### config.py での環境対応
+```python
+from utils.environment import LOGS_DIR, CACHE_DIR
+
+class Config:
+    def __init__(self):
+        # 環境に応じたパスを使用
+        self.paths = SimpleNamespace(
+            logs_dir=LOGS_DIR,
+            cache_dir=CACHE_DIR,
+            # ... 他のパス設定
+        )
+```
+
+### 17.5 テスト方針
+
+1. **環境モック**
+   - テスト時に`IS_DOCKER`をモックして両環境をテスト
+   
+2. **パス検証**
+   - 両環境で正しいパスが設定されることを確認
+   
+3. **UI動作確認**
+   - Docker環境とローカル環境で同じUIが表示されることを確認
+
+## 18. SRT字幕エクスポート詳細
+
+### 18.1 ファイル形式とエンコーディング
+
+#### 18.1.1 改行コード
+DaVinci Resolveとの互換性を確保するため、SRTファイルではCRLF（Windows形式）の改行コードを使用します。
+
+```python
+def _write_srt_file(self, srt_entries: list[SRTEntry], output_path: str):
+    """SRTファイルの書き込み（CRLF改行）"""
+    with open(output_path, 'w', encoding='utf-8', newline='') as f:
+        for i, entry in enumerate(srt_entries):
+            if i > 0:
+                # エントリ間の空行もCRLFで出力
+                f.write('\r\n')
+            # to_srt()メソッドが返す文字列のLFをCRLFに変換
+            srt_text = entry.to_srt().replace('\n', '\r\n')
+            # 末尾の改行を除去（重複防止）
+            srt_text = srt_text.rstrip('\r\n')
+            f.write(srt_text)
+```
+
+#### 18.1.2 文字エンコーディング
+- UTF-8 with BOMなし
+- DaVinci Resolveは両方対応だが、BOMなしが推奨
+
+### 18.2 SRTエントリの形式
+
+```python
+class SRTEntry:
+    def to_srt(self) -> str:
+        """SRT形式の文字列に変換（LF使用、後でCRLFに変換）"""
+        start_str = seconds_to_srt_time(self.start_time)
+        end_str = seconds_to_srt_time(self.end_time)
+        text = self.text.strip()
+        
+        # DaVinci Resolveで改行を認識させるため<b>タグで囲む
+        formatted_text = f"<b>{text}</b>"
+        
+        # SRT仕様準拠: 各エントリの後に空行が必要（LF使用）
+        return f"{self.index}\n{start_str} --> {end_str}\n{formatted_text}\n\n"
+```
+
+### 18.3 DaVinci Resolve互換性対策
+
+1. **改行コード**：CRLF（\r\n）を使用
+   - LF（\n）では行頭カウントが狂う問題を回避
+   
+2. **HTMLタグ**：`<b>`タグで全体を囲む
+   - DaVinci Resolveが出力するSRTと同じ形式
+   
+3. **エントリ間の空行**：必須
+   - SRT仕様で要求される空行を確実に挿入
+
+### 18.4 ファイル命名規則
+
+XMLファイルと同じ連番を使用：
+```python
+# XMLファイルの連番を取得
+xml_path = get_unique_path(project_path / f"{safe_name}_TextffCut_{type_suffix}{xml_ext}")
+xml_stem = xml_path.stem  # 例: "video_TextffCut_NoSilence_01"
+
+# 同じ連番でSRTファイルを作成
+srt_path = project_path / f"{xml_stem}.srt"
+```
+
+### 18.5 日本語改行処理の詳細
+
+#### 18.5.1 禁則処理ルール
+
+```python
+class JapaneseLineBreakRules:
+    # 行頭禁則文字（行の先頭に来てはいけない）
+    LINE_START_NG = set("、。，．・？！゛゜ヽヾゝゞ々ー）］｝」』!),.:;?]}°′″℃％‰")
+    
+    # 行末禁則文字（行の末尾に来てはいけない）
+    LINE_END_NG = set("（［｛「『([{")
+    
+    # 分割禁止パターン
+    NO_BREAK_PATTERNS = [
+        re.compile(r"\d+[年月日時分秒]"),  # 10年、5月、3日など
+        re.compile(r"\d+[％%]"),         # 50％、100%など
+        re.compile(r"[A-Za-z]+\d+"),     # ABC123など
+        re.compile(r"\d+\.\d+"),         # 12.34など
+    ]
+    
+    # 一般的な助詞（改行を優先する位置）
+    PARTICLES = set("はがをにでとも")
+    
+    # 形態素解析器（遅延初期化）
+    _tokenizer = None
+```
+
+#### 18.5.2 形態素解析の活用（Phase 2）
+
+```python
+@classmethod
+def _get_tokenizer(cls):
+    """形態素解析器の取得（シングルトン）"""
+    if cls._tokenizer is None:
+        try:
+            from janome.tokenizer import Tokenizer
+            cls._tokenizer = Tokenizer()
+        except ImportError:
+            logger.warning("janomeがインストールされていません。基本的な改行処理のみ使用します。")
+            cls._tokenizer = False
+    return cls._tokenizer
+
+@staticmethod
+def get_word_boundaries(text: str) -> list[int]:
+    """形態素解析による単語境界の取得"""
+    tokenizer = JapaneseLineBreakRules._get_tokenizer()
+    if not tokenizer:
+        return []
+    
+    boundaries = []
+    pos = 0
+    for token in tokenizer.tokenize(text):
+        pos += len(token.surface)
+        boundaries.append(pos)
+    return boundaries
+```
+
+#### 18.5.3 改行位置探索アルゴリズム（2025-06-25更新）
+
+```python
+def find_best_break_point(text: str, max_length: int, search_range: int = 5) -> int:
+    """最適な改行位置を見つける（形態素解析対応）"""
+    
+    # 0. 形態素解析による単語境界を取得
+    word_boundaries = JapaneseLineBreakRules.get_word_boundaries(text)
+    
+    # 1. 単語境界での改行を優先（形態素解析が利用可能な場合）
+    if word_boundaries:
+        # max_length以下で最も近い単語境界を探す
+        best_boundary = None
+        for boundary in word_boundaries:
+            if boundary <= max_length and boundary > 0:
+                if can_break_at(text, boundary):
+                    best_boundary = boundary
+            else:
+                break
+        
+        if best_boundary:
+            return best_boundary
+    
+    # 2. 指定位置で改行可能かチェック
+    if can_break_at(text, max_length):
+        # 助詞の前での改行を優先
+        if max_length < len(text) and text[max_length] in PARTICLES:
+            return max_length
+        return max_length
+    
+    # 3. 前方向のみ探索（1行あたりの文字数を最優先）
+    # まず助詞を優先して探す
+    for offset in range(1, min(search_range + 1, max_length)):
+        pos = max_length - offset
+        if pos > 0 and pos < len(text) and text[pos] in PARTICLES:
+            if can_break_at(text, pos):
+                return pos
+    
+    # 4. 助詞が見つからない場合は通常の探索
+    for offset in range(1, min(search_range + 1, max_length)):
+        pos = max_length - offset
+        if pos > 0 and can_break_at(text, pos):
+            return pos
+    
+    # 5. 句読点を探す（さらに前方向）
+    punctuations = "。、．，！？"
+    for i in range(max_length - 1, max(0, max_length - 20), -1):
+        if text[i] in punctuations:
+            return i + 1  # 句読点の後で改行
+    
+    # 6. 見つからない場合は元の位置（強制改行）
+    return max_length
+```
+
+#### 18.5.4 チャンク分割ロジック
+
+2行目以降で収まらないテキストは自動的に次の字幕エントリに分割されます：
+
+```python
+def _split_text_into_chunks(self, text: str) -> list[str]:
+    """テキストを字幕エントリ単位に分割"""
+    chunks = []
+    remaining_text = text.strip()
+    
+    while remaining_text:
+        max_chunk_chars = self.max_line_length * self.max_lines
+        
+        if len(remaining_text) <= max_chunk_chars:
+            # 全て収まる場合
+            chunk_with_breaks = self._apply_natural_line_breaks(remaining_text)
+            chunks.append(chunk_with_breaks)
+            break
+        
+        # 自然な位置でチャンクを分割（次のエントリへ）
+        chunk_text, remaining_text = self._extract_natural_chunk(
+            remaining_text, self.max_line_length, self.max_lines
+        )
+        chunks.append(chunk_text)
+    
+    return chunks
+```
+
 ---
 
 **作成日**: 2025-06-22  
-**バージョン**: 3.1  
-**更新日**: 2025-06-23  
+**バージョン**: 3.3  
+**更新日**: 2025-06-25  
 **次回更新**: 実装完了時のフィードバック反映

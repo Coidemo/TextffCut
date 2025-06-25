@@ -42,6 +42,7 @@ from ui.recovery_components import (
     show_startup_recovery,
 )
 from utils import ProcessingContext, cleanup_intermediate_files
+from utils.environment import IS_DOCKER, VIDEOS_DIR
 from utils.file_utils import ensure_directory, get_safe_filename
 from utils.logging import get_logger
 from utils.time_utils import format_time
@@ -156,6 +157,30 @@ def debug_words_status(result: Any) -> None:
                 logger.warning(f"  セグメント{i}: wordsなし! - {seg.text[:30]}...")
 
 
+def get_display_path(file_path: str) -> str:
+    """
+    ファイルパスを表示用に変換
+
+    Args:
+        file_path: 実際のファイルパス
+
+    Returns:
+        表示用のパス
+    """
+    if IS_DOCKER:
+        # Docker環境：ホストパスに変換
+        host_base = os.getenv("HOST_VIDEOS_PATH", os.getenv("PWD", "/app") + "/videos")
+        # /app/videos/xxx を host_path/xxx に変換
+        relative_path = str(file_path).replace(VIDEOS_DIR + "/", "")
+        if relative_path == str(file_path):
+            # VIDEOS_DIR以外のパスの場合はそのまま返す
+            return file_path
+        return os.path.join(host_base, relative_path)
+    else:
+        # ローカル環境：そのまま返す
+        return file_path
+
+
 def main() -> None:
     """メインアプリケーション"""
 
@@ -184,9 +209,8 @@ def main() -> None:
     </svg>
     """
 
-    # Docker環境判定
-
-    is_docker = os.path.exists("/.dockerenv")
+    # Docker環境判定（環境変数から取得）
+    is_docker = IS_DOCKER
 
     # バージョン情報を取得（VERSION.txtから読み込む）
     try:
@@ -224,7 +248,9 @@ def main() -> None:
         st.subheader("⚙️ 設定")
 
         # タブで設定を整理
-        tab1, tab2, tab3, tab4, tab5 = st.tabs(["🔑 APIキー", "🔇 無音検出", "🔄 リカバリー", "📋 履歴", "❓ ヘルプ"])
+        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
+            ["🔑 APIキー", "🔇 無音検出", "🎬 SRT字幕", "🔄 リカバリー", "📋 履歴", "❓ ヘルプ"]
+        )
 
         with tab1:
             # APIキー管理のみ
@@ -237,14 +263,24 @@ def main() -> None:
             )
 
         with tab3:
+            # SRT字幕設定
+            from ui.srt_export_components import show_srt_export_info, show_srt_export_settings
+
+            srt_settings = show_srt_export_settings()
+            # 設定をセッションに保存
+            st.session_state.srt_settings = srt_settings
+            # SRT字幕についての説明
+            show_srt_export_info()
+
+        with tab4:
             # リカバリー設定
             show_recovery_settings()
 
-        with tab4:
+        with tab5:
             # 処理履歴
             show_recovery_history()
 
-        with tab5:
+        with tab6:
             show_help()
 
     # 動画ファイル選択（新しい入力方式）
@@ -984,7 +1020,7 @@ def main() -> None:
 
             # 処理オプション
             st.markdown("#### ⚙️ 処理オプション")
-            process_type, output_format, timeline_fps = show_export_settings()
+            process_type, primary_format, export_srt, timeline_fps = show_export_settings()
 
             if process_type == "無音削除付き":
                 st.markdown("##### 🔇 無音削除の設定")
@@ -1139,13 +1175,13 @@ def main() -> None:
                                 return
 
                         # 出力形式に応じて処理
-                        if output_format in ["FCPXMLファイル", "Premiere Pro XML"]:
+                        if primary_format in ["FCPXMLファイル", "Premiere Pro XML"]:
                             # ExportServiceを使用してXMLを生成
                             export_service = ExportService(config)
                             from utils.file_utils import get_unique_path
 
                             # 形式を決定
-                            if output_format == "FCPXMLファイル":
+                            if primary_format == "FCPXMLファイル":
                                 export_format = "fcpxml"
                                 xml_ext = ".fcpxml"
                             else:  # Premiere Pro XML
@@ -1157,11 +1193,82 @@ def main() -> None:
                             # keep_rangesからセグメントを作成
                             from core import TranscriptionSegment
 
+                            # SRTも同時出力する場合
+                            if export_srt:
+                                # 差分検出ベースのSRTエクスポーターを使用
+                                from core.srt_diff_exporter import SRTDiffExporter
+
+                                # 差分情報を取得（すでに計算済み）
+                                if found_separator:
+                                    # 区切り文字を除去して差分計算
+                                    text_without_separator = edited_text.replace(found_separator, " ")
+                                    diff = text_processor.find_differences(full_text, text_without_separator)
+                                else:
+                                    diff = text_processor.find_differences(full_text, edited_text)
+
+                                # SRT設定を取得
+                                srt_settings = st.session_state.get(
+                                    "srt_settings",
+                                    {
+                                        "min_duration": 0.5,
+                                        "max_duration": 7.0,
+                                        "gap_threshold": 0.1,
+                                        "chars_per_second": 15.0,
+                                        "max_line_length": 42,
+                                        "max_lines": 2,
+                                        "encoding": "utf-8",
+                                    },
+                                )
+
+                                # 無音削除の有無で処理を分岐
+                                srt_exporter = SRTDiffExporter(config)
+
+                                if process_type == "切り抜きのみ":
+                                    # 無音削除なし：従来の処理
+                                    success = srt_exporter.export_from_diff(
+                                        diff=diff,
+                                        transcription_result=transcription,
+                                        output_path=str(xml_path),
+                                        encoding=srt_settings.get("encoding", "utf-8"),
+                                        srt_settings=srt_settings,
+                                    )
+                                else:
+                                    # 無音削除あり：タイムマッピングを使用
+                                    from core.time_mapper import TimeMapper
+
+                                    # TimeMapperを作成（time_rangesとkeep_rangesの対応）
+                                    time_mapper = TimeMapper(time_ranges, keep_ranges)
+
+                                    success = srt_exporter.export_from_diff_with_silence_removal(
+                                        diff=diff,
+                                        transcription_result=transcription,
+                                        output_path=str(xml_path),
+                                        time_mapper=time_mapper,
+                                        encoding=srt_settings.get("encoding", "utf-8"),
+                                        srt_settings=srt_settings,
+                                    )
+
+                                if success:
+                                    # メタデータを作成
+                                    export_result = type(
+                                        "Result",
+                                        (),
+                                        {
+                                            "success": True,
+                                            "metadata": {
+                                                "used_duration": sum(end - start for start, end in time_ranges)
+                                            },
+                                        },
+                                    )()
+                                else:
+                                    export_result = type("Result", (), {"success": False})()
+
+                            # XMLの場合は空のセグメントでOK
                             export_segments = []
                             for i, (start, end) in enumerate(keep_ranges):
                                 export_segments.append(TranscriptionSegment(start=start, end=end, text="", words=[]))
 
-                            # エクスポート実行
+                            # XMLエクスポート実行
                             export_result = export_service.execute(
                                 format=export_format,
                                 video_path=video_path,
@@ -1180,34 +1287,113 @@ def main() -> None:
                             if success:
                                 # 100%完了を表示
                                 # パス表示（Docker環境ではホストパスに変換）
-                                if os.path.exists("/.dockerenv"):
-                                    # Docker環境：ホストパスに変換
-                                    host_base = os.getenv("HOST_VIDEOS_PATH", os.getenv("PWD", "/app") + "/videos")
-                                    # /app/videos/xxx を host_path/xxx に変換
-                                    relative_path = str(xml_path).replace("/app/videos/", "")
-                                    display_path = os.path.join(host_base, relative_path)
-                                else:
-                                    display_path = xml_path
-                                show_progress(
-                                    1.0,
-                                    f"処理が完了しました！ 出力先: {display_path} | 📊 {len(keep_ranges)}個のクリップ、総時間: {timeline_pos:.1f}秒",
-                                    progress_bar,
-                                    status_text,
-                                )
+                                display_path = get_display_path(xml_path)
+                                # SRT字幕も出力する場合
+                                if export_srt:
+                                    # SRT出力処理（XMLと同じ連番を使用）
+                                    srt_output_success = False
+                                    # XMLファイル名から連番を抽出
+                                    xml_stem = xml_path.stem  # 例: safe_name_TextffCut_NoSilence_01
+                                    srt_path = project_path / f"{xml_stem}.srt"
 
-                                # XMLの場合は中間ファイルを削除（TextffCutファイルと文字起こしを保護）
+                                    # 差分検出ベースのSRTエクスポーターを使用
+                                    from core.srt_diff_exporter import SRTDiffExporter
+
+                                    # 差分情報を取得（すでに計算済み）
+                                    if found_separator:
+                                        # 区切り文字を除去して差分計算
+                                        text_without_separator = edited_text.replace(found_separator, " ")
+                                        diff = text_processor.find_differences(full_text, text_without_separator)
+                                    else:
+                                        diff = text_processor.find_differences(full_text, edited_text)
+
+                                    # SRT設定を取得
+                                    srt_settings = st.session_state.get(
+                                        "srt_settings",
+                                        {
+                                            "min_duration": 0.5,
+                                            "max_duration": 7.0,
+                                            "gap_threshold": 0.1,
+                                            "chars_per_second": 15.0,
+                                            "max_line_length": 42,
+                                            "max_lines": 2,
+                                            "encoding": "utf-8",
+                                            "fps": float(timeline_fps),
+                                        },
+                                    )
+
+                                    # FPSを追加
+                                    srt_settings["fps"] = float(timeline_fps)
+
+                                    # 無音削除の有無で処理を分岐
+                                    srt_exporter = SRTDiffExporter(config)
+
+                                    if process_type == "切り抜きのみ":
+                                        # 無音削除なし：従来の処理
+                                        srt_output_success = srt_exporter.export_from_diff(
+                                            diff=diff,
+                                            transcription_result=transcription,
+                                            output_path=str(srt_path),
+                                            encoding=srt_settings.get("encoding", "utf-8"),
+                                            srt_settings=srt_settings,
+                                        )
+                                    else:
+                                        # 無音削除あり：タイムマッピングを使用
+                                        from core.time_mapper import TimeMapper
+
+                                        # TimeMapperを作成（time_rangesとkeep_rangesの対応）
+                                        time_mapper = TimeMapper(time_ranges, keep_ranges)
+
+                                        srt_output_success = srt_exporter.export_from_diff_with_silence_removal(
+                                            diff=diff,
+                                            transcription_result=transcription,
+                                            output_path=str(srt_path),
+                                            time_mapper=time_mapper,
+                                            encoding=srt_settings.get("encoding", "utf-8"),
+                                            srt_settings=srt_settings,
+                                        )
+
+                                    if srt_output_success:
+                                        # SRT出力成功メッセージを追加
+                                        srt_display_path = get_display_path(srt_path)
+
+                                        show_progress(
+                                            1.0,
+                                            f"処理が完了しました！ 出力先: {display_path} | SRT字幕: {srt_display_path} | 📊 {len(keep_ranges)}個のクリップ、総時間: {timeline_pos:.1f}秒",
+                                            progress_bar,
+                                            status_text,
+                                        )
+                                    else:
+                                        # SRT出力は失敗したが、XMLは成功
+                                        show_progress(
+                                            1.0,
+                                            f"処理が完了しました！ 出力先: {display_path} | ⚠️ SRT字幕の生成に失敗 | 📊 {len(keep_ranges)}個のクリップ、総時間: {timeline_pos:.1f}秒",
+                                            progress_bar,
+                                            status_text,
+                                        )
+                                else:
+                                    # SRT出力なし
+                                    show_progress(
+                                        1.0,
+                                        f"処理が完了しました！ 出力先: {display_path} | 📊 {len(keep_ranges)}個のクリップ、総時間: {timeline_pos:.1f}秒",
+                                        progress_bar,
+                                        status_text,
+                                    )
+
+                                # XMLやSRTの場合は中間ファイルを削除（TextffCutファイルと文字起こしを保護）
                                 cleanup_intermediate_files(
                                     project_path,
                                     keep_patterns=[
                                         f"{safe_name}_TextffCut_*.fcpxml",
                                         f"{safe_name}_TextffCut_*.xml",
+                                        f"{safe_name}_TextffCut_*.srt",
                                         f"{safe_name}_TextffCut_*.mp4",
                                         "transcriptions/",
                                     ],
                                 )
 
                             else:
-                                st.error(f"{output_format}ファイルの生成に失敗しました。")
+                                st.error(f"{primary_format}ファイルの生成に失敗しました。")
                         else:
                             # 動画ファイル出力（時間範囲から抽出）
                             show_progress(0.0, "動画セグメントを抽出中...", progress_bar, status_text)
@@ -1281,20 +1467,101 @@ def main() -> None:
                                 if success:
                                     # 100%完了を表示
                                     # パス表示（Docker環境ではホストパスに変換）
-                                    if os.path.exists("/.dockerenv"):
-                                        # Docker環境：ホストパスに変換
-                                        host_base = os.getenv("HOST_VIDEOS_PATH", os.getenv("PWD", "/app") + "/videos")
-                                        # /app/videos/xxx を host_path/xxx に変換
-                                        relative_path = str(project_path).replace("/app/videos/", "")
-                                        display_path = os.path.join(host_base, relative_path)
+                                    display_path = get_display_path(project_path)
+                                    # SRT字幕も出力する場合
+                                    if export_srt:
+                                        # SRT出力処理（動画と同じ連番を使用）
+                                        srt_output_success = False
+                                        # 動画ファイル名から連番を抽出
+                                        video_stem = combined_path.stem  # 例: safe_name_TextffCut_NoSilence_01
+                                        srt_path = project_path / f"{video_stem}.srt"
+
+                                        # 差分検出ベースのSRTエクスポーターを使用
+                                        from core.srt_diff_exporter import SRTDiffExporter
+
+                                        # 差分情報を取得（すでに計算済み）
+                                        if found_separator:
+                                            # 区切り文字を除去して差分計算
+                                            text_without_separator = edited_text.replace(found_separator, " ")
+                                            diff = text_processor.find_differences(full_text, text_without_separator)
+                                        else:
+                                            diff = text_processor.find_differences(full_text, edited_text)
+
+                                        # SRT設定を取得
+                                        srt_settings = st.session_state.get(
+                                            "srt_settings",
+                                            {
+                                                "min_duration": 0.5,
+                                                "max_duration": 7.0,
+                                                "gap_threshold": 0.1,
+                                                "chars_per_second": 15.0,
+                                                "max_line_length": 42,
+                                                "max_lines": 2,
+                                                "encoding": "utf-8",
+                                                "fps": float(timeline_fps),
+                                            },
+                                        )
+
+                                        # FPSを追加
+                                        srt_settings["fps"] = float(timeline_fps)
+
+                                        # 無音削除の有無で処理を分岐
+                                        srt_exporter = SRTDiffExporter(config)
+
+                                        if process_type == "切り抜きのみ":
+                                            # 無音削除なし：従来の処理
+                                            srt_output_success = srt_exporter.export_from_diff(
+                                                diff=diff,
+                                                transcription_result=transcription,
+                                                output_path=str(srt_path),
+                                                encoding=srt_settings.get("encoding", "utf-8"),
+                                                srt_settings=srt_settings,
+                                            )
+                                        else:
+                                            # 無音削除あり：タイムマッピングを使用
+                                            from core.time_mapper import TimeMapper
+
+                                            # TimeMapperを作成（time_rangesとkeep_rangesの対応）
+                                            time_mapper = TimeMapper(time_ranges, keep_ranges)
+
+                                            srt_output_success = srt_exporter.export_from_diff_with_silence_removal(
+                                                diff=diff,
+                                                transcription_result=transcription,
+                                                output_path=str(srt_path),
+                                                time_mapper=time_mapper,
+                                                encoding=srt_settings.get("encoding", "utf-8"),
+                                                srt_settings=srt_settings,
+                                            )
+
+                                        if srt_output_success:
+                                            # SRT出力成功メッセージを追加
+                                            if os.path.exists("/.dockerenv"):
+                                                srt_display_path = get_display_path(srt_path)
+                                            else:
+                                                srt_display_path = srt_path
+
+                                            show_progress(
+                                                1.0,
+                                                f"処理が完了しました！ 出力先: {display_path} | SRT字幕: {srt_display_path} | 📊 {len(keep_ranges)}個のセグメントを結合",
+                                                progress_bar,
+                                                status_text,
+                                            )
+                                        else:
+                                            # SRT出力は失敗したが、動画は成功
+                                            show_progress(
+                                                1.0,
+                                                f"処理が完了しました！ 出力先: {display_path} | ⚠️ SRT字幕の生成に失敗 | 📊 {len(keep_ranges)}個のセグメントを結合",
+                                                progress_bar,
+                                                status_text,
+                                            )
                                     else:
-                                        display_path = project_path
-                                    show_progress(
-                                        1.0,
-                                        f"処理が完了しました！ 出力先: {display_path} | 📊 {len(keep_ranges)}個のセグメントを結合",
-                                        progress_bar,
-                                        status_text,
-                                    )
+                                        # SRT出力なし
+                                        show_progress(
+                                            1.0,
+                                            f"処理が完了しました！ 出力先: {display_path} | 📊 {len(keep_ranges)}個のセグメントを結合",
+                                            progress_bar,
+                                            status_text,
+                                        )
 
                                     # 動画プレビュー
                                     st.video(str(combined_path))
@@ -1305,6 +1572,7 @@ def main() -> None:
                                         keep_patterns=[
                                             f"{safe_name}_TextffCut_*.mp4",
                                             f"{safe_name}_TextffCut_*.fcpxml",
+                                            f"{safe_name}_TextffCut_*.srt",
                                             "transcriptions/",
                                         ],
                                     )
@@ -1317,14 +1585,7 @@ def main() -> None:
                             elif output_files:
                                 # 100%完了を表示
                                 # パス表示（Docker環境ではホストパスに変換）
-                                if os.path.exists("/.dockerenv"):
-                                    # Docker環境：ホストパスに変換
-                                    host_base = os.getenv("HOST_VIDEOS_PATH", os.getenv("PWD", "/app") + "/videos")
-                                    # /app/videos/xxx を host_path/xxx に変換
-                                    relative_path = str(project_path).replace("/app/videos/", "")
-                                    display_path = os.path.join(host_base, relative_path)
-                                else:
-                                    display_path = project_path
+                                display_path = get_display_path(project_path)
                                 show_progress(
                                     1.0, f"処理が完了しました！ 出力先: {display_path}", progress_bar, status_text
                                 )
