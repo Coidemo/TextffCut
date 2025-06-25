@@ -2347,28 +2347,38 @@ sample_video_TextffCut_NoSilence_01.srt
 #### 18.4.3 実装方法
 
 ```python
-# 1. 連番の決定（最初の出力時に一度だけ）
-def get_next_sequence_number(project_path: Path, base_name: str, type_suffix: str) -> int:
-    """次の連番を取得"""
-    pattern = f"{base_name}_TextffCut_{type_suffix}_*.fcpxml"
-    existing_files = list(project_path.glob(pattern))
-    
-    if not existing_files:
-        return 1
-    
-    # 既存の番号を抽出
-    numbers = []
-    for file in existing_files:
-        match = re.search(r'_(\d+)\.fcpxml$', file.name)
-        if match:
-            numbers.append(int(match.group(1)))
-    
-    return max(numbers) + 1 if numbers else 1
+# utils/file_utils.pyの既存の関数を使用
+from utils.file_utils import get_unique_path
 
-# 2. 各ファイルの出力時に同じ連番を使用
-sequence_number = get_next_sequence_number(project_path, safe_name, type_suffix)
-fcpxml_path = project_path / f"{safe_name}_TextffCut_{type_suffix}_{sequence_number:02d}.fcpxml"
-srt_path = project_path / f"{safe_name}_TextffCut_{type_suffix}_{sequence_number:02d}.srt"
+# 1. XMLファイルのパスを連番付きで生成
+xml_path = get_unique_path(project_path / f"{safe_name}_TextffCut_{type_suffix}{xml_ext}")
+
+# 2. XMLファイル名から連番を抽出してSRTに使用
+xml_stem = xml_path.stem  # 例: safe_name_TextffCut_NoSilence_01
+srt_path = project_path / f"{xml_stem}.srt"
+
+# get_unique_path関数の実装（既存）
+def get_unique_path(base_path: Path) -> Path:
+    """
+    最初から連番を付けてユニークなパスを生成
+    
+    Args:
+        base_path: 基本となるファイルパス
+        
+    Returns:
+        ユニークなファイルパス（最初から_01が付く）
+    """
+    stem = base_path.stem
+    suffix = base_path.suffix
+    parent = base_path.parent
+    
+    # 最初から01を付ける
+    counter = 1
+    while True:
+        new_path = parent / f"{stem}_{counter:02d}{suffix}"
+        if not new_path.exists():
+            return new_path
+        counter += 1
 ```
 
 ### 18.5 日本語改行処理の詳細
