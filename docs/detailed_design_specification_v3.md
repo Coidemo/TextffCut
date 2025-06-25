@@ -1559,7 +1559,157 @@ CUDA_VISIBLE_DEVICES=0 (GPU使用時)
    - 明確なインターフェース定義
    - ドキュメント化の簡素化
 
-## 13. セキュリティ設計
+## 13. UI表示制御設計
+
+### 13.1 セクション表示制御
+
+#### 13.1.1 セッション状態設計
+
+```python
+# セクション表示制御フラグ
+class UISessionState:
+    # 基本状態
+    transcription_result: TranscriptionResult  # 文字起こし結果
+    edited_text: str                          # 編集テキスト
+    
+    # セクション表示フラグ
+    show_timeline_section: bool = False       # タイムライン編集セクション表示
+    timeline_completed: bool = False          # タイムライン編集完了
+    time_ranges_calculated: bool = False      # 時間範囲計算済み
+    
+    # タイムライン編集結果
+    adjusted_time_ranges: list[tuple[float, float]]  # 調整後の時間範囲
+    
+    # 出力設定（変更検出用）
+    last_export_settings: tuple[str, str, bool]  # (process_type, format, srt)
+```
+
+#### 13.1.2 セクション表示ロジック
+
+```python
+def should_show_text_edit_section() -> bool:
+    """テキスト編集セクションの表示判定"""
+    return "transcription_result" in st.session_state
+
+def should_show_timeline_section() -> bool:
+    """タイムライン編集セクションの表示判定"""
+    return st.session_state.get("show_timeline_section", False)
+
+def should_show_process_section() -> bool:
+    """処理実行セクションの表示判定"""
+    return st.session_state.get("timeline_completed", False)
+
+def handle_update_button_click():
+    """更新ボタンクリック時の処理"""
+    # 編集テキストを保存
+    st.session_state.edited_text = edited_text
+    
+    # 時間範囲を計算
+    time_ranges = calculate_time_ranges(edited_text)
+    st.session_state.time_ranges = time_ranges
+    st.session_state.time_ranges_calculated = True
+    
+    # タイムライン編集セクションを表示
+    st.session_state.show_timeline_section = True
+
+def handle_output_settings_change():
+    """出力設定変更時の処理"""
+    current_settings = (process_type, primary_format, export_srt)
+    
+    if "last_export_settings" in st.session_state:
+        if st.session_state.last_export_settings != current_settings:
+            # タイムライン編集結果をクリア
+            if "adjusted_time_ranges" in st.session_state:
+                del st.session_state.adjusted_time_ranges
+            if "timeline_completed" in st.session_state:
+                del st.session_state.timeline_completed
+    
+    st.session_state.last_export_settings = current_settings
+```
+
+#### 13.1.3 UI構造
+
+```python
+def main():
+    # 1. 動画選択・文字起こしセクション（常時表示）
+    show_transcription_section()
+    
+    # 2. テキスト編集セクション（条件付き表示）
+    if should_show_text_edit_section():
+        show_text_edit_section()
+    
+    # 3. タイムライン編集セクション（条件付き表示）
+    if should_show_timeline_section():
+        show_timeline_edit_section()
+    
+    # 4. 処理実行セクション（条件付き表示）
+    if should_show_process_section():
+        show_process_execution_section()
+```
+
+### 13.2 タイムライン編集の統合
+
+#### 13.2.1 インライン表示実装
+
+```python
+def show_timeline_edit_section():
+    """タイムライン編集セクションの表示"""
+    st.markdown("---")
+    st.subheader("📊 タイムライン編集")
+    
+    # 既存のタイムライン編集UIを呼び出し（モーダルではなくインライン）
+    time_ranges = st.session_state.get("time_ranges", [])
+    transcription = st.session_state.get("transcription_result")
+    video_path = st.session_state.get("current_video_path")
+    
+    # タイムライン編集UIをレンダリング
+    adjusted_ranges = render_timeline_editor_inline(
+        time_ranges, 
+        transcription, 
+        video_path
+    )
+    
+    # 編集完了時の処理
+    if adjusted_ranges is not None:
+        st.session_state.adjusted_time_ranges = adjusted_ranges
+        st.session_state.timeline_completed = True
+        st.success("タイムライン編集が完了しました")
+```
+
+#### 13.2.2 状態の永続化
+
+```python
+def save_timeline_state():
+    """タイムライン編集状態の保存"""
+    timeline_state = {
+        "adjusted_ranges": st.session_state.get("adjusted_time_ranges"),
+        "completed": st.session_state.get("timeline_completed", False),
+        "timestamp": datetime.now().isoformat()
+    }
+    
+    # プロジェクトディレクトリに保存
+    project_dir = get_project_directory()
+    state_file = project_dir / "timeline_state.json"
+    
+    with open(state_file, "w") as f:
+        json.dump(timeline_state, f, indent=2)
+
+def load_timeline_state():
+    """タイムライン編集状態の復元"""
+    project_dir = get_project_directory()
+    state_file = project_dir / "timeline_state.json"
+    
+    if state_file.exists():
+        with open(state_file, "r") as f:
+            timeline_state = json.load(f)
+        
+        # セッション状態に復元
+        if timeline_state.get("adjusted_ranges"):
+            st.session_state.adjusted_time_ranges = timeline_state["adjusted_ranges"]
+            st.session_state.timeline_completed = timeline_state["completed"]
+```
+
+## 14. セキュリティ設計
 
 ### 13.1 コマンドインジェクション対策
 
@@ -2202,7 +2352,7 @@ class WaveformData:
 │                         │  - 時間調整UI          │
 │                         │  - プレビューボタン      │
 ├─────────────────────────┴───────────────────────┤
-│ [戻る] [リセット] [調整完了]                      │
+│ [リセット] [編集を完了]                          │
 └────────────────────────────────────────────────┘
 ```
 
@@ -2214,7 +2364,105 @@ class WaveformData:
 4. **フレーム調整ボタン**: 6つのボタン（±1/5/30フレーム）
 5. **プレビュー**: st.audioコンポーネント
 
-### 15.6 パフォーマンス考慮
+### 15.6 ダークモード対応
+
+#### 15.6.1 カラーテーマ管理
+
+```python
+class TimelineColorScheme:
+    """タイムライン編集のカラースキーム"""
+    
+    @staticmethod
+    def get_colors(is_dark_mode: bool) -> dict:
+        """ダークモード状態に応じたカラースキームを返す"""
+        if is_dark_mode:
+            return {
+                # 波形表示
+                "waveform_positive": "#4DB6AC",      # 明るいティール
+                "waveform_negative": "#4DB6AC",      # 明るいティール
+                "waveform_silence": "#546E7A",       # ブルーグレー
+                
+                # タイムライン
+                "segment_active": "#64B5F6",         # 明るい青
+                "segment_inactive": "#37474F",       # ミディアムグレー
+                "segment_hover": "#90CAF9",          # より明るい青
+                
+                # 境界・マーカー
+                "boundary_marker": "#FFB74D",        # 明るいオレンジ
+                "playhead": "#FF5252",               # 明るい赤
+                
+                # 背景・グリッド
+                "background": "#263238",             # ダークブルーグレー
+                "grid_lines": "#37474F",             # ミディアムグレー
+                "grid_major": "#455A64",             # より明るいグレー
+                
+                # テキスト
+                "text_primary": "#ECEFF1",           # 明るいグレー
+                "text_secondary": "#B0BEC5",         # ミディアムグレー
+                
+                # ハイライト・選択
+                "selection_bg": "rgba(100, 181, 246, 0.2)",  # 半透明の青
+                "hover_bg": "rgba(255, 183, 77, 0.1)",       # 半透明のオレンジ
+            }
+        else:
+            # ライトモードのカラースキーム
+            return {
+                "waveform_positive": "#4CAF50",
+                "waveform_negative": "#2196F3",
+                "waveform_silence": "#9E9E9E",
+                "segment_active": "#2196F3",
+                "segment_inactive": "#E0E0E0",
+                "segment_hover": "#42A5F5",
+                "boundary_marker": "#FF9800",
+                "playhead": "#F44336",
+                "background": "#FAFAFA",
+                "grid_lines": "#E0E0E0",
+                "grid_major": "#BDBDBD",
+                "text_primary": "#212121",
+                "text_secondary": "#757575",
+                "selection_bg": "rgba(33, 150, 243, 0.1)",
+                "hover_bg": "rgba(255, 152, 0, 0.1)",
+            }
+```
+
+#### 15.6.2 Plotlyグラフのテーマ適用
+
+```python
+def apply_plotly_theme(fig: go.Figure, is_dark_mode: bool) -> go.Figure:
+    """Plotlyグラフにダークモードテーマを適用"""
+    colors = TimelineColorScheme.get_colors(is_dark_mode)
+    
+    # レイアウトの更新
+    fig.update_layout(
+        plot_bgcolor=colors["background"],
+        paper_bgcolor=colors["background"],
+        font=dict(color=colors["text_primary"]),
+        xaxis=dict(
+            gridcolor=colors["grid_lines"],
+            linecolor=colors["grid_major"],
+            tickcolor=colors["text_secondary"]
+        ),
+        yaxis=dict(
+            gridcolor=colors["grid_lines"],
+            linecolor=colors["grid_major"],
+            tickcolor=colors["text_secondary"]
+        )
+    )
+    
+    return fig
+```
+
+#### 15.6.3 ダークモード検出
+
+```python
+def is_dark_mode() -> bool:
+    """現在のテーマがダークモードかどうかを検出"""
+    # Streamlitのテーマ設定から検出
+    # セッション状態で管理することも可能
+    return st.session_state.get("dark_mode", False)
+```
+
+### 15.7 パフォーマンス考慮
 
 #### 15.6.1 波形データ生成
 
@@ -2283,6 +2531,19 @@ if current_video_path:
     st.session_state.timeline_data["video_path"] = current_video_path
 ```
 
+**タイムライン編集結果の保持**:
+処理オプション（切り抜きのみ/無音削除、出力形式等）の変更はタイムライン編集結果に影響しないため、以下の状態は保持されます：
+
+```python
+# 保持されるセッション状態
+st.session_state.adjusted_time_ranges  # タイムライン編集で調整された時間範囲
+st.session_state.timeline_completed     # タイムライン編集完了フラグ
+st.session_state.timeline_data         # タイムライン編集のデータ
+
+# 処理オプション変更時もこれらの状態をリセットしない
+# （基本設計書 3.6.4 に準拠）
+```
+
 #### 15.8.2 フレーム境界の精度問題（2025-06-25）
 
 **問題1: FCPXMLで動画が3フレーム長くなる**
@@ -2300,7 +2561,34 @@ adjusted_start = round(start_time * fps) / fps
 adjusted_end = round(end_time * fps) / fps
 ```
 
-#### 15.8.3 セキュリティ考慮
+#### 15.8.3 動画結合処理の実装注意点
+
+**VideoProcessingService.merge_videos()とVideoProcessor.combine_videos()の連携**:
+
+```python
+# VideoProcessingServiceでの正しい呼び出し方
+# combine_videosメソッドは以下のシグネチャを持つ：
+# def combine_videos(
+#     input_files: list[str], 
+#     output_file: str, 
+#     progress_callback: Callable[[float, str], None] | None = None
+# ) -> bool
+
+# 正しい実装
+success = self.video_processor.combine_videos(
+    input_files=video_files,  # list_fileではなくinput_files
+    output_file=output_path,  # output_pathではなくoutput_file
+    progress_callback=wrapped_callback
+)
+
+# 誤った実装（TypeError発生）
+# success = self.video_processor.combine_videos(
+#     list_file=list_file,    # ❌ 存在しないパラメータ
+#     output_path=output_path # ❌ パラメータ名が違う
+# )
+```
+
+#### 15.8.4 セキュリティ考慮
 
 1. **パストラバーサル対策**: ファイルパスの正規化
 2. **コマンドインジェクション対策**: FFmpegコマンドのパラメータ検証
