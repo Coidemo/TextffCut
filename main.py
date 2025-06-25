@@ -1046,33 +1046,25 @@ def main() -> None:
             
             from ui.timeline_editor import render_timeline_editor
             
-            # タイムライン編集UIをインラインで表示
-            time_ranges = st.session_state.get("time_ranges", [])
-            if time_ranges:
-                adjusted_ranges = render_timeline_editor(
-                    time_ranges,
-                    transcription,
-                    video_path
-                )
-                
-                if adjusted_ranges is not None:
-                    if adjusted_ranges:
-                        # 調整後の時間範囲を保存
-                        st.session_state.adjusted_time_ranges = adjusted_ranges
-                        st.session_state.timeline_completed = True
-                        st.session_state.show_timeline_section = False  # タイムライン編集セクションを非表示
-                        st.success("タイムライン編集が完了しました。")
-                        st.rerun()
-                    else:
-                        # キャンセルされた場合
-                        st.info("タイムライン編集がキャンセルされました。")
-                        st.session_state.show_timeline_section = False
-                        # adjusted_time_rangesがあれば削除
-                        if "adjusted_time_ranges" in st.session_state:
-                            del st.session_state.adjusted_time_ranges
-                        if "timeline_completed" in st.session_state:
-                            del st.session_state.timeline_completed
-                        st.rerun()
+            # タイムライン編集完了フラグをチェック
+            if st.session_state.get("timeline_editing_completed", False):
+                adjusted_ranges = st.session_state.get("adjusted_time_ranges", [])
+                if adjusted_ranges:
+                    # フラグをクリア
+                    del st.session_state.timeline_editing_completed
+                    st.session_state.timeline_completed = True
+                    st.session_state.show_timeline_section = False
+                    st.success("タイムライン編集が完了しました。")
+                    st.rerun()
+            else:
+                # タイムライン編集UIをインラインで表示
+                time_ranges = st.session_state.get("time_ranges", [])
+                if time_ranges:
+                    render_timeline_editor(
+                        time_ranges,
+                        transcription,
+                        video_path
+                    )
             else:
                 st.error("時間範囲が計算されていません。更新ボタンをクリックしてください。")
         

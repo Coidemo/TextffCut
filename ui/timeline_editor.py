@@ -438,9 +438,12 @@ def render_action_buttons(service: TimelineEditingService):
             try:
                 adjusted_ranges = service.get_adjusted_time_ranges()
                 service.save_timeline_settings()
+                # セッション状態に保存
+                st.session_state.timeline_editing_completed = True
+                st.session_state.adjusted_time_ranges = adjusted_ranges
                 # クリーンアップ
                 cleanup_session_state()
-                return adjusted_ranges
+                st.rerun()
             except Exception as e:
                 st.error(f"エラーが発生しました: {str(e)}")
     
