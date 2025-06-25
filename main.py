@@ -1044,7 +1044,8 @@ def main() -> None:
             st.markdown("---")
             st.subheader("📊 タイムライン編集")
             
-            from ui.timeline_editor import render_timeline_editor
+            # UI選択（開発中のみ表示）
+            use_simple_ui = st.checkbox("シンプルUIを使用（推奨）", value=True, key="use_simple_timeline_ui")
             
             # タイムライン編集完了フラグをチェック
             if st.session_state.get("timeline_editing_completed", False):
@@ -1056,15 +1057,30 @@ def main() -> None:
                     st.session_state.show_timeline_section = False
                     st.success("タイムライン編集が完了しました。")
                     st.rerun()
+            elif st.session_state.get("timeline_editing_cancelled", False):
+                # キャンセルフラグをクリア
+                del st.session_state.timeline_editing_cancelled
+                st.session_state.show_timeline_section = False
+                st.info("タイムライン編集がキャンセルされました。")
+                st.rerun()
             else:
                 # タイムライン編集UIをインラインで表示
                 time_ranges = st.session_state.get("time_ranges", [])
                 if time_ranges:
-                    render_timeline_editor(
-                        time_ranges,
-                        transcription,
-                        video_path
-                    )
+                    if use_simple_ui:
+                        from ui.timeline_editor_simple import render_simple_timeline_editor
+                        render_simple_timeline_editor(
+                            time_ranges,
+                            transcription,
+                            video_path
+                        )
+                    else:
+                        from ui.timeline_editor import render_timeline_editor
+                        render_timeline_editor(
+                            time_ranges,
+                            transcription,
+                            video_path
+                        )
             else:
                 st.error("時間範囲が計算されていません。更新ボタンをクリックしてください。")
         
