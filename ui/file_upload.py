@@ -30,8 +30,8 @@ def show_video_input() -> tuple[str, str] | None:
         # Docker環境：環境変数から取得
         host_videos_path = os.getenv("HOST_VIDEOS_PATH", DEFAULT_HOST_PATH)
     else:
-        # ローカル環境：相対パスで表示
-        host_videos_path = os.path.relpath(VIDEOS_DIR, os.getcwd())
+        # ローカル環境：フルパス（絶対パス）で表示
+        host_videos_path = str(videos_dir.resolve())
 
     if videos_dir.exists():
         # 動画ファイル一覧を取得

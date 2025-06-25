@@ -2783,12 +2783,12 @@ def show_video_input() -> tuple[str, str] | None:
         if st.button("🔄 更新", help="ファイルリストを更新", use_container_width=True):
             st.rerun()
     
-    # 動画フォルダのパスを表示（ユーザーフレンドリーな形式）
+    # 動画フォルダのパスを表示（フルパス表示）
     st.caption("📁 動画フォルダのパス:")
     display_path = VIDEOS_DIR
     if not os.path.exists('/.dockerenv'):
-        # ローカル環境では相対パスで表示
-        display_path = os.path.relpath(VIDEOS_DIR, os.getcwd())
+        # ローカル環境でもフルパス（絶対パス）で表示
+        display_path = str(Path(VIDEOS_DIR).resolve())
     st.code(display_path, language=None)
     
     if video_files and selected_file:
