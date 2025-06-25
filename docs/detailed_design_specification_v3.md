@@ -2322,16 +2322,53 @@ class SRTEntry:
 3. **エントリ間の空行**：必須
    - SRT仕様で要求される空行を確実に挿入
 
-### 18.4 ファイル命名規則
+### 18.4 ファイル命名規則と連番管理
 
-XMLファイルと同じ連番を使用：
+#### 18.4.1 統一的な連番管理の必要性
+
+**問題点**：
+- XMLファイル：`{base}_TextffCut_NoSilence_01.fcpxml`（連番付き）
+- SRTファイル：`{base}_TextffCut_NoSilence.srt`（連番なし、上書きされる）
+- XMLとSRTの対応関係が不明確
+
+**解決策**：すべての出力ファイルで同じ連番を使用
+
+#### 18.4.2 命名規則
+
+```
+{base}_TextffCut_{type}_{number:02d}.{ext}
+
+例：
+sample_video_TextffCut_NoSilence_01.mp4
+sample_video_TextffCut_NoSilence_01.fcpxml
+sample_video_TextffCut_NoSilence_01.srt
+```
+
+#### 18.4.3 実装方法
+
 ```python
-# XMLファイルの連番を取得
-xml_path = get_unique_path(project_path / f"{safe_name}_TextffCut_{type_suffix}{xml_ext}")
-xml_stem = xml_path.stem  # 例: "video_TextffCut_NoSilence_01"
+# 1. 連番の決定（最初の出力時に一度だけ）
+def get_next_sequence_number(project_path: Path, base_name: str, type_suffix: str) -> int:
+    """次の連番を取得"""
+    pattern = f"{base_name}_TextffCut_{type_suffix}_*.fcpxml"
+    existing_files = list(project_path.glob(pattern))
+    
+    if not existing_files:
+        return 1
+    
+    # 既存の番号を抽出
+    numbers = []
+    for file in existing_files:
+        match = re.search(r'_(\d+)\.fcpxml$', file.name)
+        if match:
+            numbers.append(int(match.group(1)))
+    
+    return max(numbers) + 1 if numbers else 1
 
-# 同じ連番でSRTファイルを作成
-srt_path = project_path / f"{xml_stem}.srt"
+# 2. 各ファイルの出力時に同じ連番を使用
+sequence_number = get_next_sequence_number(project_path, safe_name, type_suffix)
+fcpxml_path = project_path / f"{safe_name}_TextffCut_{type_suffix}_{sequence_number:02d}.fcpxml"
+srt_path = project_path / f"{safe_name}_TextffCut_{type_suffix}_{sequence_number:02d}.srt"
 ```
 
 ### 18.5 日本語改行処理の詳細
