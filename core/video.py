@@ -1,17 +1,18 @@
 """
 動画処理モジュール
 """
+
 import json
 import subprocess
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Tuple, Optional, Dict, Any, Callable
 
 from config import Config
-from utils.file_utils import ensure_directory, clean_temp_files
-from utils.time_utils import format_time
+from utils.file_utils import ensure_directory
 from utils.logging import get_logger
+from utils.time_utils import format_time
 
 logger = get_logger(__name__)
 
@@ -19,77 +20,82 @@ logger = get_logger(__name__)
 @dataclass
 class VideoInfo:
     """動画情報"""
+
     path: str
     duration: float
     fps: float
     width: int
     height: int
     codec: str
-    
+
     @classmethod
-    def from_file(cls, video_path: str) -> 'VideoInfo':
+    def from_file(cls, video_path: str) -> "VideoInfo":
         """動画ファイルから情報を取得"""
         try:
             # FFprobeで動画情報を取得
             cmd = [
-                "ffprobe", "-v", "error",
-                "-select_streams", "v:0",
-                "-show_entries", "stream=width,height,r_frame_rate,codec_name",
-                "-show_entries", "format=duration",
-                "-of", "json",
-                str(video_path)
+                "ffprobe",
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=width,height,r_frame_rate,codec_name",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "json",
+                str(video_path),
             ]
-            
+
             result = subprocess.run(cmd, capture_output=True, text=True)
             if result.returncode != 0:
                 raise Exception(f"FFprobe error: {result.stderr}")
-            
+
             info = json.loads(result.stdout)
-            
+
             # ストリーム情報
-            stream = info['streams'][0] if 'streams' in info and info['streams'] else {}
-            width = stream.get('width', 1920)
-            height = stream.get('height', 1080)
-            codec = stream.get('codec_name', 'unknown')
-            
+            stream = info["streams"][0] if "streams" in info and info["streams"] else {}
+            width = stream.get("width", 1920)
+            height = stream.get("height", 1080)
+            codec = stream.get("codec_name", "unknown")
+
             # フレームレート
-            fps_str = stream.get('r_frame_rate', '30/1')
-            num, den = map(int, fps_str.split('/'))
+            fps_str = stream.get("r_frame_rate", "30/1")
+            num, den = map(int, fps_str.split("/"))
             fps = num / den if den != 0 else 30.0
-            
+
             # 長さ
-            duration = float(info.get('format', {}).get('duration', 0))
-            
-            return cls(
-                path=video_path,
-                duration=duration,
-                fps=fps,
-                width=width,
-                height=height,
-                codec=codec
-            )
-            
+            duration = float(info.get("format", {}).get("duration", 0))
+
+            return cls(path=video_path, duration=duration, fps=fps, width=width, height=height, codec=codec)
+
         except subprocess.CalledProcessError as e:
             from utils.exceptions import FFmpegError
+
             raise FFmpegError("ffprobe", e.stderr)
         except FileNotFoundError:
             from utils.exceptions import FileNotFoundError as BuzzFileNotFoundError
+
             raise BuzzFileNotFoundError(str(video_path))
         except json.JSONDecodeError as e:
             from utils.exceptions import VideoProcessingError
+
             raise VideoProcessingError(f"動画メタデータの解析エラー: {str(e)}")
         except Exception as e:
             from utils.exceptions import VideoProcessingError
+
             raise VideoProcessingError(f"動画情報取得エラー: {str(e)}")
 
 
 @dataclass
 class VideoSegment:
     """動画セグメント"""
+
     start: float
     end: float
-    output_path: Optional[str] = None
-    
+    output_path: str | None = None
+
     @property
     def duration(self) -> float:
         return self.end - self.start
@@ -98,9 +104,10 @@ class VideoSegment:
 @dataclass
 class SilenceInfo:
     """無音情報"""
+
     start: float
     end: float
-    
+
     @property
     def duration(self) -> float:
         return self.end - self.start
@@ -108,146 +115,149 @@ class SilenceInfo:
 
 class VideoProcessor:
     """動画処理クラス"""
-    
+
     def __init__(self, config: Config):
         self.config = config
-    
+
     def extract_segment(
         self,
         input_path: str,
         start: float,
         end: float,
         output_path: str,
-        progress_callback: Optional[Callable[[float, str], None]] = None
+        progress_callback: Callable[[float, str], None] | None = None,
     ) -> bool:
         """
         動画から指定セグメントを抽出
-        
+
         Args:
             input_path: 入力動画パス
             start: 開始時間（秒）
             end: 終了時間（秒）
             output_path: 出力パス
             progress_callback: 進捗コールバック
-            
+
         Returns:
             成功したかどうか
         """
         try:
             # 出力ディレクトリを確保
             ensure_directory(Path(output_path).parent)
-            
+
             cmd = [
-                "ffmpeg", "-y",
-                "-i", str(input_path),
-                "-ss", str(start),
-                "-to", str(end),
-                "-c:v", self.config.video.video_codec,
-                "-preset", self.config.video.ffmpeg_preset,
-                "-c:a", self.config.video.audio_codec,
-                "-b:a", self.config.video.audio_bitrate,
-                "-avoid_negative_ts", "1",
-                str(output_path)
+                "ffmpeg",
+                "-y",
+                "-i",
+                str(input_path),
+                "-ss",
+                str(start),
+                "-to",
+                str(end),
+                "-c:v",
+                self.config.video.video_codec,
+                "-preset",
+                self.config.video.ffmpeg_preset,
+                "-c:a",
+                self.config.video.audio_codec,
+                "-b:a",
+                self.config.video.audio_bitrate,
+                "-avoid_negative_ts",
+                "1",
+                str(output_path),
             ]
-            
+
             if progress_callback:
                 # プログレス付きで実行
                 process = subprocess.Popen(
                     cmd + ["-progress", "pipe:1"],
                     stderr=subprocess.PIPE,
                     stdout=subprocess.PIPE,
-                    universal_newlines=True
+                    universal_newlines=True,
                 )
-                
-                self._monitor_ffmpeg_progress(
-                    process, end - start, progress_callback
-                )
-                
+
+                self._monitor_ffmpeg_progress(process, end - start, progress_callback)
+
                 return process.returncode == 0
             else:
                 # 通常実行
                 result = subprocess.run(cmd, capture_output=True)
                 return result.returncode == 0
-                
+
         except subprocess.CalledProcessError as e:
             from utils.exceptions import FFmpegError
-            cmd_str = ' '.join(str(c) for c in cmd)
+
+            cmd_str = " ".join(str(c) for c in cmd)
             raise FFmpegError(cmd_str, e.stderr)
         except FileNotFoundError:
             from utils.exceptions import FileNotFoundError as BuzzFileNotFoundError
+
             raise BuzzFileNotFoundError(str(input_path))
         except OSError as e:
             from utils.exceptions import VideoProcessingError
+
             raise VideoProcessingError(f"ファイルシステムエラー: {str(e)}")
         except Exception as e:
             from utils.exceptions import VideoProcessingError
+
             raise VideoProcessingError(f"セグメント抽出エラー: {str(e)}")
-    
+
     def detect_silence_from_wav(
         self,
         wav_path: str,
         noise_threshold: float = -35,
         min_silence_duration: float = 0.3,
-        start: Optional[float] = None,
-        end: Optional[float] = None
-    ) -> List[SilenceInfo]:
+        start: float | None = None,
+        end: float | None = None,
+    ) -> list[SilenceInfo]:
         """
         WAVファイルから直接無音部分を検出
-        
+
         Args:
             wav_path: WAV音声ファイルパス
             noise_threshold: 無音判定の閾値（dB）
             min_silence_duration: 最小無音時間（秒）
             start: 検出開始時間
             end: 検出終了時間
-            
+
         Returns:
             無音部分のリスト
         """
         # 無音検出コマンドを構築
-        detect_cmd = [
-            "ffmpeg", "-y",
-            "-i", str(wav_path)
-        ]
-        
+        detect_cmd = ["ffmpeg", "-y", "-i", str(wav_path)]
+
         # 時間範囲の指定
         if start is not None:
             detect_cmd.extend(["-ss", str(start)])
         if end is not None:
             detect_cmd.extend(["-to", str(end)])
-        
-        detect_cmd.extend([
-            "-af", f"silencedetect=noise={noise_threshold}dB:d={min_silence_duration}",
-            "-f", "null",
-            "-"
-        ])
-        
+
+        detect_cmd.extend(
+            ["-af", f"silencedetect=noise={noise_threshold}dB:d={min_silence_duration}", "-f", "null", "-"]
+        )
+
         result = subprocess.run(detect_cmd, capture_output=True, text=True)
-        
+
         # 結果を解析
         silences = []
         current_start = None
         offset = start if start is not None else 0
-        
-        for line in result.stderr.split('\n'):
-            if 'silence_start' in line:
+
+        for line in result.stderr.split("\n"):
+            if "silence_start" in line:
                 try:
-                    time_val = float(line.split('silence_start: ')[1].split()[0])
+                    time_val = float(line.split("silence_start: ")[1].split()[0])
                     current_start = time_val + offset
                 except:
                     pass
-                    
-            elif 'silence_end' in line and current_start is not None:
+
+            elif "silence_end" in line and current_start is not None:
                 try:
-                    time_val = float(line.split('silence_end: ')[1].split()[0])
-                    silences.append(SilenceInfo(
-                        start=current_start,
-                        end=time_val + offset
-                    ))
+                    time_val = float(line.split("silence_end: ")[1].split()[0])
+                    silences.append(SilenceInfo(start=current_start, end=time_val + offset))
                     current_start = None
                 except:
                     pass
-        
+
         return silences
 
     def detect_silence(
@@ -255,140 +265,140 @@ class VideoProcessor:
         input_path: str,
         noise_threshold: float = -35,
         min_silence_duration: float = 0.3,
-        start: Optional[float] = None,
-        end: Optional[float] = None
-    ) -> List[SilenceInfo]:
+        start: float | None = None,
+        end: float | None = None,
+    ) -> list[SilenceInfo]:
         """
         動画から直接無音部分を検出（WAVファイル作成不要）
-        
+
         Args:
             input_path: 入力動画パス（MP4やWAVファイル）
             noise_threshold: 無音判定の閾値（dB）
             min_silence_duration: 最小無音時間（秒）
             start: 検出開始時間
             end: 検出終了時間
-            
+
         Returns:
             無音部分のリスト
         """
         # 動画から直接無音検出（一時ファイル不要）
-        detect_cmd = [
-            "ffmpeg", "-y",
-            "-i", str(input_path)
-        ]
-        
+        detect_cmd = ["ffmpeg", "-y", "-i", str(input_path)]
+
         # 時間範囲の指定
         if start is not None:
             detect_cmd.extend(["-ss", str(start)])
         if end is not None:
             detect_cmd.extend(["-to", str(end)])
-        
-        detect_cmd.extend([
-            "-af", f"silencedetect=noise={noise_threshold}dB:d={min_silence_duration}",
-            "-f", "null",
-            "-"
-        ])
-        
+
+        detect_cmd.extend(
+            ["-af", f"silencedetect=noise={noise_threshold}dB:d={min_silence_duration}", "-f", "null", "-"]
+        )
+
         result = subprocess.run(detect_cmd, capture_output=True, text=True)
-        
+
         # 結果を解析
         silences = []
         current_start = None
         offset = start if start is not None else 0
-        
-        for line in result.stderr.split('\n'):
-            if 'silence_start' in line:
+
+        for line in result.stderr.split("\n"):
+            if "silence_start" in line:
                 try:
-                    time_val = float(line.split('silence_start: ')[1].split()[0])
+                    time_val = float(line.split("silence_start: ")[1].split()[0])
                     current_start = time_val + offset
                 except:
                     pass
-                    
-            elif 'silence_end' in line and current_start is not None:
+
+            elif "silence_end" in line and current_start is not None:
                 try:
-                    time_val = float(line.split('silence_end: ')[1].split()[0])
-                    silences.append(SilenceInfo(
-                        start=current_start,
-                        end=time_val + offset
-                    ))
+                    time_val = float(line.split("silence_end: ")[1].split()[0])
+                    silences.append(SilenceInfo(start=current_start, end=time_val + offset))
                     current_start = None
                 except:
                     pass
-        
+
         return silences
-    
+
     def extract_audio_for_ranges(
         self,
         input_path: str,
-        time_ranges: List[Tuple[float, float]],
+        time_ranges: list[tuple[float, float]],
         output_dir: str,
-        progress_callback: Optional[Callable[[float, str], None]] = None
-    ) -> List[Tuple[str, Tuple[float, float]]]:
+        progress_callback: Callable[[float, str], None] | None = None,
+    ) -> list[tuple[str, tuple[float, float]]]:
         """
         指定された時間範囲の音声をWAVファイルとして抽出
-        
+
         Args:
             input_path: 入力動画パス
             time_ranges: 時間範囲のリスト [(start, end), ...]
             output_dir: 出力ディレクトリ
             progress_callback: 進捗コールバック
-            
+
         Returns:
             [(wav_file_path, (start, end)), ...] WAVファイルパスと対応する時間範囲
         """
         output_dir = ensure_directory(Path(output_dir))
         wav_files = []
-        
+
         total = len(time_ranges)
         for i, (start, end) in enumerate(time_ranges):
             if progress_callback:
                 progress = i / total
                 progress_callback(progress, f"音声抽出中... セグメント {i+1}/{total}")
-            
+
             # WAVファイル名（時間情報を含む）
             wav_filename = f"segment_{i+1}_{start:.1f}_{end:.1f}.wav"
             wav_path = output_dir / wav_filename
-            
+
             # 音声を抽出
             cmd = [
-                "ffmpeg", "-y",
-                "-ss", str(start),
-                "-to", str(end),
-                "-i", str(input_path),
+                "ffmpeg",
+                "-y",
+                "-ss",
+                str(start),
+                "-to",
+                str(end),
+                "-i",
+                str(input_path),
                 "-vn",
-                "-acodec", "pcm_s16le",
-                "-ar", "44100",
-                "-ac", "1",
-                "-f", "wav",
-                str(wav_path)
+                "-acodec",
+                "pcm_s16le",
+                "-ar",
+                "44100",
+                "-ac",
+                "1",
+                "-f",
+                "wav",
+                str(wav_path),
             ]
-            
+
             result = subprocess.run(cmd, capture_output=True, text=True)
-            
+
             if result.returncode == 0:
                 wav_files.append((str(wav_path), (start, end)))
                 logger.info(f"音声抽出成功: {wav_filename}")
             else:
                 logger.error(f"音声抽出失敗: {result.stderr}")
-        
+
         if progress_callback:
             progress_callback(1.0, "音声抽出完了")
-        
+
         return wav_files
-    
+
     def remove_silence(
         self,
         input_path: str,
         output_dir: str,
-        segments: List[VideoSegment],
+        segments: list[VideoSegment],
         noise_threshold: float = -35,
         min_silence_duration: float = 0.3,
         min_segment_duration: float = 0.3,
-        progress_callback: Optional[Callable[[float, str], None]] = None
-    ) -> Tuple[List[str], Dict[str, VideoSegment]]:
+        progress_callback: Callable[[float, str], None] | None = None,
+    ) -> tuple[list[str], dict[str, VideoSegment]]:
         """
         セグメントから無音を削除
-        
+
         Args:
             input_path: 入力動画パス
             output_dir: 出力ディレクトリ
@@ -397,54 +407,40 @@ class VideoProcessor:
             min_silence_duration: 最小無音時間
             min_segment_duration: 最小セグメント時間
             progress_callback: 進捗コールバック
-            
+
         Returns:
             (出力ファイルパスのリスト, ファイルパスとセグメント情報の辞書)
         """
         output_dir = ensure_directory(Path(output_dir))
         output_files = []
         segment_info = {}
-        
+
         total_segments = len(segments)
-        
+
         for i, segment in enumerate(segments):
             if progress_callback:
                 base_progress = i / total_segments
                 status = f"セグメント {i+1}/{total_segments} を処理中..."
                 progress_callback(base_progress, status)
-            
+
             # 無音を検出
             silences = self.detect_silence(
-                input_path,
-                noise_threshold,
-                min_silence_duration,
-                segment.start,
-                segment.end
+                input_path, noise_threshold, min_silence_duration, segment.start, segment.end
             )
-            
+
             # 無音を除いた部分を計算
             keep_segments = self._calculate_keep_segments(
-                segment.start,
-                segment.end,
-                silences,
-                min_segment_duration,
-                0.0,  # 古い関数ではパディングなし
-                0.0
+                segment.start, segment.end, silences, min_segment_duration, 0.0, 0.0  # 古い関数ではパディングなし
             )
-            
+
             # 各部分を抽出
             part_files = []
             logger.info(f"セグメント {i+1}: {len(keep_segments)}個の部分を抽出")
             for j, keep_seg in enumerate(keep_segments):
                 part_file = output_dir / f"segment_{i+1}_part_{j+1}.mp4"
-                
+
                 logger.info(f"セグメント {i+1}-部分 {j+1}: {keep_seg.start:.1f}s - {keep_seg.end:.1f}s -> {part_file}")
-                if self.extract_segment(
-                    input_path,
-                    keep_seg.start,
-                    keep_seg.end,
-                    str(part_file)
-                ):
+                if self.extract_segment(input_path, keep_seg.start, keep_seg.end, str(part_file)):
                     part_files.append(str(part_file))
                     segment_info[str(part_file)] = keep_seg
                     # ファイルサイズを確認
@@ -452,7 +448,7 @@ class VideoProcessor:
                     logger.info(f"セグメント {i+1}-部分 {j+1}: 抽出成功、サイズ: {file_size} bytes")
                 else:
                     logger.error(f"セグメント {i+1}-部分 {j+1}: 抽出失敗")
-            
+
             # 部分を結合
             if len(part_files) > 1:
                 output_file = output_dir / f"segment_{i+1}.mp4"
@@ -468,7 +464,7 @@ class VideoProcessor:
                             logger.warning(f"部分ファイル削除エラー {part}: {e}")
                 else:
                     logger.error(f"セグメント {i+1}: 結合失敗")
-                        
+
             elif len(part_files) == 1:
                 # 1つだけの場合はリネーム
                 output_file = output_dir / f"segment_{i+1}.mp4"
@@ -481,13 +477,13 @@ class VideoProcessor:
                     logger.error(f"セグメント {i+1}: リネームエラー: {e}")
             else:
                 logger.warning(f"セグメント {i+1}: 有効な部分ファイルがありません")
-            
+
             # 進捗を更新（セグメント処理完了）
             if progress_callback:
                 progress = (i + 1) / total_segments
                 status = f"セグメント {i+1}/{total_segments} の処理完了"
                 progress_callback(progress, status)
-        
+
         # 最終確認: 全ての出力ファイルの存在を確認
         logger.info(f"無音削除処理完了: {len(output_files)}個のセグメント生成")
         final_output_files = []
@@ -499,25 +495,25 @@ class VideoProcessor:
                 final_output_files.append(file_path)
             else:
                 logger.error(f"  セグメント {i+1}: ファイルが無効または存在しません")
-        
+
         logger.info(f"有効なセグメント: {len(final_output_files)}/{len(output_files)}")
         return final_output_files, segment_info
-    
+
     def remove_silence_new(
         self,
         input_path: str,
-        time_ranges: List[Tuple[float, float]],
+        time_ranges: list[tuple[float, float]],
         output_dir: str,
         noise_threshold: float = -35,
         min_silence_duration: float = 0.3,
         min_segment_duration: float = 0.3,
         padding_start: float = 0.1,
         padding_end: float = 0.1,
-        progress_callback: Optional[Callable[[float, str], None]] = None
-    ) -> List[Tuple[float, float]]:
+        progress_callback: Callable[[float, str], None] | None = None,
+    ) -> list[tuple[float, float]]:
         """
         新フロー：時間範囲から無音を検出し、残す部分の時間範囲を返す
-        
+
         Args:
             input_path: 入力動画パス
             time_ranges: 処理する時間範囲のリスト
@@ -528,137 +524,119 @@ class VideoProcessor:
             padding_start: セグメント開始前に追加するパディング時間
             padding_end: セグメント終了後に追加するパディング時間
             progress_callback: 進捗コールバック
-            
+
         Returns:
             残す部分の時間範囲のリスト [(start, end), ...]
         """
         output_dir = ensure_directory(Path(output_dir))
         keep_ranges = []
-        
+
         # Step 1: 時間範囲のWAVファイルを抽出
         if progress_callback:
             progress_callback(0.0, "音声ファイルを抽出中...")
-        
+
         wav_files = self.extract_audio_for_ranges(
             input_path,
             time_ranges,
             output_dir / "temp_wav",
-            lambda p, s: progress_callback(p * 0.3, s) if progress_callback else None
+            lambda p, s: progress_callback(p * 0.3, s) if progress_callback else None,
         )
-        
+
         # Step 2: 各WAVファイルから無音を検出
         total_wav = len(wav_files)
         for i, (wav_path, (original_start, original_end)) in enumerate(wav_files):
             if progress_callback:
                 base_progress = 0.3 + (i / total_wav) * 0.6
                 progress_callback(base_progress, f"無音検出中... セグメント {i+1}/{total_wav}")
-            
+
             # WAVファイルから無音を検出（オフセットなし）
-            silences = self.detect_silence_from_wav(
-                wav_path,
-                noise_threshold,
-                min_silence_duration
-            )
-            
+            silences = self.detect_silence_from_wav(wav_path, noise_threshold, min_silence_duration)
+
             # 無音を除いた部分を計算（WAVファイル内の相対時間）
             wav_duration = original_end - original_start
             keep_segments = self._calculate_keep_segments(
-                0,  # WAVファイルの開始は0
-                wav_duration,
-                silences,
-                min_segment_duration,
-                padding_start,
-                padding_end
+                0, wav_duration, silences, min_segment_duration, padding_start, padding_end  # WAVファイルの開始は0
             )
-            
+
             # 元動画の時間にオフセットを適用
             for seg in keep_segments:
-                keep_ranges.append((
-                    original_start + seg.start,
-                    original_start + seg.end
-                ))
-            
+                keep_ranges.append((original_start + seg.start, original_start + seg.end))
+
             logger.info(f"セグメント {i+1}: {len(silences)}個の無音検出、{len(keep_segments)}個の部分を保持")
-        
+
         # Step 3: 一時WAVファイルをクリーンアップ
         if progress_callback:
             progress_callback(0.9, "一時ファイルをクリーンアップ中...")
-        
+
         for wav_path, _ in wav_files:
             try:
                 Path(wav_path).unlink()
             except Exception as e:
                 logger.warning(f"WAVファイル削除エラー: {e}")
-        
+
         # 一時ディレクトリも削除
         try:
             (output_dir / "temp_wav").rmdir()
         except:
             pass
-        
+
         if progress_callback:
             progress_callback(1.0, "無音検出完了")
-        
+
         # 時間順にソート
         keep_ranges.sort(key=lambda x: x[0])
-        
+
         return keep_ranges
-    
+
     def _calculate_keep_segments(
         self,
         start: float,
         end: float,
-        silences: List[SilenceInfo],
+        silences: list[SilenceInfo],
         min_duration: float,
         padding_start: float = 0.0,
-        padding_end: float = 0.0
-    ) -> List[VideoSegment]:
+        padding_end: float = 0.0,
+    ) -> list[VideoSegment]:
         """無音部分を除いたセグメントを計算（パディング付き）"""
         keep_segments = []
         current_pos = start
-        
+
         for silence in silences:
             # 無音の前の部分
             if silence.start - current_pos >= min_duration:
                 # パディングを適用してセグメントを拡張
                 segment_start = max(start, current_pos - padding_start)
                 segment_end = min(end, silence.start + padding_end)
-                
-                keep_segments.append(VideoSegment(
-                    start=segment_start,
-                    end=segment_end
-                ))
+
+                keep_segments.append(VideoSegment(start=segment_start, end=segment_end))
             current_pos = silence.end
-        
+
         # 最後の部分
         if end - current_pos >= min_duration:
             # パディングを適用してセグメントを拡張
             segment_start = max(start, current_pos - padding_start)
             segment_end = min(end, end)  # 最後は元の終了時間まで
-            
-            keep_segments.append(VideoSegment(
-                start=segment_start,
-                end=segment_end
-            ))
-        
+
+            keep_segments.append(VideoSegment(start=segment_start, end=segment_end))
+
         return keep_segments
-    
+
     def extract_audio_from_segments(
         self,
         input_path: str,
-        segments: List[VideoSegment],
+        segments: list[VideoSegment],
         output_audio_path: str,
-        progress_callback: Optional[Callable[[float, str], None]] = None
+        progress_callback: Callable[[float, str], None] | None = None,
     ) -> bool:
         """
         指定セグメントから音声のみを抽出して結合
-        
+
         Args:
             input_path: 入力動画パス
             segments: 抽出するセグメントのリスト
             output_audio_path: 出力音声ファイルパス
             progress_callback: 進捗コールバック
-            
+
         Returns:
             成功したかどうか
         """
@@ -666,24 +644,31 @@ class VideoProcessor:
             # 一時ファイルリスト
             temp_audio_files = []
             temp_dir = Path(output_audio_path).parent
-            
+
             # 各セグメントから音声を抽出
             for i, segment in enumerate(segments):
                 temp_audio = temp_dir / f"temp_audio_{i:04d}.wav"
-                
+
                 duration = segment.end - segment.start
                 cmd = [
-                    "ffmpeg", "-y",
-                    "-i", str(input_path),
-                    "-ss", str(segment.start),
-                    "-t", str(duration),  # -to の代わりに -t (duration) を使用
+                    "ffmpeg",
+                    "-y",
+                    "-i",
+                    str(input_path),
+                    "-ss",
+                    str(segment.start),
+                    "-t",
+                    str(duration),  # -to の代わりに -t (duration) を使用
                     "-vn",  # ビデオなし
-                    "-acodec", "pcm_s16le",
-                    "-ar", "16000",  # Whisper用のサンプリングレート
-                    "-ac", "1",  # モノラル
-                    str(temp_audio)
+                    "-acodec",
+                    "pcm_s16le",
+                    "-ar",
+                    "16000",  # Whisper用のサンプリングレート
+                    "-ac",
+                    "1",  # モノラル
+                    str(temp_audio),
                 ]
-                
+
                 logger.info(f"音声抽出コマンド実行: セグメント {i+1} ({segment.start:.1f}s - {segment.end:.1f}s)")
                 result = subprocess.run(cmd, capture_output=True, text=True)
                 if result.returncode == 0:
@@ -695,65 +680,82 @@ class VideoProcessor:
                     logger.error(f"音声抽出エラー セグメント {i+1}: {result.stderr}")
                     # エラーでも処理を続行せずに失敗を返す
                     return False
-                    
+
                 if progress_callback:
                     progress = (i + 1) / len(segments) * 0.5
                     progress_callback(progress, f"音声抽出中... ({i+1}/{len(segments)})")
-            
+
             # 音声ファイルを結合
             if len(temp_audio_files) > 1:
                 # 各音声ファイルの情報をログに記録
                 for i, audio_file in enumerate(temp_audio_files):
                     try:
-                        probe_cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", str(audio_file)]
+                        probe_cmd = [
+                            "ffprobe",
+                            "-v",
+                            "error",
+                            "-show_entries",
+                            "format=duration",
+                            "-of",
+                            "default=noprint_wrappers=1:nokey=1",
+                            str(audio_file),
+                        ]
                         probe_result = subprocess.run(probe_cmd, capture_output=True, text=True)
                         if probe_result.returncode == 0:
                             duration = float(probe_result.stdout.strip())
                             logger.info(f"音声ファイル {i+1}: {Path(audio_file).name}, 長さ: {duration:.1f}秒")
                     except:
                         pass
-                
+
                 # リストファイルを作成
                 list_file = temp_dir / "audio_list.txt"
-                with open(list_file, 'w') as f:
+                with open(list_file, "w") as f:
                     for audio_file in temp_audio_files:
                         f.write(f"file '{Path(audio_file).resolve()}'\n")
-                
+
                 # 結合
                 cmd = [
-                    "ffmpeg", "-y",
-                    "-f", "concat",
-                    "-safe", "0",
-                    "-i", str(list_file),
-                    "-acodec", "pcm_s16le",
-                    "-ar", "16000",
-                    "-ac", "1",
-                    "-f", "wav",  # 出力フォーマットを明示的に指定
-                    str(output_audio_path)
+                    "ffmpeg",
+                    "-y",
+                    "-f",
+                    "concat",
+                    "-safe",
+                    "0",
+                    "-i",
+                    str(list_file),
+                    "-acodec",
+                    "pcm_s16le",
+                    "-ar",
+                    "16000",
+                    "-ac",
+                    "1",
+                    "-f",
+                    "wav",  # 出力フォーマットを明示的に指定
+                    str(output_audio_path),
                 ]
-                
+
                 logger.info(f"音声結合開始: {len(temp_audio_files)}ファイル")
                 result = subprocess.run(cmd, capture_output=True, text=True)
                 success = result.returncode == 0
-                
+
                 if not success:
                     logger.error(f"音声結合エラー: {result.stderr}")
                 else:
                     logger.info(f"音声結合成功: {output_audio_path}")
-                
+
                 # リストファイルを削除
                 try:
                     list_file.unlink()
                 except:
                     pass
-                
+
             elif len(temp_audio_files) == 1:
                 # 単一ファイルの場合はリネーム
                 Path(temp_audio_files[0]).rename(output_audio_path)
                 success = True
             else:
                 success = False
-                
+
             # 一時ファイルを削除（デバッグモードでない場合のみ）
             if not progress_callback or "デバッグ" not in str(progress_callback):
                 for temp_file in temp_audio_files:
@@ -766,30 +768,27 @@ class VideoProcessor:
                         logger.warning(f"予期しない一時ファイル削除エラー: {temp_file} - {str(e)}")
             else:
                 logger.info(f"デバッグモード: 一時音声ファイルを保持しました ({len(temp_audio_files)}ファイル)")
-                    
+
             if progress_callback and success:
                 progress_callback(1.0, "音声抽出完了")
-                
+
             return success
-            
+
         except Exception as e:
             logger.error(f"音声抽出エラー: {e}")
             return False
-    
+
     def combine_videos(
-        self,
-        input_files: List[str],
-        output_file: str,
-        progress_callback: Optional[Callable[[float, str], None]] = None
+        self, input_files: list[str], output_file: str, progress_callback: Callable[[float, str], None] | None = None
     ) -> bool:
         """
         複数の動画を結合
-        
+
         Args:
             input_files: 入力ファイルのリスト
             output_file: 出力ファイル
             progress_callback: 進捗コールバック
-            
+
         Returns:
             成功したかどうか
         """
@@ -804,48 +803,37 @@ class VideoProcessor:
                 if not exists:
                     logger.error(f"入力ファイルが見つかりません: {file}")
                     return False
-            
+
             # 一時的なリストファイルを作成
             list_file = Path(output_file).parent / f"concat_list_{int(time.time())}.txt"
-            
-            with open(list_file, 'w') as f:
+
+            with open(list_file, "w") as f:
                 for file in input_files:
                     f.write(f"file '{Path(file).resolve()}'\n")
-            
+
             # デバッグ: リストファイルの内容を確認
             logger.info(f"結合リストファイル作成: {list_file}")
-            with open(list_file, 'r') as f:
+            with open(list_file) as f:
                 list_content = f.read()
                 logger.info(f"リストファイル内容:\n{list_content}")
-            
-            cmd = [
-                "ffmpeg", "-y",
-                "-f", "concat",
-                "-safe", "0",
-                "-i", str(list_file),
-                "-c", "copy",
-                str(output_file)
-            ]
-            
+
+            cmd = ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(list_file), "-c", "copy", str(output_file)]
+
             logger.info(f"FFmpegコマンド実行: {' '.join(cmd)}")
-            
+
             if progress_callback:
                 # 合計時間を計算
-                total_duration = sum(
-                    VideoInfo.from_file(f).duration for f in input_files
-                )
-                
+                total_duration = sum(VideoInfo.from_file(f).duration for f in input_files)
+
                 process = subprocess.Popen(
                     cmd + ["-progress", "pipe:1"],
                     stderr=subprocess.PIPE,
                     stdout=subprocess.PIPE,
-                    universal_newlines=True
+                    universal_newlines=True,
                 )
-                
-                self._monitor_ffmpeg_progress(
-                    process, total_duration, progress_callback
-                )
-                
+
+                self._monitor_ffmpeg_progress(process, total_duration, progress_callback)
+
                 success = process.returncode == 0
                 if not success:
                     stderr_output = process.stderr.read()
@@ -856,56 +844,57 @@ class VideoProcessor:
                 if not success:
                     logger.error(f"FFmpeg結合エラー - stdout: {result.stdout}")
                     logger.error(f"FFmpeg結合エラー - stderr: {result.stderr}")
-            
+
             # リストファイルを削除
             list_file.unlink()
-            
+
             if success:
                 logger.info(f"動画結合成功: {output_file}")
             else:
                 logger.error(f"動画結合失敗: {output_file}")
-            
+
             return success
-            
+
         except subprocess.CalledProcessError as e:
             from utils.exceptions import FFmpegError
-            cmd_str = ' '.join(str(c) for c in cmd)
+
+            cmd_str = " ".join(str(c) for c in cmd)
             raise FFmpegError(cmd_str, e.stderr)
         except FileNotFoundError as e:
             from utils.exceptions import FileNotFoundError as BuzzFileNotFoundError
+
             raise BuzzFileNotFoundError(str(e))
         except OSError as e:
             from utils.exceptions import VideoProcessingError
+
             raise VideoProcessingError(f"ファイルシステムエラー: {str(e)}")
         except Exception as e:
             from utils.exceptions import VideoProcessingError
+
             raise VideoProcessingError(f"動画結合エラー: {str(e)}")
-    
+
     def _monitor_ffmpeg_progress(
-        self,
-        process: subprocess.Popen,
-        total_duration: float,
-        progress_callback: Callable[[float, str], None]
+        self, process: subprocess.Popen, total_duration: float, progress_callback: Callable[[float, str], None]
     ):
         """FFmpegの進捗を監視"""
         start_time = time.time()
-        
+
         while process.poll() is None:
             output = process.stderr.readline()
             if not output:
                 continue
-            
+
             try:
-                output = output.decode('utf-8', errors='ignore')
+                output = output.decode("utf-8", errors="ignore")
                 if "time=" in output:
                     # 時間情報を抽出
                     time_str = output.split("time=")[1].split()[0]
                     hours, minutes, seconds = time_str.split(":")
                     current_time = float(hours) * 3600 + float(minutes) * 60 + float(seconds)
-                    
+
                     # 進捗率を計算
                     progress = min(current_time / total_duration, 1.0)
-                    
+
                     # 残り時間を計算
                     elapsed = time.time() - start_time
                     if progress > 0:
@@ -914,8 +903,8 @@ class VideoProcessor:
                         status = f"処理中... (残り約{format_time(remaining)})"
                     else:
                         status = "処理中..."
-                    
+
                     progress_callback(progress, status)
-                    
+
             except Exception:
                 pass

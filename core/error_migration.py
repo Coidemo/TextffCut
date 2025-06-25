@@ -4,55 +4,74 @@
 既存のエラークラスから新しいエラー階層への移行をサポート。
 """
 
-from typing import Type, Dict
 import warnings
 
 # 新しいエラークラス
 from .error_handling import (
-    TextffCutError,
-    ValidationError,
-    FileValidationError,
-    ProcessingError,
-    TranscriptionError,
-    VideoProcessingError,
     AlignmentError,
-    ExportError,
-    ResourceError,
-    InsufficientMemoryError,
+    ConfigurationError,
     ExternalSystemError,
     FFmpegError,
+    FileValidationError,
+    InsufficientMemoryError,
+    ProcessingError,
+    TextffCutError,
+    TranscriptionError,
+    ValidationError,
+    VideoProcessingError,
     WhisperError,
-    ConfigurationError,
-    WordsFieldMissingError
+    WordsFieldMissingError,
 )
 
 # 既存のエラークラス（後方互換性のため）
 try:
     from utils.exceptions import (
         BuzzClipError,
-        TranscriptionError as OldTranscriptionError,
-        VideoProcessingError as OldVideoProcessingError,
-        FileNotFoundError as OldFileNotFoundError,
-        FFmpegError as OldFFmpegError,
-        WhisperError as OldWhisperError,
-        MemoryError as OldMemoryError,
-        ConfigurationError as OldConfigurationError
     )
+    from utils.exceptions import (
+        ConfigurationError as OldConfigurationError,
+    )
+    from utils.exceptions import (
+        FFmpegError as OldFFmpegError,
+    )
+    from utils.exceptions import (
+        FileNotFoundError as OldFileNotFoundError,
+    )
+    from utils.exceptions import (
+        MemoryError as OldMemoryError,
+    )
+    from utils.exceptions import (
+        TranscriptionError as OldTranscriptionError,
+    )
+    from utils.exceptions import (
+        VideoProcessingError as OldVideoProcessingError,
+    )
+    from utils.exceptions import (
+        WhisperError as OldWhisperError,
+    )
+
     UTILS_EXCEPTIONS_AVAILABLE = True
 except ImportError:
     UTILS_EXCEPTIONS_AVAILABLE = False
 
 try:
     from core.exceptions import (
-        ProcessingError as CoreProcessingError,
-        TranscriptionValidationError,
-        WordsFieldMissingError as CoreWordsFieldMissingError,
         AlignmentError as CoreAlignmentError,
-        AlignmentValidationError,
-        SubprocessError,
-        CacheError,
-        RetryExhaustedError
     )
+    from core.exceptions import (
+        AlignmentValidationError,
+        CacheError,
+        RetryExhaustedError,
+        SubprocessError,
+        TranscriptionValidationError,
+    )
+    from core.exceptions import (
+        ProcessingError as CoreProcessingError,
+    )
+    from core.exceptions import (
+        WordsFieldMissingError as CoreWordsFieldMissingError,
+    )
+
     CORE_EXCEPTIONS_AVAILABLE = True
 except ImportError:
     CORE_EXCEPTIONS_AVAILABLE = False
@@ -60,88 +79,83 @@ except ImportError:
 
 class ErrorMigration:
     """エラークラスの移行ヘルパー"""
-    
+
     # 旧エラークラスから新エラークラスへのマッピング
-    ERROR_MAPPING: Dict[str, Type[TextffCutError]] = {
+    ERROR_MAPPING: dict[str, type[TextffCutError]] = {
         # utils.exceptions からの移行
-        'BuzzClipError': TextffCutError,
-        'TranscriptionError': TranscriptionError,
-        'VideoProcessingError': VideoProcessingError,
-        'FileNotFoundError': FileValidationError,
-        'FFmpegError': FFmpegError,
-        'WhisperError': WhisperError,
-        'MemoryError': InsufficientMemoryError,
-        'ConfigurationError': ConfigurationError,
-        
+        "BuzzClipError": TextffCutError,
+        "TranscriptionError": TranscriptionError,
+        "VideoProcessingError": VideoProcessingError,
+        "FileNotFoundError": FileValidationError,
+        "FFmpegError": FFmpegError,
+        "WhisperError": WhisperError,
+        "MemoryError": InsufficientMemoryError,
+        "ConfigurationError": ConfigurationError,
         # core.exceptions からの移行
-        'ProcessingError': ProcessingError,
-        'TranscriptionValidationError': ValidationError,
-        'WordsFieldMissingError': WordsFieldMissingError,
-        'AlignmentError': AlignmentError,
-        'AlignmentValidationError': ValidationError,
-        'SubprocessError': ExternalSystemError,
-        'CacheError': ProcessingError,
-        'RetryExhaustedError': ProcessingError
+        "ProcessingError": ProcessingError,
+        "TranscriptionValidationError": ValidationError,
+        "WordsFieldMissingError": WordsFieldMissingError,
+        "AlignmentError": AlignmentError,
+        "AlignmentValidationError": ValidationError,
+        "SubprocessError": ExternalSystemError,
+        "CacheError": ProcessingError,
+        "RetryExhaustedError": ProcessingError,
     }
-    
+
     @classmethod
     def convert_error(cls, old_error: Exception) -> TextffCutError:
         """
         旧エラーを新しいエラークラスに変換
-        
+
         Args:
             old_error: 変換元のエラー
-            
+
         Returns:
             新しいエラークラスのインスタンス
         """
         error_type_name = type(old_error).__name__
-        
+
         # マッピングから新しいエラークラスを取得
         new_error_class = cls.ERROR_MAPPING.get(error_type_name, TextffCutError)
-        
+
         # エラーメッセージと詳細を抽出
         message = str(old_error)
         details = {}
-        
+
         # 旧エラーから属性を抽出
-        if hasattr(old_error, 'details'):
+        if hasattr(old_error, "details"):
             details = old_error.details
-        elif hasattr(old_error, '__dict__'):
-            details = {k: v for k, v in old_error.__dict__.items() 
-                      if not k.startswith('_')}
-        
+        elif hasattr(old_error, "__dict__"):
+            details = {k: v for k, v in old_error.__dict__.items() if not k.startswith("_")}
+
         # 新しいエラーインスタンスを作成
-        return new_error_class(
-            message=message,
-            details=details,
-            cause=old_error
-        )
-    
+        return new_error_class(message=message, details=details, cause=old_error)
+
     @classmethod
-    def create_compatibility_wrapper(cls, old_error_class: Type[Exception]) -> Type[Exception]:
+    def create_compatibility_wrapper(cls, old_error_class: type[Exception]) -> type[Exception]:
         """
         後方互換性のためのラッパークラスを作成
-        
+
         Args:
             old_error_class: ラップする旧エラークラス
-            
+
         Returns:
             ラッパークラス
         """
+
         class CompatibilityWrapper(TextffCutError):
             def __init__(self, *args, **kwargs):
                 warnings.warn(
                     f"{old_error_class.__name__} is deprecated. "
                     f"Use {self.__class__.__bases__[0].__name__} instead.",
                     DeprecationWarning,
-                    stacklevel=2
+                    stacklevel=2,
                 )
                 super().__init__(*args, **kwargs)
-        
+
         CompatibilityWrapper.__name__ = old_error_class.__name__
         CompatibilityWrapper.__qualname__ = old_error_class.__qualname__
-        
+
         return CompatibilityWrapper
 
 
@@ -149,17 +163,17 @@ class ErrorMigration:
 def create_compatibility_aliases():
     """後方互換性のためのエイリアスを作成"""
     aliases = {}
-    
+
     # utils.exceptions のエイリアス
     if UTILS_EXCEPTIONS_AVAILABLE:
-        aliases['BuzzClipError'] = ErrorMigration.create_compatibility_wrapper(BuzzClipError)
+        aliases["BuzzClipError"] = ErrorMigration.create_compatibility_wrapper(BuzzClipError)
         # 他のエイリアスも必要に応じて追加
-    
+
     # core.exceptions のエイリアス
     if CORE_EXCEPTIONS_AVAILABLE:
         # 必要に応じて追加
         pass
-    
+
     return aliases
 
 
@@ -167,13 +181,14 @@ def create_compatibility_aliases():
 def migrate_exception_handling(func):
     """
     デコレータ: 旧エラーを新エラーに自動変換
-    
+
     使用例:
         @migrate_exception_handling
         def some_function():
             # 旧エラーをraiseしても新エラーに変換される
             raise OldTranscriptionError("エラー")
     """
+
     def wrapper(*args, **kwargs):
         try:
             return func(*args, **kwargs)
@@ -184,5 +199,5 @@ def migrate_exception_handling(func):
             # 旧エラーを新エラーに変換
             new_error = ErrorMigration.convert_error(e)
             raise new_error from e
-    
+
     return wrapper
