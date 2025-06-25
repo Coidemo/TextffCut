@@ -97,47 +97,49 @@ class TimeMapper:
 
         logger.warning(f"Failed to map range: [{start:.2f}-{end:.2f}]")
         return None
-    
+
     def map_range_to_segments(self, start: float, end: float) -> list[tuple[float, float]]:
         """時間範囲を複数のセグメントにマッピング（無音削除で分割される場合）
-        
+
         Args:
             start: 元動画の開始時間
             end: 元動画の終了時間
-            
+
         Returns:
             マッピング後の時間範囲のリスト（分割される場合は複数）
         """
         segments = []
-        
+
         for mapping in self.mappings:
             # この範囲と重なる部分があるか確認
             if mapping.original_end <= start or mapping.original_start >= end:
                 continue  # 重ならない
-                
+
             # 重なる部分の計算
             overlap_start = max(start, mapping.original_start)
             overlap_end = min(end, mapping.original_end)
-            
+
             # 重なる部分をマッピング
             if overlap_start < overlap_end:
                 # 元の範囲内での相対位置
                 start_ratio = (overlap_start - mapping.original_start) / (mapping.original_end - mapping.original_start)
                 end_ratio = (overlap_end - mapping.original_start) / (mapping.original_end - mapping.original_start)
-                
+
                 # マッピング後の位置
                 mapped_duration = mapping.mapped_end - mapping.mapped_start
                 mapped_start = mapping.mapped_start + start_ratio * mapped_duration
                 mapped_end = mapping.mapped_start + end_ratio * mapped_duration
-                
+
                 segments.append((mapped_start, mapped_end))
-                logger.debug(f"Segment: [{overlap_start:.2f}-{overlap_end:.2f}] -> [{mapped_start:.2f}-{mapped_end:.2f}]")
-        
+                logger.debug(
+                    f"Segment: [{overlap_start:.2f}-{overlap_end:.2f}] -> [{mapped_start:.2f}-{mapped_end:.2f}]"
+                )
+
         if segments:
             logger.info(f"Range [{start:.2f}-{end:.2f}] mapped to {len(segments)} segments")
         else:
             logger.warning(f"No segments found for range [{start:.2f}-{end:.2f}]")
-            
+
         return segments
 
     def get_total_mapped_duration(self) -> float:

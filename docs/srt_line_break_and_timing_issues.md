@@ -602,6 +602,55 @@ success = srt_exporter.export_from_diff(
 - 開始時刻は round（四捨五入）を使用
 - フレーム単位での検証を追加
 
+### 実装の問題点（2025-06-25発見）
+
+#### 1. FCPXMLエクスポートで3フレーム長い問題
+**原因**: `core/export.py`でフレーム数計算時に`int()`による切り捨てが累積
+```python
+# 問題のあるコード
+duration_frames = int(seg.duration * timeline_fps)  # 切り捨て
+total_frames = int(total_duration * timeline_fps)   # 切り捨て
+```
+
+**解決策**: 
+```python
+# 修正案1: 四捨五入を使用
+duration_frames = round(seg.duration * timeline_fps)
+total_frames = round(total_duration * timeline_fps)
+
+# 修正案2: 累積で計算（より正確）
+current_pos = 0
+for seg in segments:
+    start_frame = round(current_pos * timeline_fps)
+    end_frame = round((current_pos + seg.duration) * timeline_fps)
+    duration_frames = end_frame - start_frame
+    current_pos += seg.duration
+```
+
+#### 2. タイムライン編集プレビューとXML出力の音声位置のずれ
+**原因**: 
+- プレビュー: `segment.start`と`segment.end`を浮動小数点のまま使用
+- XML: フレーム境界に変換（`int()`で切り捨て）
+
+**解決策**:
+1. プレビューもフレーム境界に合わせる
+2. またはXMLエクスポートで浮動小数点精度を保持
+
+```python
+# プレビューをフレーム境界に合わせる案
+def generate_preview_audio(self, segment_id: str) -> str | None:
+    # ...
+    fps = st.session_state.timeline_data.get("fps", 30.0)
+    
+    # フレーム境界に調整
+    preview_start = round(segment.start * fps) / fps
+    preview_end = round(segment.end * fps) / fps
+    
+    self.video_processor.extract_audio_segment(
+        video_path, output_path, preview_start, preview_end
+    )
+```
+
 ## 6. テストケース（更新）
 
 ### 6.1 期待される出力（2025-06-25最終版実装前）
@@ -634,7 +683,54 @@ success = srt_exporter.export_from_diff(
 - ✅ 改行位置が自然（「6月5日の木曜日かな」の後）
 - ✅ 時間範囲も適切に調整（0.00-3.25秒、3.25-4.33秒）
 
+### 6.3 動画クリップと字幕エントリの分離実装（2025-06-25）
+
+#### 発見された問題
+タイムライン編集機能使用時、字幕エントリが動画クリップと1対1対応になってしまい、短い字幕が結合されない問題が発生。
+
+**例**：
+- 動画クリップ1: 「6月5日の木曜日かな」
+- 動画クリップ2: 「木曜日」  
+- 動画クリップ3: 「はい8時でございます」
+
+これらが3つの独立した字幕エントリになってしまう。
+
+#### 実装した解決策
+
+**1. `_smart_segment_merge`メソッドの活用**
+```python
+# 各動画クリップをセグメント候補として収集
+segment_entries = []
+for common_pos in diff.common_positions:
+    segment_entries.append({
+        "text": common_pos.text.strip(),
+        "start_time": start_time,
+        "end_time": end_time
+    })
+
+# 短いセグメントを結合
+merged_entries = self._smart_segment_merge(segment_entries)
+
+# 結合後にSRTエントリを作成
+for merged in merged_entries:
+    text_with_breaks = self._apply_natural_line_breaks(merged["text"])
+    entry = SRTEntry(...)
+```
+
+**2. 無音削除なしの場合も統一処理**
+- `export_from_diff`メソッドを修正
+- 動画クリップごとの独立処理から、結合を考慮した処理に変更
+
+**3. 単語情報付き結合メソッドの追加**
+- `_smart_segment_merge_with_words`メソッドを新規作成
+- 単語タイムスタンプ情報も適切に結合
+
+#### 効果
+- 短い字幕（84文字以下）は自動的に結合される
+- 動画クリップ数に関係なく、読みやすい字幕エントリが生成される
+- 改行処理も結合後のテキストに対して適用される
+
 ---
 
 作成日: 2025-06-25  
-更新日: 2025-06-25（形態素解析実装後の評価追加）
+更新日: 2025-06-25（形態素解析実装後の評価追加、動画クリップと字幕エントリの分離実装）

@@ -873,6 +873,56 @@ class VideoProcessor:
 
             raise VideoProcessingError(f"動画結合エラー: {str(e)}")
 
+    def extract_audio_segment(self, input_path: str, output_path: str, start_time: float, end_time: float) -> None:
+        """
+        指定された時間範囲の音声を抽出
+
+        Args:
+            input_path: 入力動画ファイルパス
+            output_path: 出力音声ファイルパス
+            start_time: 開始時間（秒）
+            end_time: 終了時間（秒）
+        """
+        try:
+            cmd = [
+                "ffmpeg",
+                "-y",
+                "-ss",
+                str(start_time),
+                "-to",
+                str(end_time),
+                "-i",
+                str(input_path),
+                "-vn",  # ビデオなし
+                "-acodec",
+                "pcm_s16le",
+                "-ar",
+                "44100",
+                "-ac",
+                "1",
+                "-f",
+                "wav",
+                str(output_path),
+            ]
+
+            result = subprocess.run(cmd, capture_output=True, text=True)
+
+            if result.returncode != 0:
+                raise FFmpegError(" ".join(cmd), result.stderr)
+
+            logger.info(f"音声セグメント抽出成功: {start_time}s-{end_time}s")
+
+        except subprocess.CalledProcessError as e:
+            raise FFmpegError(" ".join(cmd), e.stderr)
+        except FileNotFoundError as e:
+            from utils.exceptions import FileNotFoundError as BuzzFileNotFoundError
+
+            raise BuzzFileNotFoundError(str(e))
+        except Exception as e:
+            from utils.exceptions import VideoProcessingError
+
+            raise VideoProcessingError(f"音声抽出エラー: {str(e)}")
+
     def _monitor_ffmpeg_progress(
         self, process: subprocess.Popen, total_duration: float, progress_callback: Callable[[float, str], None]
     ):

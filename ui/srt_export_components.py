@@ -17,7 +17,7 @@ def show_srt_export_settings() -> dict[str, Any]:
         設定値の辞書
     """
     from utils import settings_manager
-    
+
     settings = {}
 
     st.markdown("#### 🎬 SRT字幕設定")
@@ -30,19 +30,24 @@ def show_srt_export_settings() -> dict[str, Any]:
         saved_adjust_timing = settings_manager.get("srt_adjust_timing", True)
         saved_max_line_length = settings_manager.get("srt_max_line_length", 42)
         saved_max_lines = settings_manager.get("srt_max_lines", 2)
-        
+
         settings["adjust_timing"] = st.checkbox(
             "タイミング自動調整", value=saved_adjust_timing, help="字幕の表示時間を読みやすさに合わせて自動調整します"
         )
 
         settings["max_line_length"] = st.number_input(
-            "1行の最大文字数", min_value=10, max_value=60, value=saved_max_line_length, step=1, help="字幕1行あたりの最大文字数"
+            "1行の最大文字数",
+            min_value=10,
+            max_value=60,
+            value=saved_max_line_length,
+            step=1,
+            help="字幕1行あたりの最大文字数",
         )
 
         settings["max_lines"] = st.number_input(
             "最大行数", min_value=1, max_value=4, value=saved_max_lines, step=1, help="1つの字幕の最大行数"
         )
-        
+
         # 設定が変更されたら保存
         if settings["adjust_timing"] != saved_adjust_timing:
             settings_manager.set("srt_adjust_timing", settings["adjust_timing"])
@@ -56,7 +61,7 @@ def show_srt_export_settings() -> dict[str, Any]:
         saved_min_duration = settings_manager.get("srt_min_duration", 0.5)
         saved_max_duration = settings_manager.get("srt_max_duration", 7.0)
         saved_gap_threshold = settings_manager.get("srt_gap_threshold", 0.1)
-        
+
         settings["min_duration"] = st.number_input(
             "最小表示時間（秒）",
             min_value=0.3,
@@ -86,7 +91,7 @@ def show_srt_export_settings() -> dict[str, Any]:
             format="%.2f",
             help="字幕と字幕の間の最小間隔",
         )
-        
+
         # 設定が変更されたら保存
         if settings["min_duration"] != saved_min_duration:
             settings_manager.set("srt_min_duration", settings["min_duration"])
@@ -101,7 +106,7 @@ def show_srt_export_settings() -> dict[str, Any]:
         saved_chars_per_second = settings_manager.get("srt_chars_per_second", 15.0)
         saved_prefer_sentence_breaks = settings_manager.get("srt_prefer_sentence_breaks", True)
         saved_encoding = settings_manager.get("srt_encoding", "utf-8")
-        
+
         settings["chars_per_second"] = st.number_input(
             "読取速度（文字/秒）",
             min_value=10.0,
@@ -124,7 +129,7 @@ def show_srt_export_settings() -> dict[str, Any]:
             index=encoding_index,
             help="SRTファイルの文字エンコーディング",
         )
-        
+
         # 設定が変更されたら保存
         if settings["chars_per_second"] != saved_chars_per_second:
             settings_manager.set("srt_chars_per_second", settings["chars_per_second"])

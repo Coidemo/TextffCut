@@ -320,6 +320,38 @@ def main() -> None:
         # 現在の動画パスを保存
         st.session_state.current_video_path = video_path
 
+    # タイムライン編集モードのチェック
+    if st.session_state.get("timeline_editing", False):
+        from ui.timeline_editor import render_timeline_editor
+
+        # タイムライン編集UIを表示
+        adjusted_ranges = render_timeline_editor(
+            st.session_state.get("initial_time_ranges", []),
+            st.session_state.get("timeline_transcription", {}),
+            st.session_state.get("timeline_video_path", ""),
+        )
+
+        if adjusted_ranges is not None:
+            # 編集完了またはキャンセル
+            st.session_state.timeline_editing = False
+
+            if adjusted_ranges:
+                # 調整後の時間範囲で処理を続行
+                st.session_state.adjusted_time_ranges = adjusted_ranges
+                st.success("タイムライン編集が完了しました。処理を実行してください。")
+            else:
+                st.info("タイムライン編集がキャンセルされました。")
+
+            # クリーンアップ
+            for key in ["initial_time_ranges", "timeline_transcription", "timeline_video_path"]:
+                if key in st.session_state:
+                    del st.session_state[key]
+
+            st.rerun()
+
+        # タイムライン編集中は他の処理を表示しない
+        return
+
     # 文字起こし処理
     st.markdown("---")
     st.subheader("📝 文字起こし")
@@ -1047,6 +1079,36 @@ def main() -> None:
 
             st.code(display_path, language=None)
 
+            # タイムライン編集ボタン（オプション）
+            if st.button("📝 タイムライン編集", use_container_width=True):
+                # まず時間範囲を計算
+                text_processor = TextProcessor()
+                separator_patterns = ["---", "——", "－－－"]
+                found_separator = None
+
+                for pattern in separator_patterns:
+                    if pattern in edited_text:
+                        found_separator = pattern
+                        break
+
+                if found_separator:
+                    time_ranges = text_processor.find_differences_with_separator(
+                        full_text, edited_text, transcription, found_separator
+                    )
+                else:
+                    diff = text_processor.find_differences(full_text, edited_text)
+                    time_ranges = diff.get_time_ranges(transcription)
+
+                if not time_ranges:
+                    st.error("切り抜き箇所が見つかりませんでした。")
+                else:
+                    # タイムライン編集モードに入る
+                    st.session_state.timeline_editing = True
+                    st.session_state.initial_time_ranges = time_ranges
+                    st.session_state.timeline_transcription = transcription
+                    st.session_state.timeline_video_path = video_path
+                    st.rerun()
+
             # 処理実行ボタン
             if st.button("🚀 処理を実行", type="primary", use_container_width=True):
                 # 実行前にAPI設定を反映
@@ -1096,6 +1158,11 @@ def main() -> None:
                         return
 
                     time_ranges = diff.get_time_ranges(transcription)
+
+                # タイムライン編集で調整された時間範囲があれば使用
+                if "adjusted_time_ranges" in st.session_state:
+                    time_ranges = st.session_state.adjusted_time_ranges
+                    del st.session_state.adjusted_time_ranges  # 使用後は削除
 
                 if not time_ranges:
                     st.error("切り抜き箇所が見つかりませんでした。")

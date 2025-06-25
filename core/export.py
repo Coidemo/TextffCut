@@ -88,7 +88,7 @@ class FCPXMLExporter:
         """FCPXMLコンテンツを構築"""
         # 総時間を計算
         total_duration = sum(seg.duration for seg in segments)
-        total_frames = int(total_duration * timeline_fps)
+        total_frames = round(total_duration * timeline_fps)
 
         # XMLヘッダー
         xml_content = f"""<?xml version="1.0" encoding="UTF-8"?>
@@ -105,7 +105,7 @@ class FCPXMLExporter:
             resource_map[path] = resource_id
 
             # 動画の総フレーム数
-            duration_frames = int(info.duration * timeline_fps)
+            duration_frames = round(info.duration * timeline_fps)
 
             # Docker環境の場合はホストパスに変換
             if IS_DOCKER:
@@ -144,11 +144,11 @@ class FCPXMLExporter:
             info = video_infos[seg.source_path]
 
             # フレーム単位で計算
-            start_frames = int(seg.start_time * info.fps)
-            duration_frames = int(seg.duration * timeline_fps)
+            start_frames = round(seg.start_time * info.fps)
+            duration_frames = round(seg.duration * timeline_fps)
 
             # タイムラインのFPSに合わせて変換
-            timeline_start_frames = int(start_frames * (timeline_fps / info.fps))
+            timeline_start_frames = round(start_frames * (timeline_fps / info.fps))
 
             xml_content += f"""                        <asset-clip tcFormat="NDF" offset="{current_timeline_pos}/{timeline_fps}s" format="r0" name="Segment {i}" duration="{duration_frames}/{timeline_fps}s" ref="{resource_id}" enabled="1" start="{timeline_start_frames}/{timeline_fps}s">
                             <adjust-transform scale="1 1" anchor="0 0" position="0 0"/>
@@ -229,7 +229,7 @@ class XMEMLExporter:
         import uuid
 
         # 総時間を計算（フレーム数）
-        total_duration_frames = sum(int(seg.duration * timeline_fps) for seg in segments)
+        total_duration_frames = sum(round(seg.duration * timeline_fps) for seg in segments)
 
         # XMLヘッダー
         xml_content = (
@@ -308,12 +308,12 @@ class XMEMLExporter:
             file_id = file_map[seg.source_path]
 
             # フレーム数で計算
-            start_frames = int(seg.start_time * timeline_fps)
-            end_frames = int(seg.end_time * timeline_fps)
+            start_frames = round(seg.start_time * timeline_fps)
+            end_frames = round(seg.end_time * timeline_fps)
             duration_frames = end_frames - start_frames
 
             # タイムライン上の位置
-            timeline_start_frames = sum(int(s.duration * timeline_fps) for s in segments[: i - 1])
+            timeline_start_frames = sum(round(s.duration * timeline_fps) for s in segments[: i - 1])
             timeline_end_frames = timeline_start_frames + duration_frames
 
             # URLエンコードされたファイルパス
@@ -340,7 +340,7 @@ class XMEMLExporter:
                     file_url = f"file://localhost{source_path}"
 
             # 総ファイルduration
-            total_file_duration = int(video_infos[seg.source_path].duration * timeline_fps)
+            total_file_duration = round(video_infos[seg.source_path].duration * timeline_fps)
 
             xml_content += f"""					<clipitem id="clipitem-{i}">
 						<masterclipid>masterclip-1</masterclipid>
@@ -480,16 +480,16 @@ class XMEMLExporter:
             file_id = file_map[seg.source_path]
 
             # フレーム数で計算（ビデオと同じ）
-            start_frames = int(seg.start_time * timeline_fps)
-            end_frames = int(seg.end_time * timeline_fps)
+            start_frames = round(seg.start_time * timeline_fps)
+            end_frames = round(seg.end_time * timeline_fps)
             duration_frames = end_frames - start_frames
 
             # タイムライン上の位置
-            timeline_start_frames = sum(int(s.duration * timeline_fps) for s in segments[: i - 1])
+            timeline_start_frames = sum(round(s.duration * timeline_fps) for s in segments[: i - 1])
             timeline_end_frames = timeline_start_frames + duration_frames
 
             # 総ファイルduration
-            total_file_duration = int(video_infos[seg.source_path].duration * timeline_fps)
+            total_file_duration = round(video_infos[seg.source_path].duration * timeline_fps)
 
             xml_content += f"""					<clipitem id="clipitem-{video_clip_count + i}" premiereChannelType="stereo">
 						<masterclipid>masterclip-1</masterclipid>
@@ -565,16 +565,16 @@ class XMEMLExporter:
             file_id = file_map[seg.source_path]
 
             # フレーム数で計算（ビデオと同じ）
-            start_frames = int(seg.start_time * timeline_fps)
-            end_frames = int(seg.end_time * timeline_fps)
+            start_frames = round(seg.start_time * timeline_fps)
+            end_frames = round(seg.end_time * timeline_fps)
             duration_frames = end_frames - start_frames
 
             # タイムライン上の位置
-            timeline_start_frames = sum(int(s.duration * timeline_fps) for s in segments[: i - 1])
+            timeline_start_frames = sum(round(s.duration * timeline_fps) for s in segments[: i - 1])
             timeline_end_frames = timeline_start_frames + duration_frames
 
             # 総ファイルduration
-            total_file_duration = int(video_infos[seg.source_path].duration * timeline_fps)
+            total_file_duration = round(video_infos[seg.source_path].duration * timeline_fps)
 
             xml_content += f"""					<clipitem id="clipitem-{video_clip_count * 2 + i}" premiereChannelType="stereo">
 						<masterclipid>masterclip-1</masterclipid>

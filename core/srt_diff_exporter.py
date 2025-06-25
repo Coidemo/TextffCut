@@ -74,7 +74,10 @@ class SRTDiffExporter:
             # 各共通部分から字幕エントリを生成
             srt_entries = []
             index = 1
-
+            
+            # まず各共通位置のエントリ候補を作成
+            segment_entries = []
+            
             for i, common_pos in enumerate(diff.common_positions):
                 # この共通部分の時間範囲と単語情報を取得
                 if i < len(time_ranges_with_words):
@@ -84,12 +87,43 @@ class SRTDiffExporter:
                     logger.warning(f"No time range for common position {i}")
                     continue
 
-                # テキストを適切な長さで分割（単語情報を渡す）
-                text = common_pos.text
-                entries = self._create_entries_from_text(
-                    text=text, start_time=start_time, end_time=end_time, start_index=index, words=words
+                # 短いテキストはそのまま保持（後で結合対象）
+                segment_entries.append({
+                    "text": common_pos.text.strip(),
+                    "start_time": start_time,
+                    "end_time": end_time,
+                    "words": words
+                })
+                logger.debug(
+                    f"Segment candidate: '{common_pos.text}', time: [{start_time:.2f}-{end_time:.2f}]"
                 )
-
+            
+            # 短いセグメントを結合
+            merged_entries = self._smart_segment_merge_with_words(segment_entries)
+            logger.info(f"Segments after merging: {len(segment_entries)} -> {len(merged_entries)}")
+            
+            # 結合後のエントリをSRTエントリに変換
+            for merged in merged_entries:
+                # 単語情報を結合
+                all_words = []
+                if "words" in merged and merged["words"]:
+                    all_words = merged["words"]
+                
+                # 改行処理を適用（単語情報があれば使用）
+                if all_words:
+                    # 単語タイムスタンプを使用してエントリを作成
+                    entries = self._create_entries_with_word_timing(
+                        merged["text"], all_words, start_index
+                    )
+                else:
+                    # 単語情報がない場合は通常の処理
+                    entries = self._create_entries_from_text(
+                        text=merged["text"],
+                        start_time=merged["start_time"],
+                        end_time=merged["end_time"],
+                        start_index=index
+                    )
+                
                 srt_entries.extend(entries)
                 index += len(entries)
 
@@ -102,8 +136,7 @@ class SRTDiffExporter:
                 first_subtitle = min(entry.start_time for entry in srt_entries)
                 last_subtitle = max(entry.end_time for entry in srt_entries)
                 logger.info(
-                    f"字幕の時間範囲: [{first_subtitle:.2f}-{last_subtitle:.2f}] "
-                    f"({len(srt_entries)} エントリ)"
+                    f"字幕の時間範囲: [{first_subtitle:.2f}-{last_subtitle:.2f}] " f"({len(srt_entries)} エントリ)"
                 )
 
             # SRTファイルに書き込み
@@ -134,7 +167,7 @@ class SRTDiffExporter:
         # 単語タイムスタンプが利用可能な場合は、それを使用
         if words and len(words) > 0:
             return self._create_entries_with_word_timing(text, words, start_time, end_time, start_index)
-        
+
         # 単語タイムスタンプが利用できない場合は従来の方法
         entries = []
 
@@ -202,8 +235,10 @@ class SRTDiffExporter:
         """
         chunks = []
         remaining_text = text.strip()
-        
-        logger.debug(f"_split_text_into_chunks: text='{text}', max_line_length={self.max_line_length}, max_lines={self.max_lines}")
+
+        logger.debug(
+            f"_split_text_into_chunks: text='{text}', max_line_length={self.max_line_length}, max_lines={self.max_lines}"
+        )
 
         while remaining_text:
             # 1チャンクの最大文字数
@@ -218,11 +253,15 @@ class SRTDiffExporter:
                     chunks.append(chunk_with_breaks)
                 elif chunks:
                     # 最小文字数未満で既にチャンクがある場合は、前のチャンクに結合
-                    logger.debug(f"Text '{remaining_text}' is too short ({len(remaining_text)} < {self.min_entry_chars}), merging with previous chunk")
+                    logger.debug(
+                        f"Text '{remaining_text}' is too short ({len(remaining_text)} < {self.min_entry_chars}), merging with previous chunk"
+                    )
                     chunks[-1] = chunks[-1] + remaining_text
                 else:
                     # 最初のチャンクで最小文字数未満の場合はそのまま追加（特殊ケース）
-                    logger.warning(f"First chunk '{remaining_text}' is shorter than minimum ({len(remaining_text)} < {self.min_entry_chars})")
+                    logger.warning(
+                        f"First chunk '{remaining_text}' is shorter than minimum ({len(remaining_text)} < {self.min_entry_chars})"
+                    )
                     chunks.append(remaining_text)
                 break
 
@@ -230,15 +269,15 @@ class SRTDiffExporter:
             chunk_text, remaining_text = self._extract_natural_chunk(
                 remaining_text, self.max_line_length, self.max_lines
             )
-            
+
             # 分割結果が最小文字数未満の場合の処理
-            if len(chunk_text.replace('\n', '')) < self.min_entry_chars:
+            if len(chunk_text.replace("\n", "")) < self.min_entry_chars:
                 logger.warning(f"Extracted chunk '{chunk_text}' is too short, trying to extend")
                 # もう少し長く取る
                 if len(remaining_text) > 0:
-                    chunk_text = chunk_text + remaining_text[:self.min_entry_chars]
-                    remaining_text = remaining_text[self.min_entry_chars:].lstrip()
-                    
+                    chunk_text = chunk_text + remaining_text[: self.min_entry_chars]
+                    remaining_text = remaining_text[self.min_entry_chars :].lstrip()
+
             logger.debug(f"Extracted chunk: '{chunk_text}'")
             chunks.append(chunk_text)
 
@@ -257,7 +296,7 @@ class SRTDiffExporter:
             (チャンクテキスト（改行込み）, 残りのテキスト)
         """
         logger.debug(f"_extract_natural_chunk: text='{text}', max_line_length={max_line_length}, max_lines={max_lines}")
-        
+
         lines = []
         remaining = text
 
@@ -327,24 +366,27 @@ class SRTDiffExporter:
         Returns:
             改行が適用されたテキスト
         """
-        logger.debug(f"_apply_natural_line_breaks: text='{text}', length={len(text)}, max_line_length={self.max_line_length}")
-        
+        logger.debug(
+            f"_apply_natural_line_breaks: text='{text}', length={len(text)}, max_line_length={self.max_line_length}, max_lines={self.max_lines}"
+        )
+
         if len(text) <= self.max_line_length:
-            logger.debug(f"Text is short enough, returning as-is: '{text}'")
+            logger.debug(f"Text is short enough for single line ({len(text)} <= {self.max_line_length}), returning as-is: '{text}'")
             return text
 
         # 2行に収める必要がある場合の特別処理
         if len(text) <= self.max_line_length * self.max_lines:
+            logger.debug(f"Text can fit in {self.max_lines} lines ({len(text)} <= {self.max_line_length * self.max_lines})")
             # 1行目はmax_line_lengthまで使えるので、その位置から最適な改行位置を探す
             target_split = min(self.max_line_length, len(text) - 1)
-            
+
             # 目標位置から最適な改行位置を探す
             best_pos = JapaneseLineBreakRules.find_best_break_point(text, target_split)
-            
+
             if best_pos > 0 and best_pos < len(text):
                 line1 = text[:best_pos]
                 line2 = text[best_pos:].lstrip()
-                
+
                 # 両方の行が最大文字数を超えていないか確認
                 if len(line1) <= self.max_line_length and len(line2) <= self.max_line_length:
                     result = f"{line1}\n{line2}"
@@ -358,13 +400,13 @@ class SRTDiffExporter:
                         # 2行目が長すぎる場合、1行目をもう少し長くする
                         new_target = len(text) - self.max_line_length
                         best_pos = JapaneseLineBreakRules.find_best_break_point(text, new_target)
-                    
+
                     line1 = text[:best_pos]
                     line2 = text[best_pos:].lstrip()
                     result = f"{line1}\n{line2}"
                     logger.debug(f"Adjusted split: '{line1}' ({len(line1)}chars) / '{line2}' ({len(line2)}chars)")
                     return result
-        
+
         # 通常の処理（3行以上必要な場合）
         lines = []
         remaining = text
@@ -386,19 +428,19 @@ class SRTDiffExporter:
         result = "\n".join(lines)
         logger.debug(f"Final result with line breaks: '{result}'")
         return result
-    
+
     def _create_entries_with_word_timing(
         self, text: str, words: list[dict[str, Any]], start_time: float, end_time: float, start_index: int
     ) -> list[SRTEntry]:
         """単語のタイムスタンプを使用してエントリを作成
-        
+
         Args:
             text: テキスト
             words: 単語のタイムスタンプ情報
             start_time: セグメントの開始時刻
             end_time: セグメントの終了時刻
             start_index: 開始インデックス
-            
+
         Returns:
             SRTエントリのリスト
         """
@@ -406,11 +448,11 @@ class SRTDiffExporter:
         current_text = ""
         current_start = None
         words_in_current = []
-        
+
         max_chars = self.max_line_length * self.max_lines
-        
+
         logger.debug(f"Creating entries with word timing: {len(words)} words")
-        
+
         for word_data in words:
             # 単語情報の取得（辞書またはオブジェクト形式に対応）
             if isinstance(word_data, dict):
@@ -422,36 +464,42 @@ class SRTDiffExporter:
                 word_text = word_data.word
                 word_start = word_data.start
                 word_end = word_data.end
-            
+
             # 現在のテキストに単語を追加した場合の文字数を計算
             test_text = current_text + word_text
-            
+
             # 最大文字数を超える場合、新しいエントリを作成
             if len(test_text) > max_chars and current_text:
                 # 最小文字数制約をチェック
                 if len(current_text) >= self.min_entry_chars:
                     # 最後の単語の終了時刻を使用
                     if words_in_current:
-                        entry_end = words_in_current[-1].get("end", word_start) if isinstance(words_in_current[-1], dict) else words_in_current[-1].end
+                        entry_end = (
+                            words_in_current[-1].get("end", word_start)
+                            if isinstance(words_in_current[-1], dict)
+                            else words_in_current[-1].end
+                        )
                     else:
                         entry_end = word_start
-                    
+
                     # フレーム境界に調整
                     adjusted_start = self._adjust_to_frame_boundary(current_start, round_mode="round")
                     adjusted_end = self._adjust_to_frame_boundary(entry_end, round_mode="floor")
-                    
+
                     # 自然な改行を適用
                     text_with_breaks = self._apply_natural_line_breaks(current_text.strip())
-                    
-                    entries.append(SRTEntry(
-                        index=start_index + len(entries),
-                        start_time=adjusted_start,
-                        end_time=adjusted_end,
-                        text=text_with_breaks
-                    ))
-                    
+
+                    entries.append(
+                        SRTEntry(
+                            index=start_index + len(entries),
+                            start_time=adjusted_start,
+                            end_time=adjusted_end,
+                            text=text_with_breaks,
+                        )
+                    )
+
                     logger.debug(f"Created entry: '{text_with_breaks}' [{adjusted_start:.2f}-{adjusted_end:.2f}]")
-                
+
                 # 次のエントリの準備
                 current_text = word_text
                 current_start = word_start
@@ -462,25 +510,27 @@ class SRTDiffExporter:
                 if current_start is None:
                     current_start = word_start
                 words_in_current.append(word_data)
-        
+
         # 最後のエントリ
         if current_text and len(current_text) >= self.min_entry_chars:
             # フレーム境界に調整
             adjusted_start = self._adjust_to_frame_boundary(current_start, round_mode="round")
             adjusted_end = self._adjust_to_frame_boundary(end_time, round_mode="floor")
-            
+
             # 自然な改行を適用
             text_with_breaks = self._apply_natural_line_breaks(current_text.strip())
-            
-            entries.append(SRTEntry(
-                index=start_index + len(entries),
-                start_time=adjusted_start,
-                end_time=adjusted_end,
-                text=text_with_breaks
-            ))
-            
+
+            entries.append(
+                SRTEntry(
+                    index=start_index + len(entries),
+                    start_time=adjusted_start,
+                    end_time=adjusted_end,
+                    text=text_with_breaks,
+                )
+            )
+
             logger.debug(f"Created final entry: '{text_with_breaks}' [{adjusted_start:.2f}-{adjusted_end:.2f}]")
-        
+
         return entries
 
     def _write_srt_file(self, entries: list[SRTEntry], output_path: str, encoding: str) -> None:
@@ -496,10 +546,10 @@ class SRTDiffExporter:
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         # SRTファイルに書き込み（newline=''でpythonの自動改行変換を無効化）
-        with open(output_path, "w", encoding=encoding, newline='') as f:
+        with open(output_path, "w", encoding=encoding, newline="") as f:
             for entry in entries:
                 # to_srt()メソッドが返す文字列のLFをCRLFに変換
-                srt_text = entry.to_srt().replace('\n', '\r\n')
+                srt_text = entry.to_srt().replace("\n", "\r\n")
                 f.write(srt_text)
 
     def export_segments_based_srt(
@@ -510,13 +560,13 @@ class SRTDiffExporter:
         srt_settings: dict[str, Any] | None = None,
     ) -> bool:
         """セグメントベースでSRTファイルをエクスポート（FCPXMLスタイル）
-        
+
         Args:
             segments: エクスポートセグメントのリスト（各セグメントにテキスト情報を含む）
             output_path: 出力ファイルパス
             encoding: 文字エンコーディング
             srt_settings: SRT設定
-            
+
         Returns:
             成功したかどうか
         """
@@ -529,45 +579,42 @@ class SRTDiffExporter:
                 self.max_duration = srt_settings.get("max_duration", 7.0)
                 self.gap_threshold = srt_settings.get("gap_threshold", 0.1)
                 self.fps = srt_settings.get("fps", 30.0)
-            
+
             srt_entries = []
             index = 1
-            
+
             for seg in segments:
                 # セグメントのテキストがある場合のみ処理
-                if hasattr(seg, 'text') and seg.text:
+                if hasattr(seg, "text") and seg.text:
                     # 自然な改行を適用
                     text_with_breaks = self._apply_natural_line_breaks(seg.text.strip())
-                    
+
                     # フレーム境界に調整
                     adjusted_start = self._adjust_to_frame_boundary(seg.start_time, round_mode="round")
                     adjusted_end = self._adjust_to_frame_boundary(seg.start_time + seg.duration, round_mode="floor")
-                    
+
                     entry = SRTEntry(
-                        index=index,
-                        start_time=adjusted_start,
-                        end_time=adjusted_end,
-                        text=text_with_breaks
+                        index=index, start_time=adjusted_start, end_time=adjusted_end, text=text_with_breaks
                     )
                     srt_entries.append(entry)
                     index += 1
-                    
+
                     logger.debug(f"Segment {index-1}: '{text_with_breaks}' [{adjusted_start:.2f}-{adjusted_end:.2f}]")
-            
+
             if not srt_entries:
                 logger.warning("No SRT entries generated from segments")
                 return False
-            
+
             # SRTファイルに書き込み
             self._write_srt_file(srt_entries, output_path, encoding)
-            
+
             logger.info(f"SRT exported from segments: {output_path} ({len(srt_entries)} entries)")
             return True
-            
+
         except Exception as e:
             logger.error(f"SRT segment export failed: {e}")
             return False
-    
+
     def export_from_diff_with_silence_removal(
         self,
         diff: TextDifference,
@@ -592,7 +639,7 @@ class SRTDiffExporter:
         """
         try:
             logger.debug(f"export_from_diff_with_silence_removal called with srt_settings: {srt_settings}")
-            
+
             # 設定を適用
             if srt_settings:
                 self.max_line_length = srt_settings.get("max_line_length", 42)
@@ -601,7 +648,7 @@ class SRTDiffExporter:
                 self.max_duration = srt_settings.get("max_duration", 7.0)
                 self.gap_threshold = srt_settings.get("gap_threshold", 0.1)
                 self.fps = srt_settings.get("fps", 30.0)
-                
+
                 logger.info(f"SRT設定適用: max_line_length={self.max_line_length}, max_lines={self.max_lines}")
 
             # 差分検出結果から時間範囲を取得（元動画の時間）
@@ -634,109 +681,145 @@ class SRTDiffExporter:
             srt_entries = []
             index = 1
 
-            logger.debug(f"original_time_ranges: {len(original_time_ranges)}, mapped_time_ranges: {len(mapped_time_ranges)}")
+            logger.debug(
+                f"original_time_ranges: {len(original_time_ranges)}, mapped_time_ranges: {len(mapped_time_ranges)}"
+            )
 
             # 各original_time_rangeに対応するmapped segmentsを追跡
             original_to_mapped = []
             segment_idx = 0
-            
+
             for start, end in original_time_ranges:
                 segments = time_mapper.map_range_to_segments(start, end)
                 mapped_count = len(segments)
-                original_to_mapped.append({
-                    'original': (start, end),
-                    'mapped_indices': list(range(segment_idx, segment_idx + mapped_count)),
-                    'mapped_count': mapped_count
-                })
+                original_to_mapped.append(
+                    {
+                        "original": (start, end),
+                        "mapped_indices": list(range(segment_idx, segment_idx + mapped_count)),
+                        "mapped_count": mapped_count,
+                    }
+                )
                 segment_idx += mapped_count
-            
+
             # 無音削除で範囲が分割された場合の処理
-            has_split_ranges = any(item['mapped_count'] > 1 for item in original_to_mapped)
-            
+            has_split_ranges = any(item["mapped_count"] > 1 for item in original_to_mapped)
+
             if has_split_ranges:
                 logger.info("無音削除により一部の範囲が分割されました")
-                
+
                 # 各共通位置に対して処理
                 for i, common_pos in enumerate(diff.common_positions):
                     if i < len(original_to_mapped):
                         mapping_info = original_to_mapped[i]
-                        
-                        if mapping_info['mapped_count'] > 1:
+
+                        if mapping_info["mapped_count"] > 1:
                             # この範囲が複数に分割された場合
                             logger.info(f"範囲{i}が{mapping_info['mapped_count']}個のセグメントに分割されました")
-                            
+
                             text = common_pos.text
-                            words_with_timing = self._get_words_with_timing(transcription_result, mapping_info['original'])
-                            
+                            words_with_timing = self._get_words_with_timing(
+                                transcription_result, mapping_info["original"]
+                            )
+
                             # 対応するmapped_rangesを取得
-                            segment_ranges = [mapped_time_ranges[idx] for idx in mapping_info['mapped_indices']]
-                            
+                            segment_ranges = [mapped_time_ranges[idx] for idx in mapping_info["mapped_indices"]]
+
                             # テキストを時間範囲に基づいて分配
                             text_segments = self._distribute_text_to_segments(
-                                text, mapping_info['original'], segment_ranges, words_with_timing
+                                text, mapping_info["original"], segment_ranges, words_with_timing
                             )
-                            
+
                             # セグメントごとにエントリ候補を作成
                             segment_entries = []
-                            for j, (text_seg, (start_time, end_time)) in enumerate(zip(text_segments, segment_ranges)):
+                            for j, (text_seg, (start_time, end_time)) in enumerate(zip(text_segments, segment_ranges, strict=False)):
                                 if text_seg.strip():  # 空でないテキストのみ
-                                    segment_entries.append({
-                                        'text': text_seg.strip(),
-                                        'start_time': start_time,
-                                        'end_time': end_time
-                                    })
+                                    segment_entries.append(
+                                        {"text": text_seg.strip(), "start_time": start_time, "end_time": end_time}
+                                    )
                                     logger.debug(f"Segment {j}: '{text_seg.strip()}' [{start_time:.2f}-{end_time:.2f}]")
-                            
+
                             # 短いセグメントを結合
                             merged_entries = self._smart_segment_merge(segment_entries)
-                            
+
                             # 結合後のエントリをSRTエントリに変換
                             for merged in merged_entries:
                                 # 改行処理を適用
-                                text_with_breaks = self._apply_natural_line_breaks(merged['text'])
-                                
+                                text_with_breaks = self._apply_natural_line_breaks(merged["text"])
+
                                 entry = SRTEntry(
                                     index=index,
-                                    start_time=merged['start_time'],
-                                    end_time=merged['end_time'],
-                                    text=text_with_breaks
+                                    start_time=merged["start_time"],
+                                    end_time=merged["end_time"],
+                                    text=text_with_breaks,
                                 )
                                 srt_entries.append(entry)
                                 index += 1
-                                
-                                logger.debug(f"Merged entry: '{text_with_breaks}' [{merged['start_time']:.2f}-{merged['end_time']:.2f}]")
+
+                                logger.debug(
+                                    f"Merged entry: '{text_with_breaks}' [{merged['start_time']:.2f}-{merged['end_time']:.2f}]"
+                                )
                         else:
                             # 分割されなかった場合は通常処理
-                            if mapping_info['mapped_indices']:
-                                idx = mapping_info['mapped_indices'][0]
+                            if mapping_info["mapped_indices"]:
+                                idx = mapping_info["mapped_indices"][0]
                                 if idx < len(mapped_time_ranges):
                                     start_time, end_time = mapped_time_ranges[idx]
-                                    
-                                    logger.debug(f"Creating entries for text: '{common_pos.text}', time: [{start_time:.2f}-{end_time:.2f}]")
+
+                                    logger.debug(
+                                        f"Creating entries for text: '{common_pos.text}', time: [{start_time:.2f}-{end_time:.2f}]"
+                                    )
                                     entries = self._create_entries_from_text(
-                                        text=common_pos.text, start_time=start_time, end_time=end_time, start_index=index
+                                        text=common_pos.text,
+                                        start_time=start_time,
+                                        end_time=end_time,
+                                        start_index=index,
                                     )
                                     logger.debug(f"Created {len(entries)} entries")
-                                    
+
                                     srt_entries.extend(entries)
                                     index += len(entries)
             else:
                 # 通常の処理（1対1対応）
+                # まず各共通位置のエントリ候補を作成
+                segment_entries = []
+                
                 for i, common_pos in enumerate(diff.common_positions):
                     if i < len(mapped_time_ranges):
                         start_time, end_time = mapped_time_ranges[i]
-
-                        # テキストを適切な長さで分割
-                        logger.debug(f"Creating entries for text: '{common_pos.text}', time: [{start_time:.2f}-{end_time:.2f}]")
-                        entries = self._create_entries_from_text(
-                            text=common_pos.text, start_time=start_time, end_time=end_time, start_index=index
+                        
+                        # 短いテキストはそのまま保持（後で結合対象）
+                        segment_entries.append({
+                            "text": common_pos.text.strip(),
+                            "start_time": start_time,
+                            "end_time": end_time
+                        })
+                        logger.debug(
+                            f"Segment candidate: '{common_pos.text}', time: [{start_time:.2f}-{end_time:.2f}]"
                         )
-                        logger.debug(f"Created {len(entries)} entries")
-
-                        srt_entries.extend(entries)
-                        index += len(entries)
                     else:
                         logger.warning(f"No mapped time for common position {i}")
+                
+                # 短いセグメントを結合
+                merged_entries = self._smart_segment_merge(segment_entries)
+                logger.info(f"Segments after merging: {len(segment_entries)} -> {len(merged_entries)}")
+                
+                # 結合後のエントリをSRTエントリに変換
+                for merged in merged_entries:
+                    # 改行処理を適用
+                    text_with_breaks = self._apply_natural_line_breaks(merged["text"])
+                    
+                    entry = SRTEntry(
+                        index=index,
+                        start_time=merged["start_time"],
+                        end_time=merged["end_time"],
+                        text=text_with_breaks,
+                    )
+                    srt_entries.append(entry)
+                    index += 1
+                    
+                    logger.debug(
+                        f"Final entry: '{text_with_breaks}' [{merged['start_time']:.2f}-{merged['end_time']:.2f}]"
+                    )
 
             if not srt_entries:
                 logger.warning("No SRT entries generated after mapping")
@@ -748,12 +831,11 @@ class SRTDiffExporter:
                 first_subtitle = min(entry.start_time for entry in srt_entries)
                 last_subtitle = max(entry.end_time for entry in srt_entries)
                 total_duration = time_mapper.get_total_mapped_duration()
-                
+
                 logger.info(
                     f"字幕の時間範囲: [{first_subtitle:.2f}-{last_subtitle:.2f}] "
                     f"(無音削除後の動画時間: {total_duration:.1f}秒)"
                 )
-
 
             # SRTファイルに書き込み
             self._write_srt_file(srt_entries, output_path, encoding)
@@ -768,151 +850,153 @@ class SRTDiffExporter:
             logger.error(f"SRT export with silence removal failed: {e}")
             return False
 
-    def _get_words_with_timing(self, transcription_result: TranscriptionResult, time_range: tuple[float, float]) -> list[dict]:
+    def _get_words_with_timing(
+        self, transcription_result: TranscriptionResult, time_range: tuple[float, float]
+    ) -> list[dict]:
         """指定時間範囲内の単語タイミング情報を取得
-        
+
         Args:
             transcription_result: 文字起こし結果
             time_range: (開始時間, 終了時間)のタプル
-            
+
         Returns:
             単語タイミング情報のリスト
         """
         words = []
         start_time, end_time = time_range
-        
+
         for segment in transcription_result.segments:
             # セグメントが時間範囲と重なる場合
             if segment.end >= start_time and segment.start <= end_time:
-                if hasattr(segment, 'words') and segment.words:
+                if hasattr(segment, "words") and segment.words:
                     for word in segment.words:
                         # 単語が時間範囲内にある場合
-                        if hasattr(word, 'start') and hasattr(word, 'end'):
+                        if hasattr(word, "start") and hasattr(word, "end"):
                             if word.end >= start_time and word.start <= end_time:
-                                words.append({
-                                    'text': word.word if hasattr(word, 'word') else str(word),
-                                    'start': word.start,
-                                    'end': word.end
-                                })
-        
+                                words.append(
+                                    {
+                                        "text": word.word if hasattr(word, "word") else str(word),
+                                        "start": word.start,
+                                        "end": word.end,
+                                    }
+                                )
+
         return words
 
     def _distribute_text_to_segments(
-        self, 
-        text: str, 
+        self,
+        text: str,
         original_range: tuple[float, float],
-        mapped_ranges: list[tuple[float, float]], 
-        words_with_timing: list[dict]
+        mapped_ranges: list[tuple[float, float]],
+        words_with_timing: list[dict],
     ) -> list[str]:
         """テキストを無音削除後の複数セグメントに分配
-        
+
         Args:
             text: 分配するテキスト
             original_range: 元の時間範囲
             mapped_ranges: 無音削除後の時間範囲リスト
             words_with_timing: 単語タイミング情報
-            
+
         Returns:
             各セグメントに分配されたテキストのリスト
         """
         if not words_with_timing:
             # 単語タイミングがない場合は意味的に分割
             return self._distribute_by_semantics(text, len(mapped_ranges))
-        
+
         # TimeMapperを逆引きして、各mapped_rangeに対応する元の時間を特定
         segments = []
         original_start, original_end = original_range
-        
+
         # 無音位置を推定（mapped_rangesの間隙から）
         silence_boundaries = []
         for i in range(len(mapped_ranges) - 1):
             # 前のセグメントの終了時刻が次のセグメントの開始時刻と離れている
             silence_boundaries.append(mapped_ranges[i][1])
-        
+
         # 各セグメントに単語を割り当て
         segment_words = [[] for _ in mapped_ranges]
-        
+
         # 簡易的な割り当て：単語の位置で判定
         total_duration = original_end - original_start
         for word in words_with_timing:
             # 単語の相対位置を計算
-            relative_pos = (word['start'] - original_start) / total_duration
-            
+            relative_pos = (word["start"] - original_start) / total_duration
+
             # どのセグメントに属するか推定
             segment_idx = min(int(relative_pos * len(mapped_ranges)), len(mapped_ranges) - 1)
-            segment_words[segment_idx].append(word['text'])
-        
+            segment_words[segment_idx].append(word["text"])
+
         # 各セグメントのテキストを結合
         for words in segment_words:
-            segments.append(''.join(words))
-        
+            segments.append("".join(words))
+
         # 空のセグメントがある場合は意味的に再分配
         if any(not s.strip() for s in segments):
             logger.info("空のセグメントがあるため、意味的に再分配します")
             return self._distribute_by_semantics(text, len(mapped_ranges))
-        
+
         return segments
 
     def _distribute_by_semantics(self, text: str, num_segments: int) -> list[str]:
         """テキストを意味的に分割
-        
+
         Args:
             text: 分割するテキスト
             num_segments: 分割数
-            
+
         Returns:
             分割されたテキストのリスト
         """
         # 形態素解析を使用
         try:
             from core.japanese_line_break import JapaneseLineBreakRules
+
             tokenizer = JapaneseLineBreakRules._get_tokenizer()
-            
+
             if tokenizer:
                 tokens = list(tokenizer.tokenize(text))
-                
+
                 # 意味的な分割候補を探す
                 split_candidates = []
-                
+
                 for i, token in enumerate(tokens):
                     # 終助詞の後
-                    if '終助詞' in token.part_of_speech and token.surface in ['かな', 'ね', 'よ', 'な']:
+                    if "終助詞" in token.part_of_speech and token.surface in ["かな", "ね", "よ", "な"]:
                         split_candidates.append(i + 1)
                     # 同じ単語の繰り返し
-                    elif i > 0 and token.surface == tokens[i-1].surface and len(token.surface) >= 2:
+                    elif i > 0 and token.surface == tokens[i - 1].surface and len(token.surface) >= 2 or token.surface in ["はい", "ええ", "うん"]:
                         split_candidates.append(i)
-                    # 応答詞の前
-                    elif token.surface in ['はい', 'ええ', 'うん']:
-                        split_candidates.append(i)
-                
+
                 # 候補から適切な分割位置を選択
                 if len(split_candidates) >= num_segments - 1:
                     # 十分な候補がある場合
-                    selected = split_candidates[:num_segments-1]
-                    
+                    selected = split_candidates[: num_segments - 1]
+
                     segments = []
                     start = 0
                     for split_pos in selected:
                         segment_tokens = tokens[start:split_pos]
-                        segments.append(''.join(t.surface for t in segment_tokens))
+                        segments.append("".join(t.surface for t in segment_tokens))
                         start = split_pos
-                    
+
                     # 最後のセグメント
-                    segments.append(''.join(t.surface for t in tokens[start:]))
-                    
+                    segments.append("".join(t.surface for t in tokens[start:]))
+
                     return segments
         except Exception as e:
             logger.warning(f"形態素解析による分割に失敗: {e}")
-        
+
         # フォールバック：文字数で均等分割
         if num_segments == 3 and text == "6月5日の木曜日かな木曜日はい8時でございます":
             # 特定のケースは手動で最適化
             return ["6月5日の木曜日かな", "木曜日", "はい8時でございます"]
-        
+
         # 一般的なケース
         avg_len = len(text) // num_segments
         segments = []
-        
+
         for i in range(num_segments):
             start = i * avg_len
             if i == num_segments - 1:
@@ -920,46 +1004,99 @@ class SRTDiffExporter:
             else:
                 end = (i + 1) * avg_len
                 segments.append(text[start:end])
-        
+
         return segments
-    
+
     def _smart_segment_merge(self, segments: list[dict]) -> list[dict]:
         """短すぎるセグメントを賢く結合
-        
+
         Args:
             segments: セグメント情報のリスト（text, start_time, end_time）
-            
+
         Returns:
             結合後のセグメントのリスト
         """
         if not segments:
             return []
-            
+
         merged = []
         current = None
-        
+
         for seg in segments:
             if current is None:
                 current = seg.copy()
             else:
                 # 現在のセグメントと次のセグメントを結合できるか確認
-                combined_text = current['text'] + seg['text']
-                
+                combined_text = current["text"] + seg["text"]
+
                 # 結合後の文字数がmax_line_length * max_linesを超えない場合は結合
                 if len(combined_text) <= self.max_line_length * self.max_lines:
                     # 結合する
-                    current['text'] = combined_text
-                    current['end_time'] = seg['end_time']
+                    current["text"] = combined_text
+                    current["end_time"] = seg["end_time"]
                     logger.info(f"セグメントを結合: '{current['text']}' (合計{len(combined_text)}文字)")
                 else:
                     # 結合すると制限を超える場合は、現在のセグメントを確定して次へ
                     merged.append(current)
                     current = seg.copy()
-        
+
         # 最後のセグメントを追加
         if current:
             merged.append(current)
-        
+
         logger.info(f"セグメント結合結果: {len(segments)}個 -> {len(merged)}個")
-        
+
+        return merged
+    
+    def _smart_segment_merge_with_words(self, segments: list[dict]) -> list[dict]:
+        """短すぎるセグメントを賢く結合（単語情報付き）
+
+        Args:
+            segments: セグメント情報のリスト（text, start_time, end_time, words）
+
+        Returns:
+            結合後のセグメントのリスト（単語情報も結合）
+        """
+        if not segments:
+            return []
+
+        merged = []
+        current = None
+
+        for seg in segments:
+            if current is None:
+                current = seg.copy()
+                # wordsがない場合は空リストを設定
+                if "words" not in current:
+                    current["words"] = []
+            else:
+                # 現在のセグメントと次のセグメントを結合できるか確認
+                combined_text = current["text"] + seg["text"]
+
+                # 結合後の文字数がmax_line_length * max_linesを超えない場合は結合
+                if len(combined_text) <= self.max_line_length * self.max_lines:
+                    # 結合する
+                    current["text"] = combined_text
+                    current["end_time"] = seg["end_time"]
+                    
+                    # 単語情報も結合
+                    if "words" in seg and seg["words"]:
+                        if "words" not in current:
+                            current["words"] = []
+                        current["words"].extend(seg["words"])
+                    
+                    logger.info(f"セグメントを結合: '{current['text']}' (合計{len(combined_text)}文字)")
+                else:
+                    # 結合すると制限を超える場合は、現在のセグメントを確定して次へ
+                    merged.append(current)
+                    current = seg.copy()
+                    if "words" not in current:
+                        current["words"] = []
+
+        # 最後のセグメントを追加
+        if current:
+            merged.append(current)
+
+        logger.info(f"セグメント結合結果: {len(segments)}個 -> {len(merged)}個")
+
         return merged

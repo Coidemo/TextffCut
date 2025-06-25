@@ -35,7 +35,7 @@ class SRTEntry:
 
         # テキストの整形（改行を維持）
         text = self.text.strip()
-        
+
         # DaVinci Resolveで改行を認識させるため<b>タグで囲む
         # 他の編集ソフトでも問題なく動作することを確認済み
         formatted_text = f"<b>{text}</b>"
@@ -255,10 +255,10 @@ class SRTExporter:
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         # SRTファイルに書き込み（newline=''でpythonの自動改行変換を無効化）
-        with open(output_path, "w", encoding=encoding, newline='') as f:
+        with open(output_path, "w", encoding=encoding, newline="") as f:
             for entry in entries:
                 # to_srt()メソッドが返す文字列のLFをCRLFに変換
-                srt_text = entry.to_srt().replace('\n', '\r\n')
+                srt_text = entry.to_srt().replace("\n", "\r\n")
                 f.write(srt_text)
 
     def export_with_style(

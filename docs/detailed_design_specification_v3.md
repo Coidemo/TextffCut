@@ -1053,6 +1053,41 @@ CUDA_VISIBLE_DEVICES=0 (GPU使用時)
 
 6️⃣ **自然なSRTエントリ分割（Phase 2b）**
    - **実装方針**: 無音位置での物理的な分割を優先し、意味的な調整を加える
+
+7️⃣ **動画クリップと字幕エントリの分離（2025-06-25実装）**
+   - **問題**: タイムライン編集機能使用時、字幕エントリが動画クリップと1対1対応になる
+   - **解決策**: 全ての場合で`_smart_segment_merge`を適用
+   
+   **修正内容**:
+   ```python
+   # export_from_diffメソッドの修正
+   # 旧：各common_posごとに独立してSRTエントリを作成
+   for common_pos in diff.common_positions:
+       entries = self._create_entries_from_text(...)
+       srt_entries.extend(entries)
+   
+   # 新：セグメント候補を収集してから結合
+   segment_entries = []
+   for common_pos in diff.common_positions:
+       segment_entries.append({
+           "text": common_pos.text.strip(),
+           "start_time": start_time,
+           "end_time": end_time,
+           "words": words
+       })
+   
+   # 短いセグメントを結合
+   merged_entries = self._smart_segment_merge_with_words(segment_entries)
+   
+   # 結合後にSRTエントリを作成
+   for merged in merged_entries:
+       # 改行処理と単語情報を考慮してエントリ作成
+   ```
+   
+   **効果**:
+   - 動画クリップ数に関係なく、適切な長さの字幕エントリが生成される
+   - 短い字幕（例：「木曜日」3文字）は前後と結合される
+   - ユーザー設定の文字数制限（max_line_length × max_lines）内で最適化
    
    **分割アルゴリズム**:
    ```python
@@ -2075,6 +2110,242 @@ def check_and_recover_on_startup():
     
     return recovered_count
 ```
+
+## 15. タイムライン編集機能の詳細設計（新規追加）
+
+### 15.1 機能概要
+
+タイムライン編集機能は、テキスト編集で指定した切り抜き箇所を視覚的に確認・微調整するための機能です。
+
+**主要機能**:
+1. セグメントの視覚的表示
+2. 開始/終了時間の精密調整
+3. フレーム単位の微調整
+4. プレビュー再生
+5. 波形表示（将来拡張）
+
+### 15.2 モジュール構成
+
+```
+timeline_editing/
+├── ui/
+│   └── timeline_editor.py          # UIコンポーネント
+├── services/
+│   ├── timeline_editing_service.py # サービス層
+│   └── audio_preview_service.py    # 音声プレビュー
+├── core/
+│   ├── timeline_processor.py       # タイムライン処理
+│   └── waveform_generator.py       # 波形生成
+└── utils/
+    └── time_utils.py               # 時間関連ユーティリティ
+```
+
+### 15.3 データモデル
+
+#### 15.3.1 TimelineSegment
+
+```python
+@dataclass
+class TimelineSegment:
+    """タイムラインセグメント"""
+    id: str                           # ユニークID
+    start: float                      # 開始時間（秒）
+    end: float                        # 終了時間（秒）
+    text: str                         # 対応テキスト
+    waveform_data: Optional[List[float]] # 波形データ
+    original_start: float             # オリジナル開始時間
+    original_end: float               # オリジナル終了時間
+```
+
+#### 15.3.2 WaveformData
+
+```python
+@dataclass  
+class WaveformData:
+    """波形データ"""
+    samples: List[float]              # 波形サンプル
+    sample_rate: float                # サンプルレート（1秒あたり）
+    duration: float                   # 総時間（秒）
+    generated_at: datetime            # 生成日時
+```
+
+### 15.4 処理フロー
+
+#### 15.4.1 初期化フロー
+
+1. `time_ranges`を受け取り
+2. 各範囲に対して`TimelineSegment`を生成
+3. 文字起こし結果から対応テキストを抽出
+4. 波形データの非同期生成を開始
+5. UIをレンダリング
+
+#### 15.4.2 調整フロー
+
+1. ユーザーが調整操作を実行
+2. 入力値の検証
+3. セグメントの更新
+4. UIの即時更新
+5. 調整履歴の保存
+
+### 15.5 UI設計
+
+#### 15.5.1 レイアウト構成
+
+```
+┌────────────────────────────────────────────────┐
+│              タイムライン編集                     │
+├────────────────────────────────────────────────┤
+│ [全体タイムライン]                            │
+├─────────────────────────┬───────────────────────┤
+│ [セグメント一覧]          │ [セグメント詳細]         │
+│                         │  - 波形表示             │
+│                         │  - 時間調整UI          │
+│                         │  - プレビューボタン      │
+├─────────────────────────┴───────────────────────┤
+│ [戻る] [リセット] [調整完了]                      │
+└────────────────────────────────────────────────┘
+```
+
+#### 15.5.2 UIコンポーネント
+
+1. **全体タイムライン**: Plotlyを使用したインタラクティブなバーチャート
+2. **セグメント一覧**: ボタン式のリスト
+3. **時間入力**: st.text_inputでタイムコード形式
+4. **フレーム調整ボタン**: 6つのボタン（±1/5/30フレーム）
+5. **プレビュー**: st.audioコンポーネント
+
+### 15.6 パフォーマンス考慮
+
+#### 15.6.1 波形データ生成
+
+- **サンプルレート**: 動画長に応じて動的調整
+  - 1分未満: 20サンプル/秒
+  - 10分未満: 10サンプル/秒
+  - 10分以上: 5サンプル/秒
+- **キャッシュ**: 動画ハッシュをキーに保存
+- **非同期処理**: UIをブロックしない
+
+#### 15.6.2 プレビュー音声
+
+- **範囲設定**: セグメントの範囲をそのまま再生（余白なし）
+  - 実際の切り抜き結果を正確に確認可能
+  - 編集結果と完全に一致する内容を再生
+- **抽出方式**: FFmpegの`-ss`と`-to`オプションで高速抽出
+- **フォーマット**: WAV形式（互換性重視）
+- **一時ファイル**: 再生後に自動削除
+
+### 15.7 エラーハンドリング
+
+#### 15.7.1 入力検証
+
+```python
+def validate_time_adjustment(segment, endpoint, new_time, video_duration):
+    """時間調整の検証"""
+    # 1. 範囲チェック
+    if new_time < 0:
+        return ValidationError("時間は0以上である必要があります")
+    if new_time > video_duration:
+        return ValidationError(f"動画の長さ({video_duration}秒)を超えています")
+        
+    # 2. start < endチェック  
+    if endpoint == "start" and new_time >= segment.end:
+        return ValidationError("開始時間は終了時間より前である必要があります")
+    if endpoint == "end" and new_time <= segment.start:
+        return ValidationError("終了時間は開始時間より後である必要があります")
+        
+    # 3. 最小長チェック
+    MIN_DURATION = 0.1
+    if endpoint == "start" and segment.end - new_time < MIN_DURATION:
+        return ValidationError(f"セグメントの最小長は{MIN_DURATION}秒です")
+    if endpoint == "end" and new_time - segment.start < MIN_DURATION:
+        return ValidationError(f"セグメントの最小長は{MIN_DURATION}秒です")
+        
+    return ValidationSuccess()
+```
+
+#### 15.7.2 エラー表示
+
+- 入力エラー: st.errorで即座に表示
+- 処理エラー: ログ出力 + ユーザーへのフィードバック
+- リカバリー: セッション状態からの復元
+
+### 15.8 実装上の注意点
+
+#### 15.8.1 セッション状態管理
+
+**重要**: `TimelineProcessor.to_dict()`は`video_path`を含まないため、セッション状態を更新する際は必ず`video_path`を保持する必要があります。
+
+```python
+# 正しい実装
+current_video_path = st.session_state.timeline_data.get("video_path")
+st.session_state.timeline_data = self.timeline_processor.to_dict()
+if current_video_path:
+    st.session_state.timeline_data["video_path"] = current_video_path
+```
+
+#### 15.8.2 フレーム境界の精度問題（2025-06-25）
+
+**問題1: FCPXMLで動画が3フレーム長くなる**
+- 原因: `core/export.py`で`int()`による切り捨てが累積
+- 解決策: `round()`を使用、または累積計算で精度を保持
+
+**問題2: プレビューとXML出力の音声位置のずれ**
+- 原因: プレビューは浮動小数点、XMLはフレーム境界
+- 解決策: 両方をフレーム境界に統一
+
+```python
+# フレーム境界への調整
+fps = video_info.fps
+adjusted_start = round(start_time * fps) / fps
+adjusted_end = round(end_time * fps) / fps
+```
+
+#### 15.8.3 セキュリティ考慮
+
+1. **パストラバーサル対策**: ファイルパスの正規化
+2. **コマンドインジェクション対策**: FFmpegコマンドのパラメータ検証
+3. **一時ファイル管理**: 予測可能なファイル名と自動削除
+
+### 15.9 テスト計画
+
+#### 15.9.1 単体テスト
+
+| テストID | テスト項目 | 期待結果 |
+|---------|----------|----------|
+| TC-101 | TimelineSegment生成 | time_rangesから正しく生成 |
+| TC-102 | 時間調整検証 | 不正値を拒否 |
+| TC-103 | フレーム変換 | 30fpsで正確に変換 |
+| TC-104 | 波形ダウンサンプリング | 指定レートで生成 |
+| TC-105 | プレビュー音声抽出 | 指定範囲のみ抽出 |
+
+#### 15.9.2 統合テスト
+
+| テストID | テスト項目 | 期待結果 |
+|---------|----------|----------|
+| TC-106 | タイムライン初期化 | UI表示まで完了 |
+| TC-107 | セグメント調整フロー | 調整が即座に反映 |
+| TC-108 | プレビュー再生 | 音声が正しく再生 |
+| TC-109 | セッション状態管理 | リロードで状態保持 |
+| TC-110 | 調整完了処理 | time_rangesが更新 |
+
+### 15.10 将来の拡張
+
+1. **高度な波形表示**
+   - ズーム機能
+   - マルチチャンネル対応
+   - スペクトログラム表示
+
+2. **ドラッグ&ドロップ調整**
+   - マウス操作での直接調整
+   - スナップ機能
+
+3. **キーボードショートカット**
+   - JKLキーでの再生制御
+   - スペースキーで再生/一時停止
+
+4. **バッチ調整**
+   - 複数セグメントの一括調整
+   - オフセット適用
 
 ## 16. 実装状況
 

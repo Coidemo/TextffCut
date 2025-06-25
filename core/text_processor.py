@@ -96,7 +96,7 @@ class TextDifference:
                 )
 
         return time_ranges
-    
+
     def get_time_ranges_with_words(self, transcription: TranscriptionResult) -> list[tuple[float, float, list]]:
         """共通部分のタイムスタンプと単語情報を取得"""
         time_ranges_with_words = []
@@ -330,7 +330,7 @@ class TextDifference:
                 f"確認したword数: {debug_info['words_checked']}\n"
                 f"タイムスタンプ欠落word数: {debug_info['words_without_timestamp']}"
             )
-    
+
     def _get_timestamp_and_words_for_position(
         self, segments: list[TranscriptionSegment], start_pos: int, end_pos: int
     ) -> tuple[float | None, float | None, list]:
@@ -343,7 +343,7 @@ class TextDifference:
         for seg in segments:
             if not seg.words:
                 continue
-                
+
             for word in seg.words:
                 # WordInfoオブジェクトか辞書かを判定
                 if hasattr(word, "word"):
@@ -358,34 +358,34 @@ class TextDifference:
                     word_end = word.get("end")
 
                 word_len = len(word_text)
-                
+
                 # この単語が指定範囲に含まれるかチェック
                 word_end_pos = current_pos + word_len
-                
+
                 # 単語が範囲内に含まれる場合
                 if current_pos < end_pos and word_end_pos > start_pos:
                     words_in_range.append(word)
-                    
+
                     # 開始時刻の設定
                     if start_time is None and current_pos <= start_pos < word_end_pos:
                         start_time = word_start
-                    
+
                     # 終了時刻の更新
                     if current_pos < end_pos <= word_end_pos:
                         end_time = word_end
                     elif word_end_pos <= end_pos:
                         # 単語全体が範囲内の場合
                         end_time = word_end
-                
+
                 current_pos += word_len
-                
+
                 # 範囲を超えたら終了
                 if current_pos >= end_pos and start_time is not None and end_time is not None:
                     break
-                    
+
             if start_time is not None and end_time is not None and current_pos >= end_pos:
                 break
-                
+
         return start_time, end_time, words_in_range
 
 

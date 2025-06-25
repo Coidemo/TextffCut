@@ -344,42 +344,127 @@ flowchart LR
 - 形式が異なる場合のみ再エンコード
 - メタデータの適切な処理
 
-### 3.6 タイムライン編集処理
+### 3.6 タイムライン編集処理（新規追加）
 
-#### 3.6.1 タイムライン表示
+#### 3.6.1 全体処理フロー
 
 ```mermaid
 flowchart TD
-    A[切り抜きセグメント] --> B[波形データ生成]
-    B --> C[音声レベル可視化]
-    C --> D[セグメント並列表示]
-    D --> E[開始/終了点表示]
+    A[テキスト編集完了] --> B{タイムライン編集<br/>を使用？}
+    B -->|No| C[既存の処理フロー]
+    B -->|Yes| D[タイムライン編集UI表示]
+    D --> E[セグメント一覧生成]
+    E --> F[波形データ生成<br/>（キャッシュ確認）]
+    F --> G[タイムライン表示]
+    G --> H{調整が必要？}
+    H -->|Yes| I[微調整処理]
+    I --> J[プレビュー再生]
+    J --> G
+    H -->|No| K[調整結果確定]
+    K --> L[更新されたtime_ranges]
+    L --> C
+```
+
+#### 3.6.2 タイムライン表示処理
+
+```mermaid
+flowchart TD
+    subgraph "入力データ"
+        A1[time_ranges<br/>[(start, end), ...]]
+        A2[transcription_result]
+        A3[video_path]
+    end
+    
+    subgraph "データ変換"
+        B1[TimelineSegment生成]
+        B2[対応テキスト抽出]
+        B3[波形データ取得]
+    end
+    
+    subgraph "UI表示"
+        C1[全体タイムライン<br/>（俯瞰図）]
+        C2[セグメント一覧<br/>（リスト表示）]
+        C3[選択セグメント詳細<br/>（波形付き）]
+    end
+    
+    A1 & A2 & A3 --> B1 & B2 & B3
+    B1 & B2 & B3 --> C1 & C2 & C3
 ```
 
 **処理方針：**
-- 切り抜き箇所を個別のセグメントとして並列表示
-- 波形表示で音声レベルを可視化
-- 各セグメントの開始/終了点を明確に表示
+- 既存のtime_rangesを基にTimelineSegmentオブジェクトを生成
+- 各セグメントに対応するテキストを文字起こし結果から抽出
+- 波形データはキャッシュを優先し、なければ生成
+- 3つのビューで多角的に表示（全体俯瞰、リスト、詳細）
 
-#### 3.6.2 微調整機能
+#### 3.6.3 波形データ生成処理
 
 ```mermaid
 flowchart LR
-    subgraph "調整方法"
-        A[数値入力<br/>秒単位]
-        B[ボタン操作<br/>±1/±5/±30フレーム]
-        C[キーボード<br/>矢印キー]
-    end
-    
-    A & B & C --> D[プレビュー再生]
-    D --> E[確認・保存]
+    A[動画ファイル] --> B{キャッシュ<br/>存在？}
+    B -->|Yes| C[キャッシュ読込]
+    B -->|No| D[音声抽出<br/>（FFmpeg）]
+    D --> E[ダウンサンプリング<br/>1秒10-20点]
+    E --> F[正規化<br/>-1.0〜1.0]
+    F --> G[キャッシュ保存]
+    C --> H[波形データ]
+    G --> H
 ```
 
 **処理方針：**
-- 数値入力で正確な時間指定
-- フレーム単位の精密な調整
-- キーボードショートカットで効率的な操作
-- プレビュー再生で即座に確認
+- 低解像度（1秒あたり10-20サンプル）で十分
+- 大きなファイルでも高速処理可能
+- キャッシュにより2回目以降は即座に表示
+
+#### 3.6.4 微調整機能
+
+```mermaid
+flowchart TD
+    subgraph "調整インターフェース"
+        A1[数値入力フィールド<br/>開始/終了時刻]
+        A2[フレーム調整ボタン<br/>±1/±5/±30]
+        A3[キーボード入力<br/>検出]
+    end
+    
+    subgraph "調整処理"
+        B1[入力値検証]
+        B2[境界チェック<br/>0〜動画長]
+        B3[重複チェック<br/>他セグメント]
+        B4[調整適用]
+    end
+    
+    subgraph "フィードバック"
+        C1[UI即時更新]
+        C2[プレビュー準備]
+        C3[調整履歴保存]
+    end
+    
+    A1 & A2 & A3 --> B1
+    B1 --> B2 --> B3 --> B4
+    B4 --> C1 & C2 & C3
+```
+
+**処理方針：**
+- 3種類の調整方法を提供（数値、ボタン、キーボード）
+- リアルタイムで境界チェックと重複チェック
+- 調整結果は即座にUIに反映
+- Undo/Redo用に調整履歴を保持
+
+#### 3.6.5 プレビュー再生処理
+
+```mermaid
+flowchart LR
+    A[選択セグメント] --> B[音声範囲抽出<br/>FFmpeg]
+    B --> C[一時ファイル生成<br/>MP3/AAC]
+    C --> D[HTML5 Audio<br/>要素生成]
+    D --> E[Streamlit<br/>st.audio()]
+    E --> F[再生制御<br/>開始/停止/速度]
+```
+
+**処理方針：**
+- 選択範囲のみの音声を抽出（軽量化）
+- HTML5 Audioで再生（Streamlit標準機能）
+- 再生速度調整可能（1.0x/1.5x/2.0x）
 
 ### 3.7 音声プレビュー処理
 
@@ -489,8 +574,9 @@ erDiagram
     Video ||--|| Transcript : "has"
     Transcript ||--|{ Segment : "contains"
     Segment ||--|{ Word : "contains"
-    Timeline ||--|{ TimelineSegment : "contains"
-    TimelineSegment }|--|| Segment : "references"
+    EditSession ||--|{ TimeRange : "contains"
+    TimeRange ||--o| TimelineSegment : "enhanced_to"
+    TimelineSegment ||--|| WaveformData : "has"
     Video ||--|| Cache : "cached_as"
     
     Video {
@@ -524,10 +610,33 @@ erDiagram
         number confidence
     }
     
-    Timeline {
-        string name
-        number totalDuration
-        boolean silenceRemoved
+    EditSession {
+        string sessionId
+        datetime createdAt
+        json timeRanges
+        json adjustmentHistory
+    }
+    
+    TimeRange {
+        number start
+        number end
+        string text
+    }
+    
+    TimelineSegment {
+        string id
+        number start
+        number end
+        string text
+        json waveformData
+        number originalStart
+        number originalEnd
+    }
+    
+    WaveformData {
+        json samples
+        number sampleRate
+        datetime generatedAt
     }
     
     Cache {
@@ -548,7 +657,9 @@ TextffCut/
 │       └── metadata.json      # 動画メタデータ
 ├── temp/                      # 一時ファイル
 │   ├── audio/                 # 音声ファイル
-│   └── segments/              # 動画セグメント
+│   ├── segments/              # 動画セグメント
+│   ├── waveforms/             # 波形データキャッシュ
+│   └── previews/              # プレビュー音声
 ├── output/                    # 出力ファイル
 │   ├── {name}_edited.mp4      # 編集済み動画
 │   ├── {name}.fcpxml          # FCPXML
@@ -574,7 +685,8 @@ TextffCut アプリケーション
 │   │   │   ├── 1. 動画選択
 │   │   │   ├── 2. 文字起こし
 │   │   │   ├── 3. テキスト編集
-│   │   │   └── 4. エクスポート
+│   │   │   ├── 4. タイムライン編集（オプション）
+│   │   │   └── 5. エクスポート
 │   │   └── 設定パネル
 │   │       ├── API設定
 │   │       ├── 処理設定
