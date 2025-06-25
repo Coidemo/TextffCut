@@ -243,8 +243,10 @@ class VideoProcessingService(BaseService):
                 list_file = f.name
 
             try:
-                # ffmpegで結合
-                success = self.video_processor.combine_videos(list_file=list_file, output_path=output_path)
+                # ffmpegで結合 - 正しいパラメータを使用
+                success = self.video_processor.combine_videos(
+                    input_files=video_files, output_file=output_path, progress_callback=wrapped_callback
+                )
 
                 if not success or not Path(output_path).exists():
                     raise ProcessingError("動画の結合に失敗しました")

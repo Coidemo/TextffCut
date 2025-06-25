@@ -133,10 +133,16 @@ flowchart TD
     EditText --> DiffDetect[差分検出]
     DiffDetect --> TimeRange[時間範囲計算]
     
-    TimeRange --> Timeline[タイムライン編集]
+    %% タイムライン編集はオプショナル
+    TimeRange --> TimelineDecision{タイムライン<br/>編集する？}
+    TimelineDecision -->|Yes| Timeline[タイムライン編集]
+    TimelineDecision -->|No| ProcessOpt
+    
     Timeline --> Preview{音声プレビュー}
     Preview -->|確認| Timeline
-    Preview -->|完了| SilenceOpt{無音削除？}
+    Preview -->|完了| ProcessOpt[処理オプション]
+    
+    ProcessOpt --> SilenceOpt{無音削除？}
     
     SilenceOpt -->|Yes| SilenceDetect[無音検出]
     SilenceOpt -->|No| ExportSelect
@@ -344,7 +350,53 @@ flowchart LR
 - 形式が異なる場合のみ再エンコード
 - メタデータの適切な処理
 
-### 3.6 タイムライン編集処理（新規追加）
+### 3.6 UIセクション表示制御
+
+#### 3.6.1 セクション表示フロー
+
+```mermaid
+flowchart TD
+    A[動画選択完了] --> B[文字起こしセクション表示]
+    B --> C{文字起こし完了？}
+    C -->|Yes| D[テキスト編集セクション表示]
+    C -->|No| B
+    
+    D --> E{更新ボタンクリック？}
+    E -->|Yes| F[タイムライン編集セクション表示]
+    E -->|No| D
+    
+    F --> G{タイムライン編集完了？}
+    G -->|Yes| H[処理実行セクション表示]
+    G -->|No| F
+    
+    H --> I[動画処理実行]
+```
+
+**セクション表示条件：**
+1. **文字起こしセクション**: 常時表示
+2. **テキスト編集セクション**: `transcription_result`が存在する場合
+3. **タイムライン編集セクション**: `show_timeline_section`がTrueの場合（インライン表示）
+4. **処理実行セクション**: `timeline_completed`がTrueの場合（タイムライン編集完了後）
+
+**タイムライン編集の特徴：**
+- インライン表示のため、キャンセル操作は不要
+- 編集を中止したい場合は、単に「編集を完了」ボタンを押さない
+- リセットボタンで初期状態に戻すことが可能
+
+**セッション状態管理：**
+```python
+# セクション表示制御
+st.session_state.show_timeline_section  # タイムライン編集セクション表示フラグ
+st.session_state.timeline_completed     # タイムライン編集完了フラグ
+st.session_state.time_ranges_calculated # 時間範囲計算済みフラグ
+st.session_state.adjusted_time_ranges  # タイムライン編集で調整された時間範囲
+
+# タイムライン編集結果の保持
+# 処理オプション（切り抜きのみ/無音削除、出力形式等）の変更は
+# タイムライン編集結果に影響しないため、リセットしない
+```
+
+### 3.7 タイムライン編集処理
 
 #### 3.6.1 全体処理フロー
 

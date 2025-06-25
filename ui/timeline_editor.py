@@ -10,7 +10,10 @@ import pandas as pd
 import streamlit as st
 
 from core.timeline_processor import TimelineSegment
+from core.waveform_processor import WaveformProcessor
 from services.timeline_editing_service import TimelineEditingService
+from ui.timeline_dark_mode_fix import inject_dark_mode_css
+from ui.waveform_display import WaveformDisplay
 from utils.logging import get_logger
 from utils.time_utils import format_time
 
@@ -31,6 +34,9 @@ def render_timeline_editor(
     Returns:
         調整後の時間範囲リスト（キャンセルされた場合はNone）
     """
+    # ダークモード用のCSS注入
+    inject_dark_mode_css()
+    
     service = TimelineEditingService()
 
     # タイムラインの初期化
@@ -86,6 +92,38 @@ def render_timeline_editor(
 
             st.divider()
 
+            # タイムライン全体の概要表示
+            with st.container():
+                st.markdown("#### 📊 タイムライン概要")
+                # ダークモード対応の波形表示を作成
+                waveform_display = WaveformDisplay(width=800, height=100)
+                
+                # セグメントデータをWaveformData形式に変換（概要表示用）
+                overview_segments = []
+                for seg_data in segments_data:
+                    from core.waveform_processor import WaveformData
+                    overview_segments.append(WaveformData(
+                        segment_id=seg_data["id"],
+                        sample_rate=44100,
+                        samples=[],
+                        duration=seg_data["end"] - seg_data["start"],
+                        start_time=seg_data["start"],
+                        end_time=seg_data["end"]
+                    ))
+                
+                overview_fig = waveform_display.render_timeline_overview(
+                    overview_segments, 
+                    timeline_data["video_duration"]
+                )
+                # Plotlyグラフの表示（ダークモード対応）
+                config = {
+                    'displayModeBar': False,  # 概要図はツールバー非表示
+                    'staticPlot': True        # インタラクション無効
+                }
+                st.plotly_chart(overview_fig, use_container_width=True, config=config)
+
+            st.divider()
+
             # セグメント選択
             segment_ids = [seg["id"] for seg in segments_data]
             selected_segment_id = st.selectbox(
@@ -100,6 +138,46 @@ def render_timeline_editor(
                 selected_segment = TimelineSegment.from_dict(selected_segment_data)
 
                 st.markdown(f"#### セグメント {selected_segment_id} の編集")
+
+                # 波形表示
+                with st.container():
+                    st.markdown("##### 🎵 音声波形")
+                    
+                    # 波形データの取得（キャッシュ利用）
+                    waveform_processor = WaveformProcessor()
+                    # ダークモード対応の波形表示を作成
+                    waveform_display = WaveformDisplay()
+                    
+                    with st.spinner("波形データを読み込み中..."):
+                        waveform_data = waveform_processor.extract_waveform(
+                            video_path,
+                            selected_segment.start,
+                            selected_segment.end,
+                            selected_segment_id
+                        )
+                        
+                        # 無音領域の検出
+                        silence_regions = waveform_processor.detect_silence_regions(waveform_data)
+                        
+                        # 波形の描画
+                        waveform_fig = waveform_display.render_waveform(
+                            waveform_data,
+                            silence_regions=silence_regions,
+                            show_time_axis=True
+                        )
+                        
+                        # Plotlyグラフの表示（ダークモード対応）
+                        config = {
+                            'displayModeBar': True,
+                            'displaylogo': False,
+                            'modeBarButtonsToRemove': ['pan2d', 'lasso2d', 'select2d'],
+                            'toImageButtonOptions': {
+                                'format': 'png',
+                                'filename': f'waveform_{selected_segment_id}',
+                                'scale': 2
+                            }
+                        }
+                        st.plotly_chart(waveform_fig, use_container_width=True, config=config)
 
                 # テキスト表示
                 with st.expander("セグメントのテキスト", expanded=False):
@@ -242,10 +320,19 @@ def render_timeline_editor(
     # 操作ボタン
     st.divider()
 
-    col1, col2, col3 = st.columns([1, 1, 1])
+    col1, col2 = st.columns([1, 1])
 
     with col1:
-        if st.button("✅ 編集を完了", type="primary"):
+        if st.button("🔄 リセット", use_container_width=True):
+            # タイムラインを再初期化
+            if "timeline_initialized" in st.session_state:
+                del st.session_state.timeline_initialized
+            if "timeline_data" in st.session_state:
+                del st.session_state.timeline_data
+            st.rerun()
+
+    with col2:
+        if st.button("✅ 編集を完了", type="primary", use_container_width=True):
             try:
                 adjusted_ranges = service.get_adjusted_time_ranges()
                 # 設定を保存
@@ -261,28 +348,6 @@ def render_timeline_editor(
             except Exception as e:
                 st.error(f"エラーが発生しました: {str(e)}")
                 return None
-
-    with col2:
-        if st.button("🔄 リセット"):
-            # タイムラインを再初期化
-            if "timeline_initialized" in st.session_state:
-                del st.session_state.timeline_initialized
-            if "timeline_data" in st.session_state:
-                del st.session_state.timeline_data
-            st.rerun()
-
-    with col3:
-        if st.button("❌ キャンセル"):
-            # クリーンアップ
-            if "timeline_initialized" in st.session_state:
-                del st.session_state.timeline_initialized
-            if "timeline_data" in st.session_state:
-                del st.session_state.timeline_data
-            if "preview_audio_path" in st.session_state:
-                if os.path.exists(st.session_state.preview_audio_path):
-                    os.remove(st.session_state.preview_audio_path)
-                del st.session_state.preview_audio_path
-            return None
 
     # 編集が完了していない場合はNoneを返す（UIは表示し続ける）
     return None

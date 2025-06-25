@@ -1,0 +1,22 @@
+[theme]
+# プライマリカラー
+primaryColor = "#FF6B6B"
+
+# 背景色（アプリ全体）
+backgroundColor = "#0E1117"
+
+# サイドバーの背景色
+secondaryBackgroundColor = "#262730"
+
+# テキストカラー
+textColor = "#FAFAFA"
+
+# フォント
+font = "sans serif"
+
+# ベーステーマ
+base = "dark"
+
+[server]
+# ファイルサイズ制限を2GBに設定
+maxUploadSize = 2048
