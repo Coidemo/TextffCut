@@ -226,40 +226,13 @@ def render_waveform_tab(
             # Plotly設定
             config = interaction.create_interactive_waveform_config()
             
-            # 波形表示（クリックイベント付き）
-            selected_points = st.plotly_chart(
+            # 波形表示
+            st.plotly_chart(
                 fig, 
                 use_container_width=True,
                 config=config,
                 key=f"waveform_{segment.id}"
             )
-            
-            # クリックイベントの処理
-            if selected_points:
-                click_result = interaction.process_click_event(
-                    selected_points,
-                    waveform_data,
-                    segment_boundaries
-                )
-                
-                if click_result:
-                    if click_result["action"] == "adjust_boundary":
-                        # 境界調整モード
-                        st.info(f"境界調整モード: {click_result['boundary_time']:.2f}秒の境界を調整")
-                        
-                        new_time, confirmed = interaction.create_adjustment_panel(
-                            click_result["boundary_time"],
-                            0.0,
-                            timeline_data["video_duration"]
-                        )
-                        
-                        if confirmed:
-                            # 境界を更新
-                            if click_result["boundary_time"] == segment.start:
-                                service.set_segment_time_range(segment.id, new_time, segment.end)
-                            else:
-                                service.set_segment_time_range(segment.id, segment.start, new_time)
-                            st.rerun()
 
 
 def render_quick_adjust_tab(
