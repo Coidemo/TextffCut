@@ -226,3 +226,4 @@ models/
 *.h5
 *.onnx
 *.safetensors
+test_output/
