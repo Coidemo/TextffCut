@@ -250,12 +250,12 @@ def show_silence_settings() -> tuple[float, float, float, float, float]:
     return noise_threshold, min_silence_duration, min_segment_duration, padding_start, padding_end
 
 
-def show_export_settings() -> tuple[str, str, int]:
+def show_export_settings() -> tuple[str, str, bool, int]:
     """
-    エクスポート設定UI
+    エクスポート設定UI（字幕オプション追加）
 
     Returns:
-        (process_type, output_format, timeline_fps)
+        (process_type, primary_format, export_srt, timeline_fps)
     """
     col1, col2, col3 = st.columns(3)
 
@@ -268,11 +268,19 @@ def show_export_settings() -> tuple[str, str, int]:
         )
 
     with col2:
-        output_format = st.radio(
+        # 主要な出力形式（SRT字幕を除外）
+        primary_format = st.radio(
             "出力形式",
             ["動画ファイル", "FCPXMLファイル", "Premiere Pro XML"],
             index=1,
             help="動画ファイル：MP4形式で出力\nFCPXMLファイル：Final Cut Pro用のXMLファイルを出力\nPremiere Pro XML：Premiere Pro用のXMEMLファイルを出力",
+        )
+
+        # 字幕も同時出力するかのチェックボックス
+        export_srt = st.checkbox(
+            "SRT字幕も同時出力",
+            value=True,
+            help="動画またはXMLと同じタイミングでSRT字幕を出力します",
         )
 
     with col3:
@@ -285,7 +293,7 @@ def show_export_settings() -> tuple[str, str, int]:
             help="FCPXMLファイルを生成する際のフレームレート",
         )
 
-    return process_type, output_format, timeline_fps
+    return process_type, primary_format, export_srt, timeline_fps
 
 
 def show_progress(

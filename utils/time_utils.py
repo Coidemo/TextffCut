@@ -52,6 +52,22 @@ def frames_to_timecode(frames: int, fps: int = 30) -> str:
     return seconds_to_timecode(seconds, fps)
 
 
+def seconds_to_srt_time(seconds: float) -> str:
+    """秒数をSRT形式のタイムスタンプに変換 (HH:MM:SS,mmm)
+
+    Args:
+        seconds: 秒数
+
+    Returns:
+        SRT形式のタイムスタンプ (例: "00:01:23,456")
+    """
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+    milliseconds = int((seconds % 1) * 1000)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d},{milliseconds:03d}"
+
+
 def calculate_frame_boundaries(start: float, end: float, fps: float, timeline_fps: int = 30) -> tuple[int, int]:
     """
     開始・終了時間をフレーム境界に変換

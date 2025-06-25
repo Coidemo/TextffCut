@@ -1,5 +1,5 @@
 """
-Docker専用ファイル選択UIコンポーネント
+Docker/ローカル両対応ファイル選択UIコンポーネント
 """
 
 import os
@@ -7,23 +7,31 @@ from pathlib import Path
 
 import streamlit as st
 
-from utils.environment import DEFAULT_HOST_PATH, VIDEOS_DIR
+from utils.environment import DEFAULT_HOST_PATH, IS_DOCKER, VIDEOS_DIR, ensure_directories
 
 
 def show_video_input() -> tuple[str, str] | None:
     """
-    Docker専用動画選択UI
+    統一動画選択UI
 
     Returns:
         (動画ファイルパス, 出力ディレクトリパス) のタプル
     """
     st.markdown("### 🎬 動画ファイルの選択")
 
-    # Dockerコンテナ内の固定パス
+    # 必要なディレクトリを作成
+    ensure_directories()
+
+    # 動画ディレクトリ
     videos_dir = Path(VIDEOS_DIR)
 
-    # ホスト側のパス（表示用）
-    host_videos_path = os.getenv("HOST_VIDEOS_PATH", DEFAULT_HOST_PATH)
+    # 表示用パス（環境に応じて調整）
+    if IS_DOCKER:
+        # Docker環境：環境変数から取得
+        host_videos_path = os.getenv("HOST_VIDEOS_PATH", DEFAULT_HOST_PATH)
+    else:
+        # ローカル環境：相対パスで表示
+        host_videos_path = os.path.relpath(VIDEOS_DIR, os.getcwd())
 
     if videos_dir.exists():
         # 動画ファイル一覧を取得
@@ -56,7 +64,9 @@ def show_video_input() -> tuple[str, str] | None:
             # 動画と同じディレクトリを出力先として返す
             return video_path, str(videos_dir)
     else:
-        st.error("videos/フォルダが見つかりません。")
+        # フォルダが存在しない場合（通常は自動作成されるはず）
+        st.error(f"{host_videos_path} フォルダが見つかりません。")
+        st.info("フォルダを作成してから、動画ファイルを配置してください。")
 
     return None
 
