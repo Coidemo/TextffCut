@@ -4,7 +4,7 @@
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Union
+from typing import Any
 
 
 @dataclass
@@ -113,7 +113,7 @@ class TimelineProcessor:
         self.fps: float = 30.0
 
     def create_segments_from_ranges(
-        self, time_ranges: list[tuple[float, float]], transcription_result: Union[dict, Any], video_duration: float
+        self, time_ranges: list[tuple[float, float]], transcription_result: dict | Any, video_duration: float
     ) -> list[TimelineSegment]:
         """
         時間範囲リストからTimelineSegmentを作成
@@ -138,7 +138,7 @@ class TimelineProcessor:
 
         return self.segments
 
-    def _extract_text_for_range(self, start: float, end: float, transcription_result: Union[dict, Any]) -> str:
+    def _extract_text_for_range(self, start: float, end: float, transcription_result: dict | Any) -> str:
         """指定範囲のテキストを抽出"""
         text_parts = []
 

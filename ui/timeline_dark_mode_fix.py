@@ -11,7 +11,8 @@ def inject_dark_mode_css():
     ダークモード用のCSSを注入
     Plotlyグラフの背景を確実に黒くする
     """
-    st.markdown("""
+    st.markdown(
+        """
     <style>
     /* ダークモード時のPlotlyグラフの背景を黒に */
     [data-testid="stAppViewContainer"][data-theme="dark"] .js-plotly-plot .plotly {
@@ -46,4 +47,6 @@ def inject_dark_mode_css():
         fill: #FAFAFA !important;
     }
     </style>
-    """, unsafe_allow_html=True)
+    """,
+        unsafe_allow_html=True,
+    )

@@ -2261,18 +2261,18 @@ def check_and_recover_on_startup():
     return recovered_count
 ```
 
-## 15. タイムライン編集機能の詳細設計（新規追加）
+## 15. タイムライン編集機能の詳細設計（改良版UI実装済み）
 
 ### 15.1 機能概要
 
-タイムライン編集機能は、テキスト編集で指定した切り抜き箇所を視覚的に確認・微調整するための機能です。
+タイムライン編集機能は、テキスト編集で指定した切り抜き箇所を視覚的に確認・微調整するための機能です。改良版UIでは、リアルタイム波形更新と6段階の精密調整が可能です。
 
 **主要機能**:
 1. セグメントの視覚的表示
-2. 開始/終了時間の精密調整
-3. フレーム単位の微調整
-4. プレビュー再生
-5. 波形表示（将来拡張）
+2. リアルタイム波形更新（セグメント選択時に即座に更新）
+3. 6段階精密調整（±1/10/100ms、±1/10/30秒）
+4. ミリ秒精度の時間入力
+5. プレビュー再生
 
 ### 15.2 モジュール構成
 
@@ -2360,8 +2360,8 @@ class WaveformData:
 
 1. **全体タイムライン**: Plotlyを使用したインタラクティブなバーチャート
 2. **セグメント一覧**: ボタン式のリスト
-3. **時間入力**: st.text_inputでタイムコード形式
-4. **フレーム調整ボタン**: 6つのボタン（±1/5/30フレーム）
+3. **時間入力**: st.text_inputでミリ秒精度のタイムコード形式
+4. **精密調整ボタン**: 6つのボタン（±1/10/100ms、±1/10/30秒）
 5. **プレビュー**: st.audioコンポーネント
 
 ### 15.6 ダークモード対応
@@ -2471,7 +2471,7 @@ def is_dark_mode() -> bool:
   - 10分未満: 10サンプル/秒
   - 10分以上: 5サンプル/秒
 - **キャッシュ**: 動画ハッシュをキーに保存
-- **非同期処理**: UIをブロックしない
+- **リアルタイム更新**: セグメント選択時に即座に波形を更新（UIをブロックしない）
 
 #### 15.6.2 プレビュー音声
 
@@ -2594,6 +2594,29 @@ success = self.video_processor.combine_videos(
 2. **コマンドインジェクション対策**: FFmpegコマンドのパラメータ検証
 3. **一時ファイル管理**: 予測可能なファイル名と自動削除
 
+#### 15.8.5 改良版UIの実装状態
+
+改良版タイムライン編集UIは実装完了し、以下の機能を提供しています：
+
+1. **リアルタイム波形更新**: 
+   - セグメントボタンクリック時に波形を即座に更新
+   - 非同期処理でUIの応答性を保つ
+
+2. **6段階精密調整ボタン**: 
+   - ±1ms, ±10ms, ±100ms, ±1s, ±10s, ±30s
+   - ボタン配置を最適化して使いやすく
+   - ミリ秒から秒単位までの柔軟な調整が可能
+
+3. **ミリ秒精度の時間入力**: 
+   - 時間入力で精確な値を設定可能
+   - 入力とボタン調整の組み合わせで精密な編集が可能
+
+4. **視覚的フィードバック**: 
+   - 調整結果が波形表示に即座に反映
+   - 直感的な操作性でプロフェッショナルな編集が可能
+
+この改良版UIにより、プロフェッショナルな動画編集に必要な精密なタイミング調整が可能になりました。
+
 ### 15.9 テスト計画
 
 #### 15.9.1 単体テスト
@@ -2616,7 +2639,145 @@ success = self.video_processor.combine_videos(
 | TC-109 | セッション状態管理 | リロードで状態保持 |
 | TC-110 | 調整完了処理 | time_rangesが更新 |
 
-### 15.10 将来の拡張
+### 15.10 UI改善設計（Phase 1実装）
+
+#### 15.10.1 リアルタイム波形更新
+
+**背景**:
+現在の実装では、セグメントの開始/終了時間を調整しても波形表示が更新されないため、ユーザーが編集結果を視覚的に確認できない問題があった。
+
+**改善内容**:
+1. **波形表示の動的更新**
+   - セグメント調整時に該当部分の波形を即座に再描画
+   - 調整前後の比較ビュー表示オプション
+   
+2. **実装詳細**:
+   ```python
+   def update_waveform_display(self, segment_id: str, start: float, end: float):
+       """波形表示をリアルタイムで更新"""
+       # 1. 変更されたセグメントの波形データを取得
+       waveform_data = self.get_waveform_data(start, end)
+       
+       # 2. Plotlyグラフを更新
+       fig = self.timeline_display.update_segment_waveform(
+           segment_id=segment_id,
+           waveform_data=waveform_data,
+           start=start,
+           end=end
+       )
+       
+       # 3. StreamlitのPlotlyコンテナを更新
+       self.waveform_container.plotly_chart(fig, use_container_width=True)
+   ```
+
+#### 15.10.2 精密な編集コントロール
+
+**改善内容**:
+1. **数値入力フィールドの改善**
+   - タイムコード形式（HH:MM:SS.FFF）での直接入力
+   - 入力値の即時検証とフィードバック
+   - Enterキーでの確定
+
+2. **フレーム単位調整ボタンの配置最適化**
+   ```
+   開始時間: [00:01:23.456] 
+   [◀◀ -30f] [◀ -5f] [◀ -1f] | [▶ +1f] [▶ +5f] [▶▶ +30f]
+   
+   終了時間: [00:01:45.789]
+   [◀◀ -30f] [◀ -5f] [◀ -1f] | [▶ +1f] [▶ +5f] [▶▶ +30f]
+   ```
+
+3. **実装詳細**:
+   ```python
+   def create_precise_controls(self, segment: TimelineSegment):
+       """精密な編集コントロールを作成"""
+       col1, col2 = st.columns([2, 3])
+       
+       with col1:
+           # 数値入力フィールド
+           new_start = st.text_input(
+               "開始時間",
+               value=self.format_timecode(segment.start),
+               key=f"start_input_{segment.id}",
+               on_change=self.handle_timecode_input
+           )
+           
+       with col2:
+           # フレーム調整ボタン
+           frame_cols = st.columns(6)
+           frame_adjustments = [-30, -5, -1, 1, 5, 30]
+           
+           for idx, frames in enumerate(frame_adjustments):
+               with frame_cols[idx]:
+                   if st.button(
+                       f"{frames:+d}f",
+                       key=f"start_frame_{segment.id}_{frames}",
+                       use_container_width=True
+                   ):
+                       self.adjust_by_frames(segment.id, "start", frames)
+   ```
+
+#### 15.10.3 セグメント選択の改善
+
+**改善内容**:
+1. **視覚的フィードバック**
+   - 選択中のセグメントのハイライト表示
+   - ホバー時のプレビュー情報表示
+   - 選択状態の明確な表示
+
+2. **セグメントリストの改善**
+   ```python
+   def render_segment_list(self):
+       """改善されたセグメントリスト表示"""
+       for idx, segment in enumerate(self.segments):
+           # セグメントボタンのスタイリング
+           button_style = "primary" if segment.id == self.selected_segment_id else "secondary"
+           
+           # セグメント情報の表示
+           segment_info = f"""
+           **セグメント {idx + 1}**
+           {self.format_timecode(segment.start)} - {self.format_timecode(segment.end)}
+           長さ: {segment.end - segment.start:.2f}秒
+           """
+           
+           if st.button(
+               segment_info,
+               key=f"segment_btn_{segment.id}",
+               type=button_style,
+               use_container_width=True
+           ):
+               self.select_segment(segment.id)
+   ```
+
+3. **キーボードナビゲーション**（将来実装）
+   - 上下矢印キーでセグメント選択
+   - Tabキーでコントロール間の移動
+
+#### 15.10.4 Phase 1実装計画
+
+**実装優先度と順序**:
+
+1. **第1段階（必須）**
+   - リアルタイム波形更新機能
+   - 基本的な数値入力改善
+   - セグメント選択のハイライト
+
+2. **第2段階（推奨）**
+   - フレーム単位調整ボタンの最適化
+   - タイムコード形式の完全サポート
+   - ホバープレビュー
+
+3. **第3段階（オプション）**
+   - キーボードショートカット
+   - ドラッグ&ドロップ調整
+   - 高度な波形ズーム機能
+
+**実装スケジュール**:
+- Phase 1-1: 2週間（基本機能）
+- Phase 1-2: 1週間（UI最適化）
+- Phase 1-3: 1週間（テストと調整）
+
+### 15.11 将来の拡張
 
 1. **高度な波形表示**
    - ズーム機能
@@ -2658,7 +2819,7 @@ success = self.video_processor.combine_videos(
 | 機能 | 要件ID | 実装予定 | 理由 |
 |------|--------|---------|------|
 | YouTube動画ダウンロード | REQ-001 | 検討中 | 著作権への配慮 |
-| タイムライン編集 | REQ-005 | 将来 | UIの複雑性 |
+| タイムライン編集 | REQ-005 | ✅ 実装済み | 改良版UIで実装完了 |
 | SRT字幕エクスポート | REQ-010 | 近日 | 需要に応じて |
 
 ### 16.3 設計と実装の差異
@@ -2695,7 +2856,6 @@ success = self.video_processor.combine_videos(
 
 3. **優先度低**
    - YouTube動画ダウンロード（法的検討が必要）
-   - タイムライン編集UI（大規模な開発が必要）
 
 ## 17. 環境統一実装
 

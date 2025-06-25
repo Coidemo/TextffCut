@@ -14,7 +14,7 @@ from core.video import VideoSegment
 def test_video_segment_creation():
     """VideoSegmentの作成をテスト"""
     print("=== VideoSegment作成テスト ===")
-    
+
     # 正しい使用方法
     try:
         segment = VideoSegment(start=10.5, end=20.5)
@@ -26,7 +26,7 @@ def test_video_segment_creation():
     except Exception as e:
         print(f"✗ VideoSegment作成エラー: {e}")
         raise
-    
+
     # output_pathを指定した場合
     try:
         segment_with_path = VideoSegment(start=0.0, end=5.0, output_path="/tmp/test.mp4")
@@ -35,7 +35,7 @@ def test_video_segment_creation():
     except Exception as e:
         print(f"✗ output_path付きVideoSegment作成エラー: {e}")
         raise
-    
+
     # textパラメータは存在しないことを確認
     try:
         # これはTypeErrorが発生するはず
@@ -44,33 +44,33 @@ def test_video_segment_creation():
         assert False, "VideoSegmentにtextパラメータが存在してはいけない"
     except TypeError as e:
         print(f"✓ 予期したTypeErrorが発生: {e}")
-    
+
     print("\n✅ VideoSegment作成テスト完了")
 
 
 def test_main_py_usage():
     """main.pyでのVideoSegmentの使用が正しいことを確認"""
     print("\n=== main.pyでのVideoSegment使用確認 ===")
-    
+
     # main.pyのコードを確認
     main_py_path = Path(__file__).parent / "main.py"
-    
-    with open(main_py_path, "r", encoding="utf-8") as f:
+
+    with open(main_py_path, encoding="utf-8") as f:
         content = f.read()
-    
+
     # VideoSegmentにtext=が含まれていないことを確認
     if "VideoSegment(start=start, end=end, text=" in content:
         print("✗ main.pyにまだtext=パラメータを使用している箇所があります")
         assert False
     else:
         print("✓ main.pyでVideoSegmentのtext=パラメータは使用されていません")
-    
+
     # 正しい使用方法になっていることを確認
     if "VideoSegment(start=start, end=end)" in content:
         print("✓ main.pyでVideoSegmentが正しく使用されています")
     else:
         print("⚠️ main.pyでVideoSegmentの使用方法を確認してください")
-    
+
     print("\n✅ main.pyでのVideoSegment使用確認完了")
 
 
@@ -78,13 +78,14 @@ if __name__ == "__main__":
     try:
         test_video_segment_creation()
         test_main_py_usage()
-        
-        print("\n" + "="*50)
+
+        print("\n" + "=" * 50)
         print("🎉 すべてのVideoSegmentテストが成功しました！")
-        print("="*50)
-        
+        print("=" * 50)
+
     except Exception as e:
         print(f"\n❌ テストエラー: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)

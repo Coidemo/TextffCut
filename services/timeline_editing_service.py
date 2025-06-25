@@ -11,7 +11,7 @@ import streamlit as st
 from config import Config
 from core.exceptions import ProcessingError
 from core.timeline_processor import TimelineProcessor
-from core.video import VideoProcessor, VideoInfo
+from core.video import VideoInfo, VideoProcessor
 from utils.logging import get_logger
 from utils.settings import settings_manager
 
@@ -174,10 +174,10 @@ class TimelineEditingService:
 
             # デバッグ: timeline_dataの内容を確認
             logger.debug(f"timeline_data keys: {list(st.session_state.timeline_data.keys())}")
-            
+
             self.timeline_processor.from_dict(st.session_state.timeline_data)
             video_path = st.session_state.timeline_data.get("video_path")
-            
+
             logger.debug(f"video_path from timeline_data: {video_path}")
 
             if not video_path:

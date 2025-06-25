@@ -2,7 +2,6 @@
 タイムライン編集機能のテスト
 """
 
-
 import pytest
 
 from core.timeline_processor import TimelineProcessor, TimelineSegment

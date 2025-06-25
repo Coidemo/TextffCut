@@ -958,7 +958,7 @@ def main() -> None:
                 # 更新ボタン
                 if st.button("🔄 更新", type="primary", use_container_width=True):
                     st.session_state.edited_text = edited_text
-                    
+
                     # 時間範囲を計算して保存
                     if edited_text:
                         text_processor = TextProcessor()
@@ -968,7 +968,7 @@ def main() -> None:
                             if pattern in edited_text:
                                 found_separator = pattern
                                 break
-                        
+
                         if found_separator:
                             time_ranges = text_processor.find_differences_with_separator(
                                 full_text, edited_text, transcription, found_separator
@@ -976,7 +976,7 @@ def main() -> None:
                         else:
                             diff = text_processor.find_differences(full_text, edited_text)
                             time_ranges = diff.get_time_ranges(transcription)
-                        
+
                         st.session_state.time_ranges = time_ranges
                         st.session_state.show_timeline_section = True  # タイムライン編集セクションを表示
                         # タイムライン編集が完了していない状態にリセット
@@ -1043,10 +1043,22 @@ def main() -> None:
         if st.session_state.get("show_timeline_section", False):
             st.markdown("---")
             st.subheader("📊 タイムライン編集")
+
+            # UI選択
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                use_simple_ui = st.checkbox("シンプルUI", value=False, key="use_simple_timeline_ui")
+            with col2:
+                use_improved_ui = st.checkbox("改善版UI（推奨）", value=True, key="use_improved_timeline_ui")
+            with col3:
+                use_enhanced_ui = st.checkbox("拡張UI", value=False, key="use_enhanced_timeline_ui")
             
-            # UI選択（開発中のみ表示）
-            use_simple_ui = st.checkbox("シンプルUIを使用（推奨）", value=True, key="use_simple_timeline_ui")
-            
+            # 一つだけ選択できるようにする
+            if sum([use_simple_ui, use_improved_ui, use_enhanced_ui]) != 1:
+                use_simple_ui = False
+                use_improved_ui = True
+                use_enhanced_ui = False
+
             # タイムライン編集完了フラグをチェック
             if st.session_state.get("timeline_editing_completed", False):
                 adjusted_ranges = st.session_state.get("adjusted_time_ranges", [])
@@ -1069,23 +1081,24 @@ def main() -> None:
                 if time_ranges:
                     if use_simple_ui:
                         from ui.timeline_editor_simple import render_simple_timeline_editor
-                        render_simple_timeline_editor(
-                            time_ranges,
-                            transcription,
-                            video_path
-                        )
+
+                        render_simple_timeline_editor(time_ranges, transcription, video_path)
+                    elif use_improved_ui:
+                        from ui.timeline_editor_improved import render_improved_timeline_editor
+
+                        render_improved_timeline_editor(time_ranges, transcription, video_path)
                     else:
                         from ui.timeline_editor import render_timeline_editor
-                        render_timeline_editor(
-                            time_ranges,
-                            transcription,
-                            video_path
-                        )
-            else:
-                st.error("時間範囲が計算されていません。更新ボタンをクリックしてください。")
-        
+
+                        render_timeline_editor(time_ranges, transcription, video_path)
+                else:
+                    st.error("時間範囲が計算されていません。更新ボタンをクリックしてください。")
+
         # 切り抜き処理セクション（編集テキストがあり、タイムライン編集が完了しているか、タイムライン編集を使用しない場合）
-        if st.session_state.get("edited_text") and (st.session_state.get("timeline_completed", False) or not st.session_state.get("show_timeline_section", False)):
+        if st.session_state.get("edited_text") and (
+            st.session_state.get("timeline_completed", False)
+            or not st.session_state.get("show_timeline_section", False)
+        ):
             st.markdown("---")
             st.subheader("🎬 切り抜き箇所の抽出")
 
@@ -1125,7 +1138,7 @@ def main() -> None:
                 if not edited_text:
                     st.error("切り抜き箇所が指定されていません。")
                     return
-                
+
                 # 実行前にAPI設定を反映
                 if st.session_state.get("use_api", False):
                     config.transcription.use_api = True
@@ -1383,7 +1396,7 @@ def main() -> None:
 
                                     # edited_textをセッション状態から取得
                                     saved_edited_text = st.session_state.get("edited_text", "")
-                                    
+
                                     # 差分情報を取得（すでに計算済み）
                                     if found_separator:
                                         # 区切り文字を除去して差分計算
