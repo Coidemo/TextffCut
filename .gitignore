@@ -204,9 +204,6 @@ archive/
 # macOS
 .DS_Store
 
-# Tests folder
-tests/
-
 # Streamlit logs
 streamlit.log
 
