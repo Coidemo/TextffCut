@@ -27,12 +27,12 @@
 | REQ-002 | ローカル版文字起こし | core.transcription.UnifiedTranscriber | TC-004〜TC-008 |
 | REQ-003 | API版文字起こし | core.transcription_api.APITranscriber | TC-009〜TC-012 |
 | REQ-004 | テキスト編集（diff表示） | services.text_editing_service | TC-013〜TC-015 |
-| REQ-005 | タイムライン編集 | 未実装 | - |
+| REQ-005 | タイムライン編集 | ui.timeline_editor, services.timeline_editing_service | TC-016〜TC-020 |
 | REQ-006 | 無音検出・削除 | core.video.VideoProcessor | TC-021〜TC-025 |
 | REQ-007 | 動画切り出し・結合 | core.video.VideoProcessor | TC-026〜TC-030 |
 | REQ-008 | FCPXMLエクスポート | core.export.FCPXMLExporter | TC-031〜TC-033 |
 | REQ-009 | Premiere XMLエクスポート | core.export.PremiereExporter | TC-034〜TC-036 |
-| REQ-010 | SRT字幕エクスポート | 未実装 | - |
+| REQ-010 | SRT字幕エクスポート | core.export.SRTExporter | TC-037〜TC-038 |
 | REQ-011 | キャッシュ管理 | core.transcription（内蔵） | TC-039〜TC-042 |
 | REQ-012 | 設定管理（永続化） | config.ConfigManager | TC-043〜TC-045 |
 
@@ -2819,7 +2819,7 @@ success = self.video_processor.combine_videos(
 | 機能 | 要件ID | 実装予定 | 理由 |
 |------|--------|---------|------|
 | YouTube動画ダウンロード | REQ-001 | 検討中 | 著作権への配慮 |
-| タイムライン編集 | REQ-005 | ✅ 実装済み | 改良版UIで実装完了 |
+| タイムライン編集 | REQ-005 | ✅ 実装済み | 統合波形セレクターで実装完了 |
 | SRT字幕エクスポート | REQ-010 | 近日 | 需要に応じて |
 
 ### 16.3 設計と実装の差異
@@ -2987,11 +2987,259 @@ class Config:
 3. **UI動作確認**
    - Docker環境とローカル環境で同じUIが表示されることを確認
 
-## 18. SRT字幕エクスポート詳細
+## 18. タイムライン編集機能詳細
 
-### 18.1 ファイル形式とエンコーディング
+### 18.1 アーキテクチャ概要
 
-#### 18.1.1 改行コード
+タイムライン編集機能は、波形表示とセグメント選択を統合した直感的なUIを提供します。
+
+#### 18.1.1 モジュール構成
+
+```
+ui/
+├── timeline_editor.py          # メインUI
+├── timeline_color_scheme.py    # カラースキーム定義
+└── timeline_dark_mode_fix.py   # ダークモード対応
+services/
+└── timeline_editing_service.py # ビジネスロジック
+core/
+├── timeline_processor.py       # 時間範囲処理
+└── waveform_processor.py       # 波形データ生成
+```
+
+### 19.2 統合波形セレクター
+
+#### 19.2.1 動的レイアウト
+
+```python
+def calculate_layout(segment_count: int) -> tuple[int, int]:
+    """セグメント数に応じた行列数を計算"""
+    if segment_count <= 4:
+        return 1, min(segment_count, 4)  # 1行、最大4列
+    elif segment_count <= 8:
+        return 2, 4  # 2行4列
+    elif segment_count <= 12:
+        return 3, 4  # 3行4列
+    else:
+        cols = 4
+        rows = (segment_count + cols - 1) // cols
+        return rows, cols
+```
+
+#### 19.2.2 セグメント表示
+
+```python
+def render_segment_box(segment: dict, index: int, is_selected: bool) -> None:
+    """個別セグメントボックスの描画"""
+    # カラー設定
+    bg_color = colors["segment_active"] if is_selected else colors["segment_bg"]
+    text_color = colors["text_primary"]
+    
+    # 波形のシミュレート
+    waveform_data = generate_simulated_waveform(
+        duration=segment['end'] - segment['start'],
+        complexity=0.7  # 0-1の範囲で複雑さを指定
+    )
+    
+    # 時間表示
+    time_range = f"{format_time(segment['start'])} - {format_time(segment['end'])}"
+    
+    # クリック可能なボックスとして表示
+    if st.button(
+        f"セグメント{index + 1}\n{time_range}",
+        key=f"segment_{index}",
+        use_container_width=True
+    ):
+        st.session_state.selected_segment_idx = index
+```
+
+### 19.3 セグメント詳細編集
+
+#### 19.3.1 時間調整UI
+
+```python
+def render_time_adjustment_controls(segment: dict, position: str) -> float:
+    """時間調整コントロール（開始/終了）"""
+    current_time = segment[position]
+    
+    # 6段階の調整ボタン
+    adjustments = [
+        (-100, "ms"), (-10, "ms"), (-1, "ms"),
+        (1, "ms"), (10, "ms"), (100, "ms"),
+        (-30, "s"), (-10, "s"), (-1, "s"),
+        (1, "s"), (10, "s"), (30, "s")
+    ]
+    
+    # 2行に分けて表示（ミリ秒と秒）
+    ms_adjustments = adjustments[:6]
+    s_adjustments = adjustments[6:]
+    
+    new_time = current_time
+    
+    # ミリ秒調整行
+    cols = st.columns(6)
+    for i, (delta, unit) in enumerate(ms_adjustments):
+        with cols[i]:
+            if st.button(f"{delta:+d}{unit}", key=f"{position}_ms_{i}"):
+                new_time = current_time + (delta / 1000.0)
+    
+    # 秒調整行
+    cols = st.columns(6)
+    for i, (delta, unit) in enumerate(s_adjustments):
+        with cols[i]:
+            if st.button(f"{delta:+d}{unit}", key=f"{position}_s_{i}"):
+                new_time = current_time + delta
+    
+    return new_time
+```
+
+#### 19.3.2 境界チェックとバリデーション
+
+```python
+def validate_time_adjustment(
+    segment_idx: int,
+    new_start: float,
+    new_end: float,
+    all_segments: list[dict],
+    video_duration: float
+) -> tuple[bool, str]:
+    """時間調整の妥当性をチェック"""
+    
+    # 基本的な範囲チェック
+    if new_start < 0:
+        return False, "開始時間は0秒以上である必要があります"
+    if new_end > video_duration:
+        return False, "終了時間が動画の長さを超えています"
+    if new_start >= new_end:
+        return False, "開始時間は終了時間より前である必要があります"
+    
+    # 最小セグメント長チェック
+    if new_end - new_start < 0.1:  # 0.1秒未満
+        return False, "セグメントは最低0.1秒以上必要です"
+    
+    # 他のセグメントとの重複チェック
+    for i, other in enumerate(all_segments):
+        if i == segment_idx:
+            continue
+        if not (new_end <= other['start'] or new_start >= other['end']):
+            return False, f"セグメント{i+1}と重複しています"
+    
+    return True, ""
+```
+
+### 19.4 プレビュー機能
+
+#### 19.4.1 個別セグメントプレビュー
+
+```python
+def preview_single_segment(video_path: str, start: float, end: float) -> str:
+    """単一セグメントのプレビュー音声を生成"""
+    temp_audio = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
+    
+    cmd = [
+        "ffmpeg", "-i", video_path,
+        "-ss", str(start),
+        "-to", str(end),
+        "-vn",  # 映像なし
+        "-acodec", "mp3",
+        "-ar", "44100",
+        "-ac", "2",
+        "-b:a", "128k",
+        temp_audio.name
+    ]
+    
+    subprocess.run(cmd, check=True, capture_output=True)
+    return temp_audio.name
+```
+
+#### 19.4.2 全体プレビュー
+
+```python
+def preview_all_segments(video_path: str, segments: list[dict]) -> str:
+    """全セグメントを結合したプレビュー音声を生成"""
+    # 各セグメントの音声を抽出
+    segment_files = []
+    for seg in segments:
+        audio_file = preview_single_segment(
+            video_path, seg['start'], seg['end']
+        )
+        segment_files.append(audio_file)
+    
+    # 結合用のリストファイル作成
+    list_file = tempfile.NamedTemporaryFile(
+        mode='w', suffix='.txt', delete=False
+    )
+    for f in segment_files:
+        list_file.write(f"file '{f}'\n")
+    list_file.close()
+    
+    # FFmpegで結合
+    output_file = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
+    cmd = [
+        "ffmpeg", "-f", "concat", "-safe", "0",
+        "-i", list_file.name,
+        "-c", "copy",
+        output_file.name
+    ]
+    
+    subprocess.run(cmd, check=True, capture_output=True)
+    
+    # 一時ファイルをクリーンアップ
+    for f in segment_files:
+        os.unlink(f)
+    os.unlink(list_file.name)
+    
+    return output_file.name
+```
+
+### 19.5 状態管理
+
+#### 19.5.1 セッション状態
+
+```python
+# タイムライン編集の状態管理
+st.session_state.timeline_data = {
+    "segments": [
+        {
+            "start": 0.0,
+            "end": 83.0,
+            "text": "セグメントのテキスト",
+            "original_start": 0.0,  # 調整前の値を保持
+            "original_end": 83.0
+        },
+        # ...
+    ],
+    "video_path": "/path/to/video.mp4",
+    "video_duration": 300.0,
+    "adjustment_history": []  # Undo/Redo用
+}
+
+st.session_state.selected_segment_idx = 0  # 選択中のセグメント
+st.session_state.timeline_editing_completed = False  # 完了フラグ
+st.session_state.timeline_editing_cancelled = False  # キャンセルフラグ
+```
+
+#### 19.5.2 調整履歴管理
+
+```python
+def record_adjustment(segment_idx: int, field: str, old_value: float, new_value: float):
+    """調整履歴を記録"""
+    history = st.session_state.timeline_data.get("adjustment_history", [])
+    history.append({
+        "timestamp": datetime.now(),
+        "segment_idx": segment_idx,
+        "field": field,
+        "old_value": old_value,
+        "new_value": new_value
+    })
+    st.session_state.timeline_data["adjustment_history"] = history
+```
+
+## 19. SRT字幕エクスポート詳細
+
+### 19.1 ファイル形式とエンコーディング
+
+#### 19.1.1 改行コード
 DaVinci Resolveとの互換性を確保するため、SRTファイルではCRLF（Windows形式）の改行コードを使用します。
 
 ```python
@@ -3009,11 +3257,11 @@ def _write_srt_file(self, srt_entries: list[SRTEntry], output_path: str):
             f.write(srt_text)
 ```
 
-#### 18.1.2 文字エンコーディング
+#### 19.1.2 文字エンコーディング
 - UTF-8 with BOMなし
 - DaVinci Resolveは両方対応だが、BOMなしが推奨
 
-### 18.2 SRTエントリの形式
+### 19.2 SRTエントリの形式
 
 ```python
 class SRTEntry:
@@ -3030,7 +3278,7 @@ class SRTEntry:
         return f"{self.index}\n{start_str} --> {end_str}\n{formatted_text}\n\n"
 ```
 
-### 18.3 DaVinci Resolve互換性対策
+### 19.3 DaVinci Resolve互換性対策
 
 1. **改行コード**：CRLF（\r\n）を使用
    - LF（\n）では行頭カウントが狂う問題を回避
@@ -3041,9 +3289,9 @@ class SRTEntry:
 3. **エントリ間の空行**：必須
    - SRT仕様で要求される空行を確実に挿入
 
-### 18.4 ファイル命名規則と連番管理
+### 19.4 ファイル命名規則と連番管理
 
-#### 18.4.1 統一的な連番管理の必要性
+#### 19.4.1 統一的な連番管理の必要性
 
 **問題点**：
 - XMLファイル：`{base}_TextffCut_NoSilence_01.fcpxml`（連番付き）
@@ -3052,7 +3300,7 @@ class SRTEntry:
 
 **解決策**：すべての出力ファイルで同じ連番を使用
 
-#### 18.4.2 命名規則
+#### 19.4.2 命名規則
 
 ```
 {base}_TextffCut_{type}_{number:02d}.{ext}
@@ -3063,7 +3311,7 @@ sample_video_TextffCut_NoSilence_01.fcpxml
 sample_video_TextffCut_NoSilence_01.srt
 ```
 
-#### 18.4.3 実装方法
+#### 19.4.3 実装方法
 
 ```python
 # utils/file_utils.pyの既存の関数を使用
@@ -3100,9 +3348,9 @@ def get_unique_path(base_path: Path) -> Path:
         counter += 1
 ```
 
-### 18.5 日本語改行処理の詳細
+### 19.5 日本語改行処理の詳細
 
-#### 18.5.1 禁則処理ルール
+#### 19.5.1 禁則処理ルール
 
 ```python
 class JapaneseLineBreakRules:
@@ -3127,7 +3375,7 @@ class JapaneseLineBreakRules:
     _tokenizer = None
 ```
 
-#### 18.5.2 形態素解析の活用（Phase 2）
+#### 19.5.2 形態素解析の活用（Phase 2）
 
 ```python
 @classmethod
@@ -3157,7 +3405,7 @@ def get_word_boundaries(text: str) -> list[int]:
     return boundaries
 ```
 
-#### 18.5.3 改行位置探索アルゴリズム（2025-06-25更新）
+#### 19.5.3 改行位置探索アルゴリズム（2025-06-25更新）
 
 ```python
 def find_best_break_point(text: str, max_length: int, search_range: int = 5) -> int:
@@ -3211,7 +3459,7 @@ def find_best_break_point(text: str, max_length: int, search_range: int = 5) -> 
     return max_length
 ```
 
-#### 18.5.4 チャンク分割ロジック
+#### 19.5.4 チャンク分割ロジック
 
 2行目以降で収まらないテキストは自動的に次の字幕エントリに分割されます：
 

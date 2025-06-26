@@ -1044,20 +1044,6 @@ def main() -> None:
             st.markdown("---")
             st.subheader("📊 タイムライン編集")
 
-            # UI選択
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                use_simple_ui = st.checkbox("シンプルUI", value=False, key="use_simple_timeline_ui")
-            with col2:
-                use_improved_ui = st.checkbox("改善版UI（推奨）", value=True, key="use_improved_timeline_ui")
-            with col3:
-                use_enhanced_ui = st.checkbox("拡張UI", value=False, key="use_enhanced_timeline_ui")
-            
-            # 一つだけ選択できるようにする
-            if sum([use_simple_ui, use_improved_ui, use_enhanced_ui]) != 1:
-                use_simple_ui = False
-                use_improved_ui = True
-                use_enhanced_ui = False
 
             # タイムライン編集完了フラグをチェック
             if st.session_state.get("timeline_editing_completed", False):
@@ -1079,18 +1065,9 @@ def main() -> None:
                 # タイムライン編集UIをインラインで表示
                 time_ranges = st.session_state.get("time_ranges", [])
                 if time_ranges:
-                    if use_simple_ui:
-                        from ui.timeline_editor_simple import render_simple_timeline_editor
+                    from ui.timeline_editor import render_timeline_editor
 
-                        render_simple_timeline_editor(time_ranges, transcription, video_path)
-                    elif use_improved_ui:
-                        from ui.timeline_editor_improved import render_improved_timeline_editor
-
-                        render_improved_timeline_editor(time_ranges, transcription, video_path)
-                    else:
-                        from ui.timeline_editor import render_timeline_editor
-
-                        render_timeline_editor(time_ranges, transcription, video_path)
+                    render_timeline_editor(time_ranges, transcription, video_path)
                 else:
                     st.error("時間範囲が計算されていません。更新ボタンをクリックしてください。")
 
