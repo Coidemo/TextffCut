@@ -84,7 +84,6 @@ def test_inline_timeline_editor_behavior():
     """インラインタイムラインエディタの動作をテスト"""
     print("\n=== インラインタイムラインエディタの動作テスト ===")
 
-
     # render_timeline_editorがNoneを返すことでインライン表示を継続
     with patch("streamlit.session_state", {}):
         with patch("services.timeline_editing_service.TimelineEditingService"):

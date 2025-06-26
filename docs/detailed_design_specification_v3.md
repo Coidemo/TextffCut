@@ -2261,33 +2261,49 @@ def check_and_recover_on_startup():
     return recovered_count
 ```
 
-## 15. タイムライン編集機能の詳細設計（改良版UI実装済み）
+## 15. タイムライン編集機能の詳細設計（2025-06-26実装完了）
 
 ### 15.1 機能概要
 
-タイムライン編集機能は、テキスト編集で指定した切り抜き箇所を視覚的に確認・微調整するための機能です。改良版UIでは、リアルタイム波形更新と6段階の精密調整が可能です。
+タイムライン編集機能は、テキスト編集で指定した切り抜き箇所を視覚的に確認・微調整するための機能です。
 
-**主要機能**:
-1. セグメントの視覚的表示
-2. リアルタイム波形更新（セグメント選択時に即座に更新）
-3. 6段階精密調整（±1/10/100ms、±1/10/30秒）
-4. ミリ秒精度の時間入力
-5. プレビュー再生
+**実装済み機能**:
+1. Canvas上での波形付きクリップ表示
+2. クリック選択によるクリップの切り替え
+3. 数値入力による精密な時間調整（ミリ秒単位）
+4. ボタンによる簡易調整（±1秒、±0.1秒）
+5. 任意タイミングでの編集開始（「📊 タイムライン編集」ボタン）
+6. JavaScriptとStreamlitの連携（テキストエリア経由）
 
-### 15.2 モジュール構成
+**実装方法**:
+- 静的HTMLコンポーネント（`components.html()`）を使用
+- JavaScriptで描画とインタラクションを実装
+- `updateTextArea()`で編集結果を自動保存
+
+### 15.2 実装状況（2025-06-26時点）
+
+**実装済み**:
+- `ui/timeline_editor.py` - メインのタイムライン編集UI
+- `ui/timeline_editor_static.py` - 静的HTMLコンポーネント版（現在使用中）
+- `ui/custom_components/timeline/` - カスタムコンポーネント（試作版）
+- `core/waveform_processor.py` - 波形データ抽出機能
+
+**未実装**:
+- プレビュー再生機能
+- ドラッグによる境界調整
+- 波形のリアルタイム更新（時間調整時）
+
+### 15.3 実際のモジュール構成
 
 ```
-timeline_editing/
-├── ui/
-│   └── timeline_editor.py          # UIコンポーネント
-├── services/
-│   ├── timeline_editing_service.py # サービス層
-│   └── audio_preview_service.py    # 音声プレビュー
-├── core/
-│   ├── timeline_processor.py       # タイムライン処理
-│   └── waveform_generator.py       # 波形生成
-└── utils/
-    └── time_utils.py               # 時間関連ユーティリティ
+ui/
+├── timeline_editor.py              # メインのタイムライン編集UI
+├── timeline_editor_static.py       # 静的HTMLコンポーネント実装
+└── custom_components/
+    └── timeline/
+        ├── __init__.py            # Pythonラッパー
+        └── frontend/
+            └── index.html         # HTML+JavaScript実装
 ```
 
 ### 15.3 データモデル
@@ -2639,35 +2655,75 @@ success = self.video_processor.combine_videos(
 | TC-109 | セッション状態管理 | リロードで状態保持 |
 | TC-110 | 調整完了処理 | time_rangesが更新 |
 
-### 15.10 UI改善設計（Phase 1実装）
+### 15.10 UI改善設計（Phase 1実装済み）
 
-#### 15.10.1 リアルタイム波形更新
+#### 15.10.1 カスタムコンポーネントによる実装
 
-**背景**:
-現在の実装では、セグメントの開始/終了時間を調整しても波形表示が更新されないため、ユーザーが編集結果を視覚的に確認できない問題があった。
+**実装アプローチ**:
+Streamlitの標準UIコンポーネントの制約を超えて、高度なインタラクティブ性を実現するため、Streamlitカスタムコンポーネントを採用。
 
-**改善内容**:
-1. **波形表示の動的更新**
-   - セグメント調整時に該当部分の波形を即座に再描画
-   - 調整前後の比較ビュー表示オプション
-   
-2. **実装詳細**:
+**アーキテクチャ**:
+```
+ui/
+├── timeline_editor.py           # Python側のインターフェース
+└── components/
+    └── timeline/
+        ├── __init__.py         # コンポーネント宣言
+        └── frontend/
+            ├── main.js         # JavaScriptメインロジック
+            ├── index.html      # HTMLテンプレート
+            └── build/          # ビルド成果物
+```
+
+**実装詳細**:
+
+1. **Python側（timeline_editor.py）**:
    ```python
-   def update_waveform_display(self, segment_id: str, start: float, end: float):
-       """波形表示をリアルタイムで更新"""
-       # 1. 変更されたセグメントの波形データを取得
-       waveform_data = self.get_waveform_data(start, end)
-       
-       # 2. Plotlyグラフを更新
-       fig = self.timeline_display.update_segment_waveform(
-           segment_id=segment_id,
-           waveform_data=waveform_data,
-           start=start,
-           end=end
+   def render_timeline_editor(time_ranges, transcription_result, video_path):
+       """カスタムコンポーネントを使用したタイムライン編集UI"""
+       # 波形データの抽出
+       processor = WaveformProcessor()
+       waveform_data = processor.extract_waveforms_for_clips(
+           video_path, time_ranges, samples_per_clip=200
        )
        
-       # 3. StreamlitのPlotlyコンテナを更新
-       self.waveform_container.plotly_chart(fig, use_container_width=True)
+       # クリップデータの準備
+       clips_data = [
+           {
+               "id": f"clip-{i}",
+               "start_time": time_range[0],
+               "end_time": time_range[1],
+               "samples": waveform.samples
+           }
+           for i, (waveform, time_range) in enumerate(
+               zip(waveform_data, time_ranges)
+           )
+       ]
+       
+       # カスタムコンポーネント呼び出し
+       return_value = timeline_editor(clips_data=clips_data)
+   ```
+
+2. **JavaScript側（main.js）**:
+   ```javascript
+   class Streamlit {
+       // Streamlitとの通信管理
+       setComponentValue(value) {
+           window.parent.postMessage({
+               isStreamlitMessage: true,
+               type: "streamlit:set_component_value",
+               value: value
+           }, "*");
+       }
+   }
+   
+   function initializeTimeline(args) {
+       clipsData = args.clips_data || [];
+       // Canvas APIによる波形描画
+       drawTimeline();
+       // イベントハンドラの設定
+       canvas.addEventListener("click", handleCanvasClick);
+   }
    ```
 
 #### 15.10.2 精密な編集コントロール
@@ -2796,6 +2852,73 @@ success = self.video_processor.combine_videos(
    - 複数セグメントの一括調整
    - オフセット適用
 
+### 15.12 トラブルシューティング（2025-06-26追加）
+
+#### 15.12.1 編集結果が反映されない問題
+
+**症状**:
+- 時間を調整（例：6秒→10秒）してもメイン処理で元の値が使われる
+
+**原因**:
+1. JavaScriptからStreamlitへのデータ転送タイミングの問題
+2. テキストエリアの更新がStreamlit側で認識されないケース
+3. DOMContentLoadedイベントとStreamlitのレンダリングタイミングのずれ
+
+**解決策**:
+1. `updateTextArea()`を時間調整後に必ず呼び出す
+2. 初期化時にもsetTimeoutで遅延実行
+3. デバッグログで値の更新を確認
+4. **最終的な解決策：JavaScriptで「変更を適用」後、手動で「編集完了」ボタンを押す**
+   - JavaScriptのDOM操作ではStreamlitのセッション状態が更新されないため
+   - ユーザーへのフィードバックを表示して手動操作を促す
+
+```javascript
+// 正しい実装例
+function adjustTime(type, delta) {
+    // ... 時間調整処理 ...
+    updateTextArea(); // 必須：変更をテキストエリアに反映
+}
+
+// 初期化時の処理
+document.addEventListener('DOMContentLoaded', () => {
+    // ... 初期化処理 ...
+    setTimeout(() => {
+        updateTextArea(); // 初期値を設定
+    }, 500);
+});
+```
+
+#### 15.12.2 インポートエラー
+
+**症状**:
+- `from ui.timeline_editor import render_timeline_editor`でModuleNotFoundError
+
+**原因**:
+- 実際のファイル名は`timeline_editor_static.py`
+
+**解決策**:
+```python
+# 正しいインポート
+from ui.timeline_editor_static import render_timeline_editor_static
+```
+
+#### 15.12.3 デバッグ方法
+
+1. **JavaScript側の確認**:
+   - ブラウザの開発者ツールでコンソールログを確認
+   - `console.log()`で値の変化を追跡
+
+2. **Streamlit側の確認**:
+   - デバッグ情報エクスパンダーでJSON値を確認
+   - `st.write()`で`adjusted_time_ranges`の内容を表示
+
+3. **データフローの確認**:
+   ```
+   JavaScript (調整) → updateTextArea() → テキストエリア
+   → 編集完了ボタン → JSON.parse() → adjusted_time_ranges
+   → メイン処理で使用
+   ```
+
 ## 16. 実装状況
 
 ### 16.1 実装済み機能
@@ -2813,13 +2936,14 @@ success = self.video_processor.combine_videos(
 | 設定管理（永続化） | ✅ 実装済み | ConfigManagerクラス |
 | サービス層 | ✅ 実装済み | 7つのサービスクラス |
 | エラー処理 | ✅ 実装済み | TextffCutError基底クラス |
+| カスタムコンポーネント | ✅ 実装済み | タイムライン編集UI（Phase 1） |
 
 ### 16.2 未実装機能
 
 | 機能 | 要件ID | 実装予定 | 理由 |
 |------|--------|---------|------|
 | YouTube動画ダウンロード | REQ-001 | 検討中 | 著作権への配慮 |
-| タイムライン編集 | REQ-005 | ✅ 実装済み | 統合波形セレクターで実装完了 |
+| タイムライン編集 | REQ-005 | ✅ 実装済み | カスタムコンポーネントで実装完了（Phase 1） |
 | SRT字幕エクスポート | REQ-010 | 近日 | 需要に応じて |
 
 ### 16.3 設計と実装の差異
@@ -3487,9 +3611,171 @@ def _split_text_into_chunks(self, text: str) -> list[str]:
     return chunks
 ```
 
+## 20. カスタムコンポーネント実装詳細
+
+### 20.1 アーキテクチャ概要
+
+Streamlitカスタムコンポーネントは、PythonバックエンドとJavaScriptフロントエンドの間でリアルタイム通信を可能にする仕組み。
+
+```
+┌─────────────────────────────────────────────┐
+│              Python Backend                  │
+│  ┌────────────────────────────────────┐     │
+│  │     timeline_editor.py             │     │
+│  │  - 波形データ抽出                  │     │
+│  │  - クリップデータ準備              │     │
+│  │  - コンポーネント呼び出し          │     │
+│  └────────────────────────────────────┘     │
+│                    ↕                         │
+│         Streamlit Component API              │
+│                    ↕                         │
+│  ┌────────────────────────────────────┐     │
+│  │  ui/components/timeline/__init__.py│     │
+│  │  - コンポーネント宣言              │     │
+│  │  - データ送受信                    │     │
+│  └────────────────────────────────────┘     │
+└─────────────────────────────────────────────┘
+                     ↕
+┌─────────────────────────────────────────────┐
+│           JavaScript Frontend                │
+│  ┌────────────────────────────────────┐     │
+│  │         frontend/main.js           │     │
+│  │  - Canvas API波形描画              │     │
+│  │  - イベントハンドリング            │     │
+│  │  - Streamlit通信                   │     │
+│  └────────────────────────────────────┘     │
+└─────────────────────────────────────────────┘
+```
+
+### 20.2 データフロー
+
+#### 20.2.1 Python → JavaScript
+
+```python
+# timeline_editor.py
+clips_data = [
+    {
+        "id": "clip-0",
+        "start_time": 10.5,
+        "end_time": 25.3,
+        "samples": [0.1, -0.2, 0.3, ...]  # 正規化された波形データ
+    }
+]
+return_value = timeline_editor(clips_data=clips_data)
+```
+
+#### 20.2.2 JavaScript → Python
+
+```javascript
+// main.js
+streamlit.setComponentValue({
+    "action": "apply_changes",
+    "time_ranges": [
+        {"start_time": 10.5, "end_time": 25.3},
+        {"start_time": 30.0, "end_time": 45.0}
+    ]
+});
+```
+
+### 20.3 実装の詳細
+
+#### 20.3.1 波形データ処理
+
+```python
+# core/waveform_processor.py
+class WaveformProcessor:
+    def extract_waveforms_for_clips(
+        self, 
+        video_path: str, 
+        time_ranges: list[tuple[float, float]], 
+        samples_per_clip: int = 200
+    ) -> list[WaveformData]:
+        """各クリップの波形データを抽出"""
+        waveforms = []
+        for start, end in time_ranges:
+            # 音声データ抽出
+            audio_data = self._extract_audio_segment(video_path, start, end)
+            # ダウンサンプリング
+            samples = self._downsample(audio_data, samples_per_clip)
+            # 正規化（-1.0 ~ 1.0）
+            normalized = self._normalize(samples)
+            waveforms.append(WaveformData(samples=normalized))
+        return waveforms
+```
+
+#### 20.3.2 JavaScript描画ロジック
+
+```javascript
+// frontend/main.js
+function drawWaveform(ctx, clip, x, y, width, height) {
+    const samples = clip.samples || generateDummyWaveform();
+    const sampleWidth = width / samples.length;
+    
+    ctx.beginPath();
+    ctx.strokeStyle = selectedClipIndex === index ? "#2196F3" : "#666";
+    
+    for (let i = 0; i < samples.length; i++) {
+        const sampleX = x + i * sampleWidth;
+        const sampleY = y + height/2 - (samples[i] * height/2);
+        
+        if (i === 0) ctx.moveTo(sampleX, sampleY);
+        else ctx.lineTo(sampleX, sampleY);
+    }
+    
+    ctx.stroke();
+}
+```
+
+### 20.4 ビルドとデプロイ
+
+#### 20.4.1 開発環境
+
+```bash
+# 開発サーバー起動（frontend/内で実行）
+cd ui/components/timeline/frontend
+python -m http.server 3001
+```
+
+#### 20.4.2 本番ビルド
+
+```bash
+# 単一ファイルにバンドル
+cd ui/components/timeline/frontend
+cat index.html main.js > build/main.js
+```
+
+### 20.5 今後の拡張計画
+
+1. **Phase 2**: 境界調整、プレビュー機能
+2. **Phase 3**: 分割・結合、キーボードショートカット
+3. **将来**: WebAssemblyによる高速波形処理
+
+### 20.6 トラブルシューティング
+
+#### 20.6.1 ディレクトリ構造の注意点
+
+カスタムコンポーネント開発時の重要な教訓：
+
+```
+ui/
+├── components.py         # レガシーコンポーネント
+├── custom_components/    # カスタムコンポーネント（components/ではない）
+│   └── timeline/
+```
+
+**問題**: `components.py`と`components/`ディレクトリが共存すると、Pythonはディレクトリを優先してインポートし、ImportErrorが発生する。
+
+**解決策**: カスタムコンポーネントは`custom_components/`などの競合しない名前を使用する。
+
+#### 20.6.2 フロントエンドファイルの配置
+
+- 開発時: `frontend/`ディレクトリで作業
+- 本番時: `frontend/build/`にコピーが必要
+- 自動ビルドスクリプトの作成を推奨
+
 ---
 
 **作成日**: 2025-06-22  
-**バージョン**: 3.3  
-**更新日**: 2025-06-25  
+**バージョン**: 3.4  
+**更新日**: 2025-06-26  
 **次回更新**: 実装完了時のフィードバック反映

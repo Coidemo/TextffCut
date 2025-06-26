@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Timeline Editor Component</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+        }
+        #root {
+            padding: 20px;
+        }
+        .timeline-container {
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        #timeline-canvas {
+            border: 1px solid #ddd;
+            cursor: pointer;
+            display: block;
+            margin: 0 auto;
+        }
+        #apply-button {
+            background-color: #4ECDC4;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-top: 10px;
+        }
+        #apply-button:hover {
+            background-color: #45b7aa;
+        }
+        #clip-info {
+            background-color: #f8f9fa;
+            padding: 10px;
+            border-radius: 4px;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div id="root">
+        <div class="timeline-container">
+            <h3>タイムライン編集</h3>
+            <canvas id="timeline-canvas" width="800" height="200"></canvas>
+            <div id="clip-info">
+                <p>クリップを選択してください</p>
+            </div>
+            <button id="apply-button">変更を適用</button>
+        </div>
+    </div>
+
+    <!-- Streamlit Component Library -->
+    <script src="https://unpkg.com/streamlit-component-lib@1/dist/streamlit-component-lib.js"></script>
+    
+    <script>
+        // グローバル変数
+        let clipsData = [];
+        let selectedClipIndex = -1;
+        let canvas = null;
+        let ctx = null;
+
+        // タイムラインを描画
+        function drawTimeline() {
+            if (!canvas || !ctx) return;
+            
+            // Canvasをクリア
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // 背景
+            ctx.fillStyle = "#f0f0f0";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            if (clipsData.length === 0) {
+                ctx.fillStyle = "#333";
+                ctx.font = "16px Arial";
+                ctx.textAlign = "center";
+                ctx.fillText("クリップデータがありません", canvas.width / 2, canvas.height / 2);
+                return;
+            }
+            
+            // 各クリップを描画
+            const padding = 10;
+            const totalWidth = canvas.width - 2 * padding;
+            const clipHeight = 120;
+            const yOffset = 40;
+            
+            let currentX = padding;
+            const totalDuration = clipsData[clipsData.length - 1].end_time;
+            
+            clipsData.forEach((clip, index) => {
+                const duration = clip.end_time - clip.start_time;
+                const clipWidth = (duration / totalDuration) * totalWidth;
+                
+                // クリップの背景
+                ctx.fillStyle = index === selectedClipIndex ? "#4ECDC4" : "#95a5a6";
+                ctx.fillRect(currentX, yOffset, clipWidth, clipHeight);
+                
+                // 波形を描画
+                drawWaveform(currentX, yOffset, clipWidth, clipHeight, clip.samples || []);
+                
+                // クリップ番号
+                ctx.fillStyle = "white";
+                ctx.font = "14px Arial";
+                ctx.textAlign = "center";
+                ctx.fillText(`${index + 1}`, currentX + clipWidth / 2, yOffset + clipHeight / 2 + 5);
+                
+                // 時間情報
+                ctx.font = "10px Arial";
+                ctx.fillText(
+                    `${formatTime(clip.start_time)} - ${formatTime(clip.end_time)}`,
+                    currentX + clipWidth / 2,
+                    yOffset + clipHeight + 15
+                );
+                
+                // クリップのデータを保存（クリック検出用）
+                clip._x = currentX;
+                clip._width = clipWidth;
+                
+                currentX += clipWidth + 5; // クリップ間の隙間
+            });
+        }
+
+        // 波形を描画
+        function drawWaveform(x, y, width, height, samples) {
+            if (!samples || samples.length === 0) {
+                // ダミーの波形を生成
+                samples = [];
+                for (let i = 0; i < 100; i++) {
+                    samples.push(Math.random() * 0.8 - 0.4);
+                }
+            }
+            
+            ctx.strokeStyle = "rgba(255, 255, 255, 0.8)";
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            
+            const centerY = y + height / 2;
+            const amplitude = height * 0.4;
+            
+            for (let i = 0; i < samples.length; i++) {
+                const sampleX = x + (i / samples.length) * width;
+                const sampleY = centerY + samples[i] * amplitude;
+                
+                if (i === 0) {
+                    ctx.moveTo(sampleX, sampleY);
+                } else {
+                    ctx.lineTo(sampleX, sampleY);
+                }
+            }
+            
+            ctx.stroke();
+        }
+
+        // Canvasクリックハンドラー
+        function handleCanvasClick(event) {
+            const rect = canvas.getBoundingClientRect();
+            const x = event.clientX - rect.left;
+            
+            // クリックされたクリップを特定
+            let clickedIndex = -1;
+            for (let i = 0; i < clipsData.length; i++) {
+                const clip = clipsData[i];
+                if (x >= clip._x && x <= clip._x + clip._width) {
+                    clickedIndex = i;
+                    break;
+                }
+            }
+            
+            if (clickedIndex !== -1) {
+                selectedClipIndex = clickedIndex;
+                drawTimeline();
+                updateClipInfo();
+            }
+        }
+
+        // クリップ情報を更新
+        function updateClipInfo() {
+            const infoDiv = document.getElementById("clip-info");
+            if (selectedClipIndex === -1) {
+                infoDiv.innerHTML = "<p>クリップを選択してください</p>";
+                return;
+            }
+            
+            const clip = clipsData[selectedClipIndex];
+            infoDiv.innerHTML = `
+                <p><strong>クリップ ${selectedClipIndex + 1}</strong></p>
+                <p>開始時間: ${formatTime(clip.start_time)}</p>
+                <p>終了時間: ${formatTime(clip.end_time)}</p>
+                <p>長さ: ${formatTime(clip.end_time - clip.start_time)}</p>
+            `;
+        }
+
+        // 変更を適用
+        function handleApplyChanges() {
+            // 現在の時間範囲をPythonに送信
+            const timeRanges = clipsData.map(clip => ({
+                start_time: clip.start_time,
+                end_time: clip.end_time
+            }));
+            
+            window.Streamlit.setComponentValue({
+                action: "apply_changes",
+                time_ranges: timeRanges,
+                selected_index: selectedClipIndex
+            });
+        }
+
+        // ユーティリティ関数
+        function formatTime(seconds) {
+            const mins = Math.floor(seconds / 60);
+            const secs = Math.floor(seconds % 60);
+            return `${mins}:${secs.toString().padStart(2, '0')}`;
+        }
+
+        // Streamlitからのデータを処理
+        function onRender(event) {
+            // データを取得
+            const data = event.data;
+            if (data && data.args && data.args.clips_data) {
+                clipsData = data.args.clips_data;
+                drawTimeline();
+            }
+        }
+
+        // 初期化
+        window.addEventListener("DOMContentLoaded", () => {
+            // Canvas要素を取得
+            canvas = document.getElementById("timeline-canvas");
+            ctx = canvas.getContext("2d");
+            
+            // イベントリスナーを設定
+            canvas.addEventListener("click", handleCanvasClick);
+            document.getElementById("apply-button").onclick = handleApplyChanges;
+            
+            // Streamlitからのイベントをリッスン
+            window.Streamlit.onRender(onRender);
+            
+            // コンポーネントの準備完了を通知
+            window.Streamlit.setComponentReady();
+            
+            // 初期高さを設定
+            window.Streamlit.setFrameHeight();
+        });
+    </script>
+</body>
+</html>

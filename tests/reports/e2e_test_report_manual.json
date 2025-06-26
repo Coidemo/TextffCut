@@ -1,0 +1,93 @@
+{
+  "test_date": "2024-06-14",
+  "test_type": "E2E Manual Test with MCP Puppeteer",
+  "environment": {
+    "os": "macOS",
+    "browser": "Chromium (via Puppeteer)",
+    "app_version": "v0.9.6",
+    "api_key": "configured"
+  },
+  "results": {
+    "summary": {
+      "total": 7,
+      "executed": 2,
+      "passed": 2,
+      "failed": 0,
+      "pending": 5
+    },
+    "tests": [
+      {
+        "name": "基本UI表示",
+        "status": "passed",
+        "description": "アプリケーションが正常に起動し、UIが表示されることを確認",
+        "screenshots": ["01_home"],
+        "findings": [
+          "タイトル「TextffCut v0.9.6」が正しく表示",
+          "サイドバーにAPIキー、無音検出、ヘルプのタブが存在",
+          "APIキーが保存済みの状態（sk-***...***QYA）"
+        ]
+      },
+      {
+        "name": "動画選択",
+        "status": "passed",
+        "description": "動画ファイルの選択機能を確認",
+        "screenshots": ["02_after_update", "03_dropdown_opened", "04_scrolled_view", "05_dropdown_with_options"],
+        "findings": [
+          "ローカル環境での動画選択インターフェースを確認",
+          "動画フォルダパスが表示されている",
+          "ドロップダウン/入力フィールドの存在を確認"
+        ]
+      },
+      {
+        "name": "文字起こし（API）",
+        "status": "pending",
+        "description": "API文字起こし機能のテスト",
+        "reason": "動画選択後に実行予定"
+      },
+      {
+        "name": "文字起こし（ローカル）",
+        "status": "pending",
+        "description": "ローカル文字起こし機能のテスト（medium固定）",
+        "reason": "動画選択後に実行予定"
+      },
+      {
+        "name": "テキスト編集",
+        "status": "pending",
+        "description": "切り抜き箇所の編集機能テスト",
+        "reason": "文字起こし完了後に実行予定"
+      },
+      {
+        "name": "エクスポート",
+        "status": "pending",
+        "description": "FCPXML/動画エクスポート機能のテスト",
+        "reason": "テキスト編集後に実行予定"
+      },
+      {
+        "name": "設定機能",
+        "status": "pending",
+        "description": "各種設定タブの動作確認",
+        "reason": "基本機能テスト後に実行予定"
+      }
+    ]
+  },
+  "screenshots": {
+    "location": "tests/screenshots/",
+    "files": [
+      "01_home.png - ホーム画面",
+      "02_after_update.png - 更新ボタンクリック後",
+      "03_dropdown_opened.png - ドロップダウン展開",
+      "04_scrolled_view.png - スクロール後の画面",
+      "05_dropdown_with_options.png - オプション表示"
+    ]
+  },
+  "recommendations": [
+    "動画選択のUIがStreamlitのバージョンにより異なるため、セレクタの調整が必要",
+    "完全自動化にはPuppeteer MCPとStreamlitコンポーネントの詳細な連携が必要",
+    "CI/CD環境での実行には、ヘッドレスモードの設定が必要"
+  ],
+  "next_steps": [
+    "Seleniumベースの実装も検討（より安定したWebDriver APIを使用）",
+    "動画選択の自動化方法を改善",
+    "残りのテストケースを実装"
+  ]
+}

@@ -194,6 +194,81 @@ echo "TEXTFFCUT_API_KEY=your_key" >> .env
 streamlit run main.py
 ```
 
+## 🔧 カスタムコンポーネント開発の学び
+
+### Streamlitカスタムコンポーネントの重要な注意点
+
+1. **ディレクトリ名の衝突を避ける**
+   - `components.py`ファイルと`components/`ディレクトリが同じ階層にあるとインポートエラーが発生
+   - 解決策：ディレクトリ名を`custom_components/`などに変更
+
+2. **コンポーネントの基本構造**
+   ```
+   custom_components/
+   └── timeline/
+       ├── __init__.py      # Python wrapper
+       └── frontend/
+           └── index.html   # HTMLとJavaScriptを含む単一ファイル
+   ```
+
+3. **index.htmlの必須要素**
+   - Streamlitライブラリの読み込み：`<script src="https://unpkg.com/streamlit-component-lib@1/dist/streamlit-component-lib.js"></script>`
+   - `window.Streamlit.onRender()`でデータを受信
+   - `window.Streamlit.setComponentReady()`で準備完了を通知
+   - `window.Streamlit.setComponentValue()`でPythonにデータを送信
+
+4. **デバッグのヒント**
+   - コンポーネントが読み込まれない場合は、`_RELEASE`フラグを確認
+   - パスが正しいことを確認（`path=`パラメータ）
+   - ブラウザのコンソールでJavaScriptエラーを確認
+   
+5. **重要な学び（2025-06-26）**
+   - Streamlitのカスタムコンポーネントは`npm run build`でビルドが必要な場合がある
+   - シンプルな実装には`components.html()`を使う静的コンポーネントが有効
+   - "Your app is having trouble loading the component"エラーは、フロントエンドアセットへのアクセス問題を示す
+   - **JavaScriptからStreamlitへのデータ送信は、テキストエリアを介して行うのが確実**
+   - **時間調整後は必ず`updateTextArea()`を呼び出して変更を反映する**
+
+## 📊 タイムライン編集機能の実装状況
+
+### 実装済み機能（2025-06-26）
+1. **第1段階：基本機能** ✅
+   - Canvas上に波形付きクリップ表示
+   - クリック選択機能
+   - 編集完了で処理セクションへ移行
+
+2. **第2段階：境界調整機能** ✅
+   - 数値入力による精密な時間調整（ミリ秒単位）
+   - ボタンによる調整（±1秒、±0.1秒）
+   - 入力検証（開始/終了時間の妥当性チェック）
+   - リアルタイムでのテキストエリア更新
+
+### 実装上の重要ポイント
+1. **タイムライン編集の任意実行**
+   - 更新ボタンでは`show_timeline_section`を自動設定しない
+   - 「タイムライン編集」ボタンでユーザーが明示的に開始
+   - 編集済みの場合は「✅ タイムライン編集済み」と表示
+
+2. **編集結果の反映**
+   - JavaScriptで`updateTextArea()`を呼び出し
+   - JSON形式で時間範囲をテキストエリアに保存
+   - 「編集完了」ボタンで`adjusted_time_ranges`に反映
+
+3. **波形表示の課題**
+   - 現在、時間調整しても波形自体は変わらない（波形データの再取得が必要）
+   - 将来的には動的な波形更新を検討
+
+### トラブルシューティング
+
+1. **タイムライン編集が反映されない場合**
+   - 「編集完了」ボタンを押す前に、編集結果（JSON）のテキストエリアに変更が反映されているか確認
+   - JavaScriptコンソールでエラーがないか確認
+   - 処理実行時に「📊 タイムライン編集済みの時間範囲を使用します」が表示されるか確認
+
+2. **デバッグモード**
+   - 処理実行時に`st.write`でデバッグ情報を表示（ただしspinner内では表示されない）
+   - `adjusted_time_ranges`がセッション状態に保存されているか確認
+
 ## 💼 開発運用ルール
 
 ### 開発作業の進め方（AI向け指示）
@@ -397,6 +472,64 @@ make check  # フォーマット、Lint、テストを一括実行
 - `scripts/create_docker_release.sh` - 別の形式
 - `scripts/create_release.sh` - 用途不明
 
+## 🎉 最近の改善（2025-06-26）
+
+### ✅ タイムライン編集機能の実装完了！
+最終的に**シンプルで確実な実装**（`timeline_editor_simple.py`）で解決：
+- Streamlitネイティブの`number_input`で各クリップを個別編集
+- JavaScriptとの複雑な連携を完全に排除
+- 編集した値が確実に`adjusted_time_ranges`に保存され、出力に反映される
+- 「10秒に調整したら、ちゃんと10秒で出力される」ことを確認
+
+## 🎉 最近の改善（2025-06-26）
+
+### タイムライン編集の問題修正
+1. **編集結果が出力に反映されない問題の調査**
+   - 症状：10秒に調整したのに、出力は元の6秒のまま
+   - 原因：JavaScriptからStreamlitへのデータ転送の根本的な問題
+   - 修正過程：
+     - `updateTextArea()`関数にデバッグログを追加
+     - 初期化時にもテキストエリアを更新するよう修正
+     - 編集完了ボタン押下時にデバッグ情報を表示
+     - インポートエラーを修正（timeline_editor → timeline_editor_static）
+
+2. **デバッグ機能の追加**
+   - 編集されたJSONデータの可視化（デバッグ情報エクスパンダー）
+   - 初期値と現在値の比較表示
+   - JavaScriptコンソールログの追加
+   - 処理実行時の時間範囲デバッグ表示
+
+3. **重要な発見と最終解決策**
+   - `components.html()`で作成した静的コンポーネント内のJavaScriptは、DOMContentLoadedイベント後に実行される
+   - **JavaScriptでDOM操作してもStreamlitのセッション状態は自動更新されない（根本的な制限）**
+   - **最終解決策：`timeline_editor_simple.py`を作成**
+     - Streamlitネイティブの`number_input`を使用
+     - JavaScriptとの複雑な連携を完全に排除
+     - 各クリップに対して直接数値入力で編集
+     - 確実に動作することを優先
+
+### タイムライン編集機能の実装
+1. **インタラクティブなタイムライン編集UI**
+   - Canvas上に波形付きクリップを表示
+   - クリックでクリップを選択
+   - 数値入力とボタンで境界を精密に調整（ミリ秒単位）
+   - 静的HTMLコンポーネント（`components.html()`）で実装
+
+2. **任意タイミングでの編集**
+   - 更新ボタンでは自動表示されない
+   - 「📊 タイムライン編集」ボタンで明示的に開始
+   - 編集済みの場合は「✅ タイムライン編集済み」と表示
+
+3. **JavaScript-Streamlit連携**
+   - `updateTextArea()`で編集結果を自動的にJSON形式で保存
+   - テキストエリアを介したデータ送信で確実な連携
+
+### 実装上の重要な学び
+- Streamlitのカスタムコンポーネントは`npm run build`が必要な場合がある
+- 静的コンポーネント（`components.html()`）の方がシンプルで確実
+- JavaScriptからの値の受け渡しはテキストエリアを使うのが安定
+- `components.py`と`components/`ディレクトリの名前衝突に注意
+
 ## 🎉 最近の改善（2025-06-25）
 
 ### SRT字幕エクスポートの最適化
@@ -427,6 +560,6 @@ make check  # フォーマット、Lint、テストを一括実行
 
 ---
 
-最終更新: 2025-06-25
+最終更新: 2025-06-26
 次回開発時はこのファイルを必ず確認してください。
 特に安定版（v0.9.6）の情報は重要です。

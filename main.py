@@ -978,10 +978,10 @@ def main() -> None:
                             time_ranges = diff.get_time_ranges(transcription)
 
                         st.session_state.time_ranges = time_ranges
-                        st.session_state.show_timeline_section = True  # タイムライン編集セクションを表示
-                        # タイムライン編集が完了していない状態にリセット
-                        if "timeline_completed" in st.session_state:
-                            del st.session_state.timeline_completed
+                        # タイムライン編集セクションは自動で表示しない（ユーザーが選択）
+                        # adjusted_time_rangesがある場合はクリア（新しいテキストに更新されたため）
+                        if "adjusted_time_ranges" in st.session_state:
+                            del st.session_state.adjusted_time_ranges
 
                     # 赤ハイライトがあるかチェック
                     if edited_text:
@@ -1044,7 +1044,6 @@ def main() -> None:
             st.markdown("---")
             st.subheader("📊 タイムライン編集")
 
-
             # タイムライン編集完了フラグをチェック
             if st.session_state.get("timeline_editing_completed", False):
                 adjusted_ranges = st.session_state.get("adjusted_time_ranges", [])
@@ -1065,19 +1064,30 @@ def main() -> None:
                 # タイムライン編集UIをインラインで表示
                 time_ranges = st.session_state.get("time_ranges", [])
                 if time_ranges:
-                    from ui.timeline_editor import render_timeline_editor
+                    # シンプルなバージョンを使用（確実に動作）
+                    from ui.timeline_editor_simple import render_timeline_editor_simple
 
-                    render_timeline_editor(time_ranges, transcription, video_path)
+                    render_timeline_editor_simple(time_ranges, transcription, video_path)
                 else:
                     st.error("時間範囲が計算されていません。更新ボタンをクリックしてください。")
 
-        # 切り抜き処理セクション（編集テキストがあり、タイムライン編集が完了しているか、タイムライン編集を使用しない場合）
-        if st.session_state.get("edited_text") and (
-            st.session_state.get("timeline_completed", False)
-            or not st.session_state.get("show_timeline_section", False)
-        ):
+        # 切り抜き処理セクション（編集テキストがある場合は常に表示）
+        if st.session_state.get("edited_text") and not st.session_state.get("show_timeline_section", False):
             st.markdown("---")
             st.subheader("🎬 切り抜き箇所の抽出")
+            
+            # タイムライン編集ボタン（時間範囲が計算されている場合のみ表示）
+            if st.session_state.get("time_ranges"):
+                col1, col2 = st.columns([1, 3])
+                with col1:
+                    if st.button("📊 タイムライン編集", use_container_width=True, help="クリップの境界を細かく調整します"):
+                        st.session_state.show_timeline_section = True
+                        st.rerun()
+                
+                # 調整された時間範囲がある場合は表示
+                if "adjusted_time_ranges" in st.session_state:
+                    with col2:
+                        st.success("✅ タイムライン編集済み（調整が適用されます）")
 
             # 処理オプション
             st.markdown("#### ⚙️ 処理オプション")
@@ -1166,6 +1176,7 @@ def main() -> None:
 
                 # タイムライン編集で調整された時間範囲があれば使用
                 if "adjusted_time_ranges" in st.session_state:
+                    st.info(f"📊 タイムライン編集済みの時間範囲を使用します（{len(st.session_state.adjusted_time_ranges)}クリップ）")
                     time_ranges = st.session_state.adjusted_time_ranges
                     # adjusted_time_rangesは保持（出力設定変更時にクリア）
 
@@ -1197,6 +1208,14 @@ def main() -> None:
                 else:
                     type_suffix = "NoSilence"
 
+                # デバッグ：使用する時間範囲を表示（spinner外で表示）
+                with st.expander("🔍 デバッグ情報", expanded=True):
+                    st.write(f"処理に使用する時間範囲: {len(time_ranges)}クリップ")
+                    for i, (start, end) in enumerate(time_ranges[:3]):  # 最初の3つだけ表示
+                        st.write(f"  - クリップ{i+1}: {start:.1f}秒 〜 {end:.1f}秒 (長さ: {end-start:.1f}秒)")
+                    if len(time_ranges) > 3:
+                        st.write(f"  ... 他 {len(time_ranges) - 3} クリップ")
+                
                 # ProcessingContextで処理を実行（エラー時は自動クリーンアップ）
                 with st.spinner("処理中..."), ProcessingContext(project_path) as temp_manager:
                     try:
@@ -1204,7 +1223,7 @@ def main() -> None:
 
                         # プログレスバーを初期化
                         progress_bar, status_text = show_progress(0, "処理を開始しています...")
-
+                        
                         # 残す時間範囲を決定
                         if process_type == "切り抜きのみ":
                             # 切り抜きのみの場合はtime_rangesをそのまま使用

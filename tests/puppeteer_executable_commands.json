@@ -1,0 +1,97 @@
+{
+  "generated_at": "2025-06-14T14:01:15.766991",
+  "description": "TextffCut E2Eテスト - 実行可能なPuppeteerコマンド",
+  "commands": [
+    {
+      "step": 1,
+      "description": "TextffCutアプリを開く",
+      "mcp_tool": "mcp__puppeteer__puppeteer_navigate",
+      "params": {
+        "url": "http://localhost:8501",
+        "allowDangerous": true,
+        "launchOptions": {
+          "headless": false,
+          "args": [
+            "--no-sandbox",
+            "--disable-setuid-sandbox"
+          ]
+        }
+      }
+    },
+    {
+      "step": 2,
+      "description": "初期画面のスクリーンショット",
+      "mcp_tool": "mcp__puppeteer__puppeteer_screenshot",
+      "params": {
+        "name": "01_home",
+        "width": 1280,
+        "height": 800
+      }
+    },
+    {
+      "step": 3,
+      "description": "更新ボタンをクリック",
+      "mcp_tool": "mcp__puppeteer__puppeteer_evaluate",
+      "params": {
+        "button_text": "更新"
+      },
+      "script": "\nconst buttons = Array.from(document.querySelectorAll('button'));\nconst targetButton = buttons.find(btn => btn.textContent.includes('更新'));\nif (targetButton) {{\n    targetButton.click();\n    'Button clicked: 更新';\n}} else {{\n    'Button not found: 更新';\n}}\n"
+    },
+    {
+      "step": 4,
+      "description": "更新後のスクリーンショット",
+      "mcp_tool": "mcp__puppeteer__puppeteer_screenshot",
+      "params": {
+        "name": "02_after_update",
+        "width": 1280,
+        "height": 800
+      }
+    },
+    {
+      "step": 5,
+      "description": "動画選択ドロップダウンを開く",
+      "mcp_tool": "mcp__puppeteer__puppeteer_evaluate",
+      "params": {},
+      "script": "\nconst dropdown = document.querySelector('div[data-baseweb=\"select\"]');\nif (dropdown) {\n    dropdown.click();\n    'Dropdown clicked';\n} else {\n    'No dropdown found';\n}\n"
+    },
+    {
+      "step": 6,
+      "description": "ドロップダウン展開のスクリーンショット",
+      "mcp_tool": "mcp__puppeteer__puppeteer_screenshot",
+      "params": {
+        "name": "03_dropdown",
+        "width": 1280,
+        "height": 800
+      }
+    },
+    {
+      "step": 7,
+      "description": "動画パスを入力",
+      "mcp_tool": "mcp__puppeteer__puppeteer_evaluate",
+      "params": {
+        "text": "videos/test_sample_speech.mp4"
+      },
+      "script": "\n(() => {{\n    const input = document.querySelector('input[type=\"text\"]');\n    if (input) {{\n        input.focus();\n        input.value = 'videos/test_sample_speech.mp4';\n        input.dispatchEvent(new Event('input', {{ bubbles: true }}));\n        input.dispatchEvent(new Event('change', {{ bubbles: true }}));\n        input.blur();\n        return 'Text entered: videos/test_sample_speech.mp4';\n    }}\n    return 'No text input found';\n}})();\n"
+    },
+    {
+      "step": 8,
+      "description": "ページを下にスクロール",
+      "mcp_tool": "mcp__puppeteer__puppeteer_evaluate",
+      "params": {
+        "y_position": 500
+      },
+      "script": "window.scrollTo(0, 500);"
+    },
+    {
+      "step": 9,
+      "description": "スクロール後のスクリーンショット",
+      "mcp_tool": "mcp__puppeteer__puppeteer_screenshot",
+      "params": {
+        "name": "04_scrolled",
+        "width": 1280,
+        "height": 800
+      }
+    }
+  ],
+  "usage": "各コマンドのmcp_toolを使用して、paramsまたはscriptを実行してください"
+}

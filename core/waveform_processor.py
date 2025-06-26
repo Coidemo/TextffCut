@@ -3,11 +3,8 @@
 音声波形の抽出、リサンプリング、正規化を行う
 """
 
-import hashlib
-import json
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, List
 
 import numpy as np
 
@@ -29,11 +26,13 @@ except ImportError:
 @dataclass
 class ClipWaveformData:
     """クリップ単位の波形データクラス"""
+
     id: str
     start_time: float
     end_time: float
     sample_rate: int
     samples: list[float]  # 正規化された振幅値 (-1.0 ~ 1.0)
+
 
 class WaveformProcessor:
     """波形処理クラス"""
@@ -85,7 +84,7 @@ class WaveformProcessor:
             results = []
             for i, (start_time, end_time) in enumerate(time_ranges):
                 clip_id = f"clip-{i}"
-                
+
                 # 全体音声からクリップ部分を切り出し
                 start_sample = int(start_time * sr)
                 end_sample = int(end_time * sr)

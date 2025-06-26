@@ -753,6 +753,34 @@ TextffCut アプリケーション
 └── フッターエリア（オプション）
 ```
 
+#### カスタムコンポーネントアーキテクチャ
+
+タイムライン編集機能では、高度なインタラクティブ性を実現するため、Streamlitカスタムコンポーネントを採用：
+
+```
+ui/components/timeline/
+├── __init__.py              # Pythonインターフェース
+├── frontend/
+│   ├── main.js             # JavaScriptエントリーポイント
+│   ├── index.html          # HTMLテンプレート
+│   └── build/              # ビルド成果物
+│       └── main.js         # 本番用ビルド
+```
+
+**通信フロー：**
+1. **Python → JavaScript**: 
+   - クリップデータ（時間範囲、波形サンプル）をJSON形式で送信
+   - Streamlit Component APIを使用
+
+2. **JavaScript → Python**: 
+   - ユーザー操作結果（調整後の時間範囲）を返送
+   - `setComponentValue()`でPython側に通知
+
+3. **レンダリング**:
+   - Canvas APIを使用した波形描画
+   - クリック・ドラッグイベントの処理
+   - リアルタイムUI更新
+
 #### レイアウト仕様
 
 | エリア | 幅/高さ | 説明 | 背景色 |

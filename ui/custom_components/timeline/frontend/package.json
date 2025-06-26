@@ -1,0 +1,12 @@
+{
+  "name": "timeline-editor-component",
+  "version": "1.0.0",
+  "description": "Interactive timeline editor for TextffCut",
+  "main": "main.js",
+  "scripts": {
+    "build": "echo 'No build step required for vanilla JS'"
+  },
+  "keywords": ["streamlit", "timeline", "waveform"],
+  "author": "TextffCut Team",
+  "license": "MIT"
+}

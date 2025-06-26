@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <script src="https://unpkg.com/streamlit-component-lib@1/dist/streamlit-component-lib.js"></script>
+</head>
+<body>
+    <div id="root">
+        <h1>Test Component</h1>
+        <p id="status">Loading...</p>
+    </div>
+    <script>
+        // Streamlitとの通信テスト
+        console.log("Component loading...");
+        
+        function onRender(event) {
+            console.log("onRender called", event);
+            document.getElementById("status").innerText = "Component connected!";
+            
+            // コンポーネントの高さを設定
+            window.Streamlit.setFrameHeight(200);
+            
+            // データを確認
+            if (event.args && event.args.clips_data) {
+                document.getElementById("status").innerText = 
+                    `Received ${event.args.clips_data.length} clips`;
+            }
+        }
+        
+        // Streamlitからのイベントを待つ
+        window.Streamlit.onRender(onRender);
+        window.Streamlit.setComponentReady();
+        window.Streamlit.setFrameHeight(200);
+    </script>
+</body>
+</html>

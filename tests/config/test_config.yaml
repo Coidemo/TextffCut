@@ -1,0 +1,70 @@
+# TextffCut E2E Test Configuration
+
+# テスト環境設定
+environment:
+  base_url: "http://localhost:8501"
+  docker_mode: true  # Docker環境でのテストかどうか
+  headless: false    # ブラウザを表示するかどうか
+  timeout: 300       # タイムアウト時間（秒）
+
+# API設定
+api:
+  use_api_test: true  # APIモードのテストを実行するか
+  api_key: "${OPENAI_API_KEY}"  # 環境変数から取得
+  test_duration_limit: 60  # APIテスト用の最大動画時間（秒）
+
+# テストデータ
+test_data:
+  # テスト用動画（短いサンプル）
+  test_video:
+    filename: "test_sample.mp4"
+    duration: 30  # 秒
+    expected_text: "これはテストサンプル動画です"  # 期待される文字起こし結果の一部
+  
+  # 切り抜きテスト用テキスト
+  test_edits:
+    - name: "simple_clip"
+      text: "テストサンプル"
+      description: "シンプルな切り抜き"
+    
+    - name: "with_separator"
+      text: "これは\n---\nテスト"
+      description: "区切り文字を含む切り抜き"
+    
+    - name: "error_case"
+      text: "存在しないテキスト"
+      description: "エラーケース（赤ハイライト）"
+
+# 無音検出設定
+silence_detection:
+  threshold: -35
+  min_silence_duration: 0.3
+  min_segment_duration: 0.3
+  padding_start: 0.1
+  padding_end: 0.1
+
+# スクリーンショット設定
+screenshots:
+  enabled: true
+  format: "png"
+  quality: 80
+  save_on_error: true
+  save_on_success: true
+  
+# レポート設定
+reporting:
+  format: "json"  # json, html
+  include_screenshots: true
+  save_logs: true
+
+# テストの有効/無効
+test_suites:
+  basic_ui: true           # 基本的なUI表示
+  video_selection: true    # 動画選択機能
+  transcription_api: true  # API文字起こし
+  transcription_local: true # ローカル文字起こし
+  text_editing: true       # テキスト編集
+  export_fcpxml: true      # FCPXMLエクスポート
+  export_video: true       # 動画エクスポート
+  settings: true           # 設定機能
+  error_handling: true     # エラーハンドリング
