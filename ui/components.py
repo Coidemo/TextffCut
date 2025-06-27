@@ -379,15 +379,84 @@ def show_text_editor(initial_text: str = "", height: int = 400) -> str:
         # 現在のテキストを取得
         current_text = st.session_state.get("text_editor_value", initial_text)
 
-        # 境界マーカーを挿入
-        # テキストの末尾に追加（実際の実装では、カーソル位置に挿入するのが理想的）
-        if current_text:
-            # 既存のマーカーがあるかチェック
-            if "[0.0>][<0.0]" not in current_text:
-                # テキストの最後に境界マーカーを追加
-                updated_text = current_text + "[0.0>][<0.0]"
-                st.session_state.text_editor_value = updated_text
-                st.rerun()
+        if current_text and "transcription_result" in st.session_state:
+            # 差分情報から境界位置を特定
+            text_processor = TextProcessor()
+            full_text = st.session_state.transcription_result.get_full_text()
+
+            # 既存のマーカーを除去したテキストで差分検出
+            cleaned_text = text_processor.remove_boundary_markers(current_text)
+
+            # 区切り文字の確認
+            separator_patterns = ["---", "——", "－－－"]
+            found_separator = None
+            for pattern in separator_patterns:
+                if pattern in cleaned_text:
+                    found_separator = pattern
+                    break
+
+            if found_separator:
+                # 区切り文字がある場合：各セクションの境界を検出
+                sections = text_processor.split_text_by_separator(cleaned_text, found_separator)
+
+                # 各セクションの境界位置を計算
+                updated_text = ""
+                for i, section in enumerate(sections):
+                    # セクションの差分を検出
+                    diff = text_processor.find_differences(full_text, section)
+
+                    # 共通部分が2つ以上ある場合、境界にマーカーを挿入
+                    if len(diff.common_positions) > 1:
+                        section_with_markers = ""
+                        last_end = 0
+
+                        for j in range(len(diff.common_positions)):
+                            pos = diff.common_positions[j]
+                            # 共通部分のテキストを追加
+                            section_with_markers += section[last_end : section.find(pos.text, last_end)] + pos.text
+                            last_end = section.find(pos.text, last_end) + len(pos.text)
+
+                            # 最後の共通部分でなければマーカーを挿入
+                            if j < len(diff.common_positions) - 1:
+                                section_with_markers += "[0.0>][<0.0]"
+
+                        # 最後の部分を追加
+                        section_with_markers += section[last_end:]
+                        updated_text += section_with_markers
+                    else:
+                        updated_text += section
+
+                    # 最後のセクションでなければ区切り文字を追加
+                    if i < len(sections) - 1:
+                        updated_text += "\n" + found_separator + "\n"
+            else:
+                # 区切り文字がない場合：全体の差分から境界を検出
+                diff = text_processor.find_differences(full_text, cleaned_text)
+
+                if len(diff.common_positions) > 1:
+                    # 境界位置にマーカーを挿入
+                    updated_text = ""
+                    last_end = 0
+
+                    for i in range(len(diff.common_positions)):
+                        pos = diff.common_positions[i]
+                        # 共通部分のテキストを追加
+                        updated_text += cleaned_text[last_end : cleaned_text.find(pos.text, last_end)] + pos.text
+                        last_end = cleaned_text.find(pos.text, last_end) + len(pos.text)
+
+                        # 最後の共通部分でなければマーカーを挿入
+                        if i < len(diff.common_positions) - 1:
+                            updated_text += "[0.0>][<0.0]"
+
+                    # 最後の部分を追加
+                    updated_text += cleaned_text[last_end:]
+                else:
+                    # 境界がない場合は何もしない
+                    st.info("境界が見つかりませんでした")
+                    return
+
+            st.session_state.text_editor_value = updated_text
+            st.rerun()
 
     # テキストエディタ
     edited_text = st.text_area(
