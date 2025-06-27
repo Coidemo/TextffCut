@@ -27,7 +27,7 @@
 | REQ-002 | ローカル版文字起こし | core.transcription.UnifiedTranscriber | TC-004〜TC-008 |
 | REQ-003 | API版文字起こし | core.transcription_api.APITranscriber | TC-009〜TC-012 |
 | REQ-004 | テキスト編集（diff表示） | services.text_editing_service | TC-013〜TC-015 |
-| REQ-005 | タイムライン編集 | ui.timeline_editor, services.timeline_editing_service | TC-016〜TC-020 |
+| REQ-005 | タイムライン編集（境界調整） | core.text_processor.BoundaryMarkerParser | TC-016〜TC-020 |
 | REQ-006 | 無音検出・削除 | core.video.VideoProcessor | TC-021〜TC-025 |
 | REQ-007 | 動画切り出し・結合 | core.video.VideoProcessor | TC-026〜TC-030 |
 | REQ-008 | FCPXMLエクスポート | core.export.FCPXMLExporter | TC-031〜TC-033 |
@@ -1638,75 +1638,174 @@ def main():
     if should_show_text_edit_section():
         show_text_edit_section()
     
-    # 3. タイムライン編集セクション（条件付き表示）
-    if should_show_timeline_section():
-        show_timeline_edit_section()
+    # 3. 境界調整はテキスト編集セクション内で実施（タイムライン編集セクションは廃止）
     
     # 4. 処理実行セクション（条件付き表示）
     if should_show_process_section():
         show_process_execution_section()
 ```
 
-### 13.2 タイムライン編集の統合
+### 13.2 テキスト内境界調整機能（タイムライン編集の代替）
 
-#### 13.2.1 インライン表示実装
+#### 13.2.1 概要
 
-```python
-def show_timeline_edit_section():
-    """タイムライン編集セクションの表示"""
-    st.markdown("---")
-    st.subheader("📊 タイムライン編集")
-    
-    # 既存のタイムライン編集UIを呼び出し（モーダルではなくインライン）
-    time_ranges = st.session_state.get("time_ranges", [])
-    transcription = st.session_state.get("transcription_result")
-    video_path = st.session_state.get("current_video_path")
-    
-    # タイムライン編集UIをレンダリング
-    adjusted_ranges = render_timeline_editor_inline(
-        time_ranges, 
-        transcription, 
-        video_path
-    )
-    
-    # 編集完了時の処理
-    if adjusted_ranges is not None:
-        st.session_state.adjusted_time_ranges = adjusted_ranges
-        st.session_state.timeline_completed = True
-        st.success("タイムライン編集が完了しました")
+タイムライン編集UIの代替として、テキスト編集画面で直接クリップ境界を調整する機能を実装します。これにより、テキストを編集しながら同時に時間調整が可能になり、より直感的な操作体験を提供します。
+
+#### 13.2.2 境界調整マーカー仕様
+
+```
+マーカー記法：
+[数値<] = 前のクリップを左に移動（縮める）
+[数値>] = 前のクリップを右に移動（延ばす）
+[<数値] = 後のクリップを左に移動（早める）
+[>数値] = 後のクリップを右に移動（遅らせる）
+
+例：
+今日は[0.5>][<0.3]いい天気ですね[0.2<][>0.1]明日も
+
+解釈：
+- 1つ目の境界：前のクリップを0.5秒延長、後のクリップを0.3秒早める
+- 2つ目の境界：前のクリップを0.2秒短縮、後のクリップを0.1秒遅らせる
 ```
 
-#### 13.2.2 状態の永続化
+#### 13.2.3 UI設計
 
 ```python
-def save_timeline_state():
-    """タイムライン編集状態の保存"""
-    timeline_state = {
-        "adjusted_ranges": st.session_state.get("adjusted_time_ranges"),
-        "completed": st.session_state.get("timeline_completed", False),
-        "timestamp": datetime.now().isoformat()
-    }
+def show_text_edit_section():
+    """テキスト編集セクションの表示（境界調整機能付き）"""
+    st.subheader("✏️ テキスト編集")
     
-    # プロジェクトディレクトリに保存
-    project_dir = get_project_directory()
-    state_file = project_dir / "timeline_state.json"
+    # 境界調整ボタン
+    if st.button("境界を調整", help="切り抜き境界に調整マーカーを挿入"):
+        # 現在のカーソル位置または選択位置に [0.0>][<0.0] を挿入
+        insert_boundary_markers()
     
-    with open(state_file, "w") as f:
-        json.dump(timeline_state, f, indent=2)
+    # テキストエディタ
+    edited_text = st.text_area(
+        "編集テキスト",
+        value=st.session_state.get("edited_text", ""),
+        height=400
+    )
+    
+    # 境界マーカーの解析と表示
+    if has_boundary_markers(edited_text):
+        st.info("境界調整マーカーが検出されました")
+        show_adjustment_preview(edited_text)
+```
 
-def load_timeline_state():
-    """タイムライン編集状態の復元"""
-    project_dir = get_project_directory()
-    state_file = project_dir / "timeline_state.json"
+#### 13.2.4 境界マーカー解析処理
+
+```python
+class BoundaryMarkerParser:
+    """境界調整マーカーの解析"""
     
-    if state_file.exists():
-        with open(state_file, "r") as f:
-            timeline_state = json.load(f)
+    MARKER_PATTERN = re.compile(r'\[(\d+(?:\.\d+)?)[<>]\]|\[[<>](\d+(?:\.\d+)?)\]')
+    
+    def parse_markers(self, text: str) -> list[BoundaryAdjustment]:
+        """
+        テキストから境界調整マーカーを解析
         
-        # セッション状態に復元
-        if timeline_state.get("adjusted_ranges"):
-            st.session_state.adjusted_time_ranges = timeline_state["adjusted_ranges"]
-            st.session_state.timeline_completed = timeline_state["completed"]
+        Returns:
+            境界調整情報のリスト
+        """
+        adjustments = []
+        
+        for match in self.MARKER_PATTERN.finditer(text):
+            marker = match.group(0)
+            position = match.start()
+            
+            if marker.startswith('[') and marker.endswith('>]'):
+                # [数値>] パターン：前のクリップを延ばす
+                value = float(marker[1:-2])
+                adjustments.append(BoundaryAdjustment(
+                    position=position,
+                    target='previous',
+                    adjustment=value
+                ))
+            elif marker.startswith('[') and marker.endswith('<]'):
+                # [数値<] パターン：前のクリップを縮める
+                value = float(marker[1:-2])
+                adjustments.append(BoundaryAdjustment(
+                    position=position,
+                    target='previous',
+                    adjustment=-value
+                ))
+            elif marker.startswith('[<'):
+                # [<数値] パターン：後のクリップを早める
+                value = float(marker[2:-1])
+                adjustments.append(BoundaryAdjustment(
+                    position=position,
+                    target='next',
+                    adjustment=-value
+                ))
+            elif marker.startswith('[>'):
+                # [>数値] パターン：後のクリップを遅らせる
+                value = float(marker[2:-1])
+                adjustments.append(BoundaryAdjustment(
+                    position=position,
+                    target='next',
+                    adjustment=value
+                ))
+        
+        return adjustments
+```
+
+#### 13.2.5 音声プレビュー機能
+
+既存の `TimelineEditingService.generate_preview_audio` メソッドを活用して、調整前後の音声をプレビューできるようにします。
+
+```python
+def show_audio_preview_controls(clip_id: str, start_time: float, end_time: float):
+    """音声プレビューコントロールの表示"""
+    col1, col2 = st.columns([1, 4])
+    
+    with col1:
+        if st.button(f"▶️ プレビュー", key=f"preview_{clip_id}"):
+            # 音声プレビュー生成
+            audio_path = timeline_service.generate_preview_audio(clip_id)
+            if audio_path:
+                st.audio(audio_path, format="audio/wav")
+    
+    with col2:
+        st.text(f"クリップ {clip_id}: {format_time(start_time)} - {format_time(end_time)}")
+```
+
+#### 13.2.6 時間調整の適用
+
+```python
+def apply_boundary_adjustments(
+    time_ranges: list[tuple[float, float]], 
+    adjustments: list[BoundaryAdjustment]
+) -> list[tuple[float, float]]:
+    """
+    境界調整を時間範囲に適用
+    
+    注意：各クリップの時刻は独立して調整され、
+    オーバーラップやギャップは考慮しない
+    """
+    adjusted_ranges = []
+    
+    for i, (start, end) in enumerate(time_ranges):
+        adjusted_start = start
+        adjusted_end = end
+        
+        # 前の境界の調整を適用
+        if i > 0:
+            prev_adjustments = [a for a in adjustments 
+                              if a.boundary_index == i-1 and a.target == 'next']
+            for adj in prev_adjustments:
+                adjusted_start += adj.adjustment
+        
+        # 後の境界の調整を適用
+        if i < len(time_ranges) - 1:
+            next_adjustments = [a for a in adjustments 
+                              if a.boundary_index == i and a.target == 'previous']
+            for adj in next_adjustments:
+                adjusted_end += adj.adjustment
+        
+        adjusted_ranges.append((adjusted_start, adjusted_end))
+    
+    return adjusted_ranges
 ```
 
 ## 14. セキュリティ設計
