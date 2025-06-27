@@ -753,3 +753,158 @@ class TextProcessor:
                 merged.append((current_start, current_end))
 
         return merged
+
+    def parse_boundary_markers(self, text: str) -> list[dict]:
+        """
+        テキストから境界調整マーカーを解析
+
+        マーカー記法:
+        [数値<] = 前のクリップを左に移動（縮める）
+        [数値>] = 前のクリップを右に移動（延ばす）
+        [<数値] = 後のクリップを左に移動（早める）
+        [>数値] = 後のクリップを右に移動（遅らせる）
+
+        Args:
+            text: 解析するテキスト
+
+        Returns:
+            境界調整情報のリスト
+        """
+        # マーカーパターン
+        marker_pattern = re.compile(r"\[(\d+(?:\.\d+)?)[<>]\]|\[[<>](\d+(?:\.\d+)?)\]")
+
+        adjustments = []
+
+        for match in marker_pattern.finditer(text):
+            marker = match.group(0)
+            position = match.start()
+
+            adjustment_info = {"position": position, "marker": marker, "target": None, "adjustment": 0.0}
+
+            # パターンマッチング
+            if marker.startswith("[") and marker.endswith(">]"):
+                # [数値>] パターン：前のクリップを延ばす
+                value = float(marker[1:-2])
+                adjustment_info["target"] = "previous"
+                adjustment_info["adjustment"] = value
+
+            elif marker.startswith("[") and marker.endswith("<]"):
+                # [数値<] パターン：前のクリップを縮める
+                value = float(marker[1:-2])
+                adjustment_info["target"] = "previous"
+                adjustment_info["adjustment"] = -value
+
+            elif marker.startswith("[<"):
+                # [<数値] パターン：後のクリップを早める
+                value = float(marker[2:-1])
+                adjustment_info["target"] = "next"
+                adjustment_info["adjustment"] = -value
+
+            elif marker.startswith("[>"):
+                # [>数値] パターン：後のクリップを遅らせる
+                value = float(marker[2:-1])
+                adjustment_info["target"] = "next"
+                adjustment_info["adjustment"] = value
+
+            if adjustment_info["target"]:
+                adjustments.append(adjustment_info)
+
+        return adjustments
+
+    def remove_boundary_markers(self, text: str) -> str:
+        """
+        テキストから境界調整マーカーを除去
+
+        Args:
+            text: マーカーを除去するテキスト
+
+        Returns:
+            マーカーを除去したテキスト
+        """
+        # マーカーパターン
+        marker_pattern = re.compile(r"\[(\d+(?:\.\d+)?)[<>]\]|\[[<>](\d+(?:\.\d+)?)\]")
+
+        # マーカーを除去
+        cleaned_text = marker_pattern.sub("", text)
+
+        # 連続する空白を1つに正規化
+        cleaned_text = re.sub(r"\s+", " ", cleaned_text)
+
+        return cleaned_text.strip()
+
+    def apply_boundary_adjustments(
+        self, time_ranges: list[tuple[float, float]], adjustments: list[dict], text: str
+    ) -> list[tuple[float, float]]:
+        """
+        境界調整を時間範囲に適用
+
+        注意：各クリップの時刻は独立して調整され、
+        オーバーラップやギャップは考慮しない
+
+        Args:
+            time_ranges: 元の時間範囲のリスト
+            adjustments: 境界調整情報のリスト
+            text: 元のテキスト（マーカー位置から境界インデックスを特定するため）
+
+        Returns:
+            調整後の時間範囲のリスト
+        """
+        if not adjustments or not time_ranges:
+            return time_ranges
+
+        # マーカーを除去したテキストを取得
+        clean_text = self.remove_boundary_markers(text)
+
+        # 各境界位置をマッピング（テキスト位置 -> 境界インデックス）
+        # 簡単のため、マーカー位置を文字位置として扱い、
+        # そこから最も近い境界を特定する
+
+        # 調整情報を境界インデックスごとにグループ化
+        boundary_adjustments = {}
+
+        # 各調整情報を処理
+        for adj in adjustments:
+            # マーカー位置から対応する境界インデックスを推定
+            # ここでは簡略化のため、テキスト内での相対位置から推定
+            text_length = len(clean_text)
+            if text_length == 0:
+                continue
+
+            # 相対位置から境界インデックスを推定
+            relative_pos = adj["position"] / len(text)
+            boundary_index = int(relative_pos * (len(time_ranges) - 1))
+
+            # 境界インデックスの範囲チェック
+            boundary_index = max(0, min(boundary_index, len(time_ranges) - 1))
+
+            if boundary_index not in boundary_adjustments:
+                boundary_adjustments[boundary_index] = []
+
+            boundary_adjustments[boundary_index].append(adj)
+
+        # 調整後の時間範囲を作成
+        adjusted_ranges = []
+
+        for i, (start, end) in enumerate(time_ranges):
+            adjusted_start = start
+            adjusted_end = end
+
+            # 前の境界の調整を適用（このクリップの開始時刻）
+            if i > 0 and (i - 1) in boundary_adjustments:
+                for adj in boundary_adjustments[i - 1]:
+                    if adj["target"] == "next":
+                        adjusted_start += adj["adjustment"]
+
+            # 現在の境界の調整を適用（このクリップの終了時刻）
+            if i in boundary_adjustments:
+                for adj in boundary_adjustments[i]:
+                    if adj["target"] == "previous":
+                        adjusted_end += adj["adjustment"]
+
+            # 負の時刻にならないように制限
+            adjusted_start = max(0.0, adjusted_start)
+            adjusted_end = max(adjusted_start + 0.1, adjusted_end)  # 最小0.1秒の長さを保証
+
+            adjusted_ranges.append((adjusted_start, adjusted_end))
+
+        return adjusted_ranges

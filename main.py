@@ -962,43 +962,62 @@ def main() -> None:
                     # 時間範囲を計算して保存
                     if edited_text:
                         text_processor = TextProcessor()
+
+                        # 境界マーカーを解析
+                        boundary_adjustments = text_processor.parse_boundary_markers(edited_text)
+
+                        # マーカーを除去したテキストで差分検出
+                        cleaned_text = text_processor.remove_boundary_markers(edited_text)
+
                         separator_patterns = ["---", "——", "－－－"]
                         found_separator = None
                         for pattern in separator_patterns:
-                            if pattern in edited_text:
+                            if pattern in cleaned_text:
                                 found_separator = pattern
                                 break
 
                         if found_separator:
                             time_ranges = text_processor.find_differences_with_separator(
-                                full_text, edited_text, transcription, found_separator
+                                full_text, cleaned_text, transcription, found_separator
                             )
                         else:
-                            diff = text_processor.find_differences(full_text, edited_text)
+                            diff = text_processor.find_differences(full_text, cleaned_text)
                             time_ranges = diff.get_time_ranges(transcription)
 
-                        st.session_state.time_ranges = time_ranges
-                        st.session_state.show_timeline_section = True  # タイムライン編集セクションを表示
-                        # タイムライン編集が完了していない状態にリセット
-                        if "timeline_completed" in st.session_state:
-                            del st.session_state.timeline_completed
+                        # 境界調整を適用
+                        if boundary_adjustments:
+                            adjusted_time_ranges = text_processor.apply_boundary_adjustments(
+                                time_ranges, boundary_adjustments, edited_text
+                            )
+                            st.session_state.time_ranges = adjusted_time_ranges
+                            st.session_state.has_boundary_adjustments = True
+                        else:
+                            st.session_state.time_ranges = time_ranges
+                            st.session_state.has_boundary_adjustments = False
+
+                        # タイムライン編集セクションは表示しない（境界調整で代替）
+                        st.session_state.show_timeline_section = False
+                        st.session_state.timeline_completed = True  # 境界調整完了として扱う
 
                     # 赤ハイライトがあるかチェック
                     if edited_text:
                         text_processor = TextProcessor()
 
+                        # マーカーを除去したテキストでチェック
+                        cleaned_text = text_processor.remove_boundary_markers(edited_text)
+
                         # 区切り文字対応
                         separator_patterns = ["---", "——", "－－－"]
                         found_separator = None
                         for pattern in separator_patterns:
-                            if pattern in edited_text:
+                            if pattern in cleaned_text:
                                 found_separator = pattern
                                 break
 
                         has_additions = False
                         if found_separator:
                             # 区切り文字がある場合：各セクションで追加文字をチェック
-                            sections = text_processor.split_text_by_separator(edited_text, found_separator)
+                            sections = text_processor.split_text_by_separator(cleaned_text, found_separator)
                             for section in sections:
                                 diff = text_processor.find_differences(full_text, section)
                                 if diff.has_additions():
@@ -1007,20 +1026,20 @@ def main() -> None:
 
                             # 区切り文字がある場合は、区切り文字を除去した全体テキストを渡す
                             if has_additions:
-                                text_without_separator = edited_text.replace(found_separator, " ")
+                                text_without_separator = cleaned_text.replace(found_separator, " ")
                                 diff = text_processor.find_differences(full_text, text_without_separator)
                                 st.session_state.current_diff = diff
                                 st.session_state.current_edited_text = text_without_separator
                                 st.session_state.original_edited_text = (
-                                    edited_text  # 元のテキスト（区切り文字付き）も保存
+                                    edited_text  # 元のテキスト（マーカー付き）も保存
                                 )
                         else:
                             # 区切り文字がない場合：通常のチェック
-                            diff = text_processor.find_differences(full_text, edited_text)
+                            diff = text_processor.find_differences(full_text, cleaned_text)
                             if diff.has_additions():
                                 has_additions = True
                                 st.session_state.current_diff = diff
-                                st.session_state.current_edited_text = edited_text
+                                st.session_state.current_edited_text = cleaned_text
                                 st.session_state.original_edited_text = edited_text
 
                         if has_additions:
@@ -1043,7 +1062,6 @@ def main() -> None:
         if st.session_state.get("show_timeline_section", False):
             st.markdown("---")
             st.subheader("📊 タイムライン編集")
-
 
             # タイムライン編集完了フラグをチェック
             if st.session_state.get("timeline_editing_completed", False):
@@ -1126,23 +1144,29 @@ def main() -> None:
                 # 区切り文字対応の差分検索を使用
                 text_processor = TextProcessor()
 
+                # 境界マーカーを解析
+                boundary_adjustments = text_processor.parse_boundary_markers(edited_text)
+
+                # マーカーを除去したテキストで処理
+                cleaned_text = text_processor.remove_boundary_markers(edited_text)
+
                 # 区切り文字の様々なパターンをチェック（処理実行時）
                 separator_patterns = ["---", "——", "－－－"]
                 found_separator = None
 
                 for pattern in separator_patterns:
-                    if pattern in edited_text:
+                    if pattern in cleaned_text:
                         found_separator = pattern
                         break
 
                 if found_separator:
                     # 区切り文字対応処理
                     time_ranges = text_processor.find_differences_with_separator(
-                        full_text, edited_text, transcription, found_separator
+                        full_text, cleaned_text, transcription, found_separator
                     )
 
                     # 各セクションで追加文字チェック
-                    sections = text_processor.split_text_by_separator(edited_text, found_separator)
+                    sections = text_processor.split_text_by_separator(cleaned_text, found_separator)
                     has_additions = False
                     for section in sections:
                         diff = text_processor.find_differences(full_text, section)
@@ -1156,13 +1180,19 @@ def main() -> None:
 
                 else:
                     # 従来の処理
-                    diff = text_processor.find_differences(full_text, edited_text)
+                    diff = text_processor.find_differences(full_text, cleaned_text)
 
                     if diff.has_additions():
                         st.error("元の動画に存在しない部分が含まれています。赤いハイライト部分を確認してください。")
                         return
 
                     time_ranges = diff.get_time_ranges(transcription)
+
+                # 境界調整を適用
+                if boundary_adjustments:
+                    time_ranges = text_processor.apply_boundary_adjustments(
+                        time_ranges, boundary_adjustments, cleaned_text
+                    )
 
                 # タイムライン編集で調整された時間範囲があれば使用
                 if "adjusted_time_ranges" in st.session_state:
@@ -1273,10 +1303,10 @@ def main() -> None:
                                 # 差分情報を取得（すでに計算済み）
                                 if found_separator:
                                     # 区切り文字を除去して差分計算
-                                    text_without_separator = edited_text.replace(found_separator, " ")
+                                    text_without_separator = cleaned_text.replace(found_separator, " ")
                                     diff = text_processor.find_differences(full_text, text_without_separator)
                                 else:
-                                    diff = text_processor.find_differences(full_text, edited_text)
+                                    diff = text_processor.find_differences(full_text, cleaned_text)
 
                                 # SRT設定を取得
                                 srt_settings = st.session_state.get(

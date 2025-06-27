@@ -3,7 +3,6 @@ Phase 2機能のデモアプリケーション
 キーボードショートカットとインタラクティブ操作のデモ
 """
 
-
 import numpy as np
 import streamlit as st
 

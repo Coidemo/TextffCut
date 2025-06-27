@@ -365,7 +365,7 @@ def show_separated_mode_status(container: Any = None):
 
 def show_text_editor(initial_text: str = "", height: int = 400) -> str:
     """
-    テキスト編集UI
+    テキスト編集UI（境界調整機能付き）
 
     Args:
         initial_text: 初期テキスト
@@ -374,13 +374,34 @@ def show_text_editor(initial_text: str = "", height: int = 400) -> str:
     Returns:
         編集されたテキスト
     """
+    # 境界調整ボタン
+    if st.button("境界を調整", help="切り抜き境界に調整マーカーを挿入します"):
+        # 現在のテキストを取得
+        current_text = st.session_state.get("text_editor_value", initial_text)
+
+        # 境界マーカーを挿入
+        # テキストの末尾に追加（実際の実装では、カーソル位置に挿入するのが理想的）
+        if current_text:
+            # 既存のマーカーがあるかチェック
+            if "[0.0>][<0.0]" not in current_text:
+                # テキストの最後に境界マーカーを追加
+                updated_text = current_text + "[0.0>][<0.0]"
+                st.session_state.text_editor_value = updated_text
+                st.rerun()
+
+    # テキストエディタ
     edited_text = st.text_area(
         label="切り抜き箇所",
-        value=initial_text,
+        value=st.session_state.get("text_editor_value", initial_text),
         height=height,
         label_visibility="collapsed",
-        help="文字起こし結果から切り抜く文章をコピペしてください。\n\n**💡 複数セクション指定**\n区切り文字 `---` で分割すると、複数の箇所を個別に検索してマージできます。\n\n例:\n第1セクション\n---\n第2セクション\n---\n第3セクション",
+        help="文字起こし結果から切り抜く文章をコピペしてください。\n\n**💡 複数セクション指定**\n区切り文字 `---` で分割すると、複数の箇所を個別に検索してマージできます。\n\n例:\n第1セクション\n---\n第2セクション\n---\n第3セクション\n\n**🎯 境界調整マーカー**\n[数値<] = 前のクリップを縮める\n[数値>] = 前のクリップを延ばす\n[<数値] = 後のクリップを早める\n[>数値] = 後のクリップを遅らせる",
+        key="text_editor_widget",
     )
+
+    # エディタの値をセッション状態に保存
+    if edited_text != st.session_state.get("text_editor_value", ""):
+        st.session_state.text_editor_value = edited_text
 
     return edited_text
 
