@@ -2,7 +2,6 @@
 境界マーカー解析機能のテスト
 """
 
-
 from core.text_processor import TextProcessor
 
 

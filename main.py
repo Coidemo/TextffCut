@@ -34,6 +34,7 @@ from ui import (
     show_transcription_controls,
     show_video_input,
 )
+from ui.audio_preview import show_audio_preview_for_clips, show_boundary_adjusted_preview
 from ui.recovery_components import (
     show_recovery_check,
     show_recovery_history,
@@ -1096,6 +1097,44 @@ def main() -> None:
         ):
             st.markdown("---")
             st.subheader("🎬 切り抜き箇所の抽出")
+
+            # 音声プレビュー（境界調整がある場合）
+            if st.session_state.get("has_boundary_adjustments", False):
+                with st.expander("🎵 音声プレビュー", expanded=False):
+                    if "time_ranges" in st.session_state:
+                        # 元の時間範囲を取得
+                        text_processor = TextProcessor()
+                        cleaned_text = text_processor.remove_boundary_markers(st.session_state.get("edited_text", ""))
+
+                        # 区切り文字の確認
+                        separator_patterns = ["---", "——", "－－－"]
+                        found_separator = None
+                        for pattern in separator_patterns:
+                            if pattern in cleaned_text:
+                                found_separator = pattern
+                                break
+
+                        # 元の時間範囲を計算
+                        if found_separator:
+                            original_ranges = text_processor.find_differences_with_separator(
+                                full_text, cleaned_text, transcription, found_separator
+                            )
+                        else:
+                            diff = text_processor.find_differences(full_text, cleaned_text)
+                            original_ranges = diff.get_time_ranges(transcription)
+
+                        # 調整後の時間範囲
+                        adjusted_ranges = st.session_state.time_ranges
+
+                        # 境界調整プレビューを表示
+                        show_boundary_adjusted_preview(video_path, original_ranges, adjusted_ranges, preview_index=0)
+                    else:
+                        st.info("プレビューする範囲がありません")
+            else:
+                # 通常の音声プレビュー
+                if "time_ranges" in st.session_state:
+                    with st.expander("🎵 音声プレビュー", expanded=False):
+                        show_audio_preview_for_clips(video_path, st.session_state.time_ranges)
 
             # 処理オプション
             st.markdown("#### ⚙️ 処理オプション")

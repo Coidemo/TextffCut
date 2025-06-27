@@ -2,6 +2,7 @@
 Buzz Clip UIモジュール
 """
 
+from .audio_preview import show_audio_preview_for_clips, show_boundary_adjusted_preview
 from .components import (
     show_api_key_manager,
     show_diff_viewer,
@@ -36,6 +37,8 @@ __all__ = [
     "show_video_input",
     "cleanup_temp_files",
     "apply_dark_mode_styles",
+    "show_audio_preview_for_clips",
+    "show_boundary_adjusted_preview",
     "SessionStateAdapter",
     "TranscriptionState",
     "EditingState",
