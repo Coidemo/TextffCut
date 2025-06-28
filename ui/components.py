@@ -377,6 +377,8 @@ def show_text_editor(initial_text: str = "", height: int = 400) -> str:
     # デバッグ用
     st.write(f"DEBUG: show_text_editor called with initial_text length: {len(initial_text)}, height: {height}")
     
+    st.write("DEBUG: st.text_areaを呼び出す前")
+    
     # テキストエディタ
     edited_text = st.text_area(
         label="切り抜き箇所",
@@ -387,6 +389,8 @@ def show_text_editor(initial_text: str = "", height: int = 400) -> str:
         key="text_editor_widget",
         label_visibility="visible",  # 明示的に指定
     )
+    
+    st.write(f"DEBUG: st.text_areaを呼び出した後、edited_text = '{edited_text[:50]}...'" if edited_text else "DEBUG: st.text_areaを呼び出した後、edited_text = ''")
 
     # エディタの値をセッション状態に保存
     if edited_text != st.session_state.get("text_editor_value", ""):

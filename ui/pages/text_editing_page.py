@@ -193,6 +193,19 @@ class TextEditingPageController:
         # テキストエディタを表示
         # デバッグ用
         st.write("DEBUG: テキストエディタを表示します")
+        
+        # 直接テキストエリアを表示してテスト
+        st.write("DEBUG: 直接テキストエリアを表示")
+        test_text = st.text_area(
+            "テスト用テキストエリア",
+            value="",
+            height=200,
+            placeholder="これが表示されるか確認",
+            key="test_text_area"
+        )
+        st.write(f"DEBUG: test_text length = {len(test_text)}")
+        
+        # 元の実装
         edited_text = show_text_editor(SessionStateManager.get("edited_text", ""), height=400)
         st.write(f"DEBUG: edited_text length = {len(edited_text)}")
         
