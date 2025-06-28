@@ -374,11 +374,6 @@ def show_text_editor(initial_text: str = "", height: int = 400) -> str:
     Returns:
         編集されたテキスト
     """
-    # デバッグ用
-    st.write(f"DEBUG: show_text_editor called with initial_text length: {len(initial_text)}, height: {height}")
-    
-    st.write("DEBUG: st.text_areaを呼び出す前")
-    
     # テキストエディタ
     edited_text = st.text_area(
         label="切り抜き箇所",
@@ -387,10 +382,7 @@ def show_text_editor(initial_text: str = "", height: int = 400) -> str:
         placeholder="文字起こし結果から切り抜きたい部分をコピー＆ペーストしてください",
         help="文字起こし結果から切り抜く文章をコピペしてください。\n\n**💡 複数セクション指定**\n区切り文字 `---` で分割すると、複数の箇所を個別に検索してマージできます。\n\n例:\n第1セクション\n---\n第2セクション\n---\n第3セクション\n\n**🎯 境界調整マーカー**\n[数値<] = 前のクリップを縮める\n[数値>] = 前のクリップを延ばす\n[<数値] = 後のクリップを早める\n[>数値] = 後のクリップを遅らせる",
         key="text_editor_widget",
-        label_visibility="visible",  # 明示的に指定
     )
-    
-    st.write(f"DEBUG: st.text_areaを呼び出した後、edited_text = '{edited_text[:50]}...'" if edited_text else "DEBUG: st.text_areaを呼び出した後、edited_text = ''")
 
     # エディタの値をセッション状態に保存
     if edited_text != st.session_state.get("text_editor_value", ""):
