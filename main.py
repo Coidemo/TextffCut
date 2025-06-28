@@ -234,14 +234,20 @@ def main() -> None:
     if not video_input:
         return
     
+    # タプルから動画パスを取得
+    video_path, output_dir = video_input
+    
     # 現在の動画パスと前回の動画パスを比較
-    current_video_path = str(video_input) if video_input else None
+    current_video_path = video_path
     previous_video_path = SessionStateManager.get("video_path")
     
     if current_video_path != previous_video_path:
         # 動画が変更された場合は状態をクリア
         SessionStateManager.clear_processing_state()
         SessionStateManager.set("video_path", current_video_path)
+    
+    # 出力ディレクトリは常に設定
+    SessionStateManager.set("output_dir", output_dir)
     
     # ページコントローラーの初期化
     transcription_controller = TranscriptionPageController()
@@ -255,7 +261,7 @@ def main() -> None:
         processing_controller.render()
     else:
         # デフォルトは文字起こし画面
-        transcription_controller.render(video_input)
+        transcription_controller.render(video_path)
 
 
 if __name__ == "__main__":
