@@ -3748,6 +3748,193 @@ def show_boundary_adjusted_preview(
 ---
 
 **作成日**: 2025-06-22  
-**バージョン**: 3.6  
+**バージョン**: 3.7  
 **最終更新**: 2025-06-28  
-**次回更新**: YouTube URL対応機能実装時  
+**次回更新**: YouTube URL対応機能実装時
+
+## 22. リファクタリング詳細設計
+
+### 22.1 概要
+
+main.pyのリファクタリングに関する詳細な実装仕様を定義します。基本設計書のリファクタリング設計に基づき、具体的な実装方法とインターフェースを規定します。
+
+### 22.2 ディレクトリ構造
+
+```
+ui/
+├── pages/                    # ページコントローラー
+│   ├── __init__.py
+│   ├── transcription_page.py # 文字起こし画面
+│   ├── text_editing_page.py  # テキスト編集画面
+│   └── processing_page.py    # 処理実行画面
+├── components.py            # 既存のUIコンポーネント
+└── constants.py             # UI定数（新規作成）
+
+utils/
+├── session_state_manager.py  # セッション状態管理（新規作成）
+└── （既存のユーティリティ）
+```
+
+### 22.3 インターフェース定義
+
+#### 22.3.1 ページコントローラー基本インターフェース
+
+```python
+class PageController(ABC):
+    """ページコントローラーの基底クラス"""
+    
+    @abstractmethod
+    def render(self, context: ProcessingContext) -> None:
+        """ページをレンダリング"""
+        pass
+    
+    @abstractmethod
+    def handle_events(self) -> None:
+        """イベントハンドリング"""
+        pass
+```
+
+#### 22.3.2 セッション状態管理インターフェース
+
+```python
+class SessionStateManager:
+    """Streamlitセッション状態の一元管理"""
+    
+    @staticmethod
+    def initialize() -> None:
+        """セッション状態の初期化"""
+        pass
+    
+    @staticmethod
+    def get(key: str, default: Any = None) -> Any:
+        """値の取得"""
+        pass
+    
+    @staticmethod
+    def set(key: str, value: Any) -> None:
+        """値の設定"""
+        pass
+    
+    @staticmethod
+    def clear_processing_state() -> None:
+        """処理関連の状態をクリア"""
+        pass
+```
+
+### 22.4 実装詳細
+
+#### 22.4.1 文字起こし画面コントローラー
+
+```python
+# ui/pages/transcription_page.py
+
+class TranscriptionPageController:
+    """文字起こし画面の制御"""
+    
+    def __init__(self):
+        self.transcription_service = TranscriptionService()
+        self.config_service = ConfigurationService()
+    
+    def render(self, video_input: Union[Path, VideoInput]) -> None:
+        """文字起こし画面をレンダリング"""
+        # 1. API設定パネル（環境変数使用時）
+        if config.api.use_api:
+            show_api_key_manager()
+        
+        # 2. 文字起こし設定
+        show_transcription_controls()
+        
+        # 3. 文字起こし実行ボタン
+        if st.button("文字起こし開始", type="primary"):
+            self._execute_transcription(video_input)
+    
+    def _execute_transcription(self, video_input: Union[Path, VideoInput]) -> None:
+        """文字起こし処理の実行"""
+        with st.spinner("文字起こし中..."):
+            result = self.transcription_service.transcribe(video_input)
+            SessionStateManager.set("transcription_result", result)
+            SessionStateManager.set("show_text_editing", True)
+```
+
+#### 22.4.2 main.pyの新構造
+
+```python
+# main.py（リファクタリング後）
+
+def main():
+    """メインエントリーポイント（簡素化版）"""
+    # 初期設定
+    setup_streamlit()
+    SessionStateManager.initialize()
+    
+    # サイドバー
+    render_sidebar()
+    
+    # メインコンテンツ
+    st.title("TextffCut")
+    
+    # 動画入力
+    video_input = show_video_input()
+    if not video_input:
+        return
+    
+    # ページ遷移制御
+    if SessionStateManager.get("show_transcription", True):
+        transcription_controller.render(video_input)
+    
+    elif SessionStateManager.get("show_text_editing"):
+        text_editing_controller.render()
+    
+    elif SessionStateManager.get("show_processing"):
+        processing_controller.render()
+
+def setup_streamlit():
+    """Streamlitの初期設定（既存コードから抽出）"""
+    st.set_page_config(
+        page_title=config.ui.page_title,
+        page_icon=get_page_icon(),
+        layout=config.ui.layout,
+        initial_sidebar_state="expanded"
+    )
+    apply_css_styles()
+```
+
+### 22.5 移行計画
+
+#### フェーズ1: 文字起こし画面の分離
+1. `ui/pages/__init__.py`を作成
+2. `ui/pages/transcription_page.py`を作成
+3. main.pyから文字起こし関連のコードを移動
+4. インポートとルーティングを調整
+5. 動作確認とテスト
+
+#### フェーズ2: テキスト編集画面の分離
+1. `ui/pages/text_editing_page.py`を作成
+2. main.pyからテキスト編集関連のコードを移動
+3. 動作確認とテスト
+
+#### フェーズ3: 処理実行画面の分離
+1. `ui/pages/processing_page.py`を作成
+2. main.pyから処理実行関連のコードを移動
+3. 動作確認とテスト
+
+#### フェーズ4: 状態管理の統一
+1. `utils/session_state_manager.py`を作成
+2. 既存のセッション状態アクセスを置き換え
+3. 動作確認とテスト
+
+### 22.6 テスト方針
+
+1. **単体テスト**: 各ページコントローラーの独立したテスト
+2. **統合テスト**: ページ間の遷移とデータ受け渡し
+3. **リグレッションテスト**: 既存機能の維持確認
+4. **手動テスト**: 実際のワークフローでの動作確認
+
+### 22.7 リスク管理
+
+| リスク | 影響度 | 対策 |
+|--------|--------|------|
+| セッション状態の不整合 | 高 | 段階的移行と十分なテスト |
+| インポートエラー | 中 | 循環参照の回避、明確な依存関係 |
+| 機能の欠落 | 高 | チェックリストによる確認 |
+| パフォーマンス低下 | 低 | プロファイリングによる確認 |  
