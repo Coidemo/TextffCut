@@ -190,7 +190,18 @@ class TextEditingPageController:
         st.markdown("#### 切り抜き箇所")
         st.caption("文字起こし結果から切り抜く箇所を入力してください")
         
-        # 境界調整モード
+        # テキストエディタを表示
+        # デバッグ用
+        st.write("DEBUG: テキストエディタを表示します")
+        edited_text = show_text_editor(SessionStateManager.get("edited_text", ""), height=400)
+        st.write(f"DEBUG: edited_text length = {len(edited_text)}")
+        
+        # 更新ボタンが押された場合の処理
+        boundary_mode = SessionStateManager.get("boundary_adjustment_mode", False)
+        if st.button("🔍 更新", use_container_width=True, type="primary"):
+            self._handle_update_button(edited_text, full_text, transcription, boundary_mode)
+        
+        # 境界調整モード（更新ボタンの下に配置）
         boundary_mode = st.checkbox(
             "境界調整モード",
             value=SessionStateManager.get("boundary_adjustment_mode", False),
@@ -200,13 +211,6 @@ class TextEditingPageController:
         
         if boundary_mode:
             st.caption("💡 [< >] で前後に0.1秒、[<< >>] で前後に0.5秒、[<<< >>>] で前後に1秒調整")
-        
-        # テキストエディタを表示
-        edited_text = show_text_editor(SessionStateManager.get("edited_text", ""), height=400)
-        
-        # 更新ボタンが押された場合の処理
-        if st.button("🔍 更新", use_container_width=True, type="primary"):
-            self._handle_update_button(edited_text, full_text, transcription, boundary_mode)
 
     def _handle_update_button(self, edited_text: str, full_text: str, transcription, boundary_mode: bool):
         """更新ボタンの処理"""
