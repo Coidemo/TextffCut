@@ -138,6 +138,32 @@ def get_unique_path(base_path: Path) -> Path:
             return new_path
         counter += 1
 
+
+def get_display_path(file_path: str) -> str:
+    """
+    ファイルパスを表示用に変換
+
+    Args:
+        file_path: 実際のファイルパス
+
+    Returns:
+        表示用のパス
+    """
+    from .environment import IS_DOCKER, VIDEOS_DIR
+    
+    if IS_DOCKER:
+        # Docker環境：ホストパスに変換
+        host_base = os.getenv("HOST_VIDEOS_PATH", os.getenv("PWD", "/app") + "/videos")
+        # /app/videos/xxx を host_path/xxx に変換
+        relative_path = str(file_path).replace(VIDEOS_DIR + "/", "")
+        if relative_path == str(file_path):
+            # VIDEOS_DIR以外のパスの場合はそのまま返す
+            return file_path
+        return os.path.join(host_base, relative_path)
+    else:
+        # ローカル環境：そのまま返す
+        return file_path
+
         # 無限ループ防止
         if counter > 999:
             raise ValueError(f"Too many files with the same name: {base_path}")

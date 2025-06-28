@@ -14,7 +14,7 @@ from .exceptions import (
     VideoProcessingError,
     WhisperError,
 )
-from .file_utils import clean_temp_files, ensure_directory, get_video_files
+from .file_utils import clean_temp_files, ensure_directory, get_video_files, get_safe_filename, get_unique_path, get_display_path
 from .logging import get_logger, log_function_call, logger, show_log_info
 from .progress import ProgressTracker, create_simple_progress
 from .settings import settings_manager
@@ -29,6 +29,9 @@ __all__ = [
     "ensure_directory",
     "get_video_files",
     "clean_temp_files",
+    "get_safe_filename",
+    "get_unique_path",
+    "get_display_path",
     "logger",
     "get_logger",
     "log_function_call",
@@ -53,4 +56,5 @@ __all__ = [
     "LOGS_DIR",
     "TEMP_DIR",
     "DEFAULT_HOST_PATH",
+    "run_command_with_timeout",
 ]
