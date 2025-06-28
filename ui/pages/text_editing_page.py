@@ -161,23 +161,26 @@ class TextEditingPageController:
                 marker in saved_edited_text for marker in ["[<", "[>", "<]", ">]"]
             )
             
+            # 差分を計算
             if found_separator:
-                # 区切り文字対応の差分表示
-                show_diff_viewer(
+                # 区切り文字対応
+                diff = self.text_processor.find_differences_with_separator(
                     full_text,
-                    saved_edited_text,
+                    self.text_processor.remove_boundary_markers(saved_edited_text),
                     transcription,
-                    separator=found_separator,
-                    has_boundary_markers=has_boundary_markers
+                    found_separator,
+                    skip_normalization=has_boundary_markers
                 )
             else:
-                # 通常の差分表示
-                show_diff_viewer(
+                # 通常の差分
+                diff = self.text_processor.find_differences(
                     full_text,
-                    saved_edited_text,
-                    transcription,
-                    has_boundary_markers=has_boundary_markers
+                    self.text_processor.remove_boundary_markers(saved_edited_text),
+                    skip_normalization=has_boundary_markers
                 )
+            
+            # 差分を表示
+            show_diff_viewer(full_text, diff)
         else:
             # 初期表示（差分なし）
             show_edited_text_with_highlights(full_text, None)
@@ -372,10 +375,12 @@ class TextEditingPageController:
         # 境界調整モードかどうかで表示を切り替え
         if SessionStateManager.get("has_boundary_adjustments", False):
             # 境界調整後のプレビュー
+            # 注: 元の範囲と調整後の範囲が必要
+            # 現在は調整後の範囲のみ利用可能なので、同じものを渡す
             show_boundary_adjusted_preview(
                 video_path,
-                time_ranges,
-                SessionStateManager.get("edited_text", "")
+                time_ranges,  # original_ranges
+                time_ranges   # adjusted_ranges (同じものを使用)
             )
         else:
             # 通常のプレビュー
