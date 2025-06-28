@@ -462,13 +462,14 @@ class TextProcessor:
 
         return text.strip()
 
-    def find_differences(self, original: str, edited: str) -> TextDifference:
+    def find_differences(self, original: str, edited: str, skip_normalization: bool = False) -> TextDifference:
         """
         元のテキストと編集後のテキストの差分を検出
 
         Args:
             original: 元のテキスト
             edited: 編集後のテキスト
+            skip_normalization: 正規化をスキップするかどうか
 
         Returns:
             TextDifference: 差分情報
@@ -480,9 +481,10 @@ class TextProcessor:
 
                 raise VideoProcessingError("テキスト差分検出: 入力は文字列である必要があります")
 
-            # テキストを正規化
-            original = self.normalize_text(original)
-            edited = self.normalize_text(edited)
+            # テキストを正規化（スキップオプション対応）
+            if not skip_normalization:
+                original = self.normalize_text(original)
+                edited = self.normalize_text(edited)
 
             # 空白を除去したテキストで差分を計算
             original_no_spaces = self.remove_spaces(original)
@@ -678,7 +680,7 @@ class TextProcessor:
         return sections
 
     def find_differences_with_separator(
-        self, original: str, edited: str, transcription, separator: str = None
+        self, original: str, edited: str, transcription, separator: str = None, skip_normalization: bool = False
     ) -> list[tuple[float, float]]:
         """
         区切り文字に対応した差分検索
@@ -688,6 +690,7 @@ class TextProcessor:
             edited: 編集後のテキスト（区切り文字を含む可能性）
             transcription: 文字起こし結果
             separator: 区切り文字（デフォルト: ---）
+            skip_normalization: 正規化をスキップするかどうか
 
         Returns:
             時間範囲のリスト
@@ -698,7 +701,7 @@ class TextProcessor:
         # 区切り文字が含まれているかチェック
         if separator not in edited:
             # 区切り文字がない場合は通常の処理
-            diff = self.find_differences(original, edited)
+            diff = self.find_differences(original, edited, skip_normalization=skip_normalization)
             return diff.get_time_ranges(transcription)
 
         # 区切り文字で分割
@@ -712,7 +715,7 @@ class TextProcessor:
                 continue
 
             # 各セクションで差分検索
-            diff = self.find_differences(original, section)
+            diff = self.find_differences(original, section, skip_normalization=skip_normalization)
             section_ranges = diff.get_time_ranges(transcription)
 
             # 結果をマージ
@@ -770,8 +773,8 @@ class TextProcessor:
         Returns:
             境界調整情報のリスト
         """
-        # マーカーパターン
-        marker_pattern = re.compile(r"\[(\d+(?:\.\d+)?)[<>]\]|\[[<>](\d+(?:\.\d+)?)\]")
+        # マーカーパターン（負の数値にも対応）
+        marker_pattern = re.compile(r"\[(-?\d+(?:\.\d+)?)[<>]\]|\[[<>](-?\d+(?:\.\d+)?)\]")
 
         adjustments = []
 
@@ -811,6 +814,81 @@ class TextProcessor:
 
         return adjustments
 
+    def extract_existing_markers(self, text: str) -> dict[str, dict[str, float]]:
+        """
+        テキストから既存マーカー情報を抽出
+
+        Args:
+            text: マーカーを含むテキスト
+
+        Returns:
+            {セグメントテキスト: {'start': 開始値, 'end': 終了値}}
+        """
+        markers = {}
+        lines = text.split("\n")
+
+        for line in lines:
+            # 例: [<0.5]ハイパー企業ラジオっていう[1.0>]
+            start_match = re.search(r"\[<(-?\d+(?:\.\d+)?)\]", line)
+            end_match = re.search(r"\[(-?\d+(?:\.\d+)?)>\]", line)
+
+            if start_match and end_match:
+                # マーカーを除去したテキストを取得
+                segment_text = re.sub(r"\[<?-?\d+(?:\.\d+)?>?\]", "", line).strip()
+                if segment_text:
+                    markers[segment_text] = {"start": float(start_match.group(1)), "end": float(end_match.group(1))}
+
+        return markers
+
+    def validate_marker_positions(self, text: str) -> list[str]:
+        """
+        マーカーの位置が適切かどうかを検証
+        注：複数クリップの改行なし配置は自動修正されるため、エラーとして報告しない
+
+        Args:
+            text: 検証するテキスト
+
+        Returns:
+            エラーメッセージのリスト（空の場合は問題なし）
+        """
+        errors = []
+
+        # マーカーパターン
+        marker_pattern = re.compile(r"\[(-?\d+(?:\.\d+)?)[<>]\]|\[[<>](-?\d+(?:\.\d+)?)\]")
+
+        # 改行で分割（クリップごとに1行を想定）
+        lines = text.split("\n")
+
+        for i, line in enumerate(lines):
+            if not line.strip():
+                continue
+
+            # 各行のマーカーをすべて収集
+            markers_in_line = list(marker_pattern.finditer(line))
+
+            # 各マーカーの位置をチェック（セグメント内配置のみチェック）
+            for match in markers_in_line:
+                marker = match.group(0)
+                position = match.start()
+
+                # マーカーの前後のテキストを確認
+                before_text = line[:position]
+                after_text = line[position + len(marker) :]
+
+                # [<数値] パターンは行の先頭にあるべき
+                if marker.startswith("[<"):
+                    # マーカーの前にテキストがある場合（ただし >] 以外）
+                    if before_text.strip() and not before_text.rstrip().endswith(">]"):
+                        errors.append(f"行{i+1}: '{marker}'は行の先頭に配置してください")
+
+                # [数値>] パターンは行の末尾にあるべき
+                elif marker.endswith(">]"):
+                    # マーカーの後にテキストがある場合（ただし [< 以外）
+                    if after_text.strip() and not after_text.lstrip().startswith("[<"):
+                        errors.append(f"行{i+1}: '{marker}'は行の末尾に配置してください")
+
+        return errors
+
     def remove_boundary_markers(self, text: str) -> str:
         """
         テキストから境界調整マーカーを除去
@@ -821,16 +899,77 @@ class TextProcessor:
         Returns:
             マーカーを除去したテキスト
         """
-        # マーカーパターン
-        marker_pattern = re.compile(r"\[(\d+(?:\.\d+)?)[<>]\]|\[[<>](\d+(?:\.\d+)?)\]")
+        # マーカーパターン（負の数値にも対応）
+        marker_pattern = re.compile(r"\[(-?\d+(?:\.\d+)?)[<>]\]|\[[<>](-?\d+(?:\.\d+)?)\]")
 
         # マーカーを除去
         cleaned_text = marker_pattern.sub("", text)
 
-        # 連続する空白を1つに正規化
-        cleaned_text = re.sub(r"\s+", " ", cleaned_text)
-
+        # stripのみ実行（空白の正規化はしない）
         return cleaned_text.strip()
+
+    def auto_fix_marker_newlines(self, text: str) -> str:
+        """
+        マーカー配置の問題を自動修正
+
+        Args:
+            text: マーカーを含むテキスト
+
+        Returns:
+            修正されたテキスト
+        """
+        lines = text.split("\n")
+        fixed_lines = []
+
+        for i, line in enumerate(lines):
+            # 空行はそのまま
+            if not line.strip():
+                fixed_lines.append(line)
+                continue
+
+            # マーカーパターン
+            marker_pattern = re.compile(r"\[(-?\d+(?:\.\d+)?)[<>]\]|\[[<>](-?\d+(?:\.\d+)?)\]")
+
+            # 1. ]>][< パターンを改行に置換
+            line = re.sub(r"(\[(?:-?\d+(?:\.\d+)?)>\])\s*(\[<(?:-?\d+(?:\.\d+)?)\])", r"\1\n\2", line)
+
+            # 複数行に分割された場合の処理
+            sub_lines = line.split("\n")
+            for sub_line in sub_lines:
+                # マーカーがあるかチェック
+                has_start_marker = bool(re.search(r"\[<(?:-?\d+(?:\.\d+)?)\]", sub_line))
+                has_end_marker = bool(re.search(r"\[(?:-?\d+(?:\.\d+)?)>\]", sub_line))
+
+                # マーカーがないテキストにマーカーを追加
+                if sub_line.strip() and not has_start_marker and not has_end_marker:
+                    # マーカーがないテキストにはマーカーを追加
+                    fixed_lines.append(f"[<0.0]{sub_line.strip()}[0.0>]")
+                elif has_end_marker and not sub_line.rstrip().endswith(">]"):
+                    # 終了マーカーの後にテキストがある場合
+                    match = re.match(r"(.*\[(?:-?\d+(?:\.\d+)?)>\])(.+)$", sub_line)
+                    if match:
+                        marker_part = match.group(1)
+                        text_part = match.group(2).strip()
+                        fixed_lines.append(marker_part)
+                        if text_part:
+                            fixed_lines.append(f"[<0.0]{text_part}[0.0>]")
+                    else:
+                        fixed_lines.append(sub_line)
+                elif has_start_marker and not sub_line.lstrip().startswith("[<"):
+                    # 開始マーカーの前にテキストがある場合
+                    match = re.match(r"(.+?)(\[<(?:-?\d+(?:\.\d+)?)\].*)$", sub_line)
+                    if match:
+                        text_part = match.group(1).strip()
+                        marker_part = match.group(2)
+                        if text_part:
+                            fixed_lines.append(f"[<0.0]{text_part}[0.0>]")
+                        fixed_lines.append(marker_part)
+                    else:
+                        fixed_lines.append(sub_line)
+                else:
+                    fixed_lines.append(sub_line)
+
+        return "\n".join(fixed_lines)
 
     def apply_boundary_adjustments(
         self, time_ranges: list[tuple[float, float]], adjustments: list[dict], text: str
@@ -852,59 +991,77 @@ class TextProcessor:
         if not adjustments or not time_ranges:
             return time_ranges
 
-        # マーカーを除去したテキストを取得
-        clean_text = self.remove_boundary_markers(text)
+        # マーカー位置の検証（セグメント内配置チェック）
+        marker_errors = self.validate_marker_positions(text)
+        if marker_errors:
+            logger.warning(f"マーカー位置エラーが検出されました: {marker_errors}")
+            # エラーがある場合は調整を適用せず、元の時間範囲を返す
+            return time_ranges
 
-        # 各境界位置をマッピング（テキスト位置 -> 境界インデックス）
-        # 簡単のため、マーカー位置を文字位置として扱い、
-        # そこから最も近い境界を特定する
+        # デバッグ用ログ
+        logger.debug(f"適用前の時間範囲: {time_ranges}")
+        logger.debug(f"調整情報: {adjustments}")
 
-        # 調整情報を境界インデックスごとにグループ化
-        boundary_adjustments = {}
+        # 調整後の時間範囲を初期化
+        adjusted_ranges = list(time_ranges)  # コピーを作成
 
-        # 各調整情報を処理
+        # 各クリップの調整を処理（改行で分割されることを前提）
+        # マーカーの位置から対応するクリップを特定
+        lines = text.split("\n")
+        current_pos = 0
+
         for adj in adjustments:
-            # マーカー位置から対応する境界インデックスを推定
-            # ここでは簡略化のため、テキスト内での相対位置から推定
-            text_length = len(clean_text)
-            if text_length == 0:
-                continue
+            marker = adj["marker"]
+            position = adj["position"]
+            target = adj["target"]
+            adjustment = adj["adjustment"]
 
-            # 相対位置から境界インデックスを推定
-            relative_pos = adj["position"] / len(text)
-            boundary_index = int(relative_pos * (len(time_ranges) - 1))
+            logger.debug(f"処理中のマーカー: {marker} at {position}, target={target}, adjustment={adjustment}")
 
-            # 境界インデックスの範囲チェック
-            boundary_index = max(0, min(boundary_index, len(time_ranges) - 1))
+            # どの行（クリップ）のマーカーかを特定
+            clip_index = -1
+            for i, line in enumerate(lines):
+                line_start = current_pos
+                line_end = current_pos + len(line)
 
-            if boundary_index not in boundary_adjustments:
-                boundary_adjustments[boundary_index] = []
+                if line_start <= position < line_end:
+                    clip_index = i
+                    break
+                current_pos = line_end + 1  # 改行文字の分
 
-            boundary_adjustments[boundary_index].append(adj)
+            # リセット
+            current_pos = 0
 
-        # 調整後の時間範囲を作成
-        adjusted_ranges = []
+            # targetとクリップインデックスの関係を正しく処理
+            if clip_index >= 0 and clip_index < len(adjusted_ranges):
+                if target == "previous":
+                    # [数値>] は前のクリップ（同じ行）の終了を調整
+                    old_end = adjusted_ranges[clip_index][1]
+                    adjusted_ranges[clip_index] = (
+                        adjusted_ranges[clip_index][0],
+                        adjusted_ranges[clip_index][1] + adjustment,
+                    )
+                    logger.debug(f"クリップ{clip_index}の終了を調整: {old_end} -> {adjusted_ranges[clip_index][1]}")
+                elif target == "next":
+                    # [<数値] は後のクリップ（同じ行）の開始を調整
+                    old_start = adjusted_ranges[clip_index][0]
+                    adjusted_ranges[clip_index] = (
+                        adjusted_ranges[clip_index][0] + adjustment,
+                        adjusted_ranges[clip_index][1],
+                    )
+                    logger.debug(f"クリップ{clip_index}の開始を調整: {old_start} -> {adjusted_ranges[clip_index][0]}")
 
-        for i, (start, end) in enumerate(time_ranges):
-            adjusted_start = start
-            adjusted_end = end
-
-            # 前の境界の調整を適用（このクリップの開始時刻）
-            if i > 0 and (i - 1) in boundary_adjustments:
-                for adj in boundary_adjustments[i - 1]:
-                    if adj["target"] == "next":
-                        adjusted_start += adj["adjustment"]
-
-            # 現在の境界の調整を適用（このクリップの終了時刻）
-            if i in boundary_adjustments:
-                for adj in boundary_adjustments[i]:
-                    if adj["target"] == "previous":
-                        adjusted_end += adj["adjustment"]
-
+        # 各クリップの時刻を検証
+        final_ranges = []
+        for i, (start, end) in enumerate(adjusted_ranges):
             # 負の時刻にならないように制限
-            adjusted_start = max(0.0, adjusted_start)
-            adjusted_end = max(adjusted_start + 0.1, adjusted_end)  # 最小0.1秒の長さを保証
+            adjusted_start = max(0.0, start)
+            adjusted_end = max(adjusted_start + 0.1, end)  # 最小0.1秒の長さを保証
+            final_ranges.append((adjusted_start, adjusted_end))
 
-            adjusted_ranges.append((adjusted_start, adjusted_end))
+            if adjusted_start != start or adjusted_end != end:
+                logger.debug(f"クリップ{i}の時刻を制限: ({start}, {end}) -> ({adjusted_start}, {adjusted_end})")
 
-        return adjusted_ranges
+        logger.debug(f"適用後の時間範囲: {final_ranges}")
+
+        return final_ranges

@@ -374,90 +374,6 @@ def show_text_editor(initial_text: str = "", height: int = 400) -> str:
     Returns:
         編集されたテキスト
     """
-    # 境界調整ボタン
-    if st.button("境界を調整", help="切り抜き境界に調整マーカーを挿入します"):
-        # 現在のテキストを取得
-        current_text = st.session_state.get("text_editor_value", initial_text)
-
-        if current_text and "transcription_result" in st.session_state:
-            # 差分情報から境界位置を特定
-            text_processor = TextProcessor()
-            full_text = st.session_state.transcription_result.get_full_text()
-
-            # 既存のマーカーを除去したテキストで差分検出
-            cleaned_text = text_processor.remove_boundary_markers(current_text)
-
-            # 区切り文字の確認
-            separator_patterns = ["---", "——", "－－－"]
-            found_separator = None
-            for pattern in separator_patterns:
-                if pattern in cleaned_text:
-                    found_separator = pattern
-                    break
-
-            if found_separator:
-                # 区切り文字がある場合：各セクションの境界を検出
-                sections = text_processor.split_text_by_separator(cleaned_text, found_separator)
-
-                # 各セクションの境界位置を計算
-                updated_text = ""
-                for i, section in enumerate(sections):
-                    # セクションの差分を検出
-                    diff = text_processor.find_differences(full_text, section)
-
-                    # 共通部分が2つ以上ある場合、境界にマーカーを挿入
-                    if len(diff.common_positions) > 1:
-                        section_with_markers = ""
-                        last_end = 0
-
-                        for j in range(len(diff.common_positions)):
-                            pos = diff.common_positions[j]
-                            # 共通部分のテキストを追加
-                            section_with_markers += section[last_end : section.find(pos.text, last_end)] + pos.text
-                            last_end = section.find(pos.text, last_end) + len(pos.text)
-
-                            # 最後の共通部分でなければマーカーを挿入
-                            if j < len(diff.common_positions) - 1:
-                                section_with_markers += "[0.0>][<0.0]"
-
-                        # 最後の部分を追加
-                        section_with_markers += section[last_end:]
-                        updated_text += section_with_markers
-                    else:
-                        updated_text += section
-
-                    # 最後のセクションでなければ区切り文字を追加
-                    if i < len(sections) - 1:
-                        updated_text += "\n" + found_separator + "\n"
-            else:
-                # 区切り文字がない場合：全体の差分から境界を検出
-                diff = text_processor.find_differences(full_text, cleaned_text)
-
-                if len(diff.common_positions) > 1:
-                    # 境界位置にマーカーを挿入
-                    updated_text = ""
-                    last_end = 0
-
-                    for i in range(len(diff.common_positions)):
-                        pos = diff.common_positions[i]
-                        # 共通部分のテキストを追加
-                        updated_text += cleaned_text[last_end : cleaned_text.find(pos.text, last_end)] + pos.text
-                        last_end = cleaned_text.find(pos.text, last_end) + len(pos.text)
-
-                        # 最後の共通部分でなければマーカーを挿入
-                        if i < len(diff.common_positions) - 1:
-                            updated_text += "[0.0>][<0.0]"
-
-                    # 最後の部分を追加
-                    updated_text += cleaned_text[last_end:]
-                else:
-                    # 境界がない場合は何もしない
-                    st.info("境界が見つかりませんでした")
-                    return
-
-            st.session_state.text_editor_value = updated_text
-            st.rerun()
-
     # テキストエディタ
     edited_text = st.text_area(
         label="切り抜き箇所",
@@ -487,6 +403,22 @@ def show_edited_text_with_highlights(edited_text: str, diff: TextDifference | No
     if not edited_text or diff is None:
         return
 
+    from core.text_processor import TextProcessor
+
+    text_processor = TextProcessor()
+
+    # マーカーの位置を記録
+    import re
+
+    marker_pattern = re.compile(r"\[(\d+(?:\.\d+)?)[<>]\]|\[[<>](\d+(?:\.\d+)?)\]")
+    marker_positions = set()
+    for match in marker_pattern.finditer(edited_text):
+        for pos in range(match.start(), match.end()):
+            marker_positions.add(pos)
+
+    # マーカーを除去したテキスト
+    cleaned_text = text_processor.remove_boundary_markers(edited_text)
+
     # 編集テキストベースで赤ハイライトを生成
     html_content = f'<div class="edited-text-viewer" style="height: {height}px; overflow-y: auto; padding: 10px; border: 1px solid #ddd; border-radius: 5px; background-color: #f9f9f9;">'
 
@@ -494,14 +426,14 @@ def show_edited_text_with_highlights(edited_text: str, diff: TextDifference | No
     # 既存の共通部分の情報を使用
     covered_positions = set()
 
-    # 共通部分でカバーされている編集テキストの位置をマーク
+    # 共通部分でカバーされている編集テキストの位置をマーク（cleaned_textベース）
     for common_pos in diff.common_positions:
         # 編集テキスト内でこの共通テキストを検索
         common_text = common_pos.text
         search_start = 0
 
         while True:
-            found_pos = edited_text.find(common_text, search_start)
+            found_pos = cleaned_text.find(common_text, search_start)
             if found_pos == -1:
                 break
 
@@ -514,11 +446,18 @@ def show_edited_text_with_highlights(edited_text: str, diff: TextDifference | No
             search_start = found_pos + 1
 
     # HTMLを生成
+    cleaned_pos = 0  # cleaned_text内での位置
     for i, char in enumerate(edited_text):
-        if i in covered_positions:
-            html_content += char  # 元テキストに存在
+        if i in marker_positions:
+            # マーカー文字はそのまま表示（ハイライトなし）
+            html_content += char
         else:
-            html_content += f'<span class="highlight-addition" style="background-color: #ffe6e6; color: #d00;">{char}</span>'  # 追加文字
+            # 非マーカー文字の処理
+            if cleaned_pos in covered_positions:
+                html_content += char  # 元テキストに存在
+            else:
+                html_content += f'<span class="highlight-addition" style="background-color: #ffe6e6; color: #d00;">{char}</span>'  # 追加文字
+            cleaned_pos += 1
 
     html_content += "</div>"
 
@@ -549,17 +488,30 @@ def show_edited_text_with_separators_highlights(edited_text: str, separator: str
     sections = text_processor.split_text_by_separator(edited_text, separator)
 
     for i, section in enumerate(sections):
-        # 各セクションの差分を計算
-        section_diff = text_processor.find_differences(full_text, section)
+        # マーカーを除去してから差分を計算
+        cleaned_section = text_processor.remove_boundary_markers(section)
+        # 境界マーカーがある場合は正規化をスキップ
+        has_markers = any(marker in section for marker in ["[<", "[>", "<]", ">]"])
+        section_diff = text_processor.find_differences(full_text, cleaned_section, skip_normalization=has_markers)
+
+        # マーカーの位置を記録（ハイライトから除外するため）
+        marker_positions = set()
+        import re
+
+        marker_pattern = re.compile(r"\[(\d+(?:\.\d+)?)[<>]\]|\[[<>](\d+(?:\.\d+)?)\]")
+        for match in marker_pattern.finditer(section):
+            for pos in range(match.start(), match.end()):
+                marker_positions.add(pos)
+
         covered_positions = set()
 
-        # 共通部分でカバーされている位置をマーク
+        # 共通部分でカバーされている位置をマーク（cleaned_sectionベース）
         for common_pos in section_diff.common_positions:
             common_text = common_pos.text
             search_start = 0
 
             while True:
-                found_pos = section.find(common_text, search_start)
+                found_pos = cleaned_section.find(common_text, search_start)
                 if found_pos == -1:
                     break
 
@@ -571,11 +523,19 @@ def show_edited_text_with_separators_highlights(edited_text: str, separator: str
                 search_start = found_pos + 1
 
         # セクションのHTMLを生成
+        # マーカーを除外した位置での対応付けが必要
+        cleaned_pos = 0  # cleaned_section内での位置
         for j, char in enumerate(section):
-            if j in covered_positions:
-                html_content += char  # 元テキストに存在
+            if j in marker_positions:
+                # マーカー文字はそのまま表示（ハイライトなし）
+                html_content += char
             else:
-                html_content += f'<span class="highlight-addition" style="background-color: #ffe6e6; color: #d00;">{char}</span>'  # 追加文字
+                # 非マーカー文字の処理
+                if cleaned_pos in covered_positions:
+                    html_content += char  # 元テキストに存在
+                else:
+                    html_content += f'<span class="highlight-addition" style="background-color: #ffe6e6; color: #d00;">{char}</span>'  # 追加文字
+                cleaned_pos += 1
 
         # 区切り文字を追加（最後のセクション以外）
         if i < len(sections) - 1:
