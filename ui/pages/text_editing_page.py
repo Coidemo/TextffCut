@@ -322,20 +322,24 @@ class TextEditingPageController:
                         SessionStateManager.set("show_marker_error", False)
                         SessionStateManager.delete("marker_position_errors")
         
-        # 赤ハイライトチェック（共通）
+        # 赤ハイライトチェック（追加文字チェック）
+        has_red_highlights = False
         if found_separator:
-            has_red_highlights = self.text_processor.check_red_highlights_with_separator(
-                full_text,
-                cleaned_text,
-                found_separator,
-                skip_normalization=has_boundary_markers
-            )
+            # 区切り文字がある場合：各セクションで追加文字をチェック
+            sections = self.text_processor.split_text_by_separator(cleaned_text, found_separator)
+            for i, section in enumerate(sections):
+                diff = self.text_processor.find_differences(
+                    full_text, section, skip_normalization=has_boundary_markers
+                )
+                if diff.has_additions():
+                    has_red_highlights = True
+                    break
         else:
-            has_red_highlights = self.text_processor.check_red_highlights(
-                full_text,
-                cleaned_text,
-                skip_normalization=has_boundary_markers
+            # 通常の差分チェック
+            diff = self.text_processor.find_differences(
+                full_text, cleaned_text, skip_normalization=has_boundary_markers
             )
+            has_red_highlights = diff.has_additions()
         
         if has_red_highlights:
             # 通常モードでマーカーがある場合は警告
