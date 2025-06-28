@@ -27,7 +27,7 @@
 | REQ-002 | ローカル版文字起こし | core.transcription.UnifiedTranscriber | TC-004〜TC-008 |
 | REQ-003 | API版文字起こし | core.transcription_api.APITranscriber | TC-009〜TC-012 |
 | REQ-004 | テキスト編集（diff表示） | services.text_editing_service | TC-013〜TC-015 |
-| REQ-005 | タイムライン編集 | ui.timeline_editor, services.timeline_editing_service | TC-016〜TC-020 |
+| REQ-005 | タイムライン編集（境界調整） | core.text_processor.BoundaryMarkerParser | TC-016〜TC-020 |
 | REQ-006 | 無音検出・削除 | core.video.VideoProcessor | TC-021〜TC-025 |
 | REQ-007 | 動画切り出し・結合 | core.video.VideoProcessor | TC-026〜TC-030 |
 | REQ-008 | FCPXMLエクスポート | core.export.FCPXMLExporter | TC-031〜TC-033 |
@@ -1638,80 +1638,95 @@ def main():
     if should_show_text_edit_section():
         show_text_edit_section()
     
-    # 3. タイムライン編集セクション（条件付き表示）
-    if should_show_timeline_section():
-        show_timeline_edit_section()
+    # 3. 境界調整はテキスト編集セクション内で実施（タイムライン編集セクションは廃止）
     
     # 4. 処理実行セクション（条件付き表示）
     if should_show_process_section():
         show_process_execution_section()
 ```
 
-### 13.2 タイムライン編集の統合
+### 13.2 音声プレビュー機能
 
-#### 13.2.1 インライン表示実装
+**注**: 境界調整機能については「20. 境界調整機能（正式仕様）」を参照してください。
 
-```python
-def show_timeline_edit_section():
-    """タイムライン編集セクションの表示"""
-    st.markdown("---")
-    st.subheader("📊 タイムライン編集")
-    
-    # 既存のタイムライン編集UIを呼び出し（モーダルではなくインライン）
-    time_ranges = st.session_state.get("time_ranges", [])
-    transcription = st.session_state.get("transcription_result")
-    video_path = st.session_state.get("current_video_path")
-    
-    # タイムライン編集UIをレンダリング
-    adjusted_ranges = render_timeline_editor_inline(
-        time_ranges, 
-        transcription, 
-        video_path
-    )
-    
-    # 編集完了時の処理
-    if adjusted_ranges is not None:
-        st.session_state.adjusted_time_ranges = adjusted_ranges
-        st.session_state.timeline_completed = True
-        st.success("タイムライン編集が完了しました")
-```
-
-#### 13.2.2 状態の永続化
+指定されたすべてのクリップを結合して音声プレビューを生成します。境界調整前後の比較も可能です。
 
 ```python
-def save_timeline_state():
-    """タイムライン編集状態の保存"""
-    timeline_state = {
-        "adjusted_ranges": st.session_state.get("adjusted_time_ranges"),
-        "completed": st.session_state.get("timeline_completed", False),
-        "timestamp": datetime.now().isoformat()
-    }
+def generate_combined_audio_preview(
+    video_path: str, 
+    time_ranges: list[tuple[float, float]], 
+    max_duration: float = 30.0
+) -> str:
+    """
+    複数のクリップを結合した音声プレビューを生成
     
-    # プロジェクトディレクトリに保存
-    project_dir = get_project_directory()
-    state_file = project_dir / "timeline_state.json"
+    Args:
+        video_path: 動画ファイルパス
+        time_ranges: 時間範囲のリスト
+        max_duration: 最大プレビュー時間（秒）
     
-    with open(state_file, "w") as f:
-        json.dump(timeline_state, f, indent=2)
+    Returns:
+        結合された音声ファイルのパス
+    """
+    # 各クリップの音声を抽出
+    audio_segments = []
+    total_duration = 0
+    
+    for start, end in time_ranges:
+        if total_duration >= max_duration:
+            break
+            
+        # 残り時間を考慮してクリップを制限
+        clip_duration = min(end - start, max_duration - total_duration)
+        audio_segment = extract_audio_segment(video_path, start, start + clip_duration)
+        audio_segments.append(audio_segment)
+        total_duration += clip_duration
+    
+    # FFmpegで結合
+    return concatenate_audio_segments(audio_segments)
 
-def load_timeline_state():
-    """タイムライン編集状態の復元"""
-    project_dir = get_project_directory()
-    state_file = project_dir / "timeline_state.json"
+def show_audio_preview_controls(video_path: str, time_ranges: list[tuple[float, float]]):
+    """
+    音声プレビューコントロールの表示
     
-    if state_file.exists():
-        with open(state_file, "r") as f:
-            timeline_state = json.load(f)
-        
-        # セッション状態に復元
-        if timeline_state.get("adjusted_ranges"):
-            st.session_state.adjusted_time_ranges = timeline_state["adjusted_ranges"]
-            st.session_state.timeline_completed = timeline_state["completed"]
+    UI配置:
+    - 更新ボタンの右側に音声プレーヤーを即座に表示
+    - 音声プレーヤーは更新ボタン押下時に自動生成・表示
+    - 境界を調整ボタンは更新ボタンとプレーヤーの下に配置
+    """
+    # 更新ボタンと音声プレーヤーを横並びで配置
+    col1, col2 = st.columns([1, 3])
+    
+    with col1:
+        if st.button("🔄 更新", key="update_preview"):
+            # 更新フラグをセット
+            st.session_state.preview_update_requested = True
+    
+    with col2:
+        # 更新が要求されているか、既に音声が生成されている場合はプレーヤーを表示
+        if st.session_state.get("preview_update_requested", False) or st.session_state.get("preview_audio_path"):
+            if st.session_state.get("preview_update_requested", False):
+                # 新しい音声を生成
+                with st.spinner("音声を結合中..."):
+                    audio_path = generate_combined_audio_preview(video_path, time_ranges)
+                    st.session_state.preview_audio_path = audio_path
+                    st.session_state.preview_update_requested = False
+            
+            # 音声プレーヤーを表示
+            if st.session_state.get("preview_audio_path"):
+                st.audio(st.session_state.preview_audio_path, format="audio/wav")
+                st.caption("※ 最大30秒までのプレビュー")
+    
+    # 境界を調整ボタンは下に配置（セクション20参照）
+    if st.button("境界を調整", key="adjust_boundaries"):
+        # 境界調整マーカー挿入処理（詳細はセクション20.4参照）
+        insert_boundary_markers()
 ```
+
 
 ## 14. セキュリティ設計
 
-### 13.1 コマンドインジェクション対策
+### 14.1 コマンドインジェクション対策
 
 #### FFmpeg/yt-dlp呼び出しの安全な実装
 
@@ -2943,7 +2958,7 @@ from ui.timeline_editor_static import render_timeline_editor_static
 | 機能 | 要件ID | 実装予定 | 理由 |
 |------|--------|---------|------|
 | YouTube動画ダウンロード | REQ-001 | 検討中 | 著作権への配慮 |
-| タイムライン編集 | REQ-005 | ✅ 実装済み | カスタムコンポーネントで実装完了（Phase 1） |
+| タイムライン編集 | REQ-005 | ✅ 実装済み | テキスト内境界調整機能で代替実装 |
 | SRT字幕エクスポート | REQ-010 | 近日 | 需要に応じて |
 
 ### 16.3 設計と実装の差異
@@ -2973,6 +2988,12 @@ from ui.timeline_editor_static import render_timeline_editor_static
      - ✅ 無音削除時の時間マッピング対応
      - ✅ 字幕は文字起こしのタイムスタンプを基準に生成（クリップ数との一致は不要）
      - ✅ 字幕全体が動画全体の時間範囲内に収まることを保証
+   - テキスト内境界調整機能（✅ 実装完了）
+     - ✅ 境界マーカー解析機能 (TextProcessor)
+     - ✅ テキストエディタUIに「境界を調整」ボタン
+     - ✅ main.pyへの統合（自動適用）
+     - ✅ 音声プレビュー機能（調整前後の比較）
+     - ✅ 包括的なテストケース
 
 2. **優先度中**
    - Docker状態永続化の完全実装
@@ -3611,171 +3632,122 @@ def _split_text_into_chunks(self, text: str) -> list[str]:
     return chunks
 ```
 
-## 20. カスタムコンポーネント実装詳細
+## 20. 境界調整機能（正式仕様）
 
-### 20.1 アーキテクチャ概要
+**重要**: 境界調整マーカーの仕様はこのセクションが正式版です。他のセクション（特に13.2）の記載は古い仕様のため参照しないでください。
 
-Streamlitカスタムコンポーネントは、PythonバックエンドとJavaScriptフロントエンドの間でリアルタイム通信を可能にする仕組み。
+### 20.1 機能概要
+
+境界調整機能は、切り抜きクリップの開始・終了時刻を細かく調整するための機能です。テキスト内にマーカーを挿入することで、各クリップの境界を前後に移動できます。
+
+### 20.2 マーカー仕様
+
+#### 20.2.1 マーカー記法（改訂版）
 
 ```
-┌─────────────────────────────────────────────┐
-│              Python Backend                  │
-│  ┌────────────────────────────────────┐     │
-│  │     timeline_editor.py             │     │
-│  │  - 波形データ抽出                  │     │
-│  │  - クリップデータ準備              │     │
-│  │  - コンポーネント呼び出し          │     │
-│  └────────────────────────────────────┘     │
-│                    ↕                         │
-│         Streamlit Component API              │
-│                    ↕                         │
-│  ┌────────────────────────────────────┐     │
-│  │  ui/components/timeline/__init__.py│     │
-│  │  - コンポーネント宣言              │     │
-│  │  - データ送受信                    │     │
-│  └────────────────────────────────────┘     │
-└─────────────────────────────────────────────┘
-                     ↕
-┌─────────────────────────────────────────────┐
-│           JavaScript Frontend                │
-│  ┌────────────────────────────────────┐     │
-│  │         frontend/main.js           │     │
-│  │  - Canvas API波形描画              │     │
-│  │  - イベントハンドリング            │     │
-│  │  - Streamlit通信                   │     │
-│  └────────────────────────────────────┘     │
-└─────────────────────────────────────────────┘
+[数値<] = 前のクリップを縮める（終了時刻を早める）
+[数値>] = 前のクリップを延ばす（終了時刻を遅らせる）
+[<数値] = 後のクリップを早める（開始時刻を早める）
+[>数値] = 後のクリップを遅らせる（開始時刻を遅らせる）
 ```
 
-### 20.2 データフロー
+#### 20.2.2 使用例
 
-#### 20.2.1 Python → JavaScript
+```
+これが最初のセクションです。[2<]
+これが次のセクションです。[1>]さらに続きます。
+```
+
+上記の例では：
+- `[2<]`: 第1クリップの終了を2秒早める
+- `[1>]`: 第2クリップの開始を1秒遅らせる
+
+### 20.3 実装詳細
+
+#### 20.3.1 マーカー解析処理
 
 ```python
-# timeline_editor.py
-clips_data = [
-    {
-        "id": "clip-0",
-        "start_time": 10.5,
-        "end_time": 25.3,
-        "samples": [0.1, -0.2, 0.3, ...]  # 正規化された波形データ
-    }
-]
-return_value = timeline_editor(clips_data=clips_data)
+# core/text_processor.py
+class BoundaryMarkerParser:
+    def parse_markers(self, text: str) -> list[BoundaryAdjustment]:
+        """テキストから境界調整マーカーを抽出"""
+        pattern = r'\[(\d+(?:\.\d+)?)[<>]\]|\[[<>](\d+(?:\.\d+)?)\]'
+        # 実装詳細...
 ```
 
-#### 20.2.2 JavaScript → Python
-
-```javascript
-// main.js
-streamlit.setComponentValue({
-    "action": "apply_changes",
-    "time_ranges": [
-        {"start_time": 10.5, "end_time": 25.3},
-        {"start_time": 30.0, "end_time": 45.0}
-    ]
-});
-```
-
-### 20.3 実装の詳細
-
-#### 20.3.1 波形データ処理
+#### 20.3.2 境界調整の適用
 
 ```python
-# core/waveform_processor.py
-class WaveformProcessor:
-    def extract_waveforms_for_clips(
-        self, 
-        video_path: str, 
-        time_ranges: list[tuple[float, float]], 
-        samples_per_clip: int = 200
-    ) -> list[WaveformData]:
-        """各クリップの波形データを抽出"""
-        waveforms = []
-        for start, end in time_ranges:
-            # 音声データ抽出
-            audio_data = self._extract_audio_segment(video_path, start, end)
-            # ダウンサンプリング
-            samples = self._downsample(audio_data, samples_per_clip)
-            # 正規化（-1.0 ~ 1.0）
-            normalized = self._normalize(samples)
-            waveforms.append(WaveformData(samples=normalized))
-        return waveforms
+def apply_boundary_adjustments(
+    self,
+    time_ranges: list[tuple[float, float]],
+    adjustments: list[BoundaryAdjustment]
+) -> list[tuple[float, float]]:
+    """時間範囲に境界調整を適用"""
+    # 実装詳細...
 ```
 
-#### 20.3.2 JavaScript描画ロジック
+### 20.4 UI統合
 
-```javascript
-// frontend/main.js
-function drawWaveform(ctx, clip, x, y, width, height) {
-    const samples = clip.samples || generateDummyWaveform();
-    const sampleWidth = width / samples.length;
-    
-    ctx.beginPath();
-    ctx.strokeStyle = selectedClipIndex === index ? "#2196F3" : "#666";
-    
-    for (let i = 0; i < samples.length; i++) {
-        const sampleX = x + i * sampleWidth;
-        const sampleY = y + height/2 - (samples[i] * height/2);
-        
-        if (i === 0) ctx.moveTo(sampleX, sampleY);
-        else ctx.lineTo(sampleX, sampleY);
-    }
-    
-    ctx.stroke();
-}
+#### 20.4.1 マーカー挿入UI
+
+- テキストエディタ内でのマーカー表示
+- 自動マーカー挿入機能
+- マーカー位置のプレビュー表示
+
+#### 20.4.2 音声プレビュー機能
+
+```python
+# ui/audio_preview.py
+def show_boundary_adjusted_preview(
+    video_path: str,
+    original_ranges: list[tuple[float, float]],
+    adjusted_ranges: list[tuple[float, float]]
+):
+    """境界調整前後の比較プレビュー"""
 ```
 
-### 20.4 ビルドとデプロイ
+### 20.5 エラーハンドリング
 
-#### 20.4.1 開発環境
+- 無効なマーカー形式の検出
+- 調整値が動画長を超える場合の処理
+- 重複するマーカーの処理
 
-```bash
-# 開発サーバー起動（frontend/内で実行）
-cd ui/components/timeline/frontend
-python -m http.server 3001
-```
+## 21. 実装状況サマリー
 
-#### 20.4.2 本番ビルド
+### 21.1 完了済み機能
 
-```bash
-# 単一ファイルにバンドル
-cd ui/components/timeline/frontend
-cat index.html main.js > build/main.js
-```
+- ✅ ローカル版文字起こし（WhisperX）
+- ✅ API版文字起こし（OpenAI Whisper API）
+- ✅ テキスト編集と差分表示
+- ✅ 境界調整機能（テキスト内マーカー方式）
+- ✅ 無音検出・削除
+- ✅ 動画切り出し・結合
+- ✅ FCPXMLエクスポート
+- ✅ Premiere Pro XMLエクスポート
+- ✅ SRT字幕エクスポート
+- ✅ キャッシュ管理
+- ✅ 設定の永続化
 
-### 20.5 今後の拡張計画
+### 21.2 境界調整機能の実装状況
 
-1. **Phase 2**: 境界調整、プレビュー機能
-2. **Phase 3**: 分割・結合、キーボードショートカット
-3. **将来**: WebAssemblyによる高速波形処理
+- ✅ マーカー解析（BoundaryMarkerParser）
+- ✅ 境界調整適用（apply_boundary_adjustments）
+- ✅ 音声プレビュー（show_boundary_adjusted_preview）
+- ✅ UI統合（main.py）
+- ✅ 自動マーカー配置
+- ✅ マーカー位置検証
+- ✅ エラー表示とリカバリー
+- ✅ チェックボックス状態保持
+- ✅ SRT字幕エクスポート（core.srt_exporter.SRTExporterで実装完了）
 
-### 20.6 トラブルシューティング
+### 21.3 既知の問題
 
-#### 20.6.1 ディレクトリ構造の注意点
-
-カスタムコンポーネント開発時の重要な教訓：
-
-```
-ui/
-├── components.py         # レガシーコンポーネント
-├── custom_components/    # カスタムコンポーネント（components/ではない）
-│   └── timeline/
-```
-
-**問題**: `components.py`と`components/`ディレクトリが共存すると、Pythonはディレクトリを優先してインポートし、ImportErrorが発生する。
-
-**解決策**: カスタムコンポーネントは`custom_components/`などの競合しない名前を使用する。
-
-#### 20.6.2 フロントエンドファイルの配置
-
-- 開発時: `frontend/`ディレクトリで作業
-- 本番時: `frontend/build/`にコピーが必要
-- 自動ビルドスクリプトの作成を推奨
+なし（2025-06-28時点）
 
 ---
 
 **作成日**: 2025-06-22  
-**バージョン**: 3.4  
-**更新日**: 2025-06-26  
-**次回更新**: 実装完了時のフィードバック反映
+**バージョン**: 3.6  
+**最終更新**: 2025-06-28  
+**次回更新**: YouTube URL対応機能実装時  

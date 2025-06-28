@@ -47,6 +47,8 @@ from utils.file_utils import ensure_directory, get_safe_filename
 from utils.logging import get_logger
 from utils.time_utils import format_time
 
+logger = get_logger(__name__)
+
 # Streamlitの設定
 # アイコンファイルのパスを設定
 
@@ -320,6 +322,9 @@ def main() -> None:
         # 現在の動画パスを保存
         st.session_state.current_video_path = video_path
 
+    # video_pathをセッション状態に保存（音声プレビュー用）
+    st.session_state.video_path = video_path
+
     # 不要なタイムライン編集モードのチェックを削除
 
     # 文字起こし処理
@@ -372,6 +377,11 @@ def main() -> None:
     # 現在のモードとモデルを保存（確認画面で決定されるまでコメントアウト）
     # st.session_state.previous_transcription_mode = current_mode
     # st.session_state.previous_transcription_model = current_model
+
+    # 設定の初期化
+    from config import Config
+
+    config = Config()
 
     # 分離モードに応じて適切なTranscriberを選択
     if config.transcription.isolation_mode == "subprocess":
@@ -451,7 +461,9 @@ def main() -> None:
 
             with time_col:
                 st.markdown("**📊 動画時間**")
-                st.markdown(f"{duration_minutes:.1f}分 ({format_time(video_info.duration)})")
+                from utils.time_utils import format_time as fmt_time
+
+                st.markdown(f"{duration_minutes:.1f}分 ({fmt_time(video_info.duration)})")
 
             with price_col:
                 if use_api:
@@ -855,6 +867,13 @@ def main() -> None:
         if st.session_state.get("show_error_and_delete", False):
             st.error("⚠️ 元動画に存在しない文字が切り抜き箇所に入力されています。削除してください。")
 
+        # マーカー位置エラーの表示
+        if st.session_state.get("show_marker_error", False):
+            st.error("⚠️ 境界調整マーカーの位置が不適切です。マーカーは各行の先頭と末尾にのみ配置してください。")
+            marker_errors = st.session_state.get("marker_position_errors", [])
+            for error in marker_errors:
+                st.error(f"❌ {error}")
+
         # 全テキストを取得（wordsベース必須）
         try:
             full_text = transcription.get_full_text()
@@ -885,12 +904,23 @@ def main() -> None:
                         found_separator = pattern
                         break
 
+                # 境界調整マーカーが含まれているかチェック
+                has_boundary_markers = any(marker in saved_edited_text for marker in ["[<", "[>", "<]", ">]"])
+
                 if found_separator:
                     # 区切り文字がある場合：区切り文字を除去して差分計算
                     text_without_separator = saved_edited_text.replace(found_separator, " ")  # スペースで置換
                     # 互換性のためTextProcessorも使用（サービス層への移行を段階的に行う）
                     text_processor = TextProcessor()
-                    diff = text_processor.find_differences(full_text, text_without_separator)
+                    # 境界マーカーを除去してから差分計算
+                    cleaned_text = (
+                        text_processor.remove_boundary_markers(text_without_separator)
+                        if has_boundary_markers
+                        else text_without_separator
+                    )
+                    diff = text_processor.find_differences(
+                        full_text, cleaned_text, skip_normalization=has_boundary_markers
+                    )
                     show_diff_viewer(full_text, diff)
                 else:
                     # 区切り文字がない場合：サービスを使用
@@ -898,7 +928,15 @@ def main() -> None:
                     if diff_result.success:
                         # 既存の差分表示と互換性を保つため、TextProcessorも使用
                         text_processor = TextProcessor()
-                        diff = text_processor.find_differences(full_text, saved_edited_text)
+                        # 境界マーカーを除去してから差分計算
+                        cleaned_text = (
+                            text_processor.remove_boundary_markers(saved_edited_text)
+                            if has_boundary_markers
+                            else saved_edited_text
+                        )
+                        diff = text_processor.find_differences(
+                            full_text, cleaned_text, skip_normalization=has_boundary_markers
+                        )
                         show_diff_viewer(full_text, diff)
                     else:
                         st.error(f"差分検出エラー: {diff_result.error}")
@@ -926,23 +964,37 @@ def main() -> None:
                 # 時間計算
                 text_processor = TextProcessor()
 
+                # 境界調整マーカーが含まれているかチェック
+                has_boundary_markers = any(marker in display_text for marker in ["[<", "[>", "<]", ">]"])
+
+                # マーカーを除去したテキストで時間計算
+                cleaned_display_text = (
+                    text_processor.remove_boundary_markers(display_text) if has_boundary_markers else display_text
+                )
+
                 # 区切り文字パターンをチェック
                 separator_patterns = ["---", "——", "－－－"]
                 found_separator = None
 
                 for pattern in separator_patterns:
-                    if pattern in display_text:
+                    if pattern in cleaned_display_text:
                         found_separator = pattern
                         break
 
                 if found_separator:
                     time_ranges = text_processor.find_differences_with_separator(
-                        full_text, display_text, transcription, found_separator
+                        full_text,
+                        cleaned_display_text,
+                        transcription,
+                        found_separator,
+                        skip_normalization=has_boundary_markers,
                     )
-                    sections = text_processor.split_text_by_separator(display_text, found_separator)
+                    sections = text_processor.split_text_by_separator(cleaned_display_text, found_separator)
                     separator_info = f" / セクション数: {len(sections)}"
                 else:
-                    diff = text_processor.find_differences(full_text, display_text)
+                    diff = text_processor.find_differences(
+                        full_text, cleaned_display_text, skip_normalization=has_boundary_markers
+                    )
                     time_ranges = diff.get_time_ranges(transcription)
                     separator_info = ""
 
@@ -952,92 +1004,349 @@ def main() -> None:
                 )
 
             # ボタンを横並びに配置
-            button_col1, button_col2 = st.columns([1, 2])
+            button_col1, button_col2 = st.columns([1, 3])
 
             with button_col1:
                 # 更新ボタン
-                if st.button("🔄 更新", type="primary", use_container_width=True):
-                    st.session_state.edited_text = edited_text
+                update_clicked = st.button("更新", type="primary", use_container_width=True)
+                if update_clicked:
+                    text_processor = TextProcessor()
 
-                    # 時間範囲を計算して保存
-                    if edited_text:
-                        text_processor = TextProcessor()
+                    # 境界調整モードに応じた処理
+                    if st.session_state.get("boundary_adjustment_mode", False):
+                        # 境界調整モードON
+                        # 1. 既存のマーカー情報を抽出
+                        existing_markers = text_processor.extract_existing_markers(edited_text)
+
+                        # 2. マーカーを除去したテキストで処理
+                        cleaned_text = text_processor.remove_boundary_markers(edited_text)
+
+                        # 3. 区切り文字の確認
                         separator_patterns = ["---", "——", "－－－"]
                         found_separator = None
                         for pattern in separator_patterns:
-                            if pattern in edited_text:
+                            if pattern in cleaned_text:
                                 found_separator = pattern
                                 break
 
                         if found_separator:
-                            time_ranges = text_processor.find_differences_with_separator(
-                                full_text, edited_text, transcription, found_separator
-                            )
-                        else:
-                            diff = text_processor.find_differences(full_text, edited_text)
-                            time_ranges = diff.get_time_ranges(transcription)
+                            # 区切り文字がある場合：各セクションを処理
+                            sections = text_processor.split_text_by_separator(cleaned_text, found_separator)
+                            processed_sections = []
 
+                            for section in sections:
+                                # 各セクションの差分を検出してセグメント化
+                                diff = text_processor.find_differences(full_text, section)
+                                if len(diff.common_positions) > 0:
+                                    # セグメントごとに改行とマーカーを挿入
+                                    section_with_markers = ""
+                                    for i, pos in enumerate(diff.common_positions):
+                                        if i > 0:
+                                            section_with_markers += "\n"
+                                        # 既存マーカーがあればその値を使用、なければ初期値
+                                        if pos.text in existing_markers:
+                                            start_val = existing_markers[pos.text]["start"]
+                                            end_val = existing_markers[pos.text]["end"]
+                                        else:
+                                            start_val = 0.0
+                                            end_val = 0.0
+                                        section_with_markers += f"[<{start_val}]{pos.text}[{end_val}>]"
+                                    processed_sections.append(section_with_markers)
+                                else:
+                                    processed_sections.append(section)
+
+                            # セクションを区切り文字で結合
+                            processed_text = f"\n{found_separator}\n".join(processed_sections)
+                        else:
+                            # 区切り文字がない場合：全体を処理
+                            diff = text_processor.find_differences(full_text, cleaned_text)
+                            if len(diff.common_positions) > 0:
+                                # セグメントごとに改行とマーカーを挿入
+                                processed_text = ""
+                                for i, pos in enumerate(diff.common_positions):
+                                    if i > 0:
+                                        processed_text += "\n"
+                                    # 既存マーカーがあればその値を使用、なければ初期値
+                                    if pos.text in existing_markers:
+                                        start_val = existing_markers[pos.text]["start"]
+                                        end_val = existing_markers[pos.text]["end"]
+                                    else:
+                                        start_val = 0.0
+                                        end_val = 0.0
+                                    processed_text += f"[<{start_val}]{pos.text}[{end_val}>]"
+                            else:
+                                processed_text = cleaned_text
+
+                        # 処理後のテキストを設定
+                        st.session_state.text_editor_value = processed_text
+                        edited_text = processed_text
+                        
                         st.session_state.time_ranges = time_ranges
                         # タイムライン編集セクションは自動で表示しない（ユーザーが選択）
                         # adjusted_time_rangesがある場合はクリア（新しいテキストに更新されたため）
                         if "adjusted_time_ranges" in st.session_state:
                             del st.session_state.adjusted_time_ranges
 
-                    # 赤ハイライトがあるかチェック
+                        # マーカー位置の検証（境界調整モードON時のみ）
+                        marker_errors = text_processor.validate_marker_positions(processed_text)
+                        if marker_errors:
+                            # セグメント内配置エラー
+                            st.session_state.marker_position_errors = marker_errors
+                            st.session_state.show_marker_error = True
+                            st.session_state.original_edited_text = processed_text
+                            st.error("境界調整マーカーの位置を修正してから更新してください。")
+                            return
+                    else:
+                        # 通常モード：マーカーを削除
+                        cleaned_text = text_processor.remove_boundary_markers(edited_text)
+                        if cleaned_text != edited_text:
+                            st.session_state.text_editor_value = cleaned_text
+                            edited_text = cleaned_text
+                            logger.info("通常モード：境界調整マーカーを削除しました")
+
+                    st.session_state.edited_text = edited_text
+                    st.session_state.preview_update_requested = True  # 音声プレビュー更新フラグ
+
+                    # 時間範囲を計算して保存
                     if edited_text:
                         text_processor = TextProcessor()
+
+                        # 境界マーカーを解析
+                        boundary_adjustments = text_processor.parse_boundary_markers(edited_text)
+
+                        # マーカーを除去したテキストで差分検出
+                        cleaned_text = text_processor.remove_boundary_markers(edited_text)
+
+                        separator_patterns = ["---", "——", "－－－"]
+                        found_separator = None
+                        for pattern in separator_patterns:
+                            if pattern in cleaned_text:
+                                found_separator = pattern
+                                break
+
+                        # 境界調整マーカーが含まれているかチェック
+                        has_boundary_markers_in_edited = any(
+                            marker in edited_text for marker in ["[<", "[>", "<]", ">]"]
+                        )
+
+                        if found_separator:
+                            time_ranges = text_processor.find_differences_with_separator(
+                                full_text,
+                                cleaned_text,
+                                transcription,
+                                found_separator,
+                                skip_normalization=has_boundary_markers_in_edited,
+                            )
+                        else:
+                            diff = text_processor.find_differences(
+                                full_text, cleaned_text, skip_normalization=has_boundary_markers_in_edited
+                            )
+                            time_ranges = diff.get_time_ranges(transcription)
+
+                        # 境界調整を適用
+                        if boundary_adjustments:
+                            adjusted_time_ranges = text_processor.apply_boundary_adjustments(
+                                time_ranges, boundary_adjustments, edited_text
+                            )
+                            st.session_state.time_ranges = adjusted_time_ranges
+                            st.session_state.has_boundary_adjustments = True
+                        else:
+                            st.session_state.time_ranges = time_ranges
+                            st.session_state.has_boundary_adjustments = False
+
+                        # タイムライン編集セクションは表示しない（境界調整で代替）
+                        st.session_state.show_timeline_section = False
+                        st.session_state.timeline_completed = True  # 境界調整完了として扱う
+
+                    # 赤ハイライトがあるかチェック（モード別処理）
+                    if edited_text:
+                        text_processor = TextProcessor()
+
+                        # マーカーを除去したテキストでチェック
+                        cleaned_text = text_processor.remove_boundary_markers(edited_text)
+
+                        # デバッグ：マーカー除去前後の比較
+                        if edited_text != cleaned_text:
+                            logger.debug(f"マーカー除去前: {edited_text[:100]}...")
+                            logger.debug(f"マーカー除去後: {cleaned_text[:100]}...")
 
                         # 区切り文字対応
                         separator_patterns = ["---", "——", "－－－"]
                         found_separator = None
                         for pattern in separator_patterns:
-                            if pattern in edited_text:
+                            if pattern in cleaned_text:
                                 found_separator = pattern
                                 break
 
+                        # 境界調整マーカーが含まれているかチェック
+                        has_boundary_markers = any(marker in edited_text for marker in ["[<", "[>", "<]", ">]"])
+
+                        # 境界調整モードに応じたエラーチェック
+                        if st.session_state.get("boundary_adjustment_mode", False):
+                            # 境界調整モードON時：マーカー位置エラーをチェック
+                            marker_errors = []
+                            if has_boundary_markers:
+                                # まず自動修正を試みる
+                                fixed_text = text_processor.auto_fix_marker_newlines(edited_text)
+                                if fixed_text != edited_text:
+                                    # 自動修正が行われた場合はテキストを更新
+                                    st.session_state.text_editor_value = fixed_text
+                                    logger.info("マーカー配置を自動修正しました")
+                                    # 自動修正を反映させるために再読み込み
+                                    st.session_state.need_rerun = True
+                                else:
+                                    # 修正不要の場合はそのまま検証
+                                    marker_errors = text_processor.validate_marker_positions(edited_text)
+
+                                if marker_errors:
+                                    # セグメント内配置エラーがある場合（自動修正できない）
+                                    st.session_state.marker_position_errors = marker_errors
+                                    st.session_state.show_marker_error = True
+                                    st.session_state.original_edited_text = edited_text
+                                    st.session_state.need_rerun = True
+                            else:
+                                # マーカーがない場合はエラーをクリア
+                                st.session_state.marker_position_errors = []
+                                st.session_state.show_marker_error = False
+                        else:
+                            # 通常モード：マーカー位置エラーはチェックしない
+                            st.session_state.marker_position_errors = []
+                            st.session_state.show_marker_error = False
+
+                        # 追加文字エラーのチェック（両モードで実施）
                         has_additions = False
                         if found_separator:
                             # 区切り文字がある場合：各セクションで追加文字をチェック
-                            sections = text_processor.split_text_by_separator(edited_text, found_separator)
-                            for section in sections:
-                                diff = text_processor.find_differences(full_text, section)
+                            sections = text_processor.split_text_by_separator(cleaned_text, found_separator)
+                            for i, section in enumerate(sections):
+                                # 境界調整マーカーがある場合は正規化をスキップ
+                                diff = text_processor.find_differences(
+                                    full_text, section, skip_normalization=has_boundary_markers
+                                )
                                 if diff.has_additions():
                                     has_additions = True
+                                    # デバッグ情報
+                                    logger.debug(f"セクション{i}で追加文字を検出: {section[:50]}...")
+                                    logger.debug(f"追加文字: {diff.added_chars}")
                                     break
 
                             # 区切り文字がある場合は、区切り文字を除去した全体テキストを渡す
                             if has_additions:
-                                text_without_separator = edited_text.replace(found_separator, " ")
-                                diff = text_processor.find_differences(full_text, text_without_separator)
+                                text_without_separator = cleaned_text.replace(found_separator, " ")
+                                diff = text_processor.find_differences(
+                                    full_text, text_without_separator, skip_normalization=has_boundary_markers
+                                )
                                 st.session_state.current_diff = diff
                                 st.session_state.current_edited_text = text_without_separator
                                 st.session_state.original_edited_text = (
-                                    edited_text  # 元のテキスト（区切り文字付き）も保存
+                                    edited_text  # 元のテキスト（マーカー付き）も保存
                                 )
                         else:
                             # 区切り文字がない場合：通常のチェック
-                            diff = text_processor.find_differences(full_text, edited_text)
+                            diff = text_processor.find_differences(
+                                full_text, cleaned_text, skip_normalization=has_boundary_markers
+                            )
                             if diff.has_additions():
                                 has_additions = True
+                                # デバッグ情報
+                                logger.debug(f"追加文字を検出: {cleaned_text[:50]}...")
+                                logger.debug(f"追加文字: {diff.added_chars}")
                                 st.session_state.current_diff = diff
-                                st.session_state.current_edited_text = edited_text
+                                st.session_state.current_edited_text = cleaned_text
                                 st.session_state.original_edited_text = edited_text
 
                         if has_additions:
                             # エラー表示と削除ボタンを表示状態にする
                             st.session_state.show_error_and_delete = True
-                            st.rerun()
+                            st.session_state.need_rerun = True
                         else:
                             # エラー状態をクリア
                             st.session_state.show_error_and_delete = False
-                            st.rerun()
+                            st.session_state.need_rerun = True
 
-            with button_col2:
-                # 削除ボタン（エラーがある場合のみ表示）
-                if st.session_state.get("show_error_and_delete", False):
-                    if st.button("エラー箇所を確認して削除", key="delete_highlights_main", use_container_width=True):
-                        st.session_state.show_modal = True
-                        st.rerun()
+                with button_col2:
+                    # 音声プレビュー（更新ボタンクリック時に生成・表示）
+                    if st.session_state.get("preview_update_requested", False) and st.session_state.get("time_ranges"):
+                        # 音声を生成
+                        try:
+                            import tempfile
+
+                            from core.video import VideoProcessor
+                            from ui.audio_preview import _generate_combined_audio
+
+                            # VideoProcessorのインスタンス
+                            video_processor = VideoProcessor(config)
+
+                            # 一時ファイルに結合音声を生成
+                            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_file:
+                                output_path = tmp_file.name
+
+                            # プレビュー用の時間範囲を調整（最大30秒）
+                            time_ranges = st.session_state.time_ranges
+                            preview_ranges = []
+                            accumulated_duration = 0.0
+                            max_duration = 30.0
+
+                            for start, end in time_ranges:
+                                segment_duration = end - start
+                                if accumulated_duration + segment_duration <= max_duration:
+                                    preview_ranges.append((start, end))
+                                    accumulated_duration += segment_duration
+                                else:
+                                    # 残り時間分だけ追加
+                                    remaining = max_duration - accumulated_duration
+                                    if remaining > 0:
+                                        preview_ranges.append((start, start + remaining))
+                                    break
+
+                            # 結合音声を生成
+                            # video_pathはセッション状態から取得
+                            current_video_path = st.session_state.get("video_path", video_path)
+                            _generate_combined_audio(video_processor, current_video_path, preview_ranges, output_path)
+
+                            # セッション状態に保存
+                            st.session_state.preview_audio_path = output_path
+                            st.session_state.preview_audio_duration = accumulated_duration
+                            st.session_state.preview_update_requested = False  # フラグをクリア
+
+                        except Exception as e:
+                            import traceback
+
+                            st.error(f"音声プレビュー生成エラー: {str(e)}")
+                            st.code(traceback.format_exc())
+                            st.session_state.preview_update_requested = False
+
+                    # 音声プレーヤーを表示（生成済みの場合）
+                    if st.session_state.get("preview_audio_path"):
+                        st.audio(st.session_state.preview_audio_path, format="audio/wav")
+
+                    # 削除ボタン（エラーがある場合のみ、音声プレビューの下に表示）
+                    if st.session_state.get("show_error_and_delete", False):
+                        if st.button(
+                            "エラー箇所を確認して削除", key="delete_highlights_main", use_container_width=True
+                        ):
+                            st.session_state.show_modal = True
+                            st.session_state.need_rerun = True
+
+                    # マーカー位置エラーの削除ボタン
+                    if st.session_state.get("show_marker_error", False):
+                        if st.button("不適切なマーカーを削除", key="delete_marker_errors", use_container_width=True):
+                            # マーカーを削除
+                            text_processor = TextProcessor()
+                            current_text = st.session_state.get("original_edited_text", "")
+                            cleaned_text = text_processor.remove_boundary_markers(current_text)
+                            st.session_state.text_editor_value = cleaned_text
+                            st.session_state.show_marker_error = False
+                            st.session_state.marker_position_errors = []
+                            st.session_state.need_rerun = True
+
+            # 境界調整モードのチェックボックス（更新ボタンの下に配置）
+            st.checkbox(
+                "境界調整モード",
+                value=st.session_state.get("boundary_adjustment_mode", False),
+                help="セグメントごとに時間調整マーカーを挿入します",
+                key="boundary_adjustment_mode",
+            )
 
         # タイムライン編集セクション（show_timeline_sectionがTrueの場合）
         if st.session_state.get("show_timeline_section", False):
@@ -1136,23 +1445,29 @@ def main() -> None:
                 # 区切り文字対応の差分検索を使用
                 text_processor = TextProcessor()
 
+                # 境界マーカーを解析
+                boundary_adjustments = text_processor.parse_boundary_markers(edited_text)
+
+                # マーカーを除去したテキストで処理
+                cleaned_text = text_processor.remove_boundary_markers(edited_text)
+
                 # 区切り文字の様々なパターンをチェック（処理実行時）
                 separator_patterns = ["---", "——", "－－－"]
                 found_separator = None
 
                 for pattern in separator_patterns:
-                    if pattern in edited_text:
+                    if pattern in cleaned_text:
                         found_separator = pattern
                         break
 
                 if found_separator:
                     # 区切り文字対応処理
                     time_ranges = text_processor.find_differences_with_separator(
-                        full_text, edited_text, transcription, found_separator
+                        full_text, cleaned_text, transcription, found_separator
                     )
 
                     # 各セクションで追加文字チェック
-                    sections = text_processor.split_text_by_separator(edited_text, found_separator)
+                    sections = text_processor.split_text_by_separator(cleaned_text, found_separator)
                     has_additions = False
                     for section in sections:
                         diff = text_processor.find_differences(full_text, section)
@@ -1166,13 +1481,19 @@ def main() -> None:
 
                 else:
                     # 従来の処理
-                    diff = text_processor.find_differences(full_text, edited_text)
+                    diff = text_processor.find_differences(full_text, cleaned_text)
 
                     if diff.has_additions():
                         st.error("元の動画に存在しない部分が含まれています。赤いハイライト部分を確認してください。")
                         return
 
                     time_ranges = diff.get_time_ranges(transcription)
+
+                # 境界調整を適用
+                if boundary_adjustments:
+                    time_ranges = text_processor.apply_boundary_adjustments(
+                        time_ranges, boundary_adjustments, cleaned_text
+                    )
 
                 # タイムライン編集で調整された時間範囲があれば使用
                 if "adjusted_time_ranges" in st.session_state:
@@ -1292,10 +1613,10 @@ def main() -> None:
                                 # 差分情報を取得（すでに計算済み）
                                 if found_separator:
                                     # 区切り文字を除去して差分計算
-                                    text_without_separator = edited_text.replace(found_separator, " ")
+                                    text_without_separator = cleaned_text.replace(found_separator, " ")
                                     diff = text_processor.find_differences(full_text, text_without_separator)
                                 else:
-                                    diff = text_processor.find_differences(full_text, edited_text)
+                                    diff = text_processor.find_differences(full_text, cleaned_text)
 
                                 # SRT設定を取得
                                 srt_settings = st.session_state.get(
@@ -1732,6 +2053,11 @@ def main() -> None:
         )
 
     # モーダル表示は削除（メイン画面で確認表示に変更）
+
+    # UIの最後でrerunを実行（チェックボックス状態保持のため）
+    if st.session_state.get("need_rerun", False):
+        st.session_state.need_rerun = False
+        st.rerun()
 
 
 # モーダル関数は削除（メイン画面表示に変更）
