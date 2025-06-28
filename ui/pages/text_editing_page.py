@@ -178,8 +178,8 @@ class TextEditingPageController:
                     has_boundary_markers=has_boundary_markers
                 )
         else:
-            # 初期表示
-            show_edited_text_with_highlights(full_text, full_text, transcription, [])
+            # 初期表示（差分なし）
+            show_edited_text_with_highlights(full_text, None)
 
     def _render_text_editor(self, full_text: str, transcription):
         """テキストエディタ"""
