@@ -188,6 +188,7 @@ class TextEditingPageController:
     def _render_text_editor(self, full_text: str, transcription):
         """テキストエディタ"""
         st.markdown("#### 切り抜き箇所")
+        st.caption("文字起こし結果から切り抜く箇所を入力してください")
         
         # 境界調整モード
         boundary_mode = st.checkbox(
@@ -201,7 +202,7 @@ class TextEditingPageController:
             st.caption("💡 [< >] で前後に0.1秒、[<< >>] で前後に0.5秒、[<<< >>>] で前後に1秒調整")
         
         # テキストエディタを表示
-        edited_text = show_text_editor(full_text)
+        edited_text = show_text_editor(SessionStateManager.get("edited_text", ""), height=400)
         
         # 更新ボタンが押された場合の処理
         if st.button("🔍 更新", use_container_width=True, type="primary"):
