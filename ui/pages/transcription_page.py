@@ -451,7 +451,8 @@ class TranscriptionPageController:
         """文字起こし結果の処理"""
         result = SessionStateManager.get("transcription_result")
         if result:
-            # 次のページへの遷移
-            SessionStateManager.set("show_text_editing", True)
-            SessionStateManager.set("show_transcription", False)
-            st.rerun()
+            # 文字起こし結果がある場合は、同じ画面でテキスト編集セクションを表示
+            # （元のmain_old.pyと同じ動作）
+            from .text_editing_page import TextEditingPageController
+            text_editing_controller = TextEditingPageController()
+            text_editing_controller.render()
