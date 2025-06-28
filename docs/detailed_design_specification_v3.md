@@ -27,7 +27,7 @@
 | REQ-002 | ローカル版文字起こし | core.transcription.UnifiedTranscriber | TC-004〜TC-008 |
 | REQ-003 | API版文字起こし | core.transcription_api.APITranscriber | TC-009〜TC-012 |
 | REQ-004 | テキスト編集（diff表示） | services.text_editing_service | TC-013〜TC-015 |
-| REQ-005 | タイムライン編集 | ui.timeline_editor, services.timeline_editing_service | TC-016〜TC-020 |
+| REQ-005 | タイムライン編集（境界調整） | core.text_processor.BoundaryMarkerParser | TC-016〜TC-020 |
 | REQ-006 | 無音検出・削除 | core.video.VideoProcessor | TC-021〜TC-025 |
 | REQ-007 | 動画切り出し・結合 | core.video.VideoProcessor | TC-026〜TC-030 |
 | REQ-008 | FCPXMLエクスポート | core.export.FCPXMLExporter | TC-031〜TC-033 |
@@ -1638,80 +1638,95 @@ def main():
     if should_show_text_edit_section():
         show_text_edit_section()
     
-    # 3. タイムライン編集セクション（条件付き表示）
-    if should_show_timeline_section():
-        show_timeline_edit_section()
+    # 3. 境界調整はテキスト編集セクション内で実施（タイムライン編集セクションは廃止）
     
     # 4. 処理実行セクション（条件付き表示）
     if should_show_process_section():
         show_process_execution_section()
 ```
 
-### 13.2 タイムライン編集の統合
+### 13.2 音声プレビュー機能
 
-#### 13.2.1 インライン表示実装
+**注**: 境界調整機能については「20. 境界調整機能（正式仕様）」を参照してください。
 
-```python
-def show_timeline_edit_section():
-    """タイムライン編集セクションの表示"""
-    st.markdown("---")
-    st.subheader("📊 タイムライン編集")
-    
-    # 既存のタイムライン編集UIを呼び出し（モーダルではなくインライン）
-    time_ranges = st.session_state.get("time_ranges", [])
-    transcription = st.session_state.get("transcription_result")
-    video_path = st.session_state.get("current_video_path")
-    
-    # タイムライン編集UIをレンダリング
-    adjusted_ranges = render_timeline_editor_inline(
-        time_ranges, 
-        transcription, 
-        video_path
-    )
-    
-    # 編集完了時の処理
-    if adjusted_ranges is not None:
-        st.session_state.adjusted_time_ranges = adjusted_ranges
-        st.session_state.timeline_completed = True
-        st.success("タイムライン編集が完了しました")
-```
-
-#### 13.2.2 状態の永続化
+指定されたすべてのクリップを結合して音声プレビューを生成します。境界調整前後の比較も可能です。
 
 ```python
-def save_timeline_state():
-    """タイムライン編集状態の保存"""
-    timeline_state = {
-        "adjusted_ranges": st.session_state.get("adjusted_time_ranges"),
-        "completed": st.session_state.get("timeline_completed", False),
-        "timestamp": datetime.now().isoformat()
-    }
+def generate_combined_audio_preview(
+    video_path: str, 
+    time_ranges: list[tuple[float, float]], 
+    max_duration: float = 30.0
+) -> str:
+    """
+    複数のクリップを結合した音声プレビューを生成
     
-    # プロジェクトディレクトリに保存
-    project_dir = get_project_directory()
-    state_file = project_dir / "timeline_state.json"
+    Args:
+        video_path: 動画ファイルパス
+        time_ranges: 時間範囲のリスト
+        max_duration: 最大プレビュー時間（秒）
     
-    with open(state_file, "w") as f:
-        json.dump(timeline_state, f, indent=2)
+    Returns:
+        結合された音声ファイルのパス
+    """
+    # 各クリップの音声を抽出
+    audio_segments = []
+    total_duration = 0
+    
+    for start, end in time_ranges:
+        if total_duration >= max_duration:
+            break
+            
+        # 残り時間を考慮してクリップを制限
+        clip_duration = min(end - start, max_duration - total_duration)
+        audio_segment = extract_audio_segment(video_path, start, start + clip_duration)
+        audio_segments.append(audio_segment)
+        total_duration += clip_duration
+    
+    # FFmpegで結合
+    return concatenate_audio_segments(audio_segments)
 
-def load_timeline_state():
-    """タイムライン編集状態の復元"""
-    project_dir = get_project_directory()
-    state_file = project_dir / "timeline_state.json"
+def show_audio_preview_controls(video_path: str, time_ranges: list[tuple[float, float]]):
+    """
+    音声プレビューコントロールの表示
     
-    if state_file.exists():
-        with open(state_file, "r") as f:
-            timeline_state = json.load(f)
-        
-        # セッション状態に復元
-        if timeline_state.get("adjusted_ranges"):
-            st.session_state.adjusted_time_ranges = timeline_state["adjusted_ranges"]
-            st.session_state.timeline_completed = timeline_state["completed"]
+    UI配置:
+    - 更新ボタンの右側に音声プレーヤーを即座に表示
+    - 音声プレーヤーは更新ボタン押下時に自動生成・表示
+    - 境界を調整ボタンは更新ボタンとプレーヤーの下に配置
+    """
+    # 更新ボタンと音声プレーヤーを横並びで配置
+    col1, col2 = st.columns([1, 3])
+    
+    with col1:
+        if st.button("🔄 更新", key="update_preview"):
+            # 更新フラグをセット
+            st.session_state.preview_update_requested = True
+    
+    with col2:
+        # 更新が要求されているか、既に音声が生成されている場合はプレーヤーを表示
+        if st.session_state.get("preview_update_requested", False) or st.session_state.get("preview_audio_path"):
+            if st.session_state.get("preview_update_requested", False):
+                # 新しい音声を生成
+                with st.spinner("音声を結合中..."):
+                    audio_path = generate_combined_audio_preview(video_path, time_ranges)
+                    st.session_state.preview_audio_path = audio_path
+                    st.session_state.preview_update_requested = False
+            
+            # 音声プレーヤーを表示
+            if st.session_state.get("preview_audio_path"):
+                st.audio(st.session_state.preview_audio_path, format="audio/wav")
+                st.caption("※ 最大30秒までのプレビュー")
+    
+    # 境界を調整ボタンは下に配置（セクション20参照）
+    if st.button("境界を調整", key="adjust_boundaries"):
+        # 境界調整マーカー挿入処理（詳細はセクション20.4参照）
+        insert_boundary_markers()
 ```
+
 
 ## 14. セキュリティ設計
 
-### 13.1 コマンドインジェクション対策
+### 14.1 コマンドインジェクション対策
 
 #### FFmpeg/yt-dlp呼び出しの安全な実装
 
@@ -2819,7 +2834,7 @@ success = self.video_processor.combine_videos(
 | 機能 | 要件ID | 実装予定 | 理由 |
 |------|--------|---------|------|
 | YouTube動画ダウンロード | REQ-001 | 検討中 | 著作権への配慮 |
-| タイムライン編集 | REQ-005 | ✅ 実装済み | 統合波形セレクターで実装完了 |
+| タイムライン編集 | REQ-005 | ✅ 実装済み | テキスト内境界調整機能で代替実装 |
 | SRT字幕エクスポート | REQ-010 | 近日 | 需要に応じて |
 
 ### 16.3 設計と実装の差異
@@ -2849,6 +2864,12 @@ success = self.video_processor.combine_videos(
      - ✅ 無音削除時の時間マッピング対応
      - ✅ 字幕は文字起こしのタイムスタンプを基準に生成（クリップ数との一致は不要）
      - ✅ 字幕全体が動画全体の時間範囲内に収まることを保証
+   - テキスト内境界調整機能（✅ 実装完了）
+     - ✅ 境界マーカー解析機能 (TextProcessor)
+     - ✅ テキストエディタUIに「境界を調整」ボタン
+     - ✅ main.pyへの統合（自動適用）
+     - ✅ 音声プレビュー機能（調整前後の比較）
+     - ✅ 包括的なテストケース
 
 2. **優先度中**
    - Docker状態永続化の完全実装
@@ -3487,9 +3508,596 @@ def _split_text_into_chunks(self, text: str) -> list[str]:
     return chunks
 ```
 
+## 20. 境界調整機能（正式仕様）
+
+**重要**: 境界調整マーカーの仕様はこのセクションが正式版です。他のセクション（特に13.2）の記載は古い仕様のため参照しないでください。
+
+### 20.1 機能概要
+
+境界調整機能は、切り抜きクリップの開始・終了時刻を細かく調整するための機能です。テキスト内にマーカーを挿入することで、各クリップの境界を前後に移動できます。
+
+### 20.2 マーカー仕様
+
+#### 20.2.1 マーカー記法（改訂版）
+
+```
+[数値>] = 前のクリップの終了時刻を調整
+  - 正の値: 終了を遅らせる（クリップが伸びる）
+  - 負の値: 終了を早める（クリップが縮まる）
+
+[<数値] = 後のクリップの開始時刻を調整
+  - 正の値: 開始を早める（クリップが縮まる）
+  - 負の値: 開始を遅らせる（クリップが伸びる）
+```
+
+数値は秒単位で指定します（小数点可）。記号の向き（<、>）は固定で、正負の数値で調整方向を制御します。
+
+#### 20.2.2 使用例
+
+```
+[<0]6月5日の木曜日[0.0>]
+[<0.0]8時でございます[0.0>]
+[<0.0]皆さんの質問とかに答えていく[0.0>]
+[<0.0001]緩やかなラジオでございます[-0.1>]
+```
+
+この例では：
+- 1行目: `[<0]`は効果なし、`[0.0>]`は1番目のクリップの終了時刻変更なし
+- 2行目: `[<0.0]`は2番目のクリップの開始時刻変更なし、`[0.0>]`は終了時刻変更なし
+- 3行目: `[<0.0]`は3番目のクリップの開始時刻変更なし、`[0.0>]`は終了時刻変更なし  
+- 4行目: `[<0.0001]`は4番目のクリップの開始を0.0001秒早める（クリップが縮まる）、`[-0.1>]`は3番目のクリップの終了を0.1秒早める（クリップが縮まる）
+
+#### 20.2.3 視覚的配置
+
+境界調整ボタンを使用すると、各クリップが1行ずつ表示されるように改行が挿入されます：
+
+```
+[<0.0]第1クリップのテキスト[0.0>]
+[<0.0]第2クリップのテキスト[0.0>]
+[<0.0]第3クリップのテキスト[0.0>]
+```
+
+この配置により、各クリップの境界が明確に識別でき、調整が容易になります。
+
+### 20.3 実装詳細
+
+#### 20.3.1 マーカー解析 (text_processor.py)
+
+```python
+def parse_boundary_markers(self, text: str) -> list[dict]:
+    """境界調整マーカーを解析（改訂版）"""
+    # 新しいパターン：[<数値] と [数値>] のみ（負の数値にも対応）
+    marker_pattern = re.compile(r"\[<(-?\d+(?:\.\d+)?)\]|\[(-?\d+(?:\.\d+)?)>\]")
+    adjustments = []
+    
+    for match in marker_pattern.finditer(text):
+        marker = match.group(0)
+        position = match.start()
+        
+        adjustment_info = {
+            "position": position,
+            "marker": marker,
+            "target": None,
+            "adjustment": 0.0
+        }
+        
+        # 新しいパターンマッチング（記号の向きは固定）
+        if marker.startswith("[<"):
+            # [<数値] パターン：後のクリップの開始時刻を調整
+            value = float(marker[2:-1])
+            adjustment_info["target"] = "next"
+            adjustment_info["adjustment"] = -value  # 正の値で早める（負にして左移動）、負の値で遅らせる（正にして右移動）
+        elif marker.endswith(">]"):
+            # [数値>] パターン：前のクリップの終了時刻を調整
+            value = float(marker[1:-2])
+            adjustment_info["target"] = "previous"
+            adjustment_info["adjustment"] = value  # 正の値で遅らせる（伸びる）、負の値で早める（縮まる）
+            
+        if adjustment_info["target"]:
+            adjustments.append(adjustment_info)
+    
+    return adjustments
+```
+
+#### 20.3.2 境界調整適用 (text_processor.py)
+
+```python
+def apply_boundary_adjustments(
+    self, time_ranges: list[tuple[float, float]], 
+    adjustments: list[dict], text: str
+) -> list[tuple[float, float]]:
+    """境界調整を時間範囲に適用"""
+    if not adjustments or not time_ranges:
+        return time_ranges
+
+    # 調整後の時間範囲を初期化
+    adjusted_ranges = list(time_ranges)  # コピーを作成
+    
+    # 各調整を処理
+    for adj in adjustments:
+        marker = adj["marker"]
+        position = adj["position"]
+        target = adj["target"]
+        adjustment = adj["adjustment"]
+        
+        # 各クリップの調整を処理（改行で分割されることを前提）
+        # マーカーの位置から対応するクリップを特定
+        lines = text.split('\n')
+        current_pos = 0
+        clip_index = -1
+        
+        # どの行（クリップ）のマーカーかを特定
+        for i, line in enumerate(lines):
+            line_start = current_pos
+            line_end = current_pos + len(line)
+            
+            if line_start <= position < line_end:
+                clip_index = i
+                break
+            current_pos = line_end + 1  # 改行文字の分
+        
+        # targetとクリップインデックスの関係を正しく処理
+        if clip_index >= 0:
+            if target == "previous" and clip_index < len(adjusted_ranges):
+                # [数値>] は前のクリップ（同じ行）の終了を調整
+                adjusted_ranges[clip_index] = (
+                    adjusted_ranges[clip_index][0], 
+                    adjusted_ranges[clip_index][1] + adjustment
+                )
+            elif target == "next" and clip_index < len(adjusted_ranges):
+                # [<数値] は後のクリップ（同じ行）の開始を調整
+                adjusted_ranges[clip_index] = (
+                    adjusted_ranges[clip_index][0] + adjustment,
+                    adjusted_ranges[clip_index][1]
+                )
+    
+    # 各クリップの時刻を検証
+    final_ranges = []
+    for i, (start, end) in enumerate(adjusted_ranges):
+        # 負の時刻にならないように制限
+        adjusted_start = max(0.0, start)
+        adjusted_end = max(adjusted_start + 0.1, end)  # 最小0.1秒の長さを保証
+        final_ranges.append((adjusted_start, adjusted_end))
+    
+    return final_ranges
+```
+
+### 20.4 UI/UX設計
+
+#### 20.4.1 境界調整モード
+
+##### モード切り替えUI
+- **チェックボックス**: 「境界調整モード」
+- **配置**: 更新ボタンの下部
+- **説明文**: 「セグメントごとに時間調整マーカーを挿入します」
+- **状態保持**: セッション状態で保持され、更新ボタンクリック時も状態が維持される
+
+##### 更新ボタンのUI
+- **テキスト**: 「更新」（絵文字なし）
+- **幅**: コラム比率 1:3 で左側に配置
+- **タイプ**: primary（赤色）
+- **音声プレビュー**: 右側コラムに音声プレーヤーを配置（プレビュー時間表示はなし）
+
+##### 更新ボタンの動作
+
+**境界調整モードOFF時（通常モード）**：
+- 既存のマーカーをすべて削除
+- 通常のテキスト処理を実行
+- セグメントごとの改行は行わない（既存の改行も削除しない）
+
+**境界調整モードON時**：
+1. テキストと元動画の差分を検出
+2. 共通部分をセグメントとして識別
+3. 各セグメントを改行で分離（1行1クリップ）
+4. 各セグメントの両端にマーカーを付与
+   - 新規セグメント: `[<0.0]` と `[0.0>]`
+   - 既存マーカーがある場合: その値を保持
+5. テキストが変更されていないセグメントは、既存のマーカー値をそのまま維持
+
+**処理例**:
+```
+# 例1: 初回（マーカーなし）
+入力: ハイパー企業ラジオっていうラジオを撮ってで火曜日は
+
+出力:
+[<0.0]ハイパー企業ラジオっていう[0.0>]
+[<0.0]ラジオを撮ってで[0.0>]
+[<0.0]火曜日は[0.0>]
+
+# 例2: 既存マーカーあり（値を保持）
+入力:
+[<0.5]ハイパー企業ラジオっていう[1.0>]
+[<-0.2]ラジオを撮ってで[0.0>]
+[<0.0]火曜日は[0.3>]
+
+出力（テキスト変更なしの場合）:
+[<0.5]ハイパー企業ラジオっていう[1.0>]
+[<-0.2]ラジオを撮ってで[0.0>]
+[<0.0]火曜日は[0.3>]
+
+# 例3: 一部テキスト変更（変更部分のみリセット）
+入力:
+[<0.5]ハイパー企業ラジオっていう[1.0>]
+[<-0.2]ラジオを撮ってで[0.0>]
+水曜日は
+
+出力:
+[<0.5]ハイパー企業ラジオっていう[1.0>]
+[<-0.2]ラジオを撮ってで[0.0>]
+[<0.0]水曜日は[0.0>]  ← 新規セグメントなので初期値
+```
+
+##### 「境界を調整」ボタンの廃止
+- 機能は更新ボタンに統合
+- UIのシンプル化
+
+#### 20.4.2 モード別のエラーチェック
+
+**境界調整モードOFF時**：
+- マーカー位置エラー：チェックしない
+- 追加文字エラー：通常通りチェック
+
+**境界調整モードON時**：
+- マーカー位置エラー：チェックする
+- 追加文字エラー：マーカー除去後にチェック
+
+#### 20.4.3 エラーチェック対応
+
+マーカーを含むテキストのエラーチェック時は：
+1. マーカーを除去してから差分検出
+2. 正規化をスキップして空白の配置を保持
+3. マーカー位置をハイライトから除外
+
+##### 実装詳細
+
+```python
+# ui/components.py - show_edited_text_with_highlights
+def show_edited_text_with_highlights(edited_text: str, diff: TextDifference | None = None, height: int = 400):
+    # マーカーの位置を記録
+    import re
+    marker_pattern = re.compile(r"\[(\d+(?:\.\d+)?)[<>]\]|\[[<>](\d+(?:\.\d+)?)\]")
+    marker_positions = set()
+    for match in marker_pattern.finditer(edited_text):
+        for pos in range(match.start(), match.end()):
+            marker_positions.add(pos)
+    
+    # マーカーを除去したテキスト
+    cleaned_text = text_processor.remove_boundary_markers(edited_text)
+    
+    # 共通部分の位置をマーク（cleaned_textベース）
+    covered_positions = set()
+    # ... 差分検出処理 ...
+    
+    # HTMLを生成
+    cleaned_pos = 0  # cleaned_text内での位置
+    for i, char in enumerate(edited_text):
+        if i in marker_positions:
+            # マーカー文字はそのまま表示（ハイライトなし）
+            html_content += char
+        else:
+            # 非マーカー文字の処理
+            if cleaned_pos in covered_positions:
+                html_content += char  # 元テキストに存在
+            else:
+                # 追加文字として赤ハイライト
+                html_content += f'<span class="highlight-addition" style="background-color: #ffe6e6; color: #d00;">{char}</span>'
+            cleaned_pos += 1
+```
+
+##### 差分検出時の正規化スキップ
+
+```python
+# main.py - エラーチェック処理
+# 境界調整マーカーが含まれているかチェック
+has_boundary_markers = any(marker in edited_text for marker in ["[<", "[>", "<]", ">]"])
+
+# マーカーがある場合は正規化をスキップ
+diff = text_processor.find_differences(full_text, cleaned_text, skip_normalization=has_boundary_markers)
+```
+
+### 20.5 注意事項
+
+1. **オーバーラップ防止**: 調整によるクリップの重複は自動的に防止されません
+2. **最小長保証**: 各クリップは最低0.1秒の長さを保持
+3. **負値制限**: 開始時刻が0秒未満にならないよう制限
+4. **独立調整**: 各クリップの時刻は独立して調整され、相互の影響は考慮されません
+
+### 20.6 エラー処理の優先順位
+
+テキスト編集時に複数のエラーが同時に発生する可能性があるため、以下の優先順位で処理します：
+
+#### 20.6.1 エラーチェックの順序
+
+1. **マーカー位置エラー**（最優先）
+   - 境界調整マーカーがセグメント内に配置されている
+   - 理由：マーカーを除去してから他のチェックを行うため、まず位置を修正する必要がある
+
+2. **追加文字エラー**（次優先）
+   - 元動画に存在しない文字が含まれている
+   - 理由：テキストの内容自体に問題がある
+
+#### 20.6.2 エラー表示の制御
+
+- **一度に1種類のエラーのみ表示**
+  - マーカー位置エラーがある場合は、追加文字エラーのチェックは行わない
+  - ユーザーの混乱を避けるため、修正すべき問題を明確にする
+
+- **エラー解消後の再チェック**
+  - マーカー位置エラーを修正後、自動的に追加文字エラーをチェック
+  - 段階的にエラーを解消していく
+
+### 20.7 マーカー配置の制約
+
+#### 20.7.1 正しいマーカー配置
+
+境界調整マーカーは以下のルールに従って配置してください：
+
+**基本ルール**：
+1. `[<数値]`マーカーは行の先頭に配置
+2. `[数値>]`マーカーは行の末尾に配置
+3. 複数クリップの場合は、各クリップを改行で分離（1行1クリップ）
+
+**正しい例**：
+```
+# 1クリップの場合（改行なし可）
+[<0.0]6月5日の木曜日[0.0>]
+
+# 複数クリップの場合（改行必須）
+[<0.0]6月5日の木曜日[0.0>]
+[<0.0]8時でございます[0.0>]
+[<0.0]皆さんの質問に答えていく[0.0>]
+```
+
+**誤った例**：
+```
+# セグメント内配置（マーカーが行の中間にある）
+6月5日の[<0.0]木曜日
+8時で[0.0>]ございます
+
+# 複数クリップを改行なしで配置
+[<0.0]6月5日の木曜日[0.0>][<0.0]8時でございます[0.0>]
+```
+
+#### 20.7.2 マーカー配置の自動修正とエラー処理
+
+##### 自動修正機能
+
+更新ボタンを押した際に、以下のマーカー配置の問題を自動的に修正します：
+
+1. **複数クリップの連結**（`[0.0>][<0.0]`パターン）
+2. **終了マーカー後のテキスト**
+3. **開始マーカー前のテキスト**
+
+**自動修正の例**：
+
+```
+# 例1: 複数クリップの連結
+修正前: [<0.0]6月5日の木曜日[0.0>][<0.0]8時でございます[0.0>]
+修正後: [<0.0]6月5日の木曜日[0.0>]
+         [<0.0]8時でございます[0.0>]
+
+# 例2: 終了マーカー後にテキスト（マーカー自動追加）
+修正前: [<0.0]やられました[0.1>]僕の知ってる人かな
+修正後: [<0.0]やられました[0.1>]
+         [<0.0]僕の知ってる人かな[0.0>]
+
+# 例3: 開始マーカー前にテキスト（マーカー自動追加）
+修正前: これは前のテキスト[<0.0]次のクリップ[0.0>]
+修正後: [<0.0]これは前のテキスト[0.0>]
+         [<0.0]次のクリップ[0.0>]
+
+# 例4: 改行後のマーカーなしテキスト（マーカー自動追加）
+修正前: [<0.0]やられました[0.1>]
+         僕の知ってる人かな
+修正後: [<0.0]やられました[0.1>]
+         [<0.0]僕の知ってる人かな[0.0>]
+```
+
+**ポイント**：マーカーの後に追加されたテキストには、自動的にデフォルトのマーカー（`[<0.0]`と`[0.0>]`）が付与されます。これにより、追加したテキストも新しいクリップとして扱われます。
+
+##### セグメント内配置時の動作
+
+マーカーがセグメントの中身に配置された場合（自動修正できない場合）、以下の動作となります：
+
+1. **エラー表示**: 「境界調整マーカーの位置が不適切です」というエラーメッセージを表示
+2. **具体的なエラー内容**: どの行のどのマーカーが問題かを明示
+3. **削除ボタン表示**: 「不適切なマーカーを削除」ボタンを表示
+4. **処理のブロック**: 更新ボタンを押してもエラーが解消されるまで処理を継続しない
+
+**エラー例**:
+```
+# セグメント内配置の場合（自動修正不可）
+❌ 行1: '[<0.0]'は行の先頭に配置してください
+❌ 行2: '[0.0>]'は行の末尾に配置してください
+```
+
+**注意**: 複数クリップが改行なしで配置されている場合は、更新ボタンを押した際に自動的に改行が挿入されるため、エラーにはなりません。
+
+**推奨**: 必ず境界調整ボタンを使用してマーカーを正しい位置に配置してください。
+
+### 20.8 境界調整後の編集について
+
+#### 20.8.1 新しいテキストの追加
+
+境界調整マーカーを設定した後に、新しいテキストを追加する場合の推奨方法：
+
+**推奨方法**：
+1. **新しいクリップとして追加**（マーカー付き）
+   ```
+   [<0.0]やられました[0.1>]
+   [<0.0]僕の知ってる人かな[0.0>]
+   ```
+
+2. **独立したテキストとして追加**（マーカーなし、改行あり）
+   ```
+   [<0.0]やられました[0.1>]
+   
+   僕の知ってる人かな
+   ```
+
+**注意**：マーカーの直後にテキストを追加した場合（例：`[0.1>]僕の知ってる人かな`）、更新ボタンを押した際に自動的に改行が挿入されます。
+
+#### 20.8.2 元動画に存在しない文字の扱い
+
+境界調整マーカーの有無に関わらず、元動画に存在しない文字は追加文字エラーとして検出されます。これは、正確な切り抜きを保証するための仕様です。
+
+### 20.9 実装ステップ
+
+#### 20.9.1 UIの変更
+1. 「境界を調整」ボタンを削除
+2. 「境界調整モード」チェックボックスを追加
+3. チェックボックスの状態をセッションに保存
+
+#### 20.9.2 更新ボタンの処理変更
+
+##### マーカー値保持のアルゴリズム
+
+```python
+def handle_update_button():
+    if st.session_state.get("boundary_adjustment_mode", False):
+        # 境界調整モードON
+        
+        # 1. 既存のマーカー情報を抽出
+        existing_markers = extract_existing_markers(edited_text)
+        # 例: {'ハイパー企業ラジオっていう': {'start': 0.5, 'end': 1.0}}
+        
+        # 2. マーカーを除去したテキストで差分検出
+        cleaned_text = remove_boundary_markers(edited_text)
+        diff = find_differences(full_text, cleaned_text)
+        
+        # 3. セグメントごとにマーカーを再配置
+        result = ""
+        for i, segment in enumerate(diff.common_positions):
+            if i > 0:
+                result += "\n"
+                
+            # 既存マーカーがあればその値を使用、なければ初期値
+            if segment.text in existing_markers:
+                start_val = existing_markers[segment.text]['start']
+                end_val = existing_markers[segment.text]['end']
+            else:
+                start_val = 0.0
+                end_val = 0.0
+                
+            result += f"[<{start_val}]{segment.text}[{end_val}>]"
+            
+        # 4. マーカー位置エラーをチェック
+        validate_marker_positions(result)
+    else:
+        # 通常モード
+        # 1. マーカーを全削除
+        # 2. 通常のテキスト処理
+        # 3. マーカーエラーはスキップ
+
+# マーカー抽出のヘルパー関数
+def extract_existing_markers(text: str) -> dict[str, dict[str, float]]:
+    """
+    テキストから既存マーカーを抽出
+    
+    Returns:
+        {
+            'セグメントテキスト': {'start': 開始値, 'end': 終了値},
+            ...
+        }
+    """
+    markers = {}
+    lines = text.split('\n')
+    
+    for line in lines:
+        # 例: [<0.5]ハイパー企業ラジオっていう[1.0>]
+        start_match = re.search(r'\[<(-?\d+(?:\.\d+)?)\]', line)
+        end_match = re.search(r'\[(-?\d+(?:\.\d+)?)>\]', line)
+        
+        if start_match and end_match:
+            # マーカーを除去したテキストを取得
+            segment_text = re.sub(r'\[<?-?\d+(?:\.\d+)?>?\]', '', line).strip()
+            if segment_text:
+                markers[segment_text] = {
+                    'start': float(start_match.group(1)),
+                    'end': float(end_match.group(1))
+                }
+                
+    return markers
+```
+
+#### 20.9.3 テストケース
+
+1. **通常モードから境界調整モードへの切り替え**
+   - 入力: マーカーなしテキスト
+   - 期待: セグメント分割とマーカー付与
+
+2. **境界調整モードでのマーカー編集**
+   - 入力: マーカー付きテキストで値を変更
+   - 期待: 変更した値が保持される
+
+3. **境界調整モードから通常モードへの切り替え**
+   - 入力: マーカー付きテキスト
+   - 期待: マーカーが削除される
+
+4. **区切り文字との並存**
+   - 入力: 区切り文字ありテキスト
+   - 期待: 区切り文字を尊重してセグメント分割
+
+### 20.10 旧仕様との違い
+
+#### 20.8.1 マーカー記法の変更
+
+**旧仕様（セクション13.2）**:
+- `[数値>]` = 前のクリップを延ばす
+- `[数値<]` = 前のクリップを縮める  
+- `[<数値]` = 後のクリップを早める
+- `[>数値]` = 後のクリップを遅らせる
+
+**新仕様（セクション20）**:
+- `[数値>]` = 前のクリップの終了時刻を調整（正で遅らせる、負で早める）
+- `[<数値]` = 後のクリップの開始時刻を調整（正で早める、負で遅らせる）
+
+#### 20.8.2 主な改善点
+
+1. **記号の向きを固定**: `<`と`>`の向きは固定とし、正負の数値で調整方向を制御
+2. **負の数値サポート**: `-0.5`のような負の値を使用可能
+3. **改行による視覚的整理**: クリップごとに改行を挿入して見やすさを向上
+
+## 21. 実装状況（2025-06-28）
+
+### 21.1 最新の変更点
+
+#### 21.1.1 チェックボックス状態保持の改善
+- **問題**: 更新ボタンクリック時に境界調整モードのチェックボックスの状態が失われる
+- **原因**: `st.rerun()`の直接呼び出しによりセッション状態が正しく処理されない
+- **解決策**: フラグベース（`need_rerun`）のアプローチを採用
+- **実装**:
+  ```python
+  # 更新ボタンの処理内
+  st.session_state.need_rerun = True  # 直接rerunせずフラグを設定
+  
+  # UIの最後で実行
+  if st.session_state.get("need_rerun", False):
+      st.session_state.need_rerun = False
+      st.rerun()
+  ```
+
+#### 21.1.2 UI改善
+- 更新ボタンから絵文字（🔄）を削除
+- プレビュー時間表示を削除
+- チェックボックスの配置を更新ボタンの下に固定
+
+### 21.2 実装済み機能
+
+- ✅ 境界調整モード（完全実装）
+- ✅ マーカー値の保持機能
+- ✅ 自動マーカー配置
+- ✅ マーカー位置検証
+- ✅ エラー表示とリカバリー
+- ✅ チェックボックス状態保持
+
+### 21.3 既知の問題
+
+なし（2025-06-28時点）
+
 ---
 
 **作成日**: 2025-06-22  
-**バージョン**: 3.3  
-**更新日**: 2025-06-25  
+**バージョン**: 3.5  
+**最終更新**: 2025-06-28  
 **次回更新**: 実装完了時のフィードバック反映

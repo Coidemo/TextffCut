@@ -908,11 +908,15 @@ class VideoProcessor:
             result = subprocess.run(cmd, capture_output=True, text=True)
 
             if result.returncode != 0:
+                from utils.exceptions import FFmpegError
+
                 raise FFmpegError(" ".join(cmd), result.stderr)
 
             logger.info(f"音声セグメント抽出成功: {start_time}s-{end_time}s")
 
         except subprocess.CalledProcessError as e:
+            from utils.exceptions import FFmpegError
+
             raise FFmpegError(" ".join(cmd), e.stderr)
         except FileNotFoundError as e:
             from utils.exceptions import FileNotFoundError as BuzzFileNotFoundError
