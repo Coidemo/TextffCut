@@ -4090,6 +4090,7 @@ def extract_existing_markers(text: str) -> dict[str, dict[str, float]]:
 - ✅ マーカー位置検証
 - ✅ エラー表示とリカバリー
 - ✅ チェックボックス状態保持
+- ✅ SRT字幕エクスポート（core.srt_exporter.SRTExporterで実装完了）
 
 ### 21.3 既知の問題
 
@@ -4098,6 +4099,6 @@ def extract_existing_markers(text: str) -> dict[str, dict[str, float]]:
 ---
 
 **作成日**: 2025-06-22  
-**バージョン**: 3.5  
+**バージョン**: 3.6  
 **最終更新**: 2025-06-28  
-**次回更新**: 実装完了時のフィードバック反映
+**次回更新**: YouTube URL対応機能実装時
