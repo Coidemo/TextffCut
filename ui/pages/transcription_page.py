@@ -451,6 +451,7 @@ class TranscriptionPageController:
         """文字起こし結果の処理"""
         result = SessionStateManager.get("transcription_result")
         if result:
-            # ここでは結果の検証のみ行い、次のページへの遷移は親で制御
+            # 次のページへの遷移
             SessionStateManager.set("show_text_editing", True)
             SessionStateManager.set("show_transcription", False)
+            st.rerun()
