@@ -155,6 +155,10 @@ class TranscriptionPageController:
                 st.markdown("**📊 動画時間**")
                 st.markdown(f"{duration_minutes:.1f}分 ({format_time(video_info.duration)})")
 
+            # 料金計算変数の初期化
+            estimated_cost_usd = 0.0
+            estimated_cost_jpy = 0.0
+            
             with price_col:
                 if use_api:
                     # 料金計算
@@ -196,18 +200,20 @@ class TranscriptionPageController:
                     return
 
                 # 確認情報を保存
-                SessionStateManager.set("confirmation_info", {
+                confirmation_info = {
                     "mode": "api" if use_api else "local",
                     "model_size": model_size,
                     "duration_minutes": duration_minutes,
                     "formatted_time": format_time(video_info.duration),
-                })
+                }
                 
                 if use_api:
-                    SessionStateManager.get("confirmation_info").update({
+                    confirmation_info.update({
                         "estimated_cost_usd": estimated_cost_usd,
                         "estimated_cost_jpy": estimated_cost_jpy,
                     })
+                
+                SessionStateManager.set("confirmation_info", confirmation_info)
 
                 # 実行フラグを設定
                 SessionStateManager.set("should_run_transcription", True)
