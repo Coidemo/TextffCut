@@ -195,7 +195,7 @@ def render_sidebar() -> None:
         st.header("⚙️ 設定")
         
         # APIキー管理（必要に応じて表示）
-        if config.api.use_api:
+        if config.transcription.use_api:
             from ui import show_api_key_manager
             show_api_key_manager()
         
