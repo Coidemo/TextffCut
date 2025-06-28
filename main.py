@@ -192,29 +192,43 @@ def show_header() -> None:
 def render_sidebar() -> None:
     """サイドバーをレンダリング"""
     with st.sidebar:
-        st.header("⚙️ 設定")
+        st.subheader("⚙️ 設定")
         
-        # APIキー管理（必要に応じて表示）
-        if config.transcription.use_api:
+        # タブで設定を整理
+        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
+            ["🔑 APIキー", "🔇 無音検出", "🎬 SRT字幕", "🔄 リカバリー", "📋 履歴", "❓ ヘルプ"]
+        )
+        
+        with tab1:
+            # APIキー管理のみ
             from ui import show_api_key_manager
             show_api_key_manager()
         
-        # 無音検出設定
-        from ui import show_silence_settings
-        show_silence_settings()
+        with tab2:
+            # 無音検出のパラメータ
+            from ui import show_silence_settings
+            show_silence_settings()
         
-        # SRT字幕設定
-        from ui import show_export_settings
-        show_export_settings()
+        with tab3:
+            # SRT字幕設定
+            from ui.srt_export_components import show_srt_export_info, show_srt_export_settings
+            srt_settings = show_srt_export_settings()
+            # 設定をセッションに保存
+            SessionStateManager.set("srt_settings", srt_settings)
+            # SRT字幕についての説明
+            show_srt_export_info()
         
-        # リカバリー設定
-        show_recovery_settings()
+        with tab4:
+            # リカバリー設定
+            show_recovery_settings()
         
-        # 処理履歴
-        show_recovery_history()
+        with tab5:
+            # 処理履歴
+            show_recovery_history()
         
-        # ヘルプ
-        show_help()
+        with tab6:
+            # ヘルプ
+            show_help()
 
 
 def main() -> None:
