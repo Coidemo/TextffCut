@@ -183,7 +183,7 @@ class TextEditingPageController:
             show_diff_viewer(full_text, diff)
         else:
             # 初期表示（差分なし）
-            show_edited_text_with_highlights(full_text, None)
+            show_diff_viewer(full_text)
 
     def _render_text_editor(self, full_text: str, transcription):
         """テキストエディタ"""
