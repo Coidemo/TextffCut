@@ -8,7 +8,7 @@
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Literal, Protocol, TypedDict, Union
+from typing import Any, Generic, Literal, Protocol, TypeVar, TypedDict, Union
 
 # ============================================================================
 # 基本型エイリアス
@@ -260,8 +260,10 @@ class ErrorInfo(TypedDict):
 # ============================================================================
 
 
+T = TypeVar('T')
+
 @dataclass
-class Result[T]:
+class Result(Generic[T]):
     """汎用結果型"""
 
     success: bool
@@ -275,7 +277,7 @@ class Result[T]:
 
 
 @dataclass
-class Page[T]:
+class Page(Generic[T]):
     """ページネーション用型"""
 
     items: list[T]

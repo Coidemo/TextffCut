@@ -5,6 +5,7 @@ TextffCut 設定管理モジュール
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal
 
 
 @dataclass
@@ -37,7 +38,7 @@ class TranscriptionConfig:
     # adaptive_workers関連, chunk_seconds_*_spec
     # api_chunk_seconds, api_max_workers, api_align_chunk_seconds
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         # 環境変数からAPI設定を読み込み
         if os.getenv("TEXTFFCUT_USE_API", "").lower() == "true":
             self.use_api = True
@@ -71,7 +72,7 @@ class UIConfig:
 
     page_title: str = "TextffCut"
     page_icon: str = "🎬"
-    layout: str = "wide"
+    layout: Literal["centered", "wide"] = "wide"
 
 
 @dataclass
@@ -95,7 +96,7 @@ class PathConfig:
     def transcriptions_path(self) -> Path:
         return self.base_dir / self.transcriptions_dir
 
-    def ensure_directories(self):
+    def ensure_directories(self) -> None:
         """必要なディレクトリを作成"""
         self.videos_path.mkdir(exist_ok=True)
         self.output_path.mkdir(exist_ok=True)
@@ -111,7 +112,7 @@ class Config:
     ui: UIConfig = field(default_factory=UIConfig)
     paths: PathConfig = field(default_factory=PathConfig)
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         self.paths.ensure_directories()
 
     @classmethod

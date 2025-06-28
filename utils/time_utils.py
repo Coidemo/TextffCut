@@ -17,7 +17,7 @@ def format_time(seconds: float) -> str:
         return f"{seconds}秒"
 
 
-def format_timestamp(seconds: float, fps: float = None) -> str:
+def format_timestamp(seconds: float, fps: float | None = None) -> str:
     """秒数をSRT形式のタイムスタンプに変換"""
     # フレームレートが指定されている場合はフレーム境界に調整
     if fps:
