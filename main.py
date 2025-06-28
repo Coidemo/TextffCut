@@ -1320,7 +1320,7 @@ def main() -> None:
                             "エラー箇所を確認して削除", key="delete_highlights_main", use_container_width=True
                         ):
                             st.session_state.show_modal = True
-                            st.rerun()
+                            st.session_state.need_rerun = True
 
                     # マーカー位置エラーの削除ボタン
                     if st.session_state.get("show_marker_error", False):
@@ -1332,7 +1332,7 @@ def main() -> None:
                             st.session_state.text_editor_value = cleaned_text
                             st.session_state.show_marker_error = False
                             st.session_state.marker_position_errors = []
-                            st.rerun()
+                            st.session_state.need_rerun = True
 
             # 境界調整モードのチェックボックス（更新ボタンの下に配置）
             st.checkbox(
