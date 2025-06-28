@@ -79,7 +79,8 @@ class TextEditingPageController:
         self._render_audio_preview()
         
         # 赤ハイライトのモーダル処理
-        show_red_highlight_modal()
+        if SessionStateManager.get("show_red_highlight_modal", False):
+            show_red_highlight_modal(SessionStateManager.get("edited_text", ""))
         
         # 処理実行ボタン
         self._render_process_button()
