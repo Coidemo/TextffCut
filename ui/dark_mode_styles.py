@@ -3,7 +3,7 @@
 """
 
 
-def get_dark_mode_styles():
+def get_dark_mode_styles() -> str:
     """ダークモード対応のCSSスタイルを返す"""
     return """
     <style>
@@ -67,7 +67,7 @@ def get_dark_mode_styles():
     """
 
 
-def apply_dark_mode_styles():
+def apply_dark_mode_styles() -> None:
     """ダークモード対応のスタイルを適用"""
     import streamlit as st
 
