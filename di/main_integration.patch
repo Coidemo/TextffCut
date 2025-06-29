@@ -1,0 +1,42 @@
+--- main.py.original
++++ main.py
+@@ -11,6 +11,10 @@
+ import time
+ from typing import List, Tuple, Optional, Dict, Any
+ import numpy as np
++# DI統合
++from di.bootstrap import bootstrap_di, inject_streamlit_session
++from di.containers import ApplicationContainer
++from dependency_injector.wiring import Provide, inject
+ 
+ # Streamlit
+ import streamlit as st
+@@ -79,6 +83,17 @@
+ from ui.workflow_ui import WorkflowUI, WorkflowState
+ from ui.dialogs import show_shortcuts_dialog
+ 
++# DIコンテナのグローバルインスタンス
++_app_container: Optional[ApplicationContainer] = None
++
++def get_container() -> ApplicationContainer:
++    """アプリケーションコンテナを取得"""
++    global _app_container
++    if _app_container is None:
++        _app_container = bootstrap_di()
++    return _app_container
++
++
+ def init_session_state():
+     """セッション状態の初期化"""
+     # ワークフロー状態
+@@ -582,6 +597,10 @@
+         unsafe_allow_html=True
+     )
+     
++    # DIコンテナを初期化
++    container = get_container()
++    inject_streamlit_session(container)
++    
+     # セッション状態の初期化
+     init_session_state()
+     

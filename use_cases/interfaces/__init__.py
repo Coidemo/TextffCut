@@ -13,6 +13,8 @@ from .export_gateway import (
     IFCPXMLExportGateway,
     IPremiereXMLExportGateway,
     ISRTExportGateway,
+    ExportSegment,
+    TimeMapper,
 )
 from .file_gateway import IFileGateway
 
@@ -25,4 +27,6 @@ __all__ = [
     "IPremiereXMLExportGateway",
     "ISRTExportGateway",
     "IFileGateway",
+    "ExportSegment",
+    "TimeMapper",
 ]

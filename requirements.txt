@@ -22,6 +22,9 @@ cryptography==41.0.7
 # Japanese text processing
 janome==0.5.0  # Pure Python morphological analyzer
 
+# Dependency Injection
+dependency-injector==4.41.0  # DI framework for clean architecture
+
 # Visualization
 plotly==5.18.0  # Interactive graphs for waveform display
 librosa==0.10.1  # Audio processing for waveform extraction
