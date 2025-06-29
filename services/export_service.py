@@ -59,6 +59,7 @@ class ExportService(BaseService):
         output_path: str,
         project_name: str | None = None,
         event_name: str | None = None,
+        timeline_fps: int = 30,
         remove_silence: bool = False,
         video_output_path: str | None = None,
         metadata: dict[str, Any] | None = None,
@@ -71,6 +72,7 @@ class ExportService(BaseService):
             output_path: 出力FCPXMLファイルパス
             project_name: プロジェクト名
             event_name: イベント名
+            timeline_fps: タイムラインのFPS
             remove_silence: 無音削除フラグ
             video_output_path: 処理済み動画の出力パス
             metadata: 追加メタデータ
@@ -104,7 +106,10 @@ class ExportService(BaseService):
 
             # FCPXMLエクスポート実行
             self.fcpxml_exporter.export(
-                segments=export_segments, output_path=str(output_file), project_name=project_name
+                segments=export_segments, 
+                output_path=str(output_file), 
+                timeline_fps=timeline_fps,
+                project_name=project_name
             )
 
             # エクスポートファイルの検証

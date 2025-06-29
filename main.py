@@ -50,6 +50,15 @@ from utils.logging import get_logger
 from utils.path_helpers import get_display_path
 from utils.time_utils import format_time
 from utils.startup import run_initial_checks
+from utils.export_helpers import (
+    determine_export_format,
+    create_export_segments,
+    export_xml,
+    export_srt_with_diff,
+    generate_export_paths,
+    format_export_success_message,
+    get_srt_settings_from_session
+)
 from ui.constants import get_app_icon
 from ui.components_modules.header import show_app_title
 
@@ -1431,27 +1440,26 @@ def main() -> None:
 
                         # 出力形式に応じて処理
                         if primary_format in ["FCPXMLファイル", "Premiere Pro XML"]:
-                            # ExportServiceを使用してXMLを生成
-                            export_service = ExportService(config)
-                            from utils.file_utils import get_unique_path
+                            # XMLファイル生成の準備
+                            timeline_pos = 0  # timeline_posを初期化
 
                             # 形式を決定
-                            if primary_format == "FCPXMLファイル":
-                                export_format = "fcpxml"
-                                xml_ext = ".fcpxml"
-                            else:  # Premiere Pro XML
-                                export_format = "xmeml"
-                                xml_ext = ".xml"
+                            export_format, xml_ext = determine_export_format(primary_format)
 
-                            xml_path = get_unique_path(project_path / f"{safe_name}_TextffCut_{type_suffix}{xml_ext}")
+                            # 出力パスを生成
+                            export_paths = generate_export_paths(
+                                project_path=project_path,
+                                base_name=safe_name,
+                                type_suffix=type_suffix,
+                                export_srt=export_srt,
+                                xml_ext=xml_ext
+                            )
+                            xml_path = export_paths["xml"]
 
-                            # keep_rangesからセグメントを作成
-                            from core import TranscriptionSegment
 
                             # SRTも同時出力する場合
                             if export_srt:
-                                # 差分検出ベースのSRTエクスポーターを使用
-                                from core.srt_diff_exporter import SRTDiffExporter
+                                # 差分検出ベースのSRTエクスポート
 
                                 # 差分情報を取得（すでに計算済み）
                                 if found_separator:
@@ -1462,82 +1470,39 @@ def main() -> None:
                                     diff = text_processor.find_differences(full_text, cleaned_text)
 
                                 # SRT設定を取得
-                                srt_settings = st.session_state.get(
-                                    "srt_settings",
-                                    {
-                                        "min_duration": 0.5,
-                                        "max_duration": 7.0,
-                                        "gap_threshold": 0.1,
-                                        "chars_per_second": 15.0,
-                                        "max_line_length": 42,
-                                        "max_lines": 2,
-                                        "encoding": "utf-8",
-                                    },
-                                )
+                                srt_settings = get_srt_settings_from_session()
 
-                                # 無音削除の有無で処理を分岐
-                                srt_exporter = SRTDiffExporter(config)
-
-                                if process_type == "切り抜きのみ":
-                                    # 無音削除なし：従来の処理
-                                    success = srt_exporter.export_from_diff(
-                                        diff=diff,
-                                        transcription_result=transcription,
-                                        output_path=str(xml_path),
-                                        encoding=srt_settings.get("encoding", "utf-8"),
-                                        srt_settings=srt_settings,
-                                    )
-                                else:
-                                    # 無音削除あり：タイムマッピングを使用
+                                # TimeMapperを作成（無音削除時に必要）
+                                time_mapper = None
+                                if process_type != "切り抜きのみ":
                                     from core.time_mapper import TimeMapper
-
-                                    # TimeMapperを作成（time_rangesとkeep_rangesの対応）
                                     time_mapper = TimeMapper(time_ranges, keep_ranges)
-
-                                    success = srt_exporter.export_from_diff_with_silence_removal(
-                                        diff=diff,
-                                        transcription_result=transcription,
-                                        output_path=str(xml_path),
-                                        time_mapper=time_mapper,
-                                        encoding=srt_settings.get("encoding", "utf-8"),
-                                        srt_settings=srt_settings,
-                                    )
-
-                                if success:
-                                    # メタデータを作成
-                                    export_result = type(
-                                        "Result",
-                                        (),
-                                        {
-                                            "success": True,
-                                            "metadata": {
-                                                "used_duration": sum(end - start for start, end in time_ranges)
-                                            },
-                                        },
-                                    )()
-                                else:
-                                    export_result = type("Result", (), {"success": False})()
+                                
+                                # SRTエクスポート
+                                srt_success, srt_error = export_srt_with_diff(
+                                    config=config,
+                                    video_path=Path(video_path),
+                                    output_path=xml_path,  # この時点ではXMLと同じパス
+                                    diff_data=diff,
+                                    transcription_result=transcription,
+                                    time_mapper=time_mapper,
+                                    remove_silence=(process_type != "切り抜きのみ")
+                                )
+                                
+                                if not timeline_pos and srt_success:
+                                    # SRTが成功した場合のタイムライン長を計算
+                                    timeline_pos = sum(end - start for start, end in time_ranges)
 
                             # XMLの場合は空のセグメントでOK
-                            export_segments = []
-                            for _i, (start, end) in enumerate(keep_ranges):
-                                export_segments.append(TranscriptionSegment(start=start, end=end, text="", words=[]))
-
                             # XMLエクスポート実行
-                            export_result = export_service.execute(
-                                format=export_format,
-                                video_path=video_path,
-                                segments=export_segments,
-                                output_path=str(xml_path),
-                                project_name=f"{safe_name} Project",
-                                event_name="TextffCut",
-                                remove_silence=(process_type != "切り抜きのみ"),
+                            success, error_msg, timeline_pos = export_xml(
+                                config=config,
+                                video_path=Path(video_path),
+                                keep_ranges=keep_ranges,
+                                output_path=xml_path,
+                                export_format=export_format,
+                                remove_silence=(process_type != "切り抜きのみ")
                             )
-
-                            success = export_result.success
-                            if success:
-                                # メタデータから統計情報を取得
-                                timeline_pos = export_result.metadata.get("used_duration", 0)
 
                             if success:
                                 # 100%完了を表示
@@ -1551,8 +1516,6 @@ def main() -> None:
                                     xml_stem = xml_path.stem  # 例: safe_name_TextffCut_NoSilence_01
                                     srt_path = project_path / f"{xml_stem}.srt"
 
-                                    # 差分検出ベースのSRTエクスポーターを使用
-                                    from core.srt_diff_exporter import SRTDiffExporter
 
                                     # edited_textをセッション状態から取得
                                     saved_edited_text = st.session_state.get("edited_text", "")
@@ -1566,79 +1529,40 @@ def main() -> None:
                                         diff = text_processor.find_differences(full_text, saved_edited_text)
 
                                     # SRT設定を取得
-                                    srt_settings = st.session_state.get(
-                                        "srt_settings",
-                                        {
-                                            "min_duration": 0.5,
-                                            "max_duration": 7.0,
-                                            "gap_threshold": 0.1,
-                                            "chars_per_second": 15.0,
-                                            "max_line_length": 42,
-                                            "max_lines": 2,
-                                            "encoding": "utf-8",
-                                            "fps": float(timeline_fps),
-                                        },
+                                    srt_settings = get_srt_settings_from_session()
+
+                                    # TimeMapperを作成（無音削除時に必要）
+                                    time_mapper = None
+                                    if process_type != "切り抜きのみ":
+                                        from core.time_mapper import TimeMapper
+                                        time_mapper = TimeMapper(time_ranges, keep_ranges)
+                                    
+                                    # SRTエクスポート
+                                    srt_output_success, srt_error = export_srt_with_diff(
+                                        config=config,
+                                        video_path=Path(video_path),
+                                        output_path=srt_path,
+                                        diff_data=diff,
+                                        transcription_result=transcription,
+                                        time_mapper=time_mapper,
+                                        remove_silence=(process_type != "切り抜きのみ")
                                     )
 
-                                    # FPSを追加
-                                    srt_settings["fps"] = float(timeline_fps)
-
-                                    # 無音削除の有無で処理を分岐
-                                    srt_exporter = SRTDiffExporter(config)
-
-                                    if process_type == "切り抜きのみ":
-                                        # 無音削除なし：従来の処理
-                                        srt_output_success = srt_exporter.export_from_diff(
-                                            diff=diff,
-                                            transcription_result=transcription,
-                                            output_path=str(srt_path),
-                                            encoding=srt_settings.get("encoding", "utf-8"),
-                                            srt_settings=srt_settings,
-                                        )
-                                    else:
-                                        # 無音削除あり：タイムマッピングを使用
-                                        from core.time_mapper import TimeMapper
-
-                                        # TimeMapperを作成（time_rangesとkeep_rangesの対応）
-                                        time_mapper = TimeMapper(time_ranges, keep_ranges)
-
-                                        srt_output_success = srt_exporter.export_from_diff_with_silence_removal(
-                                            diff=diff,
-                                            transcription_result=transcription,
-                                            output_path=str(srt_path),
-                                            time_mapper=time_mapper,
-                                            encoding=srt_settings.get("encoding", "utf-8"),
-                                            srt_settings=srt_settings,
-                                        )
-
-                                    if srt_output_success:
-                                        # SRT出力成功メッセージを追加
-                                        srt_display_path = get_display_path(srt_path)
-
-                                        show_progress(
-                                            1.0,
-                                            f"処理が完了しました！ 出力先: {display_path} | "
-                                            f"SRT字幕: {srt_display_path} | "
-                                            f"📊 {len(keep_ranges)}個のクリップ、総時間: {timeline_pos:.1f}秒",
-                                            progress_bar,
-                                            status_text,
-                                        )
-                                    else:
-                                        # SRT出力は失敗したが、XMLは成功
-                                        show_progress(
-                                            1.0,
-                                            f"処理が完了しました！ 出力先: {display_path} | "
-                                            f"⚠️ SRT字幕の生成に失敗 | "
-                                            f"📊 {len(keep_ranges)}個のクリップ、総時間: {timeline_pos:.1f}秒",
-                                            progress_bar,
-                                            status_text,
-                                        )
-                                else:
-                                    # SRT出力なし
+                                    # 成功メッセージを作成
+                                    success_message = format_export_success_message(
+                                        format_name=primary_format,
+                                        output_path=xml_path,
+                                        timeline_duration=timeline_pos,
+                                        srt_path=srt_path if export_srt else None,
+                                        srt_success=srt_output_success if export_srt else True
+                                    )
+                                    
+                                    # クリップ数と総時間を追加
+                                    additional_info = f" | 📊 {len(keep_ranges)}個のクリップ、総時間: {timeline_pos:.1f}秒"
+                                    
                                     show_progress(
                                         1.0,
-                                        f"処理が完了しました！ 出力先: {display_path} | "
-                                        f"📊 {len(keep_ranges)}個のクリップ、総時間: {timeline_pos:.1f}秒",
+                                        success_message + additional_info,
                                         progress_bar,
                                         status_text,
                                     )
