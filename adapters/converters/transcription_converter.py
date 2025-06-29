@@ -95,16 +95,16 @@ class TranscriptionConverter:
         if isinstance(word_data, dict):
             return domain.Word(
                 word=word_data.get("word", ""),
-                start=float(word_data.get("start", 0)),
-                end=float(word_data.get("end", 0)),
+                start=float(word_data.get("start") or 0),
+                end=float(word_data.get("end") or 0),
                 confidence=word_data.get("confidence") or word_data.get("score")
             )
         elif hasattr(word_data, "word"):
             # オブジェクトの場合
             return domain.Word(
                 word=word_data.word,
-                start=float(word_data.start),
-                end=float(word_data.end),
+                start=float(word_data.start if word_data.start is not None else 0),
+                end=float(word_data.end if word_data.end is not None else 0),
                 confidence=getattr(word_data, "confidence", None) or getattr(word_data, "score", None)
             )
         else:
@@ -116,16 +116,16 @@ class TranscriptionConverter:
         if isinstance(char_data, dict):
             return domain.Char(
                 char=char_data.get("char", ""),
-                start=float(char_data.get("start", 0)),
-                end=float(char_data.get("end", 0)),
+                start=float(char_data.get("start") or 0),
+                end=float(char_data.get("end") or 0),
                 confidence=char_data.get("confidence") or char_data.get("score")
             )
         elif hasattr(char_data, "char"):
             # オブジェクトの場合
             return domain.Char(
                 char=char_data.char,
-                start=float(char_data.start),
-                end=float(char_data.end),
+                start=float(char_data.start if char_data.start is not None else 0),
+                end=float(char_data.end if char_data.end is not None else 0),
                 confidence=getattr(char_data, "confidence", None) or getattr(char_data, "score", None)
             )
         else:
