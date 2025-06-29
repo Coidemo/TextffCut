@@ -385,7 +385,7 @@ class TranscriptionResult:
     metadata: dict
 ```
 
-### Phase 3: ユースケース層の実装（4週間）
+### Phase 3: ユースケース層の実装（4週間）🚧 実装中
 
 #### 拡張理由
 - 並列文字起こし処理などの複雑なユースケースの実装
@@ -396,6 +396,27 @@ class TranscriptionResult:
 - ビジネスロジックをユースケースとして実装
 - 外部依存を抽象化
 - テスト可能な設計
+
+#### 完了したタスク（Step 1/6）
+1. **基本構造の作成** ✅
+   - `UseCase`基底クラス（ジェネリック型対応）
+   - `UseCaseError`と各種例外クラス
+   - ロギングとエラーハンドリングの標準化
+   - 包括的な単体テスト（9テストケース）
+
+2. **ゲートウェイインターフェース定義** ✅
+   - `ITranscriptionGateway` - 文字起こし機能
+   - `ITextProcessorGateway` - テキスト処理
+   - `IVideoProcessorGateway` - 動画処理
+   - `IExportGateway`系 - 各種エクスポート
+   - `IFileGateway` - ファイル操作
+
+#### 実装予定
+- Step 2: 文字起こしユースケース
+- Step 3: 編集ユースケース
+- Step 4: 動画処理ユースケース
+- Step 5: エクスポートユースケース
+- Step 6: 統合とリファクタリング
 
 #### ユースケース例
 
