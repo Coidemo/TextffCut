@@ -181,10 +181,25 @@ class TranscriptionGatewayAdapter(ITranscriptionGateway):
             logger.error(f"Failed to save cache: {e}")
             # キャッシュ保存の失敗は致命的ではないので、例外は投げない
     
-    def list_available_caches(
-        self,
-        video_path: FilePath
-    ) -> List[Dict[str, Any]]:
+    
+    def get_video_info(self, video_path: str) -> Any:
+        """
+        動画情報を取得
+        
+        Args:
+            video_path: 動画ファイルパス
+            
+        Returns:
+            動画情報オブジェクト
+        """
+        try:
+            from core.video import VideoInfo
+            return VideoInfo.from_file(video_path)
+        except Exception as e:
+            logger.error(f"Failed to get video info: {e}")
+            raise
+    
+    def get_available_caches(self, video_path: str) -> List[Dict[str, Any]]:
         """
         利用可能なキャッシュのリストを取得
         
@@ -195,9 +210,9 @@ class TranscriptionGatewayAdapter(ITranscriptionGateway):
             キャッシュ情報のリスト
         """
         try:
-            return self._legacy_transcriber.get_available_caches(str(video_path))
+            return self._legacy_transcriber.get_available_caches(video_path)
         except Exception as e:
-            logger.error(f"Failed to list caches: {e}")
+            logger.error(f"Failed to get available caches: {e}")
             return []
     
     def is_model_available(self, model_size: str) -> bool:
