@@ -1,7 +1,8 @@
 """
-UIルーター - ページ間のナビゲーションを管理
+UIルーター - 画面セクションの表示を管理
 
-移行期間中は段階的に機能を追加していく。
+移行期間中は既存の1ページUIを維持しながら、
+内部的にモジュール化を進める。
 """
 
 import streamlit as st
@@ -16,26 +17,25 @@ from utils.startup import run_initial_checks
 
 
 class Router:
-    """ページ間のルーティングを管理"""
+    """画面表示のルーティングを管理"""
     
     def __init__(self):
-        self.pages: Dict[str, Callable] = {}
-        self._setup_pages()
-    
-    def _setup_pages(self):
-        """利用可能なページを設定"""
-        # Phase 1では基本的なページ構造のみ
-        # 後のフェーズで実際のページを追加
-        self.pages = {
-            "🏠 ホーム": self._show_home_page,
-            "🎬 文字起こし": self._show_transcription_placeholder,
-            "✂️ 編集": self._show_editing_placeholder,
-            "📤 エクスポート": self._show_export_placeholder,
-        }
+        self.use_new_architecture = False  # 段階的移行フラグ
     
     def route(self):
-        """現在のページをルーティング"""
-        # Streamlitの基本設定（main.pyと同じ）
+        """画面をルーティング（段階的移行対応）"""
+        if self.use_new_architecture:
+            # 新アーキテクチャ版（開発中）
+            from .main_view import MainView
+            view = MainView()
+            view.render()
+        else:
+            # デモ画面を表示
+            self._show_demo_page()
+    
+    def _show_demo_page(self):
+        """デモページを表示"""
+        # Streamlitの基本設定
         if "page_configured" not in st.session_state:
             st.set_page_config(
                 page_title=get_ui_page_title(),
@@ -55,27 +55,18 @@ class Router:
         # タイトル表示
         show_app_title(version)
         
-        # サイドバーでページ選択
+        # サイドバー
         with st.sidebar:
-            st.subheader("📍 ナビゲーション")
-            selected_page = st.radio(
-                "ページを選択",
-                options=list(self.pages.keys()),
-                label_visibility="collapsed"
-            )
+            st.subheader("⚙️ 開発モード")
             
-            st.markdown("---")
-            
-            # クリーンアーキテクチャモードの切り替え（開発用）
-            if st.checkbox("🧪 レガシーモードに戻る"):
+            # レガシーモードに戻る
+            if st.button("🔙 レガシーモードに戻る", use_container_width=True):
                 st.session_state["use_clean_architecture"] = False
                 st.rerun()
         
-        # 選択されたページを表示
-        page_function = self.pages[selected_page]
-        page_function()
+        self._show_home_content()
     
-    def _show_home_page(self):
+    def _show_home_content(self):
         """ホームページを表示"""
         st.header("🏠 ホーム")
         st.info(
@@ -114,38 +105,3 @@ TextffCut/
 └── infrastructure/ # 具体的な実装
             """)
     
-    def _show_transcription_placeholder(self):
-        """文字起こしページのプレースホルダー"""
-        st.header("🎬 文字起こし")
-        st.warning(
-            "⚠️ このページは移行作業中です。\n\n"
-            "レガシーモードに戻って、従来の機能をご利用ください。"
-        )
-        
-        if st.button("🔙 レガシーモードに戻る"):
-            st.session_state["use_clean_architecture"] = False
-            st.rerun()
-    
-    def _show_editing_placeholder(self):
-        """編集ページのプレースホルダー"""
-        st.header("✂️ 編集")
-        st.warning(
-            "⚠️ このページは移行作業中です。\n\n"
-            "レガシーモードに戻って、従来の機能をご利用ください。"
-        )
-        
-        if st.button("🔙 レガシーモードに戻る"):
-            st.session_state["use_clean_architecture"] = False
-            st.rerun()
-    
-    def _show_export_placeholder(self):
-        """エクスポートページのプレースホルダー"""
-        st.header("📤 エクスポート")
-        st.warning(
-            "⚠️ このページは移行作業中です。\n\n"
-            "レガシーモードに戻って、従来の機能をご利用ください。"
-        )
-        
-        if st.button("🔙 レガシーモードに戻る"):
-            st.session_state["use_clean_architecture"] = False
-            st.rerun()
