@@ -155,6 +155,8 @@ class TranscriptionResult:
             # Word情報の変換
             words = None
             if seg.words:
+                # WordInfoは辞書形式で統一する
+                # 複雑な処理は、異なるソース（API/ローカル）からのデータ形式を統一するため
                 words = [
                     (
                         w

@@ -202,8 +202,8 @@ class AlignmentProcessor(IAlignmentProcessor):
                     test_batch = sample_segments[:test_size]
                     start_memory = memory_monitor.get_memory_usage()
 
-                    # 実際にアライメント処理を実行（エラーは無視）
-                    # アライメントエラーは無視（メモリ測定が目的）
+                    # 実際にアライメント処理を実行
+                    # エラーは無視する（メモリ測定が目的のため、処理の成否は問わない）
                     with suppress(Exception):
                         self._process_batch(test_batch, full_audio, language)
 
@@ -284,6 +284,7 @@ class AlignmentProcessor(IAlignmentProcessor):
             if self.temp_dir and os.path.exists(self.temp_dir):
                 import shutil
 
+                # 一時ディレクトリの削除エラーは無視（既に削除されている場合など）
                 with suppress(OSError):
                     shutil.rmtree(self.temp_dir)
                 self.temp_dir = None
@@ -381,6 +382,7 @@ class AlignmentProcessor(IAlignmentProcessor):
             if self.temp_dir and os.path.exists(self.temp_dir):
                 import shutil
 
+                # 一時ディレクトリの削除エラーは無視（既に削除されている場合など）
                 with suppress(OSError):
                     shutil.rmtree(self.temp_dir)
 

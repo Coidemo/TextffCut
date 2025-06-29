@@ -484,6 +484,7 @@ class APITranscriber:
             # 一時ファイルをクリーンアップ
             import shutil
 
+            # 一時ディレクトリの削除エラーは無視（権限不足や使用中の場合）
             with suppress(OSError):
                 shutil.rmtree(temp_dir)
 
@@ -721,6 +722,7 @@ class APITranscriber:
             return self._transcribe_single_file(client, temp_wav_path, progress_callback)
 
         finally:
+            # 一時ファイルの削除エラーは無視（既に削除されている場合など）
             with suppress(OSError):
                 os.unlink(temp_wav_path)
 
@@ -883,6 +885,7 @@ class APITranscriber:
             # 一時ファイルをクリーンアップ
             import shutil
 
+            # 一時ディレクトリの削除エラーは無視（権限不足や使用中の場合）
             with suppress(OSError):
                 shutil.rmtree(temp_dir)
 
@@ -1046,6 +1049,7 @@ class APITranscriber:
 
         finally:
             # クリーンアップ
+            # 一時ディレクトリの削除エラーは無視（権限不足や使用中の場合）
             with suppress(OSError):
                 shutil.rmtree(temp_dir)
 

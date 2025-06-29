@@ -249,6 +249,7 @@ class VideoProcessor:
                     time_val = float(line.split("silence_start: ")[1].split()[0])
                     current_start = time_val + offset
                 except (ValueError, IndexError, AttributeError):
+                    # FFmpegの出力パースエラーは無視（フォーマットが変わる可能性があるため）
                     pass
 
             elif "silence_end" in line and current_start is not None:
@@ -257,6 +258,7 @@ class VideoProcessor:
                     silences.append(SilenceInfo(start=current_start, end=time_val + offset))
                     current_start = None
                 except (ValueError, IndexError, AttributeError):
+                    # FFmpegの出力パースエラーは無視（フォーマットが変わる可能性があるため）
                     pass
 
         return silences
@@ -308,6 +310,7 @@ class VideoProcessor:
                     time_val = float(line.split("silence_start: ")[1].split()[0])
                     current_start = time_val + offset
                 except (ValueError, IndexError, AttributeError):
+                    # FFmpegの出力パースエラーは無視（フォーマットが変わる可能性があるため）
                     pass
 
             elif "silence_end" in line and current_start is not None:
@@ -316,6 +319,7 @@ class VideoProcessor:
                     silences.append(SilenceInfo(start=current_start, end=time_val + offset))
                     current_start = None
                 except (ValueError, IndexError, AttributeError):
+                    # FFmpegの出力パースエラーは無視（フォーマットが変わる可能性があるため）
                     pass
 
         return silences
@@ -578,6 +582,7 @@ class VideoProcessor:
                 logger.warning(f"WAVファイル削除エラー: {e}")
 
         # 一時ディレクトリも削除
+        # 一時ディレクトリの削除エラーは無視（空でない場合など）
         with suppress(OSError):
             (output_dir_path / "temp_wav").rmdir()
 
@@ -745,6 +750,7 @@ class VideoProcessor:
                     logger.info(f"音声結合成功: {output_audio_path}")
 
                 # リストファイルを削除
+                # リストファイルの削除エラーは無視（既に削除されている場合など）
                 with suppress(ValueError, IndexError, AttributeError):
                     list_file.unlink()
 

@@ -180,12 +180,14 @@ class SubprocessTranscriber(Transcriber):
                 raise RuntimeError("文字起こし処理がタイムアウトしました") from None
             except Exception as e:
                 # エラー時はプロセスを強制終了
+                # プロセス強制終了のエラーは無視（既に終了している場合など）
                 with suppress(Exception):
                     process.kill()
                 raise e
 
         finally:
             # 作業ディレクトリをクリーンアップ
+            # 作業ディレクトリの削除エラーは無視（権限不足や使用中の場合）
             with suppress(Exception):
                 shutil.rmtree(work_dir)
 

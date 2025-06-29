@@ -52,6 +52,7 @@ def _generate_combined_audio(
             logger.error(f"エラー詳細: video_path={video_path}, output={temp_audio}, start={start}, end={end}")
             # クリーンアップして例外を再発生
             for temp_file in temp_audio_files:
+                # 一時ファイルの削除エラーは無視（例外処理中のため、クリーンアップを優先）
                 with suppress(Exception):
                     Path(temp_file).unlink()
             raise
