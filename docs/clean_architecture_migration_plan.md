@@ -418,8 +418,13 @@ class TranscriptionResult:
    - `ParallelTranscribeUseCase` - 並列文字起こし
    - 包括的な単体テスト（13テストケース）
 
+#### 完了したタスク（Step 3/6）
+4. **編集ユースケース** ✅
+   - `FindTextDifferencesUseCase` - テキスト差分検出と時間範囲特定
+   - `AdjustBoundariesUseCase` - 境界調整マーカーの解析と適用
+   - 包括的な単体テスト（9テストケース）
+
 #### 実装予定
-- Step 3: 編集ユースケース
 - Step 4: 動画処理ユースケース
 - Step 5: エクスポートユースケース
 - Step 6: 統合とリファクタリング
