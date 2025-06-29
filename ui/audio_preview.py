@@ -4,6 +4,7 @@
 """
 
 import tempfile
+from contextlib import suppress
 from pathlib import Path
 
 import streamlit as st
@@ -18,9 +19,9 @@ logger = get_logger(__name__)
 
 def _generate_combined_audio(
     video_processor: VideoProcessor,
-    video_path: str,
+    video_path: str | Path,
     time_ranges: list[tuple[float, float]],
-    output_path: str,
+    output_path: str | Path,
 ) -> None:
     """
     複数の時間範囲から音声を抽出して結合
@@ -42,19 +43,17 @@ def _generate_combined_audio(
         temp_audio = temp_dir / f"preview_audio_{i:04d}.wav"
 
         try:
-            logger.info(f"音声セグメント抽出: {i+1}/{len(time_ranges)} - {start:.1f}s-{end:.1f}s")
+            logger.info(f"音声セグメント抽出: {i + 1}/{len(time_ranges)} - {start:.1f}s-{end:.1f}s")
             video_processor.extract_audio_segment(video_path, str(temp_audio), start, end)
             temp_audio_files.append(str(temp_audio))
             logger.info(f"音声セグメント抽出成功: {temp_audio}")
         except Exception as e:
-            logger.error(f"セグメント{i+1}の音声抽出エラー: {e}")
+            logger.error(f"セグメント{i + 1}の音声抽出エラー: {e}")
             logger.error(f"エラー詳細: video_path={video_path}, output={temp_audio}, start={start}, end={end}")
             # クリーンアップして例外を再発生
-            for f in temp_audio_files:
-                try:
-                    Path(f).unlink()
-                except:
-                    pass
+            for temp_file in temp_audio_files:
+                with suppress(Exception):
+                    Path(temp_file).unlink()
             raise
 
     # 複数ファイルがある場合は結合
@@ -62,7 +61,7 @@ def _generate_combined_audio(
         if len(temp_audio_files) > 1:
             # リストファイルを作成
             list_file = temp_dir / "preview_list.txt"
-            with open(list_file, "w") as f:
+            with open(str(list_file), "w") as f:
                 for audio_file in temp_audio_files:
                     f.write(f"file '{Path(audio_file).resolve()}'\n")
 
@@ -105,12 +104,12 @@ def _generate_combined_audio(
             try:
                 if Path(temp_file).exists():
                     Path(temp_file).unlink()
-            except:
+            except Exception:
                 pass
 
 
 def show_audio_preview_for_clips(
-    video_path: str, time_ranges: list[tuple[float, float]], max_duration: float = 30.0
+    video_path: str | Path, time_ranges: list[tuple[float, float]], max_duration: float = 30.0
 ) -> None:
     """
     クリップの音声プレビューを表示（すべてのクリップを結合）
@@ -180,7 +179,7 @@ def show_audio_preview_for_clips(
 
 
 def show_boundary_adjusted_preview(
-    video_path: str,
+    video_path: str | Path,
     original_ranges: list[tuple[float, float]],
     adjusted_ranges: list[tuple[float, float]],
     max_duration: float = 30.0,

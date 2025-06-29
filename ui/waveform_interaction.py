@@ -8,7 +8,7 @@ from typing import Any
 
 import streamlit as st
 
-from core.waveform_processor import WaveformData
+from core.waveform_processor import ClipWaveformData
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -17,18 +17,18 @@ logger = get_logger(__name__)
 class WaveformInteraction:
     """波形インタラクション管理クラス"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.click_handlers: dict[str, Callable] = {}
         self.hover_info_enabled = True
         self.boundary_adjustment_enabled = True
         self.boundary_threshold = 0.1  # 境界検出の閾値（秒）
 
-    def register_click_handler(self, handler_name: str, handler: Callable):
+    def register_click_handler(self, handler_name: str, handler: Callable) -> None:
         """クリックハンドラーを登録"""
         self.click_handlers[handler_name] = handler
 
     def process_click_event(
-        self, click_data: dict[str, Any], waveform_data: WaveformData, segment_boundaries: list[float]
+        self, click_data: dict[str, Any], waveform_data: ClipWaveformData, segment_boundaries: list[float]
     ) -> dict[str, Any] | None:
         """
         波形上のクリックイベントを処理
@@ -104,7 +104,7 @@ class WaveformInteraction:
 
         return config
 
-    def add_boundary_markers(self, fig: Any, boundaries: list[float], selected_boundary: float | None = None):
+    def add_boundary_markers(self, fig: Any, boundaries: list[float], selected_boundary: float | None = None) -> None:
         """
         波形図に境界マーカーを追加
 
@@ -141,7 +141,7 @@ class WaveformInteraction:
                 layer="below",
             )
 
-    def add_hover_info(self, fig: Any, waveform_data: WaveformData):
+    def add_hover_info(self, fig: Any, waveform_data: ClipWaveformData) -> None:
         """
         ホバー情報を追加
 
@@ -231,7 +231,7 @@ class WaveformInteraction:
 class WaveformPlayback:
     """波形再生制御クラス"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.is_playing = False
         self.current_position = 0.0
         self.playback_speed = 1.0

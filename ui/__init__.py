@@ -17,7 +17,6 @@ from .components import (
     show_text_editor,
     show_transcription_controls,
 )
-
 from .dark_mode_styles import apply_dark_mode_styles
 from .file_upload import cleanup_temp_files, show_video_input
 from .session_state_adapter import EditingState, ProcessingState, SessionStateAdapter, TranscriptionState

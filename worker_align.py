@@ -25,7 +25,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(level
 logger = logging.getLogger(__name__)
 
 
-def send_progress(progress: float, message: str = ""):
+def send_progress(progress: float, message: str = "") -> None:
     """プログレス情報を親プロセスに送信"""
     print(f"PROGRESS:{progress}|{message}", flush=True)
 
@@ -138,7 +138,7 @@ def process_alignment(config_data: dict[str, Any]) -> dict[str, Any]:
         return {"success": False, "error": str(e), "traceback": error_traceback, "segments": []}
 
 
-def main():
+def main() -> None:
     """ワーカーメイン処理"""
     try:
         # コマンドライン引数から設定ファイルパスを取得
@@ -166,7 +166,7 @@ def main():
             mem_info = process.memory_info()
             mem_mb = mem_info.rss / 1024 / 1024
             logger.info(f"初期メモリ使用量: {mem_mb:.1f}MB")
-        except:
+        except Exception:
             pass
 
         # アライメント処理を実行
@@ -189,7 +189,7 @@ def main():
                 mem_info = process.memory_info()
                 mem_mb = mem_info.rss / 1024 / 1024
                 logger.info(f"最終メモリ使用量: {mem_mb:.1f}MB")
-            except:
+            except Exception:
                 pass
 
             sys.exit(0)

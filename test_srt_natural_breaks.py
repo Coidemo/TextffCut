@@ -65,7 +65,7 @@ def create_test_transcription() -> TranscriptionResult:
     )
 
 
-def test_natural_line_breaks():
+def test_natural_line_breaks() -> None:
     """自然な改行処理のテスト"""
     config = Config()
     exporter = SRTDiffExporter(config)
@@ -133,9 +133,9 @@ def test_natural_line_breaks():
                 text_lines = lines[2:]  # テキスト部分
                 print(f"\n字幕 {lines[0]}:")
                 for i, line in enumerate(text_lines):
-                    print(f"  {i+1}行目: 「{line}」 ({len(line)}文字)")
+                    print(f"  {i + 1}行目: 「{line}」 ({len(line)}文字)")
                     if len(line) > 11:
-                        print(f"  ⚠️ 警告: {i+1}行目が11文字を超えています！")
+                        print(f"  ⚠️ 警告: {i + 1}行目が11文字を超えています！")
     else:
         logger.error("SRTファイルの生成に失敗しました")
 
@@ -143,7 +143,7 @@ def test_natural_line_breaks():
     Path(output_path).unlink(missing_ok=True)
 
 
-def test_long_text_splitting():
+def test_long_text_splitting() -> None:
     """長いテキストの分割テスト"""
     from core.japanese_line_break import JapaneseLineBreakRules
 
@@ -158,7 +158,7 @@ def test_long_text_splitting():
     max_line_length = 15
 
     for i, text in enumerate(test_cases):
-        print(f"\n=== テストケース {i+1} ===")
+        print(f"\n=== テストケース {i + 1} ===")
         print(f"元のテキスト: 「{text}」")
         print(f"文字数: {len(text)}")
 

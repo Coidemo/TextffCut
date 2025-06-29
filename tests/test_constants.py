@@ -15,7 +15,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 def test_import_constants():
     """定数モジュールのインポートテスト"""
     try:
-        from core.constants import (
+        from core.constants import (  # noqa: F401
             AdjustmentFactors,
             AudioProcessing,
             BatchSizeLimits,
@@ -82,7 +82,7 @@ def test_usage_in_modules():
     try:
         from core.auto_optimizer import AutoOptimizer
 
-        optimizer = AutoOptimizer("base")
+        AutoOptimizer("base")
         print("✅ AutoOptimizerが定数を使用可能")
     except Exception as e:
         print(f"❌ AutoOptimizerのインポートエラー: {e}")

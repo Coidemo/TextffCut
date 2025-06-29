@@ -33,20 +33,20 @@ def test_service_initialization():
 
     try:
         # 各サービスの初期化
-        config_service = ConfigurationService(config)
+        ConfigurationService(config)
         print("✅ ConfigurationService初期化成功")
 
-        video_service = VideoProcessingService(config)
+        VideoProcessingService(config)
         print("✅ VideoProcessingService初期化成功")
 
-        text_service = TextEditingService(config)
+        TextEditingService(config)
         print("✅ TextEditingService初期化成功")
 
-        export_service = ExportService(config)
+        ExportService(config)
         print("✅ ExportService初期化成功")
 
         # アライメント診断の初期化
-        diag = AlignmentDiagnostics("medium", config)
+        AlignmentDiagnostics("medium", config)
         print("✅ AlignmentDiagnostics初期化成功")
 
         return True
@@ -167,8 +167,7 @@ def test_export_service():
     service = ExportService(config)
 
     # テスト用データ
-    test_segments = [{"start": 0.0, "end": 5.0}]
-    video_info = VideoInfo(path="/test/video.mp4", width=1920, height=1080, fps=30.0, duration=60.0, codec="h264")
+    VideoInfo(path="/test/video.mp4", width=1920, height=1080, fps=30.0, duration=60.0, codec="h264")
 
     # FCPXML出力テスト（簡略化）
     # ExportServiceは複雑なファイル操作を行うため、主要な機能のみテスト
@@ -210,7 +209,7 @@ def test_service_integration():
     # 全サービスの初期化
     config_service = ConfigurationService(config)
     video_service = VideoProcessingService(config)
-    text_service = TextEditingService(config)
+    TextEditingService(config)
     export_service = ExportService(config)
 
     # シナリオ: 動画処理フロー
@@ -248,7 +247,7 @@ def test_service_integration():
     print(f"  ✅ アライメント診断完了: バッチサイズ{diag_result.optimal_batch_size}")
 
     print("\n4. エクスポート")
-    segment_dicts = [{"start": s.start, "end": s.end} for s in segments[:5]]
+    [{"start": s.start, "end": s.end} for s in segments[:5]]
 
     # ExportServiceの存在確認
     assert hasattr(export_service, "export_fcpxml")

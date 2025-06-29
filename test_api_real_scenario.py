@@ -19,7 +19,7 @@ logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(name)s - %(leve
 logger = get_logger(__name__)
 
 
-def test_real_scenario():
+def test_real_scenario() -> None:
     """実際のエラーシナリオを再現"""
     print("=== 実際のAPIモードエラーシナリオ再現 ===")
 
@@ -37,7 +37,9 @@ def test_real_scenario():
     # テスト用のAPIレスポンスセグメントを作成（実際のAPIレスポンスを模擬）
     api_segments = []
     for i in range(5):  # 5つのセグメント
-        api_segments.append({"start": i * 2.0, "end": (i + 1) * 2.0, "text": f"これはセグメント{i+1}のテキストです。"})
+        api_segments.append(
+            {"start": i * 2.0, "end": (i + 1) * 2.0, "text": f"これはセグメント{i + 1}のテキストです。"}
+        )
 
     print(f"\nAPIセグメント数: {len(api_segments)}")
 
@@ -58,7 +60,7 @@ def test_real_scenario():
 
         # 結果を詳細に確認
         for i, seg in enumerate(aligned_segments):
-            print(f"\nセグメント {i+1}:")
+            print(f"\nセグメント {i + 1}:")
             print(f"  テキスト: {seg.get('text', '')}")
             words = seg.get("words", [])
             print(f"  words数: {len(words)}")
@@ -85,7 +87,7 @@ def test_real_scenario():
             os.unlink(test_audio)
 
 
-def create_test_audio(duration):
+def create_test_audio(duration) -> None:
     """テスト用の音声ファイルを作成"""
     import subprocess
 

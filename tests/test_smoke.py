@@ -14,27 +14,27 @@ def test_imports():
 
     try:
         # メインモジュール
-        import main
+        import main  # noqa: F401
 
         print("  ✅ main.py")
 
         # 設定
-        from config import Config
+        from config import Config  # noqa: F401
 
         print("  ✅ config.py")
 
         # コアモジュール
-        from core import FCPXMLExporter, TextProcessor, Transcriber, VideoProcessor
+        from core import FCPXMLExporter, TextProcessor, Transcriber, VideoProcessor  # noqa: F401
 
         print("  ✅ core modules")
 
         # UIモジュール
-        from ui import show_video_input
+        from ui import show_video_input  # noqa: F401
 
         print("  ✅ ui modules")
 
         # ユーティリティ
-        from utils.logging import get_logger
+        from utils.logging import get_logger  # noqa: F401
 
         print("  ✅ utils modules")
 
@@ -84,13 +84,13 @@ def test_transcriber_init():
 
         # ローカルモード
         config.transcription.use_api = False
-        transcriber = Transcriber(config)
+        Transcriber(config)
         print("  ✅ ローカルモードTranscriber")
 
         # APIモード（初期化のみ）
         config.transcription.use_api = True
         config.transcription.api_provider = "openai"
-        transcriber_api = Transcriber(config)
+        Transcriber(config)
         print("  ✅ APIモードTranscriber")
 
         return True

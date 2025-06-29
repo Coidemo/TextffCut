@@ -25,7 +25,7 @@ from utils.progress import ProgressTracker
 class IntegrationService(BaseService):
     """複数サービスを統合したワークフロー管理"""
 
-    def __init__(self, config):
+    def __init__(self, config) -> None:
         """初期化
 
         Args:

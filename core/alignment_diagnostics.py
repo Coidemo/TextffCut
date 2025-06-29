@@ -9,7 +9,7 @@ import gc
 import time
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import psutil
 
@@ -17,6 +17,9 @@ from config import Config
 from core.constants import BatchSizeLimits, MemoryEstimates, MemoryThresholds
 from core.memory_monitor import MemoryMonitor
 from utils.logging import get_logger
+
+if TYPE_CHECKING:
+    from core.transcription_result import TranscriptionResultV2, TranscriptionSegmentV2
 
 logger = get_logger(__name__)
 
@@ -109,7 +112,7 @@ class AlignmentDiagnostics:
         "whisper-1": 200,  # API使用時
     }
 
-    def __init__(self, model_size: str, config: Config):
+    def __init__(self, model_size: str, config: Config) -> None:
         """
         初期化
 
@@ -254,7 +257,7 @@ class AlignmentDiagnostics:
         return self.MODEL_MEMORY_ESTIMATES.get(self.model_size, 300)
 
     def _calculate_optimal_batch_size(
-        self, available_memory_gb: float, segment_count: int, model_memory_mb: float, base_memory_percent: float
+        self, _available_memory_gb: float, segment_count: int, model_memory_mb: float, base_memory_percent: float
     ) -> int:
         """
         最適なバッチサイズを計算
@@ -310,7 +313,7 @@ class AlignmentDiagnostics:
 
         return optimal_batch_size
 
-    def _estimate_memory_per_batch(self, batch_size: int, model_memory_mb: float) -> float:
+    def _estimate_memory_per_batch(self, batch_size: int, _model_memory_mb: float) -> float:
         """
         バッチあたりのメモリ使用量を推定
 
@@ -381,7 +384,7 @@ class AlignmentDiagnostics:
         return recommendations, warnings
 
     def analyze_segment(
-        self, segment: "TranscriptionSegmentV2", context: dict[str, Any] | None = None
+        self, segment: "TranscriptionSegmentV2", _context: dict[str, Any] | None = None
     ) -> SegmentDiagnostic:
         """
         個別セグメントを診断
@@ -498,7 +501,7 @@ class AlignmentDiagnostics:
             },
         }
 
-    def generate_report(self, result: "TranscriptionResultV2", include_ok: bool = False) -> str:
+    def generate_report(self, result: "TranscriptionResultV2", _include_ok: bool = False) -> str:
         """
         診断レポートを生成
 

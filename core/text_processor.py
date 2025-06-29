@@ -81,7 +81,7 @@ class TextDifference:
 
                 # 最初の3つの例を表示
                 for i, info in enumerate(not_found_positions[:3]):
-                    error_msg += f"例{i+1}: {info['text']} (位置: {info['position']})\n"
+                    error_msg += f"例{i + 1}: {info['text']} (位置: {info['position']})\n"
 
                 if not_found_count > 3:
                     error_msg += f"...他{not_found_count - 3}件\n"
@@ -166,8 +166,6 @@ class TextDifference:
             current_pos = 0
 
             # タイムスタンプが欠落した場合の推定用
-            last_valid_timestamp = None
-            next_valid_timestamp = None
 
             for seg_idx, seg in enumerate(segments):
                 debug_info["segments_checked"] += 1
@@ -216,9 +214,12 @@ class TextDifference:
                                 if hasattr(prev_word, "start") and hasattr(prev_word, "end"):
                                     if prev_word.start is not None and prev_word.end is not None:
                                         prev_timestamps.append((prev_idx, prev_word.start, prev_word.end))
-                                elif isinstance(prev_word, dict):
-                                    if prev_word.get("start") is not None and prev_word.get("end") is not None:
-                                        prev_timestamps.append((prev_idx, prev_word["start"], prev_word["end"]))
+                                elif (
+                                    isinstance(prev_word, dict)
+                                    and prev_word.get("start") is not None
+                                    and prev_word.get("end") is not None
+                                ):
+                                    prev_timestamps.append((prev_idx, prev_word["start"], prev_word["end"]))
 
                             # 後方検索（最大5つ後まで）
                             for next_idx in range(word_idx + 1, min(len(seg.words), word_idx + 6)):
@@ -226,9 +227,12 @@ class TextDifference:
                                 if hasattr(next_word, "start") and hasattr(next_word, "end"):
                                     if next_word.start is not None and next_word.end is not None:
                                         next_timestamps.append((next_idx, next_word.start, next_word.end))
-                                elif isinstance(next_word, dict):
-                                    if next_word.get("start") is not None and next_word.get("end") is not None:
-                                        next_timestamps.append((next_idx, next_word["start"], next_word["end"]))
+                                elif (
+                                    isinstance(next_word, dict)
+                                    and next_word.get("start") is not None
+                                    and next_word.get("end") is not None
+                                ):
+                                    next_timestamps.append((next_idx, next_word["start"], next_word["end"]))
 
                             # 線形補間による推定
                             estimated_start = None
@@ -252,7 +256,8 @@ class TextDifference:
                                 estimated_end = estimated_start + avg_duration * 0.8  # 少し短めに見積もる
 
                                 logger.info(
-                                    f"タイムスタンプを線形補間で推定: {word_text} ({estimated_start:.2f}秒 - {estimated_end:.2f}秒)"
+                                    f"タイムスタンプを線形補間で推定: {word_text} "
+                                    f"({estimated_start:.2f}秒 - {estimated_end:.2f}秒)"
                                 )
 
                             elif prev_timestamps:
@@ -263,7 +268,8 @@ class TextDifference:
                                 estimated_end = estimated_start + avg_duration
 
                                 logger.info(
-                                    f"タイムスタンプを前方から推定: {word_text} ({estimated_start:.2f}秒 - {estimated_end:.2f}秒)"
+                                    f"タイムスタンプを前方から推定: {word_text} "
+                                    f"({estimated_start:.2f}秒 - {estimated_end:.2f}秒)"
                                 )
 
                             elif next_timestamps:
@@ -274,7 +280,8 @@ class TextDifference:
                                 estimated_start = estimated_end - avg_duration
 
                                 logger.info(
-                                    f"タイムスタンプを後方から推定: {word_text} ({estimated_start:.2f}秒 - {estimated_end:.2f}秒)"
+                                    f"タイムスタンプを後方から推定: {word_text} "
+                                    f"({estimated_start:.2f}秒 - {estimated_end:.2f}秒)"
                                 )
 
                             else:
@@ -285,7 +292,8 @@ class TextDifference:
                                 estimated_end = estimated_start + segment_duration / len(seg.words)
 
                                 logger.warning(
-                                    f"タイムスタンプをセグメントから推定: {word_text} ({estimated_start:.2f}秒 - {estimated_end:.2f}秒)"
+                                    f"タイムスタンプをセグメントから推定: {word_text} "
+                                    f"({estimated_start:.2f}秒 - {estimated_end:.2f}秒)"
                                 )
 
                             # 推定値を使用して処理を続行
@@ -304,11 +312,13 @@ class TextDifference:
                             end_time = word_end
                         current_pos += word_len
 
-                    except (KeyError, TypeError):
+                    except (KeyError, TypeError) as e:
                         # 不正なword形式の場合はエラー
                         from utils.exceptions import VideoProcessingError
 
-                        raise VideoProcessingError("文字位置情報の形式が不正です。" "文字起こしを再実行してください。")
+                        raise VideoProcessingError(
+                            "文字位置情報の形式が不正です。文字起こしを再実行してください。"
+                        ) from e
 
                 if start_time is not None and end_time is not None:
                     break
@@ -329,7 +339,7 @@ class TextDifference:
                 f"確認したセグメント数: {debug_info['segments_checked']}\n"
                 f"確認したword数: {debug_info['words_checked']}\n"
                 f"タイムスタンプ欠落word数: {debug_info['words_without_timestamp']}"
-            )
+            ) from e
 
     def _get_timestamp_and_words_for_position(
         self, segments: list[TranscriptionSegment], start_pos: int, end_pos: int
@@ -499,7 +509,7 @@ class TextProcessor:
         except Exception as e:
             from utils.exceptions import VideoProcessingError
 
-            raise VideoProcessingError(f"テキスト差分検出エラー: {str(e)}")
+            raise VideoProcessingError(f"テキスト差分検出エラー: {str(e)}") from e
 
         try:
             for tag, i1, i2, j1, j2 in matcher.get_opcodes():
@@ -551,7 +561,7 @@ class TextProcessor:
         except Exception as e:
             from utils.exceptions import VideoProcessingError
 
-            raise VideoProcessingError(f"差分計算処理エラー: {str(e)}")
+            raise VideoProcessingError(f"差分計算処理エラー: {str(e)}") from e
 
     def _convert_position_with_spaces(self, text_with_spaces: str, text_no_spaces: str, pos_no_spaces: int) -> int:
         """空白を除去したテキストの位置を、元のテキストの位置に変換"""
@@ -710,7 +720,7 @@ class TextProcessor:
         all_time_ranges = []
 
         # 各セクションについて個別に差分検索
-        for i, section in enumerate(sections):
+        for _, section in enumerate(sections):
             if not section.strip():
                 continue
 
@@ -879,13 +889,13 @@ class TextProcessor:
                 if marker.startswith("[<"):
                     # マーカーの前にテキストがある場合（ただし >] 以外）
                     if before_text.strip() and not before_text.rstrip().endswith(">]"):
-                        errors.append(f"行{i+1}: '{marker}'は行の先頭に配置してください")
+                        errors.append(f"行{i + 1}: '{marker}'は行の先頭に配置してください")
 
                 # [数値>] パターンは行の末尾にあるべき
                 elif marker.endswith(">]"):
                     # マーカーの後にテキストがある場合（ただし [< 以外）
                     if after_text.strip() and not after_text.lstrip().startswith("[<"):
-                        errors.append(f"行{i+1}: '{marker}'は行の末尾に配置してください")
+                        errors.append(f"行{i + 1}: '{marker}'は行の末尾に配置してください")
 
         return errors
 
@@ -921,14 +931,14 @@ class TextProcessor:
         lines = text.split("\n")
         fixed_lines = []
 
-        for i, line in enumerate(lines):
+        for _, line in enumerate(lines):
             # 空行はそのまま
             if not line.strip():
                 fixed_lines.append(line)
                 continue
 
             # マーカーパターン
-            marker_pattern = re.compile(r"\[(-?\d+(?:\.\d+)?)[<>]\]|\[[<>](-?\d+(?:\.\d+)?)\]")
+            re.compile(r"\[(-?\d+(?:\.\d+)?)[<>]\]|\[[<>](-?\d+(?:\.\d+)?)\]")
 
             # 1. ]>][< パターンを改行に置換
             line = re.sub(r"(\[(?:-?\d+(?:\.\d+)?)>\])\s*(\[<(?:-?\d+(?:\.\d+)?)\])", r"\1\n\2", line)

@@ -43,7 +43,7 @@ for test_text in test_cases:
         if time_ranges:
             print("  ✅ 検出成功:")
             for i, (start, end) in enumerate(time_ranges):
-                print(f"     範囲{i+1}: {start:.2f}秒 - {end:.2f}秒 (長さ: {end-start:.2f}秒)")
+                print(f"     範囲{i + 1}: {start:.2f}秒 - {end:.2f}秒 (長さ: {end - start:.2f}秒)")
         else:
             print("  ❌ 検出失敗: 時間範囲が見つかりませんでした")
     except Exception as e:

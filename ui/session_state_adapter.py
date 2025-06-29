@@ -66,7 +66,7 @@ class SessionStateAdapter:
     - デフォルト値の管理
     """
 
-    def __init__(self, session_state=None):
+    def __init__(self, session_state=None) -> None:
         """初期化
 
         Args:
@@ -75,7 +75,7 @@ class SessionStateAdapter:
         self.session_state = session_state or st.session_state
         self._initialize_defaults()
 
-    def _initialize_defaults(self):
+    def _initialize_defaults(self) -> None:
         """デフォルト値の初期化"""
         defaults = {
             # ビデオ関連
@@ -182,26 +182,26 @@ class SessionStateAdapter:
 
     # === Setter メソッド ===
 
-    def set_video_path(self, path: str):
+    def set_video_path(self, path: str) -> None:
         """動画パスを設定"""
         self.session_state["current_video_path"] = path
         # 動画が変更されたら関連状態をリセット
         self.clear_transcription_state()
         self.clear_editing_state()
 
-    def set_transcription_result(self, result: TranscriptionResultV2):
+    def set_transcription_result(self, result: TranscriptionResultV2) -> None:
         """文字起こし結果を設定"""
         self.session_state["transcription_result"] = result
         self.session_state["transcription_in_progress"] = False
         self.session_state["transcription_confirmed"] = True
 
-    def set_edited_text(self, text: str):
+    def set_edited_text(self, text: str) -> None:
         """編集テキストを設定"""
         self.session_state["edited_text"] = text
         if self.session_state.get("original_edited_text") is None:
             self.session_state["original_edited_text"] = text
 
-    def set_processing_settings(self, settings: ProcessingState):
+    def set_processing_settings(self, settings: ProcessingState) -> None:
         """処理設定を更新"""
         self.session_state["use_api"] = settings.use_api
         self.session_state["api_key"] = settings.api_key
@@ -213,7 +213,7 @@ class SessionStateAdapter:
 
     # === 状態更新メソッド ===
 
-    def update_from_service_result(self, result: ServiceResult, service_type: str):
+    def update_from_service_result(self, result: ServiceResult, service_type: str) -> None:
         """サービス結果をセッション状態に反映
 
         Args:
@@ -236,18 +236,18 @@ class SessionStateAdapter:
             # エクスポート完了の記録など
             pass
 
-    def start_transcription(self):
+    def start_transcription(self) -> None:
         """文字起こし開始"""
         self.session_state["transcription_in_progress"] = True
         self.session_state["cancel_transcription"] = False
         self.session_state["should_run_transcription"] = True
 
-    def cancel_transcription(self):
+    def cancel_transcription(self) -> None:
         """文字起こしキャンセル"""
         self.session_state["cancel_transcription"] = True
         self.session_state["transcription_in_progress"] = False
 
-    def clear_transcription_state(self):
+    def clear_transcription_state(self) -> None:
         """文字起こし状態をクリア"""
         self.session_state["transcription_result"] = None
         self.session_state["transcription_in_progress"] = False
@@ -255,7 +255,7 @@ class SessionStateAdapter:
         self.session_state["should_run_transcription"] = False
         self.session_state["cancel_transcription"] = False
 
-    def clear_editing_state(self):
+    def clear_editing_state(self) -> None:
         """編集状態をクリア"""
         self.session_state["edited_text"] = None
         self.session_state["original_edited_text"] = None
@@ -263,7 +263,7 @@ class SessionStateAdapter:
         self.session_state["current_edited_text"] = None
         self.session_state["show_modal"] = False
 
-    def clear_all(self):
+    def clear_all(self) -> None:
         """すべての状態をクリア"""
         keys_to_keep = ["use_api", "api_key", "local_model_size"]  # 設定は保持
 

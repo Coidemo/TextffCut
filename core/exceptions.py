@@ -5,6 +5,7 @@ TextffCut 2段階処理アーキテクチャ用例外クラス
 明確に分類・管理するための例外クラス定義。
 """
 
+from pathlib import Path
 from typing import Any
 
 from utils.exceptions import BuzzClipError
@@ -19,7 +20,7 @@ class ProcessingError(BuzzClipError):
         stage: str | None = None,
         details: dict[str, Any] | None = None,
         recoverable: bool = False,
-    ):
+    ) -> None:
         """
         Args:
             message: エラーメッセージ
@@ -45,7 +46,7 @@ class TranscriptionValidationError(ProcessingError):
 
     def __init__(
         self, message: str, missing_fields: list[str] | None = None, invalid_segments: list[str] | None = None
-    ):
+    ) -> None:
         """
         Args:
             message: エラーメッセージ
@@ -74,7 +75,7 @@ class TranscriptionValidationError(ProcessingError):
 class WordsFieldMissingError(TranscriptionValidationError):
     """wordsフィールド欠落エラー（最重要）"""
 
-    def __init__(self, segment_count: int, sample_segments: list[str] | None = None):
+    def __init__(self, segment_count: int, sample_segments: list[str] | None = None) -> None:
         """
         Args:
             segment_count: wordsが欠落しているセグメント数
@@ -98,7 +99,9 @@ class AlignmentError(ProcessingError):
 class AlignmentValidationError(ProcessingError):
     """アライメント結果の検証エラー"""
 
-    def __init__(self, message: str, failed_count: int, total_count: int, error_types: dict[str, int] | None = None):
+    def __init__(
+        self, message: str, failed_count: int, total_count: int, error_types: dict[str, int] | None = None
+    ) -> None:
         """
         Args:
             message: エラーメッセージ
@@ -119,7 +122,8 @@ class AlignmentValidationError(ProcessingError):
         success_rate = self.details["success_rate"] * 100
         messages = [
             "⚠️ アライメント処理が部分的に失敗しました",
-            f"成功率: {success_rate:.1f}% ({self.details['total_count'] - self.details['failed_count']}/{self.details['total_count']})",
+            f"成功率: {success_rate:.1f}% "
+            f"({self.details['total_count'] - self.details['failed_count']}/{self.details['total_count']})",
         ]
 
         if self.details.get("error_types"):
@@ -144,7 +148,7 @@ class SubprocessError(ProcessingError):
         command: list[str] | None = None,
         return_code: int | None = None,
         stderr: str | None = None,
-    ):
+    ) -> None:
         """
         Args:
             message: エラーメッセージ
@@ -179,7 +183,7 @@ class SubprocessError(ProcessingError):
 class CacheError(ProcessingError):
     """キャッシュ関連のエラー"""
 
-    def __init__(self, message: str, cache_path: str | None = None, operation: str | None = None):
+    def __init__(self, message: str, cache_path: str | Path | None = None, operation: str | None = None) -> None:
         """
         Args:
             message: エラーメッセージ
@@ -193,7 +197,7 @@ class CacheError(ProcessingError):
 class RetryExhaustedError(ProcessingError):
     """リトライ回数超過エラー"""
 
-    def __init__(self, message: str, attempts: int, last_error: Exception | None = None):
+    def __init__(self, message: str, attempts: int, last_error: Exception | None = None) -> None:
         """
         Args:
             message: エラーメッセージ

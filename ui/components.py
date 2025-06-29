@@ -9,7 +9,7 @@ import streamlit as st
 from core.text_processor import TextDifference, TextProcessor
 
 
-def show_api_key_manager():
+def show_api_key_manager() -> None:
     """
     APIキー管理UI（サイドバー用）
     """
@@ -47,17 +47,16 @@ def show_api_key_manager():
         )
 
         # APIキーが入力されたら自動的に保存
-        if api_key and api_key.startswith("sk-"):
-            if api_key_manager.save_api_key(api_key):
-                st.success("✅ APIキーを暗号化保存しました")
-                st.rerun()
+        if api_key and api_key.startswith("sk-") and api_key_manager.save_api_key(api_key):
+            st.success("✅ APIキーを暗号化保存しました")
+            st.rerun()
 
         # session_stateに保存
         st.session_state.api_key = api_key if api_key else ""
 
 
 def show_transcription_controls(
-    has_cache: bool = False, available_caches: list[dict[str, Any]] = None
+    _has_cache: bool = False, available_caches: list[dict[str, Any]] = None
 ) -> tuple[bool, bool, dict[str, Any] | None]:
     """
     文字起こしコントロールUI
@@ -83,7 +82,7 @@ def show_transcription_controls(
             cache_options = []
             cache_map = {}
 
-            for i, cache in enumerate(available_caches):
+            for _, cache in enumerate(available_caches):
                 from datetime import datetime
 
                 modified_date = datetime.fromtimestamp(cache["modified_time"]).strftime("%Y-%m-%d %H:%M")
@@ -100,9 +99,8 @@ def show_transcription_controls(
                 selected_cache = cache_map[selected_option]
 
             # キャッシュ使用ボタンを枠内に表示
-            if selected_cache:
-                if st.button("💾 選択した結果を使用", type="primary", use_container_width=True):
-                    use_cache = True
+            if selected_cache and st.button("💾 選択した結果を使用", type="primary", use_container_width=True):
+                use_cache = True
 
     return use_cache, run_new, selected_cache
 
@@ -273,7 +271,11 @@ def show_export_settings() -> tuple[str, str, bool, int]:
             "出力形式",
             ["動画ファイル", "FCPXMLファイル", "Premiere Pro XML"],
             index=1,
-            help="動画ファイル：MP4形式で出力\nFCPXMLファイル：Final Cut Pro用のXMLファイルを出力\nPremiere Pro XML：Premiere Pro用のXMEMLファイルを出力",
+            help=(
+                "動画ファイル：MP4形式で出力\n"
+                "FCPXMLファイル：Final Cut Pro用のXMLファイルを出力\n"
+                "Premiere Pro XML：Premiere Pro用のXMEMLファイルを出力"
+            ),
         )
 
         # 字幕も同時出力するかのチェックボックス
@@ -328,7 +330,7 @@ def show_progress(
     return progress_bar, status_text
 
 
-def show_separated_mode_status(container: Any = None):
+def show_separated_mode_status(container: Any = None) -> dict[str, Any]:
     """
     分離モード用のステータス表示UI
 
@@ -380,7 +382,17 @@ def show_text_editor(initial_text: str = "", height: int = 400) -> str:
         value=st.session_state.get("text_editor_value", initial_text),
         height=height,
         label_visibility="collapsed",
-        help="文字起こし結果から切り抜く文章をコピペしてください。\n\n**💡 複数セクション指定**\n区切り文字 `---` で分割すると、複数の箇所を個別に検索してマージできます。\n\n例:\n第1セクション\n---\n第2セクション\n---\n第3セクション\n\n**🎯 境界調整マーカー**\n[数値<] = 前のクリップを縮める\n[数値>] = 前のクリップを延ばす\n[<数値] = 後のクリップを早める\n[>数値] = 後のクリップを遅らせる",
+        help=(
+            "文字起こし結果から切り抜く文章をコピペしてください。\n\n"
+            "**💡 複数セクション指定**\n"
+            "区切り文字 `---` で分割すると、複数の箇所を個別に検索してマージできます。\n\n"
+            "例:\n第1セクション\n---\n第2セクション\n---\n第3セクション\n\n"
+            "**🎯 境界調整マーカー**\n"
+            "[数値<] = 前のクリップを縮める\n"
+            "[数値>] = 前のクリップを延ばす\n"
+            "[<数値] = 後のクリップを早める\n"
+            "[>数値] = 後のクリップを遅らせる"
+        ),
         key="text_editor_widget",
     )
 
@@ -391,7 +403,7 @@ def show_text_editor(initial_text: str = "", height: int = 400) -> str:
     return edited_text
 
 
-def show_edited_text_with_highlights(edited_text: str, diff: TextDifference | None = None, height: int = 400):
+def show_edited_text_with_highlights(edited_text: str, diff: TextDifference | None = None, height: int = 400) -> None:
     """
     編集テキストに赤ハイライト表示
 
@@ -420,7 +432,10 @@ def show_edited_text_with_highlights(edited_text: str, diff: TextDifference | No
     cleaned_text = text_processor.remove_boundary_markers(edited_text)
 
     # 編集テキストベースで赤ハイライトを生成
-    html_content = f'<div class="edited-text-viewer" style="height: {height}px; overflow-y: auto; padding: 10px; border: 1px solid #ddd; border-radius: 5px; background-color: #f9f9f9;">'
+    html_content = (
+        f'<div class="edited-text-viewer" style="height: {height}px; overflow-y: auto; '
+        f'padding: 10px; border: 1px solid #ddd; border-radius: 5px; background-color: #f9f9f9;">'
+    )
 
     # シンプルな文字列検索ベースの方法
     # 既存の共通部分の情報を使用
@@ -456,7 +471,10 @@ def show_edited_text_with_highlights(edited_text: str, diff: TextDifference | No
             if cleaned_pos in covered_positions:
                 html_content += char  # 元テキストに存在
             else:
-                html_content += f'<span class="highlight-addition" style="background-color: #ffe6e6; color: #d00;">{char}</span>'  # 追加文字
+                html_content += (
+                    f'<span class="highlight-addition" style="background-color: #ffe6e6; '
+                    f'color: #d00;">{char}</span>'
+                )  # 追加文字
             cleaned_pos += 1
 
     html_content += "</div>"
@@ -464,7 +482,7 @@ def show_edited_text_with_highlights(edited_text: str, diff: TextDifference | No
     st.markdown(html_content, unsafe_allow_html=True)
 
 
-def show_edited_text_with_separators_highlights(edited_text: str, separator: str, height: int = 400):
+def show_edited_text_with_separators_highlights(edited_text: str, separator: str, height: int = 400) -> None:
     """
     区切り文字を含むテキストの赤ハイライト表示
 
@@ -482,7 +500,11 @@ def show_edited_text_with_separators_highlights(edited_text: str, separator: str
         full_text = st.session_state.transcription_result.get_full_text()
 
     # 編集テキストベースで赤ハイライトを生成
-    html_content = f'<div class="edited-text-viewer" style="height: {height}px; overflow-y: auto; padding: 10px; border: 1px solid #ddd; border-radius: 5px; background-color: #f9f9f9; white-space: pre-wrap; font-family: monospace;">'
+    html_content = (
+        f'<div class="edited-text-viewer" style="height: {height}px; overflow-y: auto; '
+        f"padding: 10px; border: 1px solid #ddd; border-radius: 5px; background-color: #f9f9f9; "
+        f'white-space: pre-wrap; font-family: monospace;">'
+    )
 
     # セクションに分割
     sections = text_processor.split_text_by_separator(edited_text, separator)
@@ -534,7 +556,10 @@ def show_edited_text_with_separators_highlights(edited_text: str, separator: str
                 if cleaned_pos in covered_positions:
                     html_content += char  # 元テキストに存在
                 else:
-                    html_content += f'<span class="highlight-addition" style="background-color: #ffe6e6; color: #d00;">{char}</span>'  # 追加文字
+                    html_content += (
+                        f'<span class="highlight-addition" style="background-color: #ffe6e6; '
+                        f'color: #d00;">{char}</span>'
+                    )  # 追加文字
                 cleaned_pos += 1
 
         # 区切り文字を追加（最後のセクション以外）
@@ -547,7 +572,7 @@ def show_edited_text_with_separators_highlights(edited_text: str, separator: str
 
 
 @st.dialog("エラー箇所")
-def show_red_highlight_modal(edited_text: str, diff: TextDifference | None = None):
+def show_red_highlight_modal(edited_text: str, diff: TextDifference | None = None) -> None:
     """
     赤ハイライトのモーダル表示
 
@@ -617,7 +642,7 @@ def show_red_highlight_modal(edited_text: str, diff: TextDifference | None = Non
         st.rerun()
 
 
-def show_diff_viewer(original_text: str, diff: TextDifference | None = None, height: int = 400):
+def show_diff_viewer(original_text: str, diff: TextDifference | None = None, height: int = 400) -> None:
     """
     差分表示UI
 
@@ -628,7 +653,10 @@ def show_diff_viewer(original_text: str, diff: TextDifference | None = None, hei
     """
     if diff is None:
         # 差分がない場合は元のテキストを表示
-        html_content = f'<div class="diff-viewer" style="height: {height}px; overflow-y: auto; padding: 10px; border: 1px solid #ddd; border-radius: 5px;">{original_text}</div>'
+        html_content = (
+            f'<div class="diff-viewer" style="height: {height}px; overflow-y: auto; '
+            f'padding: 10px; border: 1px solid #ddd; border-radius: 5px;">{original_text}</div>'
+        )
     else:
         # 差分をHTML形式で生成（従来通りシンプル版）
         html_content = (
@@ -657,20 +685,20 @@ def show_diff_viewer(original_text: str, diff: TextDifference | None = None, hei
     st.markdown(html_content, unsafe_allow_html=True)
 
 
-def show_help():
+def show_help() -> None:
     """ヘルプ表示UI"""
     st.markdown("#### ❓ ヘルプ")
 
     st.markdown(
         """
     詳しい使い方はこちら：
-    
+
     📖 **[TextffCutの使い方 - note](https://note.com/coidemo/n/n8250e4b95daa)**
     """
     )
 
 
-def show_optimization_status():
+def show_optimization_status() -> None:
     """自動最適化の状態表示（シンプル版）"""
     # 自動最適化が有効であることだけを表示
     st.info("🤖 自動最適化: 有効（診断フェーズ付き）")

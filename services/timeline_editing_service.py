@@ -21,7 +21,7 @@ logger = get_logger(__name__)
 class TimelineEditingService:
     """タイムライン編集サービスクラス"""
 
-    def __init__(self, config: Config | None = None):
+    def __init__(self, config: Config | None = None) -> None:
         self.config = config or Config()
         self.timeline_processor = TimelineProcessor()
         self.video_processor = VideoProcessor(self.config)
@@ -66,7 +66,7 @@ class TimelineEditingService:
 
         except Exception as e:
             logger.error(f"タイムライン初期化エラー: {e}")
-            raise ProcessingError(f"タイムラインの初期化に失敗しました: {str(e)}")
+            raise ProcessingError(f"タイムラインの初期化に失敗しました: {str(e)}") from e
 
     def adjust_segment_timing(self, segment_id: str, adjustment_type: str, adjustment_value: float) -> dict[str, Any]:
         """
@@ -113,7 +113,7 @@ class TimelineEditingService:
 
         except Exception as e:
             logger.error(f"セグメント調整エラー: {e}")
-            raise ProcessingError(f"セグメントの調整に失敗しました: {str(e)}")
+            raise ProcessingError(f"セグメントの調整に失敗しました: {str(e)}") from e
 
     def set_segment_time_range(self, segment_id: str, start_time: float, end_time: float) -> dict[str, Any]:
         """
@@ -155,7 +155,7 @@ class TimelineEditingService:
 
         except Exception as e:
             logger.error(f"時間範囲設定エラー: {e}")
-            raise ProcessingError(f"時間範囲の設定に失敗しました: {str(e)}")
+            raise ProcessingError(f"時間範囲の設定に失敗しました: {str(e)}") from e
 
     def generate_preview_audio(self, segment_id: str) -> str | None:
         """
@@ -204,7 +204,7 @@ class TimelineEditingService:
 
         except Exception as e:
             logger.error(f"プレビュー音声生成エラー: {e}")
-            raise ProcessingError(f"プレビュー音声の生成に失敗しました: {str(e)}")
+            raise ProcessingError(f"プレビュー音声の生成に失敗しました: {str(e)}") from e
 
     def get_adjusted_time_ranges(self) -> list[tuple[float, float]]:
         """
@@ -229,7 +229,7 @@ class TimelineEditingService:
 
         except Exception as e:
             logger.error(f"時間範囲取得エラー: {e}")
-            raise ProcessingError(f"時間範囲の取得に失敗しました: {str(e)}")
+            raise ProcessingError(f"時間範囲の取得に失敗しました: {str(e)}") from e
 
     def save_timeline_settings(self) -> bool:
         """

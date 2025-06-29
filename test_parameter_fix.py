@@ -12,7 +12,7 @@ project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
 
-def test_video_processor_params():
+def test_video_processor_params() -> None:
     """VideoProcessorのパラメータを確認"""
     print("=== VideoProcessor パラメータ確認 ===")
 
@@ -39,7 +39,7 @@ def test_video_processor_params():
             print("  → concatenate_videos メソッドが存在")
 
 
-def test_transcriber_params():
+def test_transcriber_params() -> None:
     """Transcriberのパラメータを確認"""
     print("\n=== Transcriber パラメータ確認 ===")
 
@@ -53,7 +53,7 @@ def test_transcriber_params():
     print(f"\ntranscribe パラメータ: {params}")
 
 
-def test_exporter_params():
+def test_exporter_params() -> None:
     """Exporterのパラメータを確認"""
     print("\n=== Exporter パラメータ確認 ===")
 
@@ -72,7 +72,7 @@ def test_exporter_params():
     print(f"XMEMLExporter.export パラメータ: {params}")
 
 
-def test_actual_calls():
+def test_actual_calls() -> None:
     """実際の呼び出しが動作するかテスト"""
     print("\n=== 実際の呼び出しテスト ===")
 
@@ -96,7 +96,7 @@ def test_actual_calls():
             segments = [TranscriptionSegmentV2(id=0, start=0.0, end=5.0, text="test", words=[])]
 
             try:
-                result = service.remove_silence(video_path="/tmp/test.mp4", segments=segments, threshold=-35.0)
+                service.remove_silence(video_path="/tmp/test.mp4", segments=segments, threshold=-35.0)
 
                 # メソッドが呼ばれたか確認
                 if mock_method.called:

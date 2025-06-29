@@ -11,7 +11,7 @@ from services.timeline_editing_service import TimelineEditingService
 class TestTimelineSegment:
     """TimelineSegmentクラスのテスト"""
 
-    def test_segment_creation(self):
+    def test_segment_creation(self) -> None:
         """セグメントの作成テスト"""
         segment = TimelineSegment(id="test_1", start=10.5, end=20.3, text="テストテキスト")
 
@@ -21,7 +21,7 @@ class TestTimelineSegment:
         assert segment.text == "テストテキスト"
         assert segment.duration() == pytest.approx(9.8)
 
-    def test_segment_to_frames(self):
+    def test_segment_to_frames(self) -> None:
         """フレーム変換テスト"""
         segment = TimelineSegment(id="test_1", start=1.0, end=2.0, text="テスト")
 
@@ -35,7 +35,7 @@ class TestTimelineSegment:
         assert start_frame == 60
         assert end_frame == 120
 
-    def test_adjust_start(self):
+    def test_adjust_start(self) -> None:
         """開始時間調整テスト"""
         segment = TimelineSegment(id="test_1", start=5.0, end=10.0, text="テスト")
 
@@ -51,7 +51,7 @@ class TestTimelineSegment:
         segment.end = 0.05
         assert not segment.adjust_start(0.1, min_duration=0.1)
 
-    def test_adjust_end(self):
+    def test_adjust_end(self) -> None:
         """終了時間調整テスト"""
         segment = TimelineSegment(id="test_1", start=5.0, end=10.0, text="テスト")
 
@@ -67,7 +67,7 @@ class TestTimelineSegment:
         segment.start = 14.9
         assert not segment.adjust_end(-0.1, max_duration=20.0, min_duration=0.2)
 
-    def test_set_time_range(self):
+    def test_set_time_range(self) -> None:
         """時間範囲設定テスト"""
         segment = TimelineSegment(id="test_1", start=0.0, end=0.0, text="テスト")
 
@@ -81,7 +81,7 @@ class TestTimelineSegment:
         assert not segment.set_time_range(5.0, 25.0, max_duration=20.0)
         assert not segment.set_time_range(10.0, 5.0, max_duration=20.0)
 
-    def test_segment_serialization(self):
+    def test_segment_serialization(self) -> None:
         """シリアライズ・デシリアライズテスト"""
         original = TimelineSegment(
             id="test_1", start=10.5, end=20.3, text="テストテキスト", waveform_data=[0.1, 0.2, 0.3]
@@ -107,7 +107,7 @@ class TestTimelineSegment:
 class TestTimelineProcessor:
     """TimelineProcessorクラスのテスト"""
 
-    def test_create_segments_from_ranges(self):
+    def test_create_segments_from_ranges(self) -> None:
         """時間範囲からセグメント作成テスト"""
         processor = TimelineProcessor()
 
@@ -139,7 +139,7 @@ class TestTimelineProcessor:
         assert segments[2].id == "segment_3"
         assert segments[2].text == "です"
 
-    def test_adjust_segment_time(self):
+    def test_adjust_segment_time(self) -> None:
         """セグメント時間調整テスト"""
         processor = TimelineProcessor()
         processor.video_duration = 30.0
@@ -163,7 +163,7 @@ class TestTimelineProcessor:
         # 存在しないセグメント
         assert not processor.adjust_segment_time("invalid_id", start_delta=1.0)
 
-    def test_validate_segments(self):
+    def test_validate_segments(self) -> None:
         """セグメント検証テスト"""
         processor = TimelineProcessor()
         processor.video_duration = 30.0
@@ -199,7 +199,7 @@ class TestTimelineProcessor:
         assert not is_valid
         assert "重複しています" in errors[0]
 
-    def test_merge_overlapping_segments(self):
+    def test_merge_overlapping_segments(self) -> None:
         """重複セグメントのマージテスト"""
         processor = TimelineProcessor()
 
@@ -221,7 +221,7 @@ class TestTimelineProcessor:
         assert processor.segments[1].start == 10.0
         assert processor.segments[1].end == 20.0
 
-    def test_processor_serialization(self):
+    def test_processor_serialization(self) -> None:
         """プロセッサーのシリアライズテスト"""
         processor = TimelineProcessor()
         processor.video_duration = 30.0
@@ -251,7 +251,7 @@ class TestTimelineProcessor:
 class TestTimelineEditingService:
     """TimelineEditingServiceクラスのテスト"""
 
-    def test_service_initialization(self):
+    def test_service_initialization(self) -> None:
         """サービス初期化テスト"""
         service = TimelineEditingService()
 
@@ -259,7 +259,7 @@ class TestTimelineEditingService:
         assert service.video_processor is not None
         assert service.config is not None
 
-    def test_get_timeline_statistics(self):
+    def test_get_timeline_statistics(self) -> None:
         """統計情報取得テスト"""
         service = TimelineEditingService()
 

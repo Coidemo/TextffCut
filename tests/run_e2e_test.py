@@ -45,7 +45,7 @@ class E2ETestRunner:
             response = requests.get(self.base_url, timeout=5)
             if response.status_code != 200:
                 raise Exception("Streamlitアプリが応答しません")
-        except:
+        except Exception:
             print("\n❌ エラー: Streamlitアプリが起動していません")
             print("以下のコマンドでアプリを起動してください:")
             print("  streamlit run main.py")

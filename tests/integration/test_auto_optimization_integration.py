@@ -132,7 +132,7 @@ class TestAutoOptimizationIntegration(unittest.TestCase):
             # 一時的にホームディレクトリを変更
             from pathlib import Path
 
-            original_home = Path.home()
+            Path.home()
 
             # HOME環境変数とPath.homeの両方をパッチ
             with patch.object(Path, "home", return_value=Path(temp_dir)):
@@ -144,7 +144,7 @@ class TestAutoOptimizationIntegration(unittest.TestCase):
 
                 # 診断フェーズ完了後の初期パラメータを取得
                 initial_params = optimizer.get_optimal_params(50.0)
-                initial_chunk = initial_params["chunk_seconds"]
+                initial_params["chunk_seconds"]
 
                 # 成功した実行のプロファイルを保存
                 params = {

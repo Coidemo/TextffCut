@@ -6,6 +6,7 @@
 """
 
 from datetime import datetime
+from typing import Any
 
 from utils.logging import get_logger
 
@@ -74,7 +75,7 @@ class AutoOptimizer:
         "maximum": ChunkSizeLimits.MAXIMUM,  # 30分
     }
 
-    def __init__(self, model_size: str, target_memory_percent: float = MemoryThresholds.TARGET):
+    def __init__(self, model_size: str, target_memory_percent: float = MemoryThresholds.TARGET) -> None:
         """
         初期化
 
@@ -94,13 +95,13 @@ class AutoOptimizer:
         self.current_params = self._load_or_create_profile()
 
         # 調整履歴
-        self.adjustment_history = []
+        self.adjustment_history: list[dict[str, Any]] = []
         self.last_memory_percent = 0.0
 
         # 診断フェーズ管理
         self.diagnostic_mode = True
         self.diagnostic_chunks_processed = 0
-        self.diagnostic_data = {
+        self.diagnostic_data: dict[str, Any] = {
             "memory_samples": [],
             "processing_times": [],
             "memory_growth_rate": 0.0,
@@ -232,7 +233,7 @@ class AutoOptimizer:
         """パラメータの調整"""
         params = self.current_params.copy()
 
-        adjustments = {
+        adjustments: dict[str, dict[str, Any]] = {
             "emergency_decrease": {
                 "chunk_factor": AdjustmentFactors.EMERGENCY_CHUNK_FACTOR,  # 半分に
                 "worker_change": AdjustmentFactors.EMERGENCY_WORKER_CHANGE,
@@ -341,7 +342,7 @@ class AutoOptimizer:
                 last_sample = self.diagnostic_data["memory_samples"][-1]
 
                 memory_increase = last_sample["memory_percent"] - first_sample["memory_percent"]
-                time_elapsed = last_sample["timestamp"] - first_sample["timestamp"]
+                last_sample["timestamp"] - first_sample["timestamp"]
 
                 # 1チャンクあたりのメモリ増加率
                 self.diagnostic_data["memory_growth_rate"] = memory_increase / self.diagnostic_chunks_processed
@@ -362,7 +363,8 @@ class AutoOptimizer:
                 return predicted_params
 
         logger.info(
-            f"診断フェーズ {self.diagnostic_chunks_processed}/{self.DIAGNOSTIC_CHUNKS_COUNT} - メモリ: {current_memory_percent:.1f}%"
+            f"診断フェーズ {self.diagnostic_chunks_processed}/{self.DIAGNOSTIC_CHUNKS_COUNT} "
+            f"- メモリ: {current_memory_percent:.1f}%"
         )
         return diagnostic_params
 

@@ -22,7 +22,7 @@ logger = get_logger(__name__)
 class ProcessingStateManager:
     """処理状態の永続化とリカバリー"""
 
-    def __init__(self, state_dir: Path | None = None):
+    def __init__(self, state_dir: Path | None = None) -> None:
         """初期化
 
         Args:
@@ -207,7 +207,7 @@ class ProcessingStateManager:
         try:
             file_size = Path(video_path).stat().st_size
             hasher.update(str(file_size).encode())
-        except:
+        except Exception:
             pass
 
         return hasher.hexdigest()[:16]  # 最初の16文字を使用
@@ -216,7 +216,7 @@ class ProcessingStateManager:
 class TranscriptionRecovery:
     """文字起こし処理のリカバリー"""
 
-    def __init__(self, state_manager: ProcessingStateManager):
+    def __init__(self, state_manager: ProcessingStateManager) -> None:
         """初期化
 
         Args:

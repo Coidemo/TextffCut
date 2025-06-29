@@ -21,7 +21,7 @@ from utils.logging import get_logger
 logger = get_logger(__name__)
 
 
-def run_memory_management_test():
+def run_memory_management_test() -> None:
     """メモリ管理統合テストを実行"""
     print("=== Memory Management Integration Test ===")
 

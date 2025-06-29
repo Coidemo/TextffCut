@@ -36,7 +36,7 @@ def create_test_segments(count: int = 10) -> list:
     return segments
 
 
-def test_worker_align_with_diagnostics():
+def test_worker_align_with_diagnostics() -> None:
     """worker_align.pyがAlignmentDiagnosticsを正しく使用するかテスト"""
 
     print("=== worker_align.py統合テスト ===")
@@ -116,7 +116,7 @@ def test_worker_align_with_diagnostics():
         os.unlink(config_path)
 
 
-def test_memory_scenarios():
+def test_memory_scenarios() -> None:
     """様々なメモリシナリオでの診断テスト"""
 
     print("\n\n=== メモリシナリオテスト ===")

@@ -19,7 +19,7 @@ from core.constants import BatchSizeLimits
 class TestDiagnosticResult(unittest.TestCase):
     """DiagnosticResultクラスのテスト"""
 
-    def test_diagnostic_result_creation(self):
+    def test_diagnostic_result_creation(self) -> None:
         """診断結果の作成テスト"""
         result = DiagnosticResult(
             optimal_batch_size=8,
@@ -38,7 +38,7 @@ class TestDiagnosticResult(unittest.TestCase):
         self.assertEqual(len(result.recommendations), 2)
         self.assertEqual(len(result.warnings), 1)
 
-    def test_get_summary(self):
+    def test_get_summary(self) -> None:
         """サマリー生成のテスト"""
         result = DiagnosticResult(
             optimal_batch_size=4,
@@ -61,12 +61,12 @@ class TestDiagnosticResult(unittest.TestCase):
 class TestAlignmentDiagnostics(unittest.TestCase):
     """AlignmentDiagnosticsクラスのテスト"""
 
-    def setUp(self):
+    def setUp(self) -> None:
         """テスト前の準備"""
         self.config = Config()
         self.diagnostics = AlignmentDiagnostics("medium", self.config)
 
-    def test_initialization(self):
+    def test_initialization(self) -> None:
         """初期化のテスト"""
         # 正常なモデルサイズ
         diag = AlignmentDiagnostics("large-v3", self.config)
@@ -79,7 +79,7 @@ class TestAlignmentDiagnostics(unittest.TestCase):
             mock_logger.warning.assert_called()
 
     @patch("psutil.virtual_memory")
-    def test_estimate_optimal_batch_size(self, mock_vmem):
+    def test_estimate_optimal_batch_size(self, mock_vmem) -> None:
         """バッチサイズ推定のテスト"""
         # メモリ情報のモック
         mock_vmem.return_value = Mock(available=8 * 1024**3, total=16 * 1024**3, percent=50.0)  # 8GB  # 16GB
@@ -98,7 +98,7 @@ class TestAlignmentDiagnostics(unittest.TestCase):
         batch_size = self.diagnostics.estimate_optimal_batch_size(2.0, 100)
         self.assertEqual(batch_size, BatchSizeLimits.MINIMUM)
 
-    def test_estimate_model_memory_usage(self):
+    def test_estimate_model_memory_usage(self) -> None:
         """モデルメモリ使用量推定のテスト"""
         # mediumモデル
         memory = self.diagnostics._estimate_model_memory_usage()
@@ -111,7 +111,7 @@ class TestAlignmentDiagnostics(unittest.TestCase):
 
     @patch("psutil.virtual_memory")
     @patch("core.alignment_diagnostics.AlignmentDiagnostics._measure_model_memory_usage")
-    def test_run_diagnostics_without_test(self, mock_measure, mock_vmem):
+    def test_run_diagnostics_without_test(self, mock_measure, mock_vmem) -> None:
         """診断実行のテスト（モデルロードなし）"""
         # メモリ情報のモック
         mock_vmem.return_value = Mock(available=8 * 1024**3, total=16 * 1024**3, percent=50.0)
@@ -130,7 +130,7 @@ class TestAlignmentDiagnostics(unittest.TestCase):
         mock_measure.assert_not_called()
 
     @patch("psutil.virtual_memory")
-    def test_calculate_optimal_batch_size(self, mock_vmem):
+    def test_calculate_optimal_batch_size(self, mock_vmem) -> None:
         """最適バッチサイズ計算の詳細テスト"""
         mock_vmem.return_value = Mock(total=16 * 1024**3)
 
@@ -153,7 +153,7 @@ class TestAlignmentDiagnostics(unittest.TestCase):
         )
         self.assertEqual(batch_size, BatchSizeLimits.MINIMUM)
 
-    def test_generate_recommendations(self):
+    def test_generate_recommendations(self) -> None:
         """推奨事項生成のテスト"""
         # メモリ不足のケース
         recs, warns = self.diagnostics._generate_recommendations(
@@ -171,7 +171,7 @@ class TestAlignmentDiagnostics(unittest.TestCase):
         self.assertEqual(len(warns), 0)
         self.assertEqual(len(recs), 0)
 
-    def test_large_v3_memory_constraints(self):
+    def test_large_v3_memory_constraints(self) -> None:
         """large-v3モデルの特別な制約テスト"""
         diag = AlignmentDiagnostics("large-v3", self.config)
 
@@ -190,7 +190,7 @@ class TestIntegration(unittest.TestCase):
 
     @patch("psutil.virtual_memory")
     @patch("core.alignment_processor.AlignmentProcessor")
-    def test_measure_model_memory_usage_integration(self, mock_processor_class, mock_vmem):
+    def test_measure_model_memory_usage_integration(self, mock_processor_class, mock_vmem) -> None:
         """実際のモデル測定の統合テスト"""
         # メモリ情報のモック
         mock_vmem.return_value = Mock(total=16 * 1024**3, available=8 * 1024**3)

@@ -38,7 +38,7 @@ class TimingConfig:
 class SRTTimingAdjuster:
     """SRT字幕タイミング調整クラス"""
 
-    def __init__(self, config: TimingConfig | None = None):
+    def __init__(self, config: TimingConfig | None = None) -> None:
         """初期化
 
         Args:
@@ -231,7 +231,7 @@ class SRTTimingAdjuster:
         if not segments:
             return segments
 
-        adjusted = []
+        adjusted: list[Any] = []
 
         for i, segment in enumerate(segments):
             new_segment = self._copy_segment(segment)
@@ -388,7 +388,7 @@ class SRTTimingAdjuster:
 
 
 # テスト用関数
-def test_timing_adjuster():
+def test_timing_adjuster() -> None:
     """タイミング調整のテスト"""
     print("=== SRT Timing Adjuster Test ===")
 
@@ -421,11 +421,11 @@ def test_timing_adjuster():
 
     print("\n--- Original Segments ---")
     for i, seg in enumerate(segments):
-        print(f"{i+1}: {seg.start:.2f} - {seg.end:.2f} ({seg.end-seg.start:.2f}s) : {seg.text[:30]}...")
+        print(f"{i + 1}: {seg.start:.2f} - {seg.end:.2f} ({seg.end - seg.start:.2f}s) : {seg.text[:30]}...")
 
     print("\n--- Adjusted Segments ---")
     for i, seg in enumerate(adjusted):
-        print(f"{i+1}: {seg.start:.2f} - {seg.end:.2f} ({seg.end-seg.start:.2f}s) : {seg.text[:30]}...")
+        print(f"{i + 1}: {seg.start:.2f} - {seg.end:.2f} ({seg.end - seg.start:.2f}s) : {seg.text[:30]}...")
 
     # ショット変更へのスナップテスト
     print("\n--- Shot Change Snap Test ---")

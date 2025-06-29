@@ -44,7 +44,7 @@ for target in target_texts:
         for i, seg in enumerate(transcription.segments):
             seg_len = len(seg.text)
             if current_pos <= pos < current_pos + seg_len:
-                print(f"  セグメント{i+1}に含まれる（{seg.start:.1f}秒 - {seg.end:.1f}秒）")
+                print(f"  セグメント{i + 1}に含まれる（{seg.start:.1f}秒 - {seg.end:.1f}秒）")
                 print(f"  セグメント内での位置: {pos - current_pos}文字目")
 
                 # wordsの状態を確認
@@ -81,7 +81,7 @@ for target in target_texts:
                             print(f"    '{w['word']}' - {w['start']:.2f}秒～{w['end']:.2f}秒（位置: {w['position']}）")
 
                     if len(target_words) > 5:
-                        print(f"    ... 他{len(target_words)-5}個")
+                        print(f"    ... 他{len(target_words) - 5}個")
 
                     # 有効なタイムスタンプを持つ最初と最後のwordを見つける
                     first_valid = None
@@ -112,4 +112,4 @@ time_ranges = text_processor.find_differences_with_separator(full_text, edited_w
 
 print("\n区切り文字を使った場合の時間範囲:")
 for i, (start, end) in enumerate(time_ranges):
-    print(f"  範囲{i+1}: {start:.2f}秒 - {end:.2f}秒 (長さ: {end-start:.2f}秒)")
+    print(f"  範囲{i + 1}: {start:.2f}秒 - {end:.2f}秒 (長さ: {end - start:.2f}秒)")

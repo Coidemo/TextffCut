@@ -12,10 +12,10 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 
-def test_import_constants():
+def test_import_constants() -> bool:
     """定数モジュールのインポートテスト"""
     try:
-        from core.constants import (
+        from core.constants import (  # noqa: F401
             AdjustmentFactors,
             AudioProcessing,
             BatchSizeLimits,
@@ -34,7 +34,7 @@ def test_import_constants():
         return False
 
 
-def test_constant_values():
+def test_constant_values() -> bool:
     """定数値の妥当性をチェック"""
     from core.constants import BatchSizeLimits, ChunkSizeLimits, MemoryThresholds
 
@@ -68,7 +68,7 @@ def test_constant_values():
         return False
 
 
-def test_usage_in_modules():
+def test_usage_in_modules() -> bool:
     """各モジュールでの使用をテスト"""
     # worker_transcribe.pyの一部をインポート
     try:
@@ -82,7 +82,7 @@ def test_usage_in_modules():
     try:
         from core.auto_optimizer import AutoOptimizer
 
-        optimizer = AutoOptimizer("base")
+        AutoOptimizer("base")
         print("✅ AutoOptimizerが定数を使用可能")
     except Exception as e:
         print(f"❌ AutoOptimizerのインポートエラー: {e}")
@@ -99,7 +99,7 @@ def test_usage_in_modules():
     return True
 
 
-def test_error_messages():
+def test_error_messages() -> bool:
     """エラーメッセージのフォーマットテスト"""
     from core.constants import ErrorMessages
 
@@ -114,7 +114,7 @@ def test_error_messages():
         return False
 
 
-def main():
+def main() -> bool:
     """メインテスト実行"""
     print("=== マジックナンバー設定化のテスト ===\n")
 

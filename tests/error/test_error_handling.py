@@ -52,22 +52,21 @@ class TestErrorHandling(unittest.TestCase):
 
     def test_profile_corruption(self):
         """プロファイルファイルが破損している場合"""
-        with tempfile.TemporaryDirectory() as temp_dir:
-            with patch.object(Path, "home", return_value=Path(temp_dir)):
-                # 破損したプロファイルを作成
-                profile_dir = Path(temp_dir) / ".textffcut" / "profiles"
-                profile_dir.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory() as temp_dir, patch.object(Path, "home", return_value=Path(temp_dir)):
+            # 破損したプロファイルを作成
+            profile_dir = Path(temp_dir) / ".textffcut" / "profiles"
+            profile_dir.mkdir(parents=True, exist_ok=True)
 
-                corrupt_profile = profile_dir / "test-model.json"
-                corrupt_profile.write_text("{ invalid json content")
+            corrupt_profile = profile_dir / "test-model.json"
+            corrupt_profile.write_text("{ invalid json content")
 
-                # AutoOptimizerが正常に初期化されることを確認
-                optimizer = AutoOptimizer("test-model")
-                self.assertIsNotNone(optimizer)
+            # AutoOptimizerが正常に初期化されることを確認
+            optimizer = AutoOptimizer("test-model")
+            self.assertIsNotNone(optimizer)
 
-                # デフォルトパラメータが使用される
-                params = optimizer.get_optimal_params(50.0)
-                self.assertIsNotNone(params)
+            # デフォルトパラメータが使用される
+            params = optimizer.get_optimal_params(50.0)
+            self.assertIsNotNone(params)
 
     def test_disk_write_failure(self):
         """ディスク書き込みエラーのテスト"""
@@ -109,20 +108,19 @@ class TestErrorHandling(unittest.TestCase):
 
     def test_concurrent_profile_access(self):
         """複数プロセスが同時にプロファイルにアクセス"""
-        with tempfile.TemporaryDirectory() as temp_dir:
-            with patch.object(Path, "home", return_value=Path(temp_dir)):
-                # 複数のオプティマイザーインスタンスを作成
-                optimizers = [AutoOptimizer("base") for _ in range(3)]
+        with tempfile.TemporaryDirectory() as temp_dir, patch.object(Path, "home", return_value=Path(temp_dir)):
+            # 複数のオプティマイザーインスタンスを作成
+            optimizers = [AutoOptimizer("base") for _ in range(3)]
 
-                # 同時に保存を試みる
-                for i, opt in enumerate(optimizers):
-                    params = {"chunk_seconds": 600 + i * 100}
-                    metrics = {"completed": True, "avg_memory": 50 + i * 5}
+            # 同時に保存を試みる
+            for i, opt in enumerate(optimizers):
+                params = {"chunk_seconds": 600 + i * 100}
+                metrics = {"completed": True, "avg_memory": 50 + i * 5}
 
-                    try:
-                        opt.save_successful_run(params, metrics)
-                    except Exception as e:
-                        self.fail(f"Concurrent save failed: {e}")
+                try:
+                    opt.save_successful_run(params, metrics)
+                except Exception as e:
+                    self.fail(f"Concurrent save failed: {e}")
 
     def test_docker_cgroup_errors(self):
         """Docker環境でのcgroupエラー"""
@@ -268,27 +266,26 @@ class TestErrorHandling(unittest.TestCase):
 
     def test_race_condition_profile_update(self):
         """プロファイル更新時の競合状態"""
-        with tempfile.TemporaryDirectory() as temp_dir:
-            with patch.object(Path, "home", return_value=Path(temp_dir)):
-                optimizer1 = AutoOptimizer("medium")
-                optimizer2 = AutoOptimizer("medium")
+        with tempfile.TemporaryDirectory() as temp_dir, patch.object(Path, "home", return_value=Path(temp_dir)):
+            optimizer1 = AutoOptimizer("medium")
+            optimizer2 = AutoOptimizer("medium")
 
-                # 両方のインスタンスが同時に更新（完全なパラメータセット）
-                params1 = {"chunk_seconds": 600, "max_workers": 2, "batch_size": 8, "align_chunk_seconds": 900}
-                params2 = {"chunk_seconds": 900, "max_workers": 3, "batch_size": 16, "align_chunk_seconds": 1200}
+            # 両方のインスタンスが同時に更新（完全なパラメータセット）
+            params1 = {"chunk_seconds": 600, "max_workers": 2, "batch_size": 8, "align_chunk_seconds": 900}
+            params2 = {"chunk_seconds": 900, "max_workers": 3, "batch_size": 16, "align_chunk_seconds": 1200}
 
-                metrics = {"completed": True, "avg_memory": 60.0, "successful_runs": 1}
+            metrics = {"completed": True, "avg_memory": 60.0, "successful_runs": 1}
 
-                # ファイルロックなしでも正常に動作することを確認
-                optimizer1.save_successful_run(params1, metrics)
-                optimizer2.save_successful_run(params2, metrics)
+            # ファイルロックなしでも正常に動作することを確認
+            optimizer1.save_successful_run(params1, metrics)
+            optimizer2.save_successful_run(params2, metrics)
 
-                # 新しいインスタンスで読み込み（どちらかの値になる）
-                new_optimizer = AutoOptimizer("medium")
-                loaded_params = new_optimizer.get_optimal_params(60.0)
-                # どちらかの値が読み込まれているはず
-                self.assertIn("chunk_seconds", loaded_params)
-                self.assertIn("align_chunk_seconds", loaded_params)
+            # 新しいインスタンスで読み込み（どちらかの値になる）
+            new_optimizer = AutoOptimizer("medium")
+            loaded_params = new_optimizer.get_optimal_params(60.0)
+            # どちらかの値が読み込まれているはず
+            self.assertIn("chunk_seconds", loaded_params)
+            self.assertIn("align_chunk_seconds", loaded_params)
 
 
 if __name__ == "__main__":

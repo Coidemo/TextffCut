@@ -16,7 +16,7 @@ sys.path.insert(0, str(project_root))
 class TestRefactoringIntegration(unittest.TestCase):
     """リファクタリングの統合テスト"""
 
-    def test_constants_usage_in_main(self):
+    def test_constants_usage_in_main(self) -> None:
         """main.pyでの定数使用をテスト"""
         print("\n=== main.pyでの定数使用テスト ===")
 
@@ -44,7 +44,7 @@ class TestRefactoringIntegration(unittest.TestCase):
 
         print("✓ 定数の使用: OK")
 
-    def test_error_handling_integration(self):
+    def test_error_handling_integration(self) -> None:
         """新しいエラーハンドリングの統合をテスト"""
         print("\n=== エラーハンドリング統合テスト ===")
 
@@ -69,7 +69,7 @@ class TestRefactoringIntegration(unittest.TestCase):
 
         print("✓ エラーハンドリングの統合: OK")
 
-    def test_service_imports(self):
+    def test_service_imports(self) -> None:
         """サービス層のインポートをテスト"""
         print("\n=== サービス層インポートテスト ===")
 
@@ -88,7 +88,7 @@ class TestRefactoringIntegration(unittest.TestCase):
 
         print("✓ サービス層のインポート: OK")
 
-    def test_type_hints(self):
+    def test_type_hints(self) -> None:
         """型ヒントの追加をテスト"""
         print("\n=== 型ヒントテスト ===")
 
@@ -108,7 +108,7 @@ class TestRefactoringIntegration(unittest.TestCase):
 
         print("✓ 型ヒントの追加: OK")
 
-    def test_backward_compatibility(self):
+    def test_backward_compatibility(self) -> None:
         """後方互換性をテスト"""
         print("\n=== 後方互換性テスト ===")
 
@@ -131,7 +131,7 @@ class TestRefactoringIntegration(unittest.TestCase):
 
         print("✓ 後方互換性: OK")
 
-    def test_api_cost_constant(self):
+    def test_api_cost_constant(self) -> None:
         """API料金定数の統合をテスト"""
         print("\n=== API料金定数テスト ===")
 
@@ -143,7 +143,7 @@ class TestRefactoringIntegration(unittest.TestCase):
 
         print(f"✓ API料金定数: ${ApiSettings.OPENAI_COST_PER_MINUTE}/分")
 
-    def test_worker_compatibility(self):
+    def test_worker_compatibility(self) -> None:
         """worker_transcribe.pyの互換性をテスト"""
         print("\n=== ワーカー互換性テスト ===")
 
@@ -153,7 +153,7 @@ class TestRefactoringIntegration(unittest.TestCase):
 
         # 新しいTranscriptionWorkerクラスがインポート可能か
         try:
-            from orchestrator import TranscriptionWorker as NewWorker
+            from orchestrator import TranscriptionWorker as NewWorker  # noqa: F401
 
             print("✓ 新しいTranscriptionWorkerクラス: インポート可能")
         except ImportError as e:
@@ -169,7 +169,7 @@ class TestRefactoringIntegration(unittest.TestCase):
         print("✓ worker_transcribe.pyの互換性: OK")
 
 
-def run_integration_tests():
+def run_integration_tests() -> None:
     """統合テストを実行"""
     print("=" * 60)
     print("リファクタリング統合テスト")

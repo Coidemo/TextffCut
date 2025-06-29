@@ -9,6 +9,7 @@ import os
 import time
 from collections import deque
 from datetime import datetime
+from typing import Any
 
 try:
     import psutil
@@ -25,14 +26,14 @@ logger = get_logger(__name__)
 class MemoryMonitor:
     """メモリ使用状況の監視"""
 
-    def __init__(self, history_size: int = 100):
+    def __init__(self, history_size: int = 100) -> None:
         """
         初期化
 
         Args:
             history_size: 保持する履歴のサイズ
         """
-        self.history = deque(maxlen=history_size)
+        self.history: deque[dict[str, Any]] = deque(maxlen=history_size)
         self.is_docker = self._detect_docker_environment()
 
         if not PSUTIL_AVAILABLE:
@@ -51,7 +52,7 @@ class MemoryMonitor:
             with open("/proc/1/cgroup") as f:
                 if "docker" in f.read():
                     return True
-        except:
+        except OSError:
             pass
 
         return False
@@ -134,7 +135,7 @@ class MemoryMonitor:
                     return int(value)
                 elif value == "max":  # cgroup v2
                     return 9223372036854775807
-        except:
+        except OSError:
             pass
         return None
 
@@ -175,7 +176,7 @@ class MemoryMonitor:
                 swap = psutil.swap_memory()
                 stats["swap_percent"] = swap.percent
                 stats["swap_total_gb"] = swap.total / (1024**3)
-            except:
+            except (AttributeError, OSError):
                 stats["swap_percent"] = 0.0
                 stats["swap_total_gb"] = 0.0
 

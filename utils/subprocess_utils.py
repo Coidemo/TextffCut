@@ -26,7 +26,7 @@ def run_command_with_timeout(
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
             return result.returncode, result.stdout, result.stderr
         else:
-            result = subprocess.run(cmd, timeout=timeout)
+            result = subprocess.run(cmd, timeout=timeout, text=True)
             return result.returncode, "", ""
 
     except subprocess.TimeoutExpired:

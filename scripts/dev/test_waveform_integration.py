@@ -14,7 +14,7 @@ def test_imports():
     print("Testing imports...")
 
     try:
-        from core.waveform_processor import WaveformData, WaveformProcessor
+        from core.waveform_processor import ClipWaveformData, WaveformProcessor  # noqa: F401
 
         print("✓ waveform_processor imported successfully")
     except ImportError as e:
@@ -22,7 +22,7 @@ def test_imports():
         return False
 
     try:
-        from ui.waveform_display import WaveformDisplay
+        from ui.waveform_display import WaveformDisplay  # noqa: F401
 
         print("✓ waveform_display imported successfully")
     except ImportError as e:
@@ -30,7 +30,7 @@ def test_imports():
         return False
 
     try:
-        from ui.timeline_editor import render_timeline_editor
+        from ui.timeline_editor import render_timeline_editor  # noqa: F401
 
         print("✓ timeline_editor imported successfully")
     except ImportError as e:
@@ -44,7 +44,7 @@ def test_waveform_processor():
     """WaveformProcessorの基本機能をテスト"""
     print("\nTesting WaveformProcessor...")
 
-    from core.waveform_processor import WaveformData, WaveformProcessor
+    from core.waveform_processor import ClipWaveformData, WaveformProcessor
 
     processor = WaveformProcessor()
 
@@ -55,7 +55,7 @@ def test_waveform_processor():
     # librosaなしでも波形データが返されることを確認
     waveform_data = processor.extract_waveform("dummy_video.mp4", 0.0, 5.0, "test_segment")
 
-    assert isinstance(waveform_data, WaveformData)
+    assert isinstance(waveform_data, ClipWaveformData)
     assert waveform_data.segment_id == "test_segment"
     assert waveform_data.duration == 5.0
     print("✓ WaveformData created successfully (empty due to no librosa)")
@@ -67,24 +67,22 @@ def test_waveform_display():
     """WaveformDisplayの基本機能をテスト"""
     print("\nTesting WaveformDisplay...")
 
-    from core.waveform_processor import WaveformData
+    from core.waveform_processor import ClipWaveformData, WaveformData
     from ui.waveform_display import WaveformDisplay
 
     display = WaveformDisplay()
 
     # 空の波形データでも表示できることを確認
-    waveform_data = WaveformData(
-        segment_id="test", sample_rate=44100, samples=[], duration=5.0, start_time=0.0, end_time=5.0
-    )
+    waveform_data = ClipWaveformData(id="test", sample_rate=44100, samples=[], start_time=0.0, end_time=5.0)
 
-    fig = display.render_waveform(waveform_data)
+    display.render_waveform(waveform_data)
     # plotlyがない場合はNoneが返される
     print("✓ Waveform render called successfully (returns None without plotly)")
 
     # タイムライン概要表示
     segments = [WaveformData("seg1", 44100, [], 2.0, 0.0, 2.0), WaveformData("seg2", 44100, [], 3.0, 5.0, 8.0)]
 
-    overview_fig = display.render_timeline_overview(segments, 10.0)
+    display.render_timeline_overview(segments, 10.0)
     # plotlyがない場合はNoneが返される
     print("✓ Timeline overview render called successfully (returns None without plotly)")
 

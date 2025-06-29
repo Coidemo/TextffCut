@@ -18,7 +18,7 @@ logger = get_logger(__name__)
 class APIKeyManager:
     """APIキーの暗号化保存・読み込み管理"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         # ユーザーホームディレクトリに設定フォルダを作成
         self.config_dir = Path.home() / ".textffcut"
         self.config_dir.mkdir(exist_ok=True)

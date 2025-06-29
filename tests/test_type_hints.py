@@ -196,7 +196,7 @@ def test_complex_scenario():
 
     # 型安全な操作
     result.update_statistics()
-    valid_segments: list[TranscriptionSegmentV2] = result.get_valid_segments()
+    result.get_valid_segments()
     is_complete: bool = result.is_complete()
 
     print(f"Total segments: {result.total_segments}")

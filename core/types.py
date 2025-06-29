@@ -8,7 +8,7 @@
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Generic, Literal, Protocol, TypeVar, TypedDict, Union
+from typing import Any, Generic, Literal, Protocol, TypedDict, TypeVar, Union
 
 # ============================================================================
 # 基本型エイリアス
@@ -260,7 +260,8 @@ class ErrorInfo(TypedDict):
 # ============================================================================
 
 
-T = TypeVar('T')
+T = TypeVar("T")
+
 
 @dataclass
 class Result(Generic[T]):
@@ -269,7 +270,7 @@ class Result(Generic[T]):
     success: bool
     data: T | None = None
     error: str | None = None
-    metadata: dict[str, Any] = None
+    metadata: dict[str, Any] | None = None
 
     def __post_init__(self):
         if self.metadata is None:

@@ -19,7 +19,7 @@ logging.basicConfig(level=logging.DEBUG)
 logger = get_logger(__name__)
 
 
-def test_api_alignment():
+def test_api_alignment() -> None:
     """APIモードでのアライメント処理をテスト"""
     print("=== v0.9.7 APIモードアライメントテスト ===")
 
@@ -54,7 +54,7 @@ def test_api_alignment():
 
         # 各セグメントの詳細を表示
         for i, seg in enumerate(aligned_segments):
-            print(f"\nセグメント {i+1}:")
+            print(f"\nセグメント {i + 1}:")
             print(f"  テキスト: {seg.get('text', '')}")
             print(f"  時間: {seg.get('start', 0):.2f} - {seg.get('end', 0):.2f}")
 
@@ -82,7 +82,7 @@ def test_api_alignment():
             os.unlink(test_audio_path)
 
 
-def create_test_audio():
+def create_test_audio() -> None:
     """テスト用の短い音声ファイルを作成"""
     import subprocess
 

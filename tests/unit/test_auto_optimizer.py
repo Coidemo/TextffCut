@@ -270,8 +270,8 @@ class TestAutoOptimizer(unittest.TestCase):
         # メモリが徐々に増加するケース
         memory_values = [40.0, 42.0, 44.0]  # 2%ずつ増加
 
-        for i, memory in enumerate(memory_values):
-            params = optimizer.get_optimal_params(memory)
+        for _, memory in enumerate(memory_values):
+            optimizer.get_optimal_params(memory)
 
         # 診断完了後、適切なパラメータが予測されているか
         self.assertFalse(optimizer.diagnostic_mode)

@@ -8,7 +8,7 @@ import subprocess
 import sys
 
 
-def check_macos():
+def check_macos() -> bool:
     """macOSの確認"""
     if platform.system() != "Darwin":
         print("❌ このツールはmacOS専用です。")
@@ -29,7 +29,7 @@ def check_macos():
     return True
 
 
-def check_python_version():
+def check_python_version() -> bool:
     """Python バージョンの確認"""
     print("\nPythonバージョンの確認...")
     version = sys.version_info
@@ -43,7 +43,7 @@ def check_python_version():
     return True
 
 
-def check_homebrew():
+def check_homebrew() -> bool:
     """Homebrewの確認"""
     print("\nHomebrewの確認...")
     try:
@@ -61,7 +61,7 @@ def check_homebrew():
     return False
 
 
-def check_ffmpeg():
+def check_ffmpeg() -> bool:
     """FFmpegの確認"""
     print("\nFFmpegの確認...")
     try:
@@ -79,7 +79,7 @@ def check_ffmpeg():
     return False
 
 
-def check_gpu_support():
+def check_gpu_support() -> str:
     """GPUサポートの確認（macOS専用）"""
     print("\nGPUサポートの確認...")
 
@@ -93,7 +93,7 @@ def check_gpu_support():
         return "cpu"
 
 
-def main():
+def main() -> None:
     """メイン処理"""
     print("=" * 50)
     print("   TextffCut セットアップヘルパー")

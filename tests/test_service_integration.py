@@ -15,11 +15,11 @@ from unittest.mock import MagicMock, patch
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
-from config import config
-from core.models import TranscriptionSegmentV2
-from services.export_service import ExportService
-from services.transcription_service import TranscriptionService
-from services.video_processing_service import VideoProcessingService
+from config import config  # noqa: E402
+from core.models import TranscriptionSegmentV2  # noqa: E402
+from services.export_service import ExportService  # noqa: E402
+from services.transcription_service import TranscriptionService  # noqa: E402
+from services.video_processing_service import VideoProcessingService  # noqa: E402
 
 
 class TestServiceIntegration(unittest.TestCase):
@@ -53,7 +53,7 @@ class TestServiceIntegration(unittest.TestCase):
             ]
 
             # サービスメソッドを呼び出し
-            result = service.remove_silence(
+            service.remove_silence(
                 video_path="/tmp/test.mp4",
                 segments=segments,
                 threshold=-35.0,
@@ -97,9 +97,7 @@ class TestServiceIntegration(unittest.TestCase):
 
             # サービスメソッドを呼び出し
             with patch("pathlib.Path.exists", return_value=True):
-                result = service.extract_segments(
-                    video_path="/tmp/test.mp4", segments=segments, output_dir=self.temp_dir
-                )
+                service.extract_segments(video_path="/tmp/test.mp4", segments=segments, output_dir=self.temp_dir)
 
             # extract_segmentが正しいパラメータで呼ばれたか確認
             mock_method.assert_called_once()
@@ -136,9 +134,7 @@ class TestServiceIntegration(unittest.TestCase):
 
             # サービスメソッドを呼び出し
             with patch("pathlib.Path.exists", return_value=True):
-                result = service.merge_videos(
-                    video_files=video_files, output_path=os.path.join(self.temp_dir, "output.mp4")
-                )
+                service.merge_videos(video_files=video_files, output_path=os.path.join(self.temp_dir, "output.mp4"))
 
             # combine_videosが呼ばれたことを確認
             mock_method.assert_called_once()
@@ -166,7 +162,7 @@ class TestServiceIntegration(unittest.TestCase):
                 mock_create.return_value = mock_transcriber
 
                 # サービスメソッドを呼び出し
-                result = service.execute(
+                service.execute(
                     video_path="/tmp/test.mp4", model_size="base", language="ja"  # このパラメータは無視されるべき
                 )
 
@@ -192,7 +188,7 @@ class TestServiceIntegration(unittest.TestCase):
             segments = [TranscriptionSegmentV2(id=0, start=0.0, end=5.0, text="test", words=[])]
 
             # サービスメソッドを呼び出し
-            result = service.export_fcpxml(
+            service.export_fcpxml(
                 segments=segments,
                 video_path="/tmp/test.mp4",
                 output_path=os.path.join(self.temp_dir, "test.fcpxml"),
@@ -229,7 +225,7 @@ class TestServiceIntegration(unittest.TestCase):
             segments = [TranscriptionSegmentV2(id=0, start=0.0, end=5.0, text="test", words=[])]
 
             # サービスメソッドを呼び出し
-            result = service.export_xmeml(
+            service.export_xmeml(
                 segments=segments,
                 video_path="/tmp/test.mp4",
                 output_path=os.path.join(self.temp_dir, "test.xml"),

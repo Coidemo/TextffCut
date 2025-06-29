@@ -7,6 +7,7 @@ StreamlitアプリケーションでリカバリーUIが
 
 import sys
 from pathlib import Path
+from typing import Any
 
 # プロジェクトルートをパスに追加
 sys.path.insert(0, str(Path(__file__).parent))
@@ -17,14 +18,14 @@ from utils.logging import get_logger
 logger = get_logger(__name__)
 
 
-def create_test_states():
+def create_test_states() -> None:
     """テスト用の状態ファイルを作成"""
     print("=== Creating Test States ===")
 
     state_manager = ProcessingStateManager()
 
     # テスト用の状態を作成
-    test_videos = [
+    test_videos: list[dict[str, Any]] = [
         {
             "path": "/videos/test_video1.mp4",
             "state": "transcribing",
@@ -68,7 +69,7 @@ def create_test_states():
     print("4. Try processing /videos/test_video1.mp4 to see recovery prompt")
 
 
-def cleanup_test_states():
+def cleanup_test_states() -> None:
     """テスト用の状態ファイルをクリーンアップ"""
     print("\n=== Cleaning Up Test States ===")
 
@@ -87,7 +88,7 @@ def cleanup_test_states():
     print("\nTest states cleaned up!")
 
 
-def test_recovery_component():
+def test_recovery_component() -> None:
     """リカバリーコンポーネントの単体テスト"""
     print("\n=== Testing Recovery Components ===")
 
@@ -135,7 +136,7 @@ def test_recovery_component():
     print("✓ State cleared")
 
 
-def main():
+def main() -> None:
     """メイン処理"""
     import argparse
 

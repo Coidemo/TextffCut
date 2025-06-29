@@ -149,7 +149,7 @@ class TestMemoryMonitor(unittest.TestCase):
 
         # 複数のサンプルを追加
         usage_values = [60.0, 65.0, 70.0, 75.0, 80.0]
-        for i, usage in enumerate(usage_values):
+        for _, usage in enumerate(usage_values):
             mock_vm.return_value = Mock(percent=usage, available=8 * 1024**3, total=16 * 1024**3)
             monitor.get_memory_usage()
             time.sleep(0.1)  # タイムスタンプを変える

@@ -32,7 +32,7 @@ else:
     DEFAULT_HOST_PATH = os.path.join(os.getcwd(), "videos")
 
 
-def ensure_directories():
+def ensure_directories() -> None:
     """必要なディレクトリを作成"""
     for dir_path in [VIDEOS_DIR, LOGS_DIR, TEMP_DIR, CACHE_DIR]:
         Path(dir_path).mkdir(parents=True, exist_ok=True)

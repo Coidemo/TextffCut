@@ -29,25 +29,25 @@ try:
         BuzzClipError,
     )
     from utils.exceptions import (
-        ConfigurationError as OldConfigurationError,
+        ConfigurationError as OldConfigurationError,  # noqa: F401
     )
     from utils.exceptions import (
-        FFmpegError as OldFFmpegError,
+        FFmpegError as OldFFmpegError,  # noqa: F401
     )
     from utils.exceptions import (
-        FileNotFoundError as OldFileNotFoundError,
+        FileNotFoundError as OldFileNotFoundError,  # noqa: F401
     )
     from utils.exceptions import (
-        MemoryError as OldMemoryError,
+        MemoryError as OldMemoryError,  # noqa: F401
     )
     from utils.exceptions import (
-        TranscriptionError as OldTranscriptionError,
+        TranscriptionError as OldTranscriptionError,  # noqa: F401
     )
     from utils.exceptions import (
-        VideoProcessingError as OldVideoProcessingError,
+        VideoProcessingError as OldVideoProcessingError,  # noqa: F401
     )
     from utils.exceptions import (
-        WhisperError as OldWhisperError,
+        WhisperError as OldWhisperError,  # noqa: F401
     )
 
     UTILS_EXCEPTIONS_AVAILABLE = True
@@ -55,21 +55,21 @@ except ImportError:
     UTILS_EXCEPTIONS_AVAILABLE = False
 
 try:
-    from core.exceptions import (
+    from core.exceptions import (  # noqa: F401
         AlignmentError as CoreAlignmentError,
     )
     from core.exceptions import (
-        AlignmentValidationError,
-        CacheError,
-        RetryExhaustedError,
-        SubprocessError,
-        TranscriptionValidationError,
+        AlignmentValidationError,  # noqa: F401
+        CacheError,  # noqa: F401
+        RetryExhaustedError,  # noqa: F401
+        SubprocessError,  # noqa: F401
+        TranscriptionValidationError,  # noqa: F401
     )
     from core.exceptions import (
-        ProcessingError as CoreProcessingError,
+        ProcessingError as CoreProcessingError,  # noqa: F401
     )
     from core.exceptions import (
-        WordsFieldMissingError as CoreWordsFieldMissingError,
+        WordsFieldMissingError as CoreWordsFieldMissingError,  # noqa: F401
     )
 
     CORE_EXCEPTIONS_AVAILABLE = True
@@ -144,7 +144,7 @@ class ErrorMigration:
         """
 
         class CompatibilityWrapper(TextffCutError):
-            def __init__(self, *args, **kwargs):
+            def __init__(self, *args, **kwargs) -> None:
                 warnings.warn(
                     f"{old_error_class.__name__} is deprecated. "
                     f"Use {self.__class__.__bases__[0].__name__} instead.",
@@ -160,7 +160,7 @@ class ErrorMigration:
 
 
 # 後方互換性のためのエイリアス（非推奨）
-def create_compatibility_aliases():
+def create_compatibility_aliases() -> dict[str, type[Exception]]:
     """後方互換性のためのエイリアスを作成"""
     aliases = {}
 

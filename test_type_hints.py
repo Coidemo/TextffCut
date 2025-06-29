@@ -11,7 +11,7 @@ from pathlib import Path
 # プロジェクトルートをパスに追加
 sys.path.insert(0, str(Path(__file__).parent))
 
-from core.models_typed import ProcessingMetadata, TranscriptionResultV2, TranscriptionSegmentV2, WordInfo
+from core.models_typed import ProcessingMetadata, TranscriptionResultV2, TranscriptionSegmentV2, WordInfoData
 from core.types import (
     ModelSize,
     Page,
@@ -26,7 +26,7 @@ from core.types import (
 )
 
 
-def test_basic_types():
+def test_basic_types() -> None:
     """基本型のテスト"""
     print("=== 基本型のテスト ===")
 
@@ -48,7 +48,7 @@ def test_basic_types():
     print()
 
 
-def test_typed_dict():
+def test_typed_dict() -> None:
     """TypedDictのテスト"""
     print("=== TypedDictのテスト ===")
 
@@ -73,7 +73,7 @@ def test_typed_dict():
     print()
 
 
-def test_protocol():
+def test_protocol() -> None:
     """Protocolのテスト"""
     print("=== Protocolのテスト ===")
 
@@ -96,7 +96,7 @@ def test_protocol():
     print()
 
 
-def test_generic_types():
+def test_generic_types() -> None:
     """ジェネリック型のテスト"""
     print("=== ジェネリック型のテスト ===")
 
@@ -118,12 +118,12 @@ def test_generic_types():
     print()
 
 
-def test_model_types():
+def test_model_types() -> None:
     """モデルクラスの型テスト"""
     print("=== モデルクラスの型テスト ===")
 
-    # WordInfo
-    word: WordInfo = WordInfo(word="こんにちは", start=1.0, end=1.5, confidence=0.95)
+    # WordInfoData
+    word: WordInfoData = WordInfoData(word="こんにちは", start=1.0, end=1.5, confidence=0.95)
     print(f"Word: {word.word} ({word.start}-{word.end}s)")
 
     # TranscriptionSegmentV2
@@ -148,7 +148,7 @@ def test_model_types():
     print()
 
 
-def test_type_guards():
+def test_type_guards() -> None:
     """型ガード関数のテスト"""
     print("=== 型ガード関数のテスト ===")
 
@@ -166,7 +166,7 @@ def test_type_guards():
     print()
 
 
-def test_complex_scenario():
+def test_complex_scenario() -> None:
     """複雑なシナリオのテスト"""
     print("=== 複雑なシナリオのテスト ===")
 
@@ -196,7 +196,7 @@ def test_complex_scenario():
 
     # 型安全な操作
     result.update_statistics()
-    valid_segments: list[TranscriptionSegmentV2] = result.get_valid_segments()
+    result.get_valid_segments()
     is_complete: bool = result.is_complete()
 
     print(f"Total segments: {result.total_segments}")
@@ -213,7 +213,7 @@ def test_complex_scenario():
     print()
 
 
-def run_all_tests():
+def run_all_tests() -> None:
     """すべてのテストを実行"""
     test_basic_types()
     test_typed_dict()

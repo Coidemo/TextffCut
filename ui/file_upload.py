@@ -71,6 +71,6 @@ def show_video_input() -> tuple[str, str] | None:
     return None
 
 
-def cleanup_temp_files():
+def cleanup_temp_files() -> None:
     """一時ファイルのクリーンアップ（互換性のため残す）"""
     pass

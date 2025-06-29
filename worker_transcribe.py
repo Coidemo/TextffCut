@@ -20,12 +20,12 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(level
 logger = logging.getLogger(__name__)
 
 
-def send_progress(progress: float, message: str = ""):
+def send_progress(progress: float, message: str = "") -> None:
     """プログレス情報を親プロセスに送信"""
     print(f"PROGRESS:{progress}|{message}", flush=True)
 
 
-def main():
+def main() -> None:
     """ワーカーメイン処理"""
     try:
         # コマンドライン引数から設定ファイルパスを取得
@@ -183,7 +183,7 @@ def main():
             try:
                 file_stat = os.stat(video_path)
                 cache_key = f"{video_path}_{file_stat.st_size}_{len(result.segments)}"
-            except:
+            except Exception:
                 cache_key = None
 
             # キャッシュされた診断結果を確認

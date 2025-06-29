@@ -13,7 +13,7 @@ from config import Config
 from core.srt_diff_exporter import SRTDiffExporter
 
 
-def test_distribute_by_semantics():
+def test_distribute_by_semantics() -> None:
     """意味的な分割のテスト"""
     print("=== 意味的な分割のテスト ===")
 
@@ -54,7 +54,7 @@ def test_distribute_by_semantics():
         print(f"  {i}: '{segment}' ({len(segment)}文字)")
 
 
-def test_mock_silence_removal():
+def test_mock_silence_removal() -> None:
     """無音削除シミュレーションのテスト"""
     print("\n\n=== 無音削除シミュレーション ===")
 

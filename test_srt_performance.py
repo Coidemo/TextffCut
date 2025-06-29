@@ -69,7 +69,7 @@ def measure_performance(func, *args, **kwargs) -> tuple[Any, float, float]:
     return result, execution_time, peak_memory_mb
 
 
-def test_basic_performance():
+def test_basic_performance() -> None:
     """基本的なパフォーマンステスト"""
     print("\n=== 基本パフォーマンステスト ===")
 
@@ -160,7 +160,7 @@ def test_basic_performance():
         Path(file).unlink(missing_ok=True)
 
 
-def test_line_break_performance():
+def test_line_break_performance() -> None:
     """日本語改行処理のパフォーマンステスト"""
     print("\n=== 日本語改行処理パフォーマンステスト ===")
 
@@ -168,12 +168,10 @@ def test_line_break_performance():
 
     # janomeの有無を確認
     try:
-        import janome
+        import janome  # noqa: F401
 
-        has_janome = True
         print("janomeモジュール: インストール済み")
     except ImportError:
-        has_janome = False
         print("janomeモジュール: 未インストール（正規表現フォールバック）")
 
     # テストテキスト
@@ -187,7 +185,7 @@ def test_line_break_performance():
     max_line_length = 15
 
     for i, text in enumerate(test_texts):
-        print(f"\n{i+1}. テキスト長: {len(text)}文字")
+        print(f"\n{i + 1}. テキスト長: {len(text)}文字")
 
         # extract_line のパフォーマンス測定
         remaining = text
@@ -204,7 +202,7 @@ def test_line_break_performance():
         print(f"  1行あたり: {(end_time - start_time) * 1000 / len(lines):.2f}ms")
 
 
-def test_edge_cases():
+def test_edge_cases() -> None:
     """エッジケースのテスト"""
     print("\n=== エッジケーステスト ===")
 
@@ -286,7 +284,7 @@ def test_edge_cases():
     Path("test_long_segment.srt").unlink(missing_ok=True)
 
 
-def test_memory_efficiency():
+def test_memory_efficiency() -> None:
     """メモリ効率性のテスト"""
     print("\n=== メモリ効率性テスト ===")
 
@@ -328,7 +326,7 @@ def test_memory_efficiency():
         print(f"\nメモリ増加率: {growth_rate:.4f}MB/セグメント")
 
 
-def run_all_tests():
+def run_all_tests() -> None:
     """すべてのパフォーマンステストを実行"""
     print("=== SRT機能パフォーマンステスト ===")
     print(f"開始時刻: {time.strftime('%Y-%m-%d %H:%M:%S')}")

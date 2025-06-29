@@ -153,7 +153,7 @@ class TestRefactoringIntegration(unittest.TestCase):
 
         # 新しいTranscriptionWorkerクラスがインポート可能か
         try:
-            from orchestrator import TranscriptionWorker as NewWorker
+            from orchestrator import TranscriptionWorker as NewWorker  # noqa: F401
 
             print("✓ 新しいTranscriptionWorkerクラス: インポート可能")
         except ImportError as e:

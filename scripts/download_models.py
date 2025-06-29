@@ -61,7 +61,7 @@ def download_models():
 
         for cache_dir in all_cache_dirs:
             if os.path.exists(cache_dir):
-                for dirpath, dirnames, filenames in os.walk(cache_dir):
+                for dirpath, _, filenames in os.walk(cache_dir):
                     for f in filenames:
                         fp = os.path.join(dirpath, f)
                         if os.path.exists(fp):

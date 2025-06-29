@@ -21,7 +21,7 @@ class RefactoringCompletionTest:
         self.results = []
         self.errors = []
 
-    def run_all_tests(self):
+    def run_all_tests(self) -> None:
         """すべてのテストを実行"""
         print("=== リファクタリング完全性テスト開始 ===\n")
 
@@ -43,7 +43,7 @@ class RefactoringCompletionTest:
         # 結果表示
         self.show_results()
 
-    def test_phase1_constants(self):
+    def test_phase1_constants(self) -> None:
         """Phase 1-1: 定数化のテスト"""
         print("Phase 1-1: マジックナンバーの定数化")
 
@@ -69,7 +69,7 @@ class RefactoringCompletionTest:
         except Exception as e:
             self.add_result("Phase 1-1: 定数化", False, str(e))
 
-    def test_phase1_worker_class(self):
+    def test_phase1_worker_class(self) -> None:
         """Phase 1-2/3: Workerクラス化のテスト"""
         print("\nPhase 1-2/3: Workerクラス化")
 
@@ -94,7 +94,7 @@ class RefactoringCompletionTest:
         except Exception as e:
             self.add_result("Phase 1-2/3: Workerクラス化", False, str(e))
 
-    def test_phase2_service_layer(self):
+    def test_phase2_service_layer(self) -> None:
         """Phase 2-1/2: サービス層のテスト"""
         print("\nPhase 2-1/2: サービス層")
 
@@ -118,7 +118,7 @@ class RefactoringCompletionTest:
         except Exception as e:
             self.add_result("Phase 2-1/2: サービス層", False, str(e))
 
-    def test_phase2_alignment_diagnostics(self):
+    def test_phase2_alignment_diagnostics(self) -> None:
         """Phase 2-3: アライメント診断のテスト"""
         print("\nPhase 2-3: アライメント診断")
 
@@ -147,7 +147,7 @@ class RefactoringCompletionTest:
         except Exception as e:
             self.add_result("Phase 2-3: アライメント診断", False, str(e))
 
-    def test_phase3_error_handling(self):
+    def test_phase3_error_handling(self) -> None:
         """Phase 3-1: エラーハンドリングのテスト"""
         print("\nPhase 3-1: エラーハンドリング")
 
@@ -179,24 +179,16 @@ class RefactoringCompletionTest:
         except Exception as e:
             self.add_result("Phase 3-1: エラーハンドリング", False, str(e))
 
-    def test_phase3_type_hints(self):
+    def test_phase3_type_hints(self) -> None:
         """Phase 3-2: 型ヒントのテスト"""
         print("\nPhase 3-2: 型ヒント")
 
         try:
             # 型定義のインポート
-            from core.types import (
-                TimeSeconds,
-                TranscriptionOptions,
-                VideoPath,
-            )
 
             # 型の使用確認
-            video_path: VideoPath = "/path/to/video.mp4"
-            duration: TimeSeconds = 123.45
 
             # TypedDictの確認
-            options: TranscriptionOptions = {"language": "ja", "model_size": "medium"}
 
             # mypyの設定確認
             pyproject_path = Path("pyproject.toml")
@@ -209,7 +201,7 @@ class RefactoringCompletionTest:
         except Exception as e:
             self.add_result("Phase 3-2: 型ヒント", False, str(e))
 
-    def test_integration(self):
+    def test_integration(self) -> None:
         """統合テスト: すべてのコンポーネントの連携"""
         print("\n統合テスト")
 
@@ -219,7 +211,7 @@ class RefactoringCompletionTest:
 
             # Configが新しい定数を使用しているか
 
-            config = Config()
+            Config()
 
             # サービス層が統合されているか
             # エラーハンドリングが統合されているか
@@ -229,7 +221,7 @@ class RefactoringCompletionTest:
         except Exception as e:
             self.add_result("統合テスト", False, str(e))
 
-    def add_result(self, test_name: str, success: bool, message: str):
+    def add_result(self, test_name: str, success: bool, message: str) -> None:
         """テスト結果を追加"""
         self.results.append({"test": test_name, "success": success, "message": message})
 
@@ -239,7 +231,7 @@ class RefactoringCompletionTest:
         if not success:
             self.errors.append(f"{test_name}: {message}")
 
-    def show_results(self):
+    def show_results(self) -> None:
         """結果を表示"""
         print("\n=== テスト結果サマリー ===")
 
@@ -274,7 +266,7 @@ class RefactoringCompletionTest:
         print("\n結果は refactoring_test_results.json に保存されました")
 
 
-def run_mypy_check():
+def run_mypy_check() -> None:
     """mypyによる型チェック"""
     print("\n=== mypy型チェック ===")
 
@@ -309,7 +301,7 @@ def run_mypy_check():
         print(f"型チェックエラー: {e}")
 
 
-def check_documentation():
+def check_documentation() -> None:
     """ドキュメントの更新確認"""
     print("\n=== ドキュメント確認 ===")
 

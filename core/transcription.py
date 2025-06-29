@@ -8,7 +8,10 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from .models import TranscriptionResultV2
 
 import numpy as np
 
@@ -43,7 +46,7 @@ class TranscriptionResult:
 
     language: str
     segments: list[TranscriptionSegment]
-    original_audio_path: str
+    original_audio_path: str | Path
     model_size: str
     processing_time: float
 
@@ -92,7 +95,7 @@ class TranscriptionResult:
             if seg.words and len(seg.words) > 0:
                 if hasattr(seg.words[0], "word"):
                     # WordInfoオブジェクトの場合
-                    text = "".join(word.word for word in seg.words)
+                    text = "".join(word.word for word in seg.words)  # type: ignore
                 else:
                     # 辞書の場合
                     text = "".join(word["word"] for word in seg.words)
@@ -114,7 +117,7 @@ class TranscriptionResult:
         for i, seg in enumerate(self.segments):
             if not seg.words or len(seg.words) == 0:
                 segments_without_words.append(i)
-                errors.append(f"セグメント {i+1}: '{seg.text[:30]}...' にwords情報がありません")
+                errors.append(f"セグメント {i + 1}: '{seg.text[:30]}...' にwords情報がありません")
 
         if segments_without_words:
             errors.insert(0, f"{len(segments_without_words)}個のセグメントでwords情報が欠落しています")
@@ -134,7 +137,6 @@ class TranscriptionResult:
             ProcessingStatus,
             TranscriptionResultV2,
             TranscriptionSegmentV2,
-            WordInfo,
         )
 
         # メタデータの作成
@@ -154,7 +156,20 @@ class TranscriptionResult:
             words = None
             if seg.words:
                 words = [
-                    WordInfo(word=w.get("word", ""), start=w.get("start"), end=w.get("end"), confidence=w.get("score"))
+                    (
+                        w
+                        if isinstance(w, dict)
+                        else (
+                            w.to_dict()
+                            if hasattr(w, "to_dict")
+                            else {
+                                "word": w.get("word", ""),
+                                "start": w.get("start"),
+                                "end": w.get("end"),
+                                "confidence": w.get("score"),
+                            }
+                        )
+                    )
                     for w in seg.words
                 ]
 
@@ -193,8 +208,10 @@ class Transcriber:
     DEFAULT_CHUNK_SECONDS = 600  # 10分
     DEFAULT_NUM_WORKERS = 2
 
-    def __init__(self, config: Config):
+    def __init__(self, config: Config) -> None:
         self.config = config
+        self.api_transcriber: Any | None = None
+        self.device: str | None = None
 
         # APIモードかローカルモードかを判定
         if self.config.transcription.use_api:
@@ -211,11 +228,10 @@ class Transcriber:
                     "WhisperXが利用できません。API版を使用するか、WhisperXをインストールしてください。\n"
                     "pip install whisperx"
                 )
-            self.api_transcriber = None
             self.device = "cuda" if torch.cuda.is_available() else "cpu"
             logger.info(f"ローカルモードで初期化: デバイス={self.device}")
 
-    def get_cache_path(self, video_path: str, model_size: str) -> Path:
+    def get_cache_path(self, video_path: str | Path, model_size: str) -> Path:
         """キャッシュファイルのパスを取得（TextffCutフォルダ内のtranscriptions/）"""
         from utils.file_utils import get_safe_filename
 
@@ -230,7 +246,7 @@ class Transcriber:
         # シンプルなファイル名（動画名不要）
         return cache_dir / f"{model_size}.json"
 
-    def get_available_caches(self, video_path: str) -> list[dict[str, Any]]:
+    def get_available_caches(self, video_path: str | Path) -> list[dict[str, Any]]:
         """利用可能なキャッシュファイルのリストを取得"""
         from utils.file_utils import get_safe_filename
 
@@ -319,7 +335,7 @@ class Transcriber:
             logger.error(f"キャッシュ読み込みエラー: {cache_path} - {e}")
             return None
 
-    def save_to_cache(self, result: TranscriptionResult, cache_path: Path):
+    def save_to_cache(self, result: TranscriptionResult, cache_path: Path) -> None:
         """文字起こし結果をキャッシュに保存"""
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         with open(cache_path, "w", encoding="utf-8") as f:
@@ -399,7 +415,7 @@ class Transcriber:
 
     def transcribe(
         self,
-        video_path: str,
+        video_path: str | Path,
         model_size: str | None = None,
         progress_callback: Callable[[float, str], None] | None = None,
         use_cache: bool = True,
@@ -429,7 +445,7 @@ class Transcriber:
 
     def _transcribe_api(
         self,
-        video_path: str,
+        video_path: str | Path,
         model_size: str | None = None,
         progress_callback: Callable[[float, str], None] | None = None,
         use_cache: bool = True,
@@ -458,7 +474,7 @@ class Transcriber:
 
     def _transcribe_local(
         self,
-        video_path: str,
+        video_path: str | Path,
         model_size: str | None = None,
         progress_callback: Callable[[float, str], None] | None = None,
         use_cache: bool = True,
@@ -503,7 +519,7 @@ class Transcriber:
         step = chunk_sec * sr
 
         # チャンクを作成（APIモードと同じ処理）
-        chunks = []
+        chunks: list[dict[str, Any]] = []
         MIN_CHUNK_DURATION = 1.0  # 1秒未満のチャンクは結合（品質向上のため）
 
         # 短いチャンクを一時保存する変数
@@ -617,7 +633,7 @@ class Transcriber:
             print(f"最後のセグメント: {segments_all[-1]['start']:.1f}秒 - {segments_all[-1]['end']:.1f}秒")
 
         # 結果を構築
-        segments = [
+        result_segments = [
             TranscriptionSegment(
                 start=seg["start"], end=seg["end"], text=seg["text"], words=seg.get("words"), chars=seg.get("chars")
             )
@@ -628,7 +644,7 @@ class Transcriber:
 
         result = TranscriptionResult(
             language=self.config.transcription.language,
-            segments=segments,
+            segments=result_segments,
             original_audio_path=video_path,
             model_size=model_size,
             processing_time=processing_time,

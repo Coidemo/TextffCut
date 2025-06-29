@@ -21,7 +21,7 @@ from utils.logging import get_logger
 logger = get_logger(__name__)
 
 
-def run_restart_test():
+def run_restart_test() -> None:
     """再起動テストを実行"""
     print("=== Worker Auto-Restart Test ===")
 
@@ -105,7 +105,7 @@ def run_restart_test():
 
     # メモリ監視を待つ
     print("Monitoring memory pressure...")
-    for i in range(10):
+    for _ in range(10):
         time.sleep(2)
         messages = manager.process_messages(timeout=0.5)
 
