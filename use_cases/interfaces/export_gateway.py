@@ -2,7 +2,7 @@
 エクスポートゲートウェイインターフェース
 """
 
-from typing import Protocol, List, Optional, Dict, Any
+from typing import Protocol, List, Optional, Dict, Any, Tuple
 from domain.entities import TranscriptionResult, VideoSegment
 from domain.value_objects import FilePath, TimeRange
 

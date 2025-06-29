@@ -411,8 +411,14 @@ class TranscriptionResult:
    - `IExportGateway`系 - 各種エクスポート
    - `IFileGateway` - ファイル操作
 
+#### 完了したタスク（Step 2/6）
+3. **文字起こしユースケース** ✅
+   - `TranscribeVideoUseCase` - 通常の文字起こし実行
+   - `LoadTranscriptionCacheUseCase` - キャッシュ読み込み
+   - `ParallelTranscribeUseCase` - 並列文字起こし
+   - 包括的な単体テスト（13テストケース）
+
 #### 実装予定
-- Step 2: 文字起こしユースケース
 - Step 3: 編集ユースケース
 - Step 4: 動画処理ユースケース
 - Step 5: エクスポートユースケース
