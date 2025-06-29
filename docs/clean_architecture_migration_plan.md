@@ -459,74 +459,247 @@ class TranscribeVideoUseCase:
         return self._post_process(result)
 ```
 
-### Phase 4: アダプター層の実装（2週間）
+### Phase 4: Gateway Adapter層の実装（2週間）✅ 完了
+
+#### 変更理由
+当初はController/Presenterパターンを計画していましたが、既存サービスを変更せずにラップする必要があったため、Gatewayパターンを採用しました。これにより：
+- 既存コードへの影響を最小化
+- 段階的な移行が容易に
+- テスタビリティの向上
 
 #### 目標
-- コントローラーとプレゼンターの実装
-- ゲートウェイインターフェースの定義
-- 外部サービスの抽象化
+- ✅ 既存サービスのGatewayラッパー実装
+- ✅ ゲートウェイインターフェースの実装
+- ✅ 外部サービスの抽象化
 
-#### コントローラー例
+#### 完了したタスク
+1. **Gateway Adapters実装** ✅
+   - `FileGatewayAdapter` - ファイル操作のラッピング
+   - `TranscriptionGatewayAdapter` - WhisperXサービスのラッピング
+   - `TextProcessorGatewayAdapter` - テキスト処理のラッピング
+   - `VideoProcessorGatewayAdapter` - 動画処理のラッピング
+   - `ExportGatewayAdapter`系 - 各種エクスポート機能のラッピング
+
+2. **包括的なテストスイート** ✅
+   - 全ゲートウェイアダプターの単体テスト（51テスト）
+   - エラーハンドリングのテスト
+   - 統合テスト
+
+#### Gateway実装例
 
 ```python
-# adapters/controllers/transcription_controller.py
-from use_cases.transcription.transcribe_video import TranscribeVideoUseCase
-from adapters.presenters.transcription_presenter import TranscriptionPresenter
+# adapters/gateways/file/file_gateway.py
+from typing import List
+from pathlib import Path
+from use_cases.gateways.file_gateway import IFileGateway
+from domain.value_objects.file_path import FilePath
 
-class TranscriptionController:
-    """文字起こしコントローラー"""
+class FileGatewayAdapter(IFileGateway):
+    """ファイル操作のGatewayアダプター"""
     
-    def __init__(
-        self,
-        use_case: TranscribeVideoUseCase,
-        presenter: TranscriptionPresenter
-    ):
-        self.use_case = use_case
-        self.presenter = presenter
-    
-    def handle_transcription_request(self, video_path: str, options: dict):
-        """文字起こしリクエストの処理"""
+    def read_text(self, path: FilePath, encoding: str = "utf-8") -> str:
+        """テキストファイルを読み込む"""
         try:
-            # ユースケース実行
-            result = self.use_case.execute(video_path, options.get("model_size"))
-            
-            # プレゼンターで表示用に変換
-            return self.presenter.present_success(result)
-            
+            with open(str(path), "r", encoding=encoding) as f:
+                return f.read()
         except Exception as e:
-            return self.presenter.present_error(e)
+            logger.error(f"Failed to read text from {path}: {e}")
+            raise IOError(f"Failed to read file: {e}")
+    
+    def write_text(self, path: FilePath, content: str, encoding: str = "utf-8") -> None:
+        """テキストファイルに書き込む"""
+        try:
+            # ディレクトリが存在しない場合は作成
+            Path(str(path)).parent.mkdir(parents=True, exist_ok=True)
+            
+            with open(str(path), "w", encoding=encoding) as f:
+                f.write(content)
+        except Exception as e:
+            logger.error(f"Failed to write text to {path}: {e}")
+            raise IOError(f"Failed to write file: {e}")
 ```
 
-### Phase 5: 既存コードの移行（3週間）
+### Phase 5: DIコンテナの実装（1週間）✅ 完了
+
+#### 変更理由
+当初は既存コードの移行を計画していましたが、コード移行前に依存性注入の仕組みが必要であることが判明しました。これにより：
+- 適切な層分離の実現
+- テスタビリティの向上
+- 柔軟な実装の切り替えが可能に
 
 #### 目標
+- ✅ dependency-injectorを使用したDIコンテナの実装
+- ✅ 階層的なコンテナ構造の構築
+- ✅ Streamlitセッション状態との統合
+
+#### 完了したタスク
+1. **DIコンテナ構造** ✅
+   - `ApplicationContainer` - アプリケーション全体のコンテナ
+   - `GatewayContainer` - ゲートウェイ層のコンテナ
+   - `UseCaseContainer` - ユースケース層のコンテナ
+   - `ServiceContainer` - サービス層のコンテナ（レガシー）
+   - `PresentationContainer` - プレゼンテーション層のコンテナ
+
+2. **Streamlit統合** ✅
+   - `StreamlitSessionProvider` - セッション状態の注入
+   - `inject_streamlit_session` - セッション注入ヘルパー
+   - main.pyへの最小限の統合
+
+3. **テストサポート** ✅
+   - テスト用のモックコンテナ
+   - 依存性のオーバーライド機能
+   - 統合テスト（14テスト、1スキップ）
+
+#### DI実装例
+
+```python
+# di/containers.py
+from dependency_injector import containers, providers
+
+class ApplicationContainer(containers.DeclarativeContainer):
+    """アプリケーション全体のDIコンテナ"""
+    
+    # 設定
+    config = providers.Singleton(DIConfig)
+    
+    # ゲートウェイ層
+    gateways = providers.Container(
+        GatewayContainer,
+        config=config,
+        services=providers.DependenciesContainer()
+    )
+    
+    # ユースケース層
+    use_cases = providers.Container(
+        UseCaseContainer,
+        file_gateway=gateways.file_gateway,
+        transcription_gateway=gateways.transcription_gateway,
+        text_processor_gateway=gateways.text_processor_gateway,
+        video_processor_gateway=gateways.video_processor_gateway,
+        fcpxml_export_gateway=gateways.fcpxml_export_gateway,
+        edl_export_gateway=gateways.edl_export_gateway,
+        srt_export_gateway=gateways.srt_export_gateway,
+        video_export_gateway=gateways.video_export_gateway
+    )
+    
+    # サービス層（レガシー）
+    services = providers.Container(
+        ServiceContainer,
+        config=config
+    )
+    
+    # プレゼンテーション層
+    presentation = providers.Container(
+        PresentationContainer,
+        use_cases=use_cases,
+        gateways=gateways
+    )
+```
+
+### Phase 6: Presentation層（MVP）の実装（1週間）✅ 完了
+
+#### 追加理由
+StreamlitのUIとビジネスロジックを適切に分離するために、MVP（Model-View-Presenter）パターンを採用したPresentation層の実装が必要でした。これにより：
+- UIロジックとビジネスロジックの明確な分離
+- テスタビリティの大幅な向上
+- 状態管理の一元化
+
+#### 目標
+- ✅ BaseViewModel/BasePresenterの実装
+- ✅ VideoInputのMVP実装
+- ✅ ViewModelの変更通知機能
+- ✅ main.pyとの統合準備
+
+#### 完了したタスク
+1. **基盤クラス** ✅
+   - `BaseViewModel` - オブザーバーパターンによる変更通知
+   - `BasePresenter` - ビジネスロジックの実装
+   - `ViewModelObserver` - 変更監視インターフェース
+
+2. **VideoInput MVP実装** ✅
+   - `VideoInputViewModel` - 動画入力の状態管理
+   - `VideoInputPresenter` - ビジネスロジック処理
+   - `VideoInputView` - Streamlit UIコンポーネント
+
+3. **統合サポート** ✅
+   - `show_video_input` - 既存UIとの互換性維持
+   - DIコンテナとの統合
+   - 包括的なテスト（23テスト）
+
+#### MVP実装例
+
+```python
+# presentation/view_models/video_input.py
+@dataclass
+class VideoInputViewModel(BaseViewModel):
+    """動画入力のViewModel"""
+    video_files: List[str] = field(default_factory=list)
+    selected_file: Optional[str] = None
+    video_info: Optional[VideoInfo] = None
+    is_loading: bool = False
+    is_refreshing: bool = False
+    error_message: Optional[str] = None
+    show_all_files: bool = False
+    
+    @property
+    def is_ready(self) -> bool:
+        """処理可能な状態かどうか"""
+        return bool(self.selected_file and self.video_info)
+
+# presentation/presenters/video_input.py
+class VideoInputPresenter(BasePresenter[VideoInputViewModel]):
+    """動画入力のPresenter"""
+    
+    def refresh_video_list(self) -> None:
+        """動画ファイル一覧を更新"""
+        self.view_model.is_refreshing = True
+        self.view_model.error_message = None
+        self.view_model.notify()
+        
+        try:
+            files = self.file_gateway.list_files(
+                FilePath("./videos"),
+                pattern="*" if self.view_model.show_all_files else None
+            )
+            
+            self.view_model.video_files = sorted([
+                str(f) for f in files
+                if self.view_model.show_all_files or 
+                   any(str(f).endswith(ext) for ext in VIDEO_EXTENSIONS)
+            ])
+        except Exception as e:
+            self.handle_error(e, "動画ファイル一覧の取得")
+        finally:
+            self.view_model.is_refreshing = False
+            self.view_model.notify()
+```
+
+### Phase 7: 既存コードの移行（3週間）
+
+#### 目標
+元のPhase 5の内容を、DIとPresentation層が整った今実施：
 - 既存のcore/services層を新アーキテクチャに移行
+- UI関数の段階的な移行
 - 後方互換性の維持
-- 段階的な置き換え
 
-#### 移行戦略
-1. **インターフェースでラップ**
-   ```python
-   # 既存コードをインターフェース経由で使用
-   class LegacyTranscriptionGateway:
-       def __init__(self, legacy_transcriber):
-           self.legacy = legacy_transcriber
-       
-       def transcribe(self, video_path: str, options: dict):
-           # 既存のAPIを新しいインターフェースに適合
-           return self.legacy.transcribe(video_path)
-   ```
+#### 主な移行対象
+1. **UIコンポーネントの移行**
+   - `show_transcription_controls` → TranscriptionPresenter/View
+   - `show_text_editor` → TextEditorPresenter/View
+   - `show_export_settings` → ExportPresenter/View
 
-2. **段階的な置き換え**
-   - 新機能は新アーキテクチャで実装
-   - 既存機能は順次移行
-   - テストで動作保証
+2. **セッション状態の移行**
+   - st.session_stateからViewModelへ
+   - 状態管理の一元化
 
-### Phase 6: テストとドキュメント（1週間）
+3. **ビジネスロジックの移行**
+   - main.pyから各Presenterへ
+   - ユースケースの活用
 
-### Phase 7: Streamlit固有の最適化（追加フェーズ・2週間）
+### Phase 8: Streamlit固有の最適化（2週間）
 
 #### 目標
+元のPhase 7の内容を実施：
 - Streamlit特有の課題への対応
 - パフォーマンス最適化
 - 最終統合テスト
@@ -620,7 +793,15 @@ class TranscriptionController:
    - 状態変更の集約化
    - 更新タイミングの最適化
 
+3. **パフォーマンス最適化**
+   - キャッシング戦略の実装
+   - 重い処理の非同期化
+   - UI応答性の改善
+
+### Phase 9: テストとドキュメント（1週間）
+
 #### 目標
+元のPhase 6の内容を実施：
 - 包括的なテストスイートの作成
 - アーキテクチャドキュメントの整備
 - 開発ガイドラインの策定
@@ -647,6 +828,22 @@ class TestTranscribeVideoUseCase:
         assert len(result.segments) > 0
         mock_gateway.transcribe.assert_called_once()
 ```
+
+#### ドキュメント整備
+1. **アーキテクチャガイド**
+   - 層の責任と相互作用
+   - 実装パターンとベストプラクティス
+   - 拡張ポイントの説明
+
+2. **開発者ガイド**
+   - 新機能追加の手順
+   - テストの書き方
+   - デバッグ方法
+
+3. **API仕様書**
+   - 各層のインターフェース定義
+   - データモデルの説明
+   - エラーハンドリング仕様
 
 ## 移行戦略
 
@@ -839,7 +1036,7 @@ FEATURE_FLAGS = {
 作成日: 2025-06-29
 更新日: 2025-06-29
 作成者: Claude AI & 開発チーム
-バージョン: 2.1.0
+バージョン: 2.4.0
 
 ## 更新履歴
 
@@ -872,3 +1069,14 @@ FEATURE_FLAGS = {
   - すべてのユースケース実装完了（53テスト）
   - 文字起こし、編集、動画処理、エクスポートの各ユースケース
   - ゲートウェイインターフェースの定義完了
+
+### v2.4.0 (2025-06-29)
+- 実装実績に基づく計画の大幅な更新
+  - Phase 4: Gateway Adapter層の実装として完了（元はController/Presenter層）
+  - Phase 5: DIコンテナの実装として完了（元は既存コードの移行）
+  - Phase 6: Presentation層（MVP）を新規追加・完了
+  - Phase 7: 既存コードの移行に変更（元のPhase 5の内容）
+  - Phase 8: Streamlit固有の最適化（元のPhase 7）
+  - Phase 9: テストとドキュメント（元のPhase 6）
+- 各フェーズの変更理由と利点を明記
+- 実装例を実際のコードに更新
