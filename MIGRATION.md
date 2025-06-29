@@ -34,9 +34,14 @@ UIから新アーキテクチャモードに切り替えることができます
 
 **重要な決定**: 文字起こし・編集セクションは相互依存が強いため、ドメイン層構築後に実装
 
-### Phase 2: ドメイン層
-- [ ] エンティティの定義
-- [ ] 値オブジェクトの実装
+### Phase 2: ドメイン層（100%完了）✅
+- [x] エンティティの定義
+  - TranscriptionResult, TranscriptionSegment, Word, Char
+  - VideoSegment, TextDifference
+- [x] 値オブジェクトの実装
+  - TimeRange, FilePath, Duration
+- [x] ドメインルールの文書化
+- [x] 包括的なテストスイート
 
 ### Phase 3: ユースケース層
 - [ ] ビジネスロジックの抽出
