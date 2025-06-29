@@ -166,7 +166,7 @@ class TranscriptionPresenter(BasePresenter[TranscriptionViewModel]):
             # TranscriptionGatewayの実装を直接使用
             legacy_transcriber = self.transcription_gateway._legacy_transcriber
             result = legacy_transcriber.load_from_cache(
-                str(self.view_model.selected_cache.file_path)
+                self.view_model.selected_cache.file_path
             )
             
             if result:

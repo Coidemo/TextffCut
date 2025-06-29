@@ -154,14 +154,26 @@ class TestTranscriptionPresenter:
         
         # モックの設定
         mock_legacy_transcriber = Mock()
-        mock_legacy_transcriber.load_from_cache.return_value = Mock(segments=[])
+        mock_segment = Mock()
+        mock_segment.text = "test"
+        mock_segment.start = 0.0
+        mock_segment.end = 1.0
+        mock_segment.words = []  # 空のリストでOK
+        mock_segment.chars = []  # 空のリストでOK
+        
+        mock_legacy_result = Mock()
+        mock_legacy_result.segments = [mock_segment]
+        mock_legacy_result.language = "ja"
+        mock_legacy_result.text = "test"
+        mock_legacy_result.processing_time = 1.0
+        mock_legacy_transcriber.load_from_cache.return_value = mock_legacy_result
         mock_transcription_gateway._legacy_transcriber = mock_legacy_transcriber
         
         result = presenter.load_selected_cache()
         
         assert result is True
         assert presenter.view_model.transcription_result is not None
-        mock_legacy_transcriber.load_from_cache.assert_called_once_with("/test/cache.json")
+        mock_legacy_transcriber.load_from_cache.assert_called_once_with(Path("/test/cache.json"))
     
     def test_load_selected_cache_no_cache(self, presenter):
         """キャッシュ未選択時のテスト"""
