@@ -20,6 +20,7 @@ from adapters.gateways.export.srt_export_gateway import SRTExportGatewayAdapter
 
 # ユースケースのインポート
 from use_cases.transcription.transcribe_video import TranscribeVideoUseCase
+from use_cases.transcription.load_cache import LoadTranscriptionCacheUseCase
 from use_cases.editing.find_differences import FindTextDifferencesUseCase  
 from use_cases.video.detect_silence import DetectSilenceUseCase
 from use_cases.export.export_fcpxml import ExportFCPXMLUseCase
@@ -35,6 +36,7 @@ from services.text_editing_service import TextEditingService
 from presentation.di_config import PresentationContainer
 
 from utils.logging import get_logger
+from core.error_handling import ErrorHandler
 
 logger = get_logger(__name__)
 
@@ -100,6 +102,12 @@ class UseCaseContainer(containers.DeclarativeContainer):
         transcription_gateway=gateways.transcription_gateway
     )
     
+    # キャッシュ読み込みユースケース
+    load_transcription_cache = providers.Factory(
+        LoadTranscriptionCacheUseCase,
+        transcription_gateway=gateways.transcription_gateway
+    )
+    
     # テキスト差分検出ユースケース
     find_differences = providers.Factory(
         FindTextDifferencesUseCase,
@@ -161,6 +169,12 @@ class ServiceContainer(containers.DeclarativeContainer):
         TextEditingService,
         config=config.legacy_config
     )
+    
+    # エラーハンドラー
+    error_handler = providers.Singleton(
+        ErrorHandler,
+        logger=providers.Callable(get_logger, name="error_handler")
+    )
 
 
 class ApplicationContainer(containers.DeclarativeContainer):
@@ -207,7 +221,8 @@ class ApplicationContainer(containers.DeclarativeContainer):
     presentation = providers.Container(
         PresentationContainer,
         gateways=gateways,
-        use_cases=use_cases
+        use_cases=use_cases,
+        services=services
     )
     
     # Streamlit連携用プロバイダー
