@@ -298,40 +298,37 @@ class Container(containers.DeclarativeContainer):
 ### Phase 1: 基盤整備とmain.py分割（3週間）
 
 #### 目標
-- main.pyを機能別のページに分割
+- main.pyを機能別のセクションに分割（UIは1ページのまま維持）
 - 基本的なクリーンアーキテクチャ構造の確立
+- セッション状態管理の抽象化
 
-#### タスク
-1. **プロジェクト構造の準備**
-   ```bash
-   mkdir -p domain/{entities,value_objects}
-   mkdir -p use_cases/{transcription,editing,export}
-   mkdir -p adapters/{controllers,presenters,gateways}
-   mkdir -p infrastructure/{ui/pages,persistence,external}
-   ```
+#### 完了したタスク ✅
+1. **プロジェクト構造の作成**
+   - domain, use_cases, adapters, infrastructureディレクトリ作成済み
+   - 各層の責任を明確化するREADME配置済み
 
-2. **app.pyの作成**
-   ```python
-   # app.py
-   import streamlit as st
-   from infrastructure.ui.router import Router
-   
-   def main():
-       router = Router()
-       router.route()
-   
-   if __name__ == "__main__":
-       main()
-   ```
+2. **app.pyとRouterの実装**
+   - レガシーモードと新アーキテクチャモードの切り替え可能
+   - 既存のmain.pyとの完全な互換性維持
 
-3. **ページの分割**
-   - `infrastructure/ui/pages/transcription_page.py`
-   - `infrastructure/ui/pages/editing_page.py`
-   - `infrastructure/ui/pages/export_page.py`
+3. **セッション管理の抽象化**
+   - `SessionManager`クラスで状態管理を一元化
+   - 既存のセッション状態との互換性保持
+   - テスト可能な設計
 
-4. **コントローラーの作成**
-   - 各ページに対応するコントローラーを作成
-   - 既存のservices層を一時的に使用
+4. **セクションの部分的な分割**
+   - ✅ 動画入力セクション（`video_input_section.py`）
+   - ✅ エクスポートセクション（`export_section.py`）
+   - ⏳ 文字起こしセクション（プレースホルダーのみ）
+   - ⏳ 編集セクション（プレースホルダーのみ）
+
+#### 重要な決定事項
+- **UIレイアウトは変更しない**: "ページ"ではなく"セクション"として実装
+- **段階的移行**: 文字起こし・編集セクションは相互依存が強いため、Phase 2後に実装
+- **レガシー実装の保持**: 移行期間中の安全性のため、既存ロジックを別ファイルに保存
+
+#### 次のステップ
+Phase 2でドメイン層を構築してから、文字起こし・編集セクションの移行に戻る
 
 ### Phase 2: ドメイン層の確立（2週間）
 
