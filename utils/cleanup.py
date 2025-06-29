@@ -11,23 +11,23 @@ from .logging import logger
 class TempFileManager:
     """一時ファイル管理クラス"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.temp_files: list[Path] = []
         self.temp_dirs: list[Path] = []
 
-    def register_file(self, file_path: Path):
+    def register_file(self, file_path: Path) -> None:
         """一時ファイルを登録"""
         if file_path.exists():
             self.temp_files.append(file_path)
             logger.debug(f"一時ファイルを登録: {file_path}")
 
-    def register_dir(self, dir_path: Path):
+    def register_dir(self, dir_path: Path) -> None:
         """一時ディレクトリを登録"""
         if dir_path.exists():
             self.temp_dirs.append(dir_path)
             logger.debug(f"一時ディレクトリを登録: {dir_path}")
 
-    def cleanup(self):
+    def cleanup(self) -> None:
         """登録された一時ファイル・ディレクトリを削除"""
         # ファイルを削除
         for file_path in self.temp_files:
@@ -58,7 +58,7 @@ class TempFileManager:
         self.cleanup()
 
 
-def cleanup_intermediate_files(output_dir: Path, keep_patterns: list[str] | None = None):
+def cleanup_intermediate_files(output_dir: Path, keep_patterns: list[str] | None = None) -> None:
     """
     中間ファイルをクリーンアップ
 
@@ -72,8 +72,8 @@ def cleanup_intermediate_files(output_dir: Path, keep_patterns: list[str] | None
     keep_patterns = keep_patterns or ["*_TextffCut_*.mp4", "*.fcpxml", "*.xml", "*.srt", "*.edl", "transcriptions/"]
 
     # 保持するファイルとディレクトリを特定
-    keep_files = set()
-    keep_dirs = set()
+    keep_files: set[Path] = set()
+    keep_dirs: set[Path] = set()
     for pattern in keep_patterns:
         if pattern.endswith("/"):
             # ディレクトリパターン
@@ -119,7 +119,7 @@ def cleanup_intermediate_files(output_dir: Path, keep_patterns: list[str] | None
         logger.info(f"{deleted_count}個の中間ファイルを削除しました")
 
 
-def cleanup_old_projects(base_output_dir: Path, keep_recent: int = 5):
+def cleanup_old_projects(base_output_dir: Path, keep_recent: int = 5) -> None:
     """
     古いプロジェクトフォルダをクリーンアップ
 
@@ -152,7 +152,7 @@ def cleanup_old_projects(base_output_dir: Path, keep_recent: int = 5):
 class ProcessingContext:
     """処理コンテキスト（自動クリーンアップ付き）"""
 
-    def __init__(self, output_dir: Path, cleanup_on_error: bool = True):
+    def __init__(self, output_dir: Path, cleanup_on_error: bool = True) -> None:
         self.output_dir = output_dir
         self.cleanup_on_error = cleanup_on_error
         self.temp_manager = TempFileManager()

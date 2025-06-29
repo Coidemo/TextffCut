@@ -20,7 +20,7 @@ from utils.logging import get_logger
 logger = get_logger(__name__)
 
 
-def show_recovery_check(video_path: str | None = None) -> dict[str, Any] | None:
+def show_recovery_check(video_path: str | Path | None = None) -> dict[str, Any] | None:
     """リカバリーチェックUI
 
     Args:
@@ -36,7 +36,7 @@ def show_recovery_check(video_path: str | None = None) -> dict[str, Any] | None:
     recovery = TranscriptionRecovery(state_manager)
 
     # リカバリー情報をチェック
-    recovery_info = recovery.check_recovery(video_path)
+    recovery_info = recovery.check_recovery(str(video_path))
 
     if recovery_info and recovery_info.get("can_resume"):
         # リカバリー可能な場合、確認UIを表示
@@ -57,7 +57,7 @@ def show_recovery_check(video_path: str | None = None) -> dict[str, Any] | None:
                     st.text(f"状態: {recovery_info['state']}")
 
                     # タイムスタンプ情報を取得
-                    state_data = state_manager.load_state(video_path)
+                    state_data = state_manager.load_state(str(video_path))
                     if state_data and "timestamp" in state_data:
                         timestamp = datetime.fromisoformat(state_data["timestamp"])
                         elapsed = datetime.now() - timestamp
@@ -84,7 +84,7 @@ def show_recovery_check(video_path: str | None = None) -> dict[str, Any] | None:
                 if st.button("最初から実行", use_container_width=True):
                     st.session_state["recovery_action"] = "restart"
                     # 状態をクリア
-                    state_manager.clear_state(video_path)
+                    state_manager.clear_state(str(video_path))
                     return None
 
         # ユーザーが選択するまで待機
@@ -136,7 +136,7 @@ def show_startup_recovery() -> list[dict[str, Any]]:
     return recoverable
 
 
-def show_recovery_status(video_path: str, current_state: str, progress: float = 0.0):
+def show_recovery_status(video_path: str | Path, current_state: str, progress: float = 0.0) -> None:
     """処理中の状態表示UI
 
     Args:
@@ -179,7 +179,7 @@ def show_recovery_status(video_path: str, current_state: str, progress: float = 
                     st.warning("処理を中断しています...")
 
 
-def show_recovery_settings():
+def show_recovery_settings() -> None:
     """リカバリー設定UI（サイドバー用）"""
     st.markdown("#### 🔄 リカバリー設定")
 
@@ -219,7 +219,7 @@ def show_recovery_settings():
         st.success(f"{deleted}個の古い状態ファイルを削除しました")
 
 
-def show_recovery_history():
+def show_recovery_history() -> None:
     """リカバリー履歴UI"""
     st.markdown("### 📋 処理履歴")
 
@@ -276,7 +276,7 @@ def show_recovery_history():
 
 
 # テスト用関数
-def test_recovery_ui():
+def test_recovery_ui() -> None:
     """リカバリーUIのテスト"""
     st.set_page_config(page_title="Recovery UI Test", layout="wide")
 

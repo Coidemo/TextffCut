@@ -9,7 +9,10 @@ import subprocess
 import sys
 import tempfile
 import time
-from typing import Any, Optional
+from collections.abc import Callable
+from contextlib import suppress
+from pathlib import Path
+from typing import Any
 
 import numpy as np
 import openai
@@ -31,7 +34,7 @@ class APITranscriber:
     DEFAULT_API_CHUNK_SECONDS = 600  # 10分
     DEFAULT_API_MAX_WORKERS = 3
 
-    def __init__(self, config: Config):
+    def __init__(self, config: Config) -> None:
         self.config = config
         self.api_config = config.transcription
         self.skip_alignment = False  # アライメント処理をスキップするフラグ
@@ -41,7 +44,10 @@ class APITranscriber:
         self.MIN_SILENCE_LEN = 0.3  # 秒
 
     def transcribe(
-        self, audio_path: str, model_size: str = None, progress_callback: callable | None = None
+        self,
+        audio_path: str | Path,
+        model_size: str | None = None,  # noqa: ARG002
+        progress_callback: Callable[[float, str], None] | None = None,
     ) -> TranscriptionResult:
         """
         APIを使用して音声ファイルを文字起こし
@@ -74,7 +80,9 @@ class APITranscriber:
 
         return result
 
-    def _transcribe_openai(self, audio_path: str, progress_callback: callable | None = None) -> TranscriptionResult:
+    def _transcribe_openai(
+        self, audio_path: str | Path, progress_callback: Callable[[float, str], None] | None = None
+    ) -> TranscriptionResult:
         """OpenAI Whisper APIを使用（ローカル版と同じチャンク並列処理）"""
         # パフォーマンストラッキング開始
         from core.video import VideoInfo
@@ -83,13 +91,8 @@ class APITranscriber:
         perf_tracker = PerformanceTracker(audio_path)
 
         # トラッキング開始（実際に使用されるモードは後で決定）
-        start_time = time.time()
 
         try:
-            import tempfile
-
-            import numpy as np
-            import soundfile as sf
             from openai import OpenAI
 
             if not self.api_config.api_key:
@@ -155,49 +158,49 @@ class APITranscriber:
                 logger.warning("WhisperXが利用できないため、FFmpegで音声変換します")
                 result = self._transcribe_with_ffmpeg(client, audio_path, progress_callback)
                 # FFmpegの場合もトラッキング
-                metrics = perf_tracker.start_tracking("normal", "whisper-1", True, video_info.duration)
+                perf_tracker.start_tracking("normal", "whisper-1", True, video_info.duration)
                 perf_tracker.end_tracking(len(result.segments) if result else 0)
                 return result
 
-        except ImportError:
+        except ImportError as e:
             from utils.exceptions import TranscriptionError
 
-            raise TranscriptionError("必要なライブラリが見つかりません。インストールを確認してください。")
-        except openai.RateLimitError:
+            raise TranscriptionError("必要なライブラリが見つかりません。インストールを確認してください。") from e
+        except openai.RateLimitError as e:
             from utils.exceptions import TranscriptionError
 
-            raise TranscriptionError("API利用制限に達しました。しばらく待ってから再試行してください。")
-        except openai.AuthenticationError:
+            raise TranscriptionError("API利用制限に達しました。しばらく待ってから再試行してください。") from e
+        except openai.AuthenticationError as e:
             from utils.exceptions import TranscriptionError
 
-            raise TranscriptionError("APIキーが無効です。設定を確認してください。")
-        except openai.APIConnectionError:
+            raise TranscriptionError("APIキーが無効です。設定を確認してください。") from e
+        except openai.APIConnectionError as e:
             from utils.exceptions import TranscriptionError
 
-            raise TranscriptionError("API接続エラーです。ネットワーク接続を確認してください。")
+            raise TranscriptionError("API接続エラーです。ネットワーク接続を確認してください。") from e
         except openai.BadRequestError as e:
             from utils.exceptions import TranscriptionError
 
             error_message = str(e)
             if "Audio file is too short" in error_message:
-                raise TranscriptionError("動画ファイルが短すぎます。")
+                raise TranscriptionError("動画ファイルが短すぎます。") from e
             elif "larger than the maximum" in error_message:
                 raise TranscriptionError(
                     "ファイルサイズが上限（25MB）を超えています。動画を圧縮するか、ローカルモードを使用してください。"
-                )
+                ) from e
             else:
-                raise TranscriptionError(f"APIリクエストエラー: {error_message}")
+                raise TranscriptionError(f"APIリクエストエラー: {error_message}") from e
         except Exception as e:
             from utils.exceptions import TranscriptionError
 
-            raise TranscriptionError(f"文字起こしエラー: {str(e)}")
+            raise TranscriptionError(f"文字起こしエラー: {str(e)}") from e
 
     def _transcribe_with_chunks(
         self,
         client,
         audio,
-        original_audio_path: str,
-        progress_callback: callable | None = None,
+        original_audio_path: str | Path,
+        progress_callback: Callable[[float, str], None] | None = None,
         perf_tracker: PerformanceTracker | None = None,
         video_duration: float = 0.0,
     ) -> TranscriptionResult:
@@ -214,7 +217,7 @@ class APITranscriber:
 
         # トラッキング開始
         if perf_tracker:
-            metrics = perf_tracker.start_tracking("normal", "whisper-1", True, video_duration)
+            perf_tracker.start_tracking("normal", "whisper-1", True, video_duration)
 
         # チャンク処理のパラメータを設定
         chunk_seconds = self.DEFAULT_API_CHUNK_SECONDS  # デフォルト値を使用
@@ -257,7 +260,7 @@ class APITranscriber:
         actual_boundaries.append(len(audio) / sample_rate)
 
         # 実際のチャンクを作成
-        chunks = []
+        chunks: list[dict[str, Any]] = []
         MIN_CHUNK_DURATION = 1.0  # 1秒未満のチャンクは結合
 
         for i in range(len(actual_boundaries) - 1):
@@ -481,17 +484,17 @@ class APITranscriber:
             # 一時ファイルをクリーンアップ
             import shutil
 
-            try:
+            # 一時ディレクトリの削除エラーは無視（権限不足や使用中の場合）
+            with suppress(OSError):
                 shutil.rmtree(temp_dir)
-            except:
-                pass
 
     def _transcribe_chunk_api(
         self, client, chunk_file: str, start_offset: float, chunk_idx: int, align_model=None, align_meta=None
     ) -> list[TranscriptionSegment]:
         """単一チャンクのAPI処理"""
         logger.info(
-            f"[開始] チャンク[{chunk_idx}] API処理開始 (offset: {start_offset:.1f}s, file: {os.path.basename(chunk_file)})"
+            f"[開始] チャンク[{chunk_idx}] API処理開始 "
+            f"(offset: {start_offset:.1f}s, file: {os.path.basename(chunk_file)})"
         )
         try:
             # ファイルサイズを確認
@@ -570,7 +573,8 @@ class APITranscriber:
                         # sampling_rate引数エラーの場合
                         if "sampling_rate" in str(te):
                             logger.warning(
-                                f"チャンク {chunk_idx}: アライメント処理でsampling_rateエラー。return_char_alignmentsを無効化して再試行"
+                                f"チャンク {chunk_idx}: アライメント処理でsampling_rateエラー。"
+                                f"return_char_alignmentsを無効化して再試行"
                             )
                             # return_char_alignmentsを無効化して再試行
                             aligned_result = whisperx.align(
@@ -612,7 +616,7 @@ class APITranscriber:
                     logger.error(f"チャンク {chunk_idx} のアライメント処理に失敗: {e}")
                     raise RuntimeError(
                         f"文字位置情報の取得に失敗しました。アライメント処理でエラーが発生しました: {str(e)}"
-                    )
+                    ) from e
 
             logger.info(f"[完了] チャンク[{chunk_idx}] 処理完了: {len(segments)}セグメント")
             if segments:
@@ -638,8 +642,8 @@ class APITranscriber:
             raise
 
     def _perform_alignment(
-        self, audio, segments: list[TranscriptionSegment], progress_callback: callable | None = None
-    ):
+        self, audio, segments: list[TranscriptionSegment], progress_callback: Callable[[float, str], None] | None = None
+    ) -> list[TranscriptionSegment]:
         """ローカル版と同じアライメント処理"""
         try:
             import whisperx
@@ -688,7 +692,7 @@ class APITranscriber:
             return segments
 
     def _transcribe_with_ffmpeg(
-        self, client, audio_path: str, progress_callback: callable | None = None
+        self, client, audio_path: str | Path, progress_callback: Callable[[float, str], None] | None = None
     ) -> TranscriptionResult:
         """FFmpegを使用した音声変換（WhisperX非対応環境用）"""
         import subprocess
@@ -718,13 +722,12 @@ class APITranscriber:
             return self._transcribe_single_file(client, temp_wav_path, progress_callback)
 
         finally:
-            try:
+            # 一時ファイルの削除エラーは無視（既に削除されている場合など）
+            with suppress(OSError):
                 os.unlink(temp_wav_path)
-            except:
-                pass
 
     def _transcribe_single_file(
-        self, client, audio_path: str, progress_callback: callable | None = None
+        self, client, audio_path: str | Path, progress_callback: Callable[[float, str], None] | None = None
     ) -> TranscriptionResult:
         """単一ファイルの文字起こし"""
         if progress_callback:
@@ -748,7 +751,7 @@ class APITranscriber:
         return self._process_openai_response(response, audio_path)
 
     def _transcribe_large_file(
-        self, client, audio_path: str, progress_callback: callable | None = None
+        self, client, audio_path: str | Path, progress_callback: Callable[[float, str], None] | None = None
     ) -> TranscriptionResult:
         """大きなファイルを分割して文字起こし"""
         import subprocess
@@ -774,7 +777,7 @@ class APITranscriber:
 
             try:
                 total_duration = float(result.stdout.strip())
-            except:
+            except (ValueError, AttributeError):
                 # 長さが取得できない場合は仮定値
                 total_duration = 3600  # 1時間と仮定
 
@@ -820,13 +823,13 @@ class APITranscriber:
             for i, (chunk_file, start_offset) in enumerate(chunk_files):
                 if progress_callback:
                     progress = 0.2 + (0.7 * i / len(chunk_files))
-                    progress_callback(progress, f"チャンク {i+1}/{len(chunk_files)} を処理中...")
+                    progress_callback(progress, f"チャンク {i + 1}/{len(chunk_files)} を処理中...")
 
                 # チャンクのサイズをチェック
                 chunk_size = os.path.getsize(chunk_file) / (1024 * 1024)
                 if chunk_size > 25:
                     raise ValueError(
-                        f"チャンク {i+1} が大きすぎます: {chunk_size:.1f}MB。より短い時間で分割する必要があります。"
+                        f"チャンク {i + 1} が大きすぎます: {chunk_size:.1f}MB。より短い時間で分割する必要があります。"
                     )
 
                 try:
@@ -861,7 +864,7 @@ class APITranscriber:
                         all_segments.append(segment)
 
                 except Exception as e:
-                    logger.warning(f"チャンク {i+1} の処理に失敗: {e}")
+                    logger.warning(f"チャンク {i + 1} の処理に失敗: {e}")
                     continue
 
             if progress_callback:
@@ -882,12 +885,11 @@ class APITranscriber:
             # 一時ファイルをクリーンアップ
             import shutil
 
-            try:
+            # 一時ディレクトリの削除エラーは無視（権限不足や使用中の場合）
+            with suppress(OSError):
                 shutil.rmtree(temp_dir)
-            except:
-                pass
 
-    def _process_openai_response(self, response, audio_path: str) -> TranscriptionResult:
+    def _process_openai_response(self, response, audio_path: str | Path) -> TranscriptionResult:
         """OpenAI APIレスポンスを処理"""
         segments = []
         if hasattr(response, "segments") and response.segments:
@@ -922,10 +924,10 @@ class APITranscriber:
         self,
         client,
         audio,
-        original_audio_path: str,
+        original_audio_path: str | Path,
         chunks: list[dict],
-        progress_callback: callable | None,
-        perf_tracker: Optional,
+        progress_callback: Callable[[float, str], None] | None,
+        perf_tracker: Any | None,
         start_time: float,
     ) -> TranscriptionResult:
         """API処理とアライメント処理を分離した文字起こし"""
@@ -1047,10 +1049,9 @@ class APITranscriber:
 
         finally:
             # クリーンアップ
-            try:
+            # 一時ディレクトリの削除エラーは無視（権限不足や使用中の場合）
+            with suppress(OSError):
                 shutil.rmtree(temp_dir)
-            except:
-                pass
 
     def _transcribe_chunk_api_only(
         self, client, chunk_file: str, start_offset: float, chunk_idx: int
@@ -1092,7 +1093,10 @@ class APITranscriber:
             return []
 
     def _align_in_subprocess(
-        self, audio_path: str, api_segments: list[dict], progress_callback: callable | None = None
+        self,
+        audio_path: str | Path,
+        api_segments: list[dict],
+        progress_callback: Callable[[float, str], None] | None = None,
     ) -> list[dict[str, Any]]:
         """サブプロセスでアライメント処理を実行"""
         work_dir = tempfile.mkdtemp(prefix="textffcut_align_")
@@ -1148,38 +1152,38 @@ class APITranscriber:
             # プログレス監視
             try:
                 # stdoutとstderrの両方を読み取る
-                stdout_lines = []
-                stderr_lines = []
+                stdout_lines: list[str] = []
 
-                for line in process.stdout:
-                    line = line.strip()
-                    stdout_lines.append(line)
+                if process.stdout:
+                    for line in process.stdout:
+                        line = line.strip()
+                        stdout_lines.append(line)
 
-                    if line.startswith("PROGRESS:"):
-                        try:
-                            parts = line.split("|", 1)
-                            progress = float(parts[0].split(":")[1])
-                            message = parts[1] if len(parts) > 1 else ""
+                        if line.startswith("PROGRESS:"):
+                            try:
+                                parts = line.split("|", 1)
+                                progress = float(parts[0].split(":")[1])
+                                message = parts[1] if len(parts) > 1 else ""
 
-                            if progress_callback:
-                                # アライメントは全体の40%を占める（0.6-1.0）
-                                adjusted_progress = 0.6 + (progress * 0.4)
-                                progress_callback(adjusted_progress, message)
+                                if progress_callback:
+                                    # アライメントは全体の40%を占める（0.6-1.0）
+                                    adjusted_progress = 0.6 + (progress * 0.4)
+                                    progress_callback(adjusted_progress, message)
 
-                        except Exception as e:
-                            logger.warning(f"プログレス解析エラー: {e}")
+                            except Exception as e:
+                                logger.warning(f"プログレス解析エラー: {e}")
 
-                    elif line.startswith("ERROR:"):
-                        logger.error(f"アライメントワーカーエラー: {line}")
+                        elif line.startswith("ERROR:"):
+                            logger.error(f"アライメントワーカーエラー: {line}")
 
-                    elif line.startswith("TRACEBACK:"):
-                        logger.error(f"アライメントワーカートレースバック: {line}")
+                        elif line.startswith("TRACEBACK:"):
+                            logger.error(f"アライメントワーカートレースバック: {line}")
 
                 # プロセス終了を待つ
                 return_code = process.wait()
 
                 if return_code != 0:
-                    stderr = process.stderr.read()
+                    stderr = process.stderr.read() if process.stderr else ""
                     logger.error(f"アライメントワーカーが異常終了: {stderr}")
 
                     # エラー出力を詳細に記録
@@ -1193,7 +1197,7 @@ class APITranscriber:
                             if not error_result.get("success"):
                                 error_msg = error_result.get("error", "不明なエラー")
                                 error_details += f"\n詳細エラー: {error_msg}"
-                        except:
+                        except (json.JSONDecodeError, KeyError):
                             pass
 
                     # エラー時は例外を発生させる
@@ -1236,7 +1240,9 @@ class APITranscriber:
             except subprocess.TimeoutExpired:
                 logger.error("アライメントプロセスがタイムアウトしました")
                 process.kill()
-                raise RuntimeError("アライメント処理がタイムアウトしました。処理時間が長すぎる可能性があります。")
+                raise RuntimeError(
+                    "アライメント処理がタイムアウトしました。処理時間が長すぎる可能性があります。"
+                ) from None
 
         except Exception as e:
             logger.error(f"アライメントサブプロセスエラー: {e}")
@@ -1244,14 +1250,12 @@ class APITranscriber:
             if isinstance(e, RuntimeError):
                 raise
             # その他の例外も詳細なエラーメッセージと共に発生させる
-            raise RuntimeError(f"アライメント処理中に予期しないエラーが発生しました: {str(e)}")
+            raise RuntimeError(f"アライメント処理中に予期しないエラーが発生しました: {str(e)}") from e
 
         finally:
             # クリーンアップ
-            try:
+            with suppress(OSError):
                 shutil.rmtree(work_dir)
-            except:
-                pass
 
     def _detect_silence_in_range(
         self, audio: np.ndarray, start: float, end: float, sample_rate: int
@@ -1277,7 +1281,7 @@ class APITranscriber:
             audio_range = np.pad(audio_range, (0, pad_size))
 
         # RMS計算
-        rms_values = []
+        rms_values: list[float] = []
         for i in range(0, len(audio_range) - window_size, hop_size):
             window = audio_range[i : i + window_size]
             rms = np.sqrt(np.mean(window**2))
@@ -1306,7 +1310,7 @@ class APITranscriber:
             if silent and not in_silence:
                 # 無音開始
                 in_silence = True
-                silence_start = time_pos
+                silence_start = float(time_pos)
             elif not silent and in_silence:
                 # 無音終了
                 in_silence = False

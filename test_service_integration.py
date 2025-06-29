@@ -15,28 +15,28 @@ from unittest.mock import MagicMock, patch
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
-from config import config
-from core.models import TranscriptionSegmentV2
-from services.export_service import ExportService
-from services.transcription_service import TranscriptionService
-from services.video_processing_service import VideoProcessingService
+from config import config  # noqa: E402
+from core.models import TranscriptionSegmentV2  # noqa: E402
+from services.export_service import ExportService  # noqa: E402
+from services.transcription_service import TranscriptionService  # noqa: E402
+from services.video_processing_service import VideoProcessingService  # noqa: E402
 
 
 class TestServiceIntegration(unittest.TestCase):
     """サービス層の統合テスト"""
 
-    def setUp(self):
+    def setUp(self) -> None:
         """テストのセットアップ"""
         self.config = config
         self.temp_dir = tempfile.mkdtemp()
 
-    def tearDown(self):
+    def tearDown(self) -> None:
         """テストのクリーンアップ"""
         import shutil
 
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
-    def test_video_processing_service_remove_silence_params(self):
+    def test_video_processing_service_remove_silence_params(self) -> None:
         """VideoProcessingService.remove_silence()のパラメータテスト"""
         print("\n=== VideoProcessingService.remove_silence()パラメータテスト ===")
 
@@ -48,12 +48,12 @@ class TestServiceIntegration(unittest.TestCase):
 
             # テスト用のセグメント
             segments = [
-                TranscriptionSegmentV2(id=0, start=0.0, end=10.0, text="test", words=[]),
-                TranscriptionSegmentV2(id=1, start=10.0, end=20.0, text="test2", words=[]),
+                TranscriptionSegmentV2(id="0", start=0.0, end=10.0, text="test", words=[]),
+                TranscriptionSegmentV2(id="1", start=10.0, end=20.0, text="test2", words=[]),
             ]
 
             # サービスメソッドを呼び出し
-            result = service.remove_silence(
+            service.remove_silence(
                 video_path="/tmp/test.mp4",
                 segments=segments,
                 threshold=-35.0,
@@ -82,7 +82,7 @@ class TestServiceIntegration(unittest.TestCase):
 
             print("✓ パラメータマッピング: OK")
 
-    def test_video_processing_service_extract_segments_params(self):
+    def test_video_processing_service_extract_segments_params(self) -> None:
         """VideoProcessingService.extract_segments()のパラメータテスト"""
         print("\n=== VideoProcessingService.extract_segments()パラメータテスト ===")
 
@@ -93,13 +93,11 @@ class TestServiceIntegration(unittest.TestCase):
             mock_method.return_value = True
 
             # テスト用のセグメント
-            segments = [TranscriptionSegmentV2(id=0, start=0.0, end=5.0, text="test", words=[])]
+            segments = [TranscriptionSegmentV2(id="0", start=0.0, end=5.0, text="test", words=[])]
 
             # サービスメソッドを呼び出し
             with patch("pathlib.Path.exists", return_value=True):
-                result = service.extract_segments(
-                    video_path="/tmp/test.mp4", segments=segments, output_dir=self.temp_dir
-                )
+                service.extract_segments(video_path="/tmp/test.mp4", segments=segments, output_dir=self.temp_dir)
 
             # extract_segmentが正しいパラメータで呼ばれたか確認
             mock_method.assert_called_once()
@@ -117,7 +115,7 @@ class TestServiceIntegration(unittest.TestCase):
 
             print("✓ パラメータマッピング: OK")
 
-    def test_video_processing_service_merge_videos_method(self):
+    def test_video_processing_service_merge_videos_method(self) -> None:
         """VideoProcessingService.merge_videos()のメソッド名テスト"""
         print("\n=== VideoProcessingService.merge_videos()メソッド名テスト ===")
 
@@ -136,16 +134,14 @@ class TestServiceIntegration(unittest.TestCase):
 
             # サービスメソッドを呼び出し
             with patch("pathlib.Path.exists", return_value=True):
-                result = service.merge_videos(
-                    video_files=video_files, output_path=os.path.join(self.temp_dir, "output.mp4")
-                )
+                service.merge_videos(video_files=video_files, output_path=os.path.join(self.temp_dir, "output.mp4"))
 
             # combine_videosが呼ばれたことを確認
             mock_method.assert_called_once()
 
             print("✓ メソッド名: OK (combine_videos)")
 
-    def test_transcription_service_params(self):
+    def test_transcription_service_params(self) -> None:
         """TranscriptionService.execute()のパラメータテスト"""
         print("\n=== TranscriptionService.execute()パラメータテスト ===")
 
@@ -166,7 +162,7 @@ class TestServiceIntegration(unittest.TestCase):
                 mock_create.return_value = mock_transcriber
 
                 # サービスメソッドを呼び出し
-                result = service.execute(
+                service.execute(
                     video_path="/tmp/test.mp4", model_size="base", language="ja"  # このパラメータは無視されるべき
                 )
 
@@ -179,7 +175,7 @@ class TestServiceIntegration(unittest.TestCase):
 
                 print("✓ パラメータフィルタリング: OK")
 
-    def test_export_service_fcpxml_params(self):
+    def test_export_service_fcpxml_params(self) -> None:
         """ExportService.export_fcpxml()のパラメータテスト"""
         print("\n=== ExportService.export_fcpxml()パラメータテスト ===")
 
@@ -189,10 +185,10 @@ class TestServiceIntegration(unittest.TestCase):
         with patch.object(service.fcpxml_exporter, "export") as mock_method:
 
             # テスト用のセグメント
-            segments = [TranscriptionSegmentV2(id=0, start=0.0, end=5.0, text="test", words=[])]
+            segments = [TranscriptionSegmentV2(id="0", start=0.0, end=5.0, text="test", words=[])]
 
             # サービスメソッドを呼び出し
-            result = service.export_fcpxml(
+            service.export_fcpxml(
                 segments=segments,
                 video_path="/tmp/test.mp4",
                 output_path=os.path.join(self.temp_dir, "test.fcpxml"),
@@ -216,7 +212,7 @@ class TestServiceIntegration(unittest.TestCase):
 
             print("✓ パラメータフィルタリング: OK")
 
-    def test_export_service_xmeml_params(self):
+    def test_export_service_xmeml_params(self) -> None:
         """ExportService.export_xmeml()のパラメータテスト"""
         print("\n=== ExportService.export_xmeml()パラメータテスト ===")
 
@@ -226,10 +222,10 @@ class TestServiceIntegration(unittest.TestCase):
         with patch.object(service.xmeml_exporter, "export") as mock_method:
 
             # テスト用のセグメント
-            segments = [TranscriptionSegmentV2(id=0, start=0.0, end=5.0, text="test", words=[])]
+            segments = [TranscriptionSegmentV2(id="0", start=0.0, end=5.0, text="test", words=[])]
 
             # サービスメソッドを呼び出し
-            result = service.export_xmeml(
+            service.export_xmeml(
                 segments=segments,
                 video_path="/tmp/test.mp4",
                 output_path=os.path.join(self.temp_dir, "test.xml"),
@@ -256,7 +252,7 @@ class TestServiceIntegration(unittest.TestCase):
             print("✓ パラメータマッピング: OK")
 
 
-def run_service_integration_tests():
+def run_service_integration_tests() -> None:
     """サービス統合テストを実行"""
     print("=" * 60)
     print("サービス層統合テスト")

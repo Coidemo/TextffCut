@@ -20,7 +20,7 @@ from orchestrator.processing_state_manager import (
 )
 
 
-def test_basic_state_management():
+def test_basic_state_management() -> None:
     """基本的な状態管理のテスト"""
     print("=== Basic State Management Test ===")
 
@@ -70,7 +70,7 @@ def test_basic_state_management():
     print("\n✓ Basic test completed!")
 
 
-def test_recovery_workflow():
+def test_recovery_workflow() -> None:
     """リカバリーワークフローのテスト"""
     print("\n=== Recovery Workflow Test ===")
 
@@ -99,7 +99,7 @@ def test_recovery_workflow():
             ],
         }
         recovery.save_chunk_progress(video_path, i, total_chunks, chunk_data)
-        print(f"✓ Chunk {i+1}/{total_chunks} processed")
+        print(f"✓ Chunk {i + 1}/{total_chunks} processed")
         time.sleep(0.1)  # 短い遅延
 
     # 2. リカバリーチェック
@@ -143,7 +143,7 @@ def test_recovery_workflow():
     print("\n✓ Recovery workflow test completed!")
 
 
-def test_multiple_files_and_cleanup():
+def test_multiple_files_and_cleanup() -> None:
     """複数ファイルの管理とクリーンアップのテスト"""
     print("\n=== Multiple Files and Cleanup Test ===")
 
@@ -218,7 +218,7 @@ def test_multiple_files_and_cleanup():
     print("\n✓ Multiple files test completed!")
 
 
-def test_startup_recovery():
+def test_startup_recovery() -> None:
     """起動時のリカバリーチェックのテスト"""
     print("\n=== Startup Recovery Test ===")
 
@@ -295,7 +295,7 @@ def test_startup_recovery():
     print("\n✓ Startup recovery test completed!")
 
 
-def run_all_tests():
+def run_all_tests() -> None:
     """すべてのテストを実行"""
     print("=== ProcessingStateManager Integration Tests ===\n")
 

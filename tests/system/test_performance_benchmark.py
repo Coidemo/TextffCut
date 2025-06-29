@@ -46,7 +46,7 @@ class PerformanceBenchmark:
 
     def run_benchmark(self, video_path: str, test_name: str):
         """ベンチマークを実行"""
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"ベンチマーク: {test_name}")
         print(f"動画ファイル: {video_path}")
 
@@ -54,8 +54,8 @@ class PerformanceBenchmark:
         from core.video import VideoInfo
 
         video_info = VideoInfo.from_file(video_path)
-        print(f"動画時間: {video_info.duration:.1f}秒 ({video_info.duration/60:.1f}分)")
-        print(f"{'='*60}")
+        print(f"動画時間: {video_info.duration:.1f}秒 ({video_info.duration / 60:.1f}分)")
+        print(f"{'=' * 60}")
 
         benchmark_result = {
             "test_name": test_name,
@@ -92,7 +92,7 @@ class PerformanceBenchmark:
             # API料金の概算
             api_minutes = video_info.duration / 60
             api_cost = api_minutes * 0.006
-            print(f"\nAPI料金概算: ${api_cost:.3f} (約{api_cost*150:.0f}円)")
+            print(f"\nAPI料金概算: ${api_cost:.3f} (約{api_cost * 150:.0f}円)")
         else:
             print("\n[3] APIモードはスキップ（OPENAI_API_KEYが未設定）")
 
@@ -118,7 +118,7 @@ class PerformanceBenchmark:
             current_time = time.time()
             # 1秒に1回または進捗が5%以上変化した場合のみ表示
             if current_time - progress_info["last_update"] > 1.0 or progress - progress_info["last_progress"] > 0.05:
-                print(f"  [{label}] {progress*100:.1f}% - {status}")
+                print(f"  [{label}] {progress * 100:.1f}% - {status}")
                 progress_info["last_update"] = current_time
                 progress_info["last_progress"] = progress
 
@@ -178,12 +178,12 @@ class PerformanceBenchmark:
 
     def _print_summary(self, benchmark_result):
         """ベンチマーク結果のサマリーを表示"""
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print("📊 ベンチマーク結果サマリー")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
 
         video_duration = benchmark_result["video_duration_seconds"]
-        print(f"動画時間: {video_duration:.1f}秒 ({video_duration/60:.1f}分)")
+        print(f"動画時間: {video_duration:.1f}秒 ({video_duration / 60:.1f}分)")
         print("")
 
         # 各テストの結果を表示

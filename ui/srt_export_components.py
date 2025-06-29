@@ -18,7 +18,7 @@ def show_srt_export_settings() -> dict[str, Any]:
     """
     from utils import settings_manager
 
-    settings = {}
+    settings: dict[str, Any] = {}
 
     st.markdown("#### 🎬 SRT字幕設定")
 
@@ -155,7 +155,7 @@ def show_srt_timing_adjuster_settings() -> dict[str, Any] | None:
     if not use_advanced:
         return None
 
-    settings = {}
+    settings: dict[str, Any] = {}
 
     # タイミング調整設定
     st.markdown("##### ⏱️ タイミング調整")
@@ -235,7 +235,7 @@ def show_srt_export_preview(segments: list[Any], settings: dict[str, Any]) -> No
 
             text = "\n".join(lines)
 
-        preview_text += f"{i+1}\n{start_str} --> {end_str}\n{text}\n\n"
+        preview_text += f"{i + 1}\n{start_str} --> {end_str}\n{text}\n\n"
 
     # プレビュー表示
     st.text_area(
@@ -258,19 +258,19 @@ def show_srt_export_info() -> None:
         st.markdown(
             """
         **SRT (SubRip Text)** は最も広く使われている字幕フォーマットです。
-        
+
         **特徴:**
         - ✅ ほぼすべての動画プレーヤーで再生可能
         - ✅ 編集ソフトでの読み込みサポート
         - ✅ YouTubeやVimeoなどへのアップロード対応
         - ✅ テキストエディタで編集可能
-        
+
         **使用例:**
         - 動画に字幕を追加
         - 多言語字幕の作成
         - アクセシビリティ向上
         - 動画の検索性向上
-        
+
         **エクスポート後の使い方:**
         1. 動画プレーヤーで字幕ファイルを選択
         2. 動画編集ソフトにインポート

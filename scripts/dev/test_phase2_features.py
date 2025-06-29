@@ -175,7 +175,7 @@ class TestIntegration(unittest.TestCase):
     def test_keyboard_interaction_integration(self):
         """キーボードとインタラクションの統合"""
         keyboard = KeyboardShortcuts()
-        interaction = WaveformInteraction()
+        WaveformInteraction()
         playback = WaveformPlayback()
 
         # 再生トグルのハンドラー

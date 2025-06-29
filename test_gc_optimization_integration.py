@@ -19,7 +19,7 @@ from utils.logging import get_logger
 logger = get_logger(__name__)
 
 
-def run_gc_optimization_test():
+def run_gc_optimization_test() -> None:
     """GC最適化統合テストを実行"""
     print("=== GC Optimization Integration Test ===")
 

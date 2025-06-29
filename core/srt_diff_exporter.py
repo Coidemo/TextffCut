@@ -20,7 +20,7 @@ logger = get_logger(__name__)
 class SRTDiffExporter:
     """差分検出結果を利用したSRT字幕エクスポータークラス"""
 
-    def __init__(self, config: Config):
+    def __init__(self, config: Config) -> None:
         """初期化
 
         Args:
@@ -39,7 +39,7 @@ class SRTDiffExporter:
         self,
         diff: TextDifference,
         transcription_result: TranscriptionResult,
-        output_path: str,
+        output_path: str | Path,
         encoding: str = "utf-8",
         srt_settings: dict[str, Any] | None = None,
     ) -> bool:
@@ -107,7 +107,7 @@ class SRTDiffExporter:
                 # 改行処理を適用（単語情報があれば使用）
                 if all_words:
                     # 単語タイムスタンプを使用してエントリを作成
-                    entries = self._create_entries_with_word_timing(merged["text"], all_words, start_index)
+                    entries = self._create_entries_with_word_timing(merged["text"], all_words, index)
                 else:
                     # 単語情報がない場合は通常の処理
                     entries = self._create_entries_from_text(
@@ -230,7 +230,8 @@ class SRTDiffExporter:
         remaining_text = text.strip()
 
         logger.debug(
-            f"_split_text_into_chunks: text='{text}', max_line_length={self.max_line_length}, max_lines={self.max_lines}"
+            f"_split_text_into_chunks: text='{text}', max_line_length={self.max_line_length}, "
+            f"max_lines={self.max_lines}"
         )
 
         while remaining_text:
@@ -247,13 +248,15 @@ class SRTDiffExporter:
                 elif chunks:
                     # 最小文字数未満で既にチャンクがある場合は、前のチャンクに結合
                     logger.debug(
-                        f"Text '{remaining_text}' is too short ({len(remaining_text)} < {self.min_entry_chars}), merging with previous chunk"
+                        f"Text '{remaining_text}' is too short ({len(remaining_text)} < {self.min_entry_chars}), "
+                        f"merging with previous chunk"
                     )
                     chunks[-1] = chunks[-1] + remaining_text
                 else:
                     # 最初のチャンクで最小文字数未満の場合はそのまま追加（特殊ケース）
                     logger.warning(
-                        f"First chunk '{remaining_text}' is shorter than minimum ({len(remaining_text)} < {self.min_entry_chars})"
+                        f"First chunk '{remaining_text}' is shorter than minimum "
+                        f"({len(remaining_text)} < {self.min_entry_chars})"
                     )
                     chunks.append(remaining_text)
                 break
@@ -360,12 +363,14 @@ class SRTDiffExporter:
             改行が適用されたテキスト
         """
         logger.debug(
-            f"_apply_natural_line_breaks: text='{text}', length={len(text)}, max_line_length={self.max_line_length}, max_lines={self.max_lines}"
+            f"_apply_natural_line_breaks: text='{text}', length={len(text)}, "
+            f"max_line_length={self.max_line_length}, max_lines={self.max_lines}"
         )
 
         if len(text) <= self.max_line_length:
             logger.debug(
-                f"Text is short enough for single line ({len(text)} <= {self.max_line_length}), returning as-is: '{text}'"
+                f"Text is short enough for single line ({len(text)} <= {self.max_line_length}), "
+                f"returning as-is: '{text}'"
             )
             return text
 
@@ -427,7 +432,7 @@ class SRTDiffExporter:
         return result
 
     def _create_entries_with_word_timing(
-        self, text: str, words: list[dict[str, Any]], start_time: float, end_time: float, start_index: int
+        self, _text: str, words: list[dict[str, Any]], _start_time: float, end_time: float, start_index: int
     ) -> list[SRTEntry]:
         """単語のタイムスタンプを使用してエントリを作成
 
@@ -455,12 +460,11 @@ class SRTDiffExporter:
             if isinstance(word_data, dict):
                 word_text = word_data.get("word", "")
                 word_start = word_data.get("start", 0.0)
-                word_end = word_data.get("end", 0.0)
+                word_data.get("end", 0.0)
             else:
                 # WordInfoオブジェクトの場合
                 word_text = word_data.word
                 word_start = word_data.start
-                word_end = word_data.end
 
             # 現在のテキストに単語を追加した場合の文字数を計算
             test_text = current_text + word_text
@@ -530,7 +534,7 @@ class SRTDiffExporter:
 
         return entries
 
-    def _write_srt_file(self, entries: list[SRTEntry], output_path: str, encoding: str) -> None:
+    def _write_srt_file(self, entries: list[SRTEntry], output_path: str | Path, encoding: str) -> None:
         """SRTファイルに書き込み（CRLF改行）
 
         Args:
@@ -552,7 +556,7 @@ class SRTDiffExporter:
     def export_segments_based_srt(
         self,
         segments: list[Any],  # ExportSegmentのリスト
-        output_path: str,
+        output_path: str | Path,
         encoding: str = "utf-8",
         srt_settings: dict[str, Any] | None = None,
     ) -> bool:
@@ -596,7 +600,7 @@ class SRTDiffExporter:
                     srt_entries.append(entry)
                     index += 1
 
-                    logger.debug(f"Segment {index-1}: '{text_with_breaks}' [{adjusted_start:.2f}-{adjusted_end:.2f}]")
+                    logger.debug(f"Segment {index - 1}: '{text_with_breaks}' [{adjusted_start:.2f}-{adjusted_end:.2f}]")
 
             if not srt_entries:
                 logger.warning("No SRT entries generated from segments")
@@ -616,7 +620,7 @@ class SRTDiffExporter:
         self,
         diff: TextDifference,
         transcription_result: TranscriptionResult,
-        output_path: str,
+        output_path: str | Path,
         time_mapper: Any,  # TimeMapperインスタンス
         encoding: str = "utf-8",
         srt_settings: dict[str, Any] | None = None,
@@ -755,7 +759,8 @@ class SRTDiffExporter:
                                 index += 1
 
                                 logger.debug(
-                                    f"Merged entry: '{text_with_breaks}' [{merged['start_time']:.2f}-{merged['end_time']:.2f}]"
+                                    f"Merged entry: '{text_with_breaks}' "
+                                    f"[{merged['start_time']:.2f}-{merged['end_time']:.2f}]"
                                 )
                         else:
                             # 分割されなかった場合は通常処理
@@ -765,7 +770,8 @@ class SRTDiffExporter:
                                     start_time, end_time = mapped_time_ranges[idx]
 
                                     logger.debug(
-                                        f"Creating entries for text: '{common_pos.text}', time: [{start_time:.2f}-{end_time:.2f}]"
+                                        f"Creating entries for text: '{common_pos.text}', "
+                                        f"time: [{start_time:.2f}-{end_time:.2f}]"
                                     )
                                     entries = self._create_entries_from_text(
                                         text=common_pos.text,

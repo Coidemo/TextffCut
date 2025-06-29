@@ -16,7 +16,7 @@ from core.transcription_api import APITranscriber
 logging.basicConfig(level=logging.DEBUG)
 
 
-def test_audio_path_issue():
+def test_audio_path_issue() -> None:
     """APIモードでの音声パス問題をテスト"""
     print("=== APIモード音声パステスト ===")
 
@@ -40,7 +40,7 @@ def test_audio_path_issue():
     config.transcription.api_align_in_subprocess = True
 
     # APITranscriberを初期化
-    transcriber = APITranscriber(config)
+    APITranscriber(config)
 
     # _transcribe_with_separated_alignmentメソッドの流れを追跡
     print("\n1. _transcribe_with_separated_alignment の流れを確認:")

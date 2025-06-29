@@ -11,7 +11,7 @@ from typing import Any
 class SettingsManager:
     """設定管理クラス"""
 
-    def __init__(self, settings_file: str = "user_settings.json"):
+    def __init__(self, settings_file: str = "user_settings.json") -> None:
         """
         初期化
 
@@ -32,7 +32,7 @@ class SettingsManager:
                 return {}
         return {}
 
-    def _save_settings(self):
+    def _save_settings(self) -> None:
         """設定をファイルに保存"""
         try:
             with open(self.settings_file, "w", encoding="utf-8") as f:
@@ -53,7 +53,7 @@ class SettingsManager:
         """
         return self._settings.get(key, default)
 
-    def set(self, key: str, value: Any):
+    def set(self, key: str, value: Any) -> None:
         """
         設定値を保存
 
@@ -64,7 +64,7 @@ class SettingsManager:
         self._settings[key] = value
         self._save_settings()
 
-    def update(self, settings: dict[str, Any]):
+    def update(self, settings: dict[str, Any]) -> None:
         """
         複数の設定を一括更新
 
@@ -78,7 +78,7 @@ class SettingsManager:
         """全ての設定を取得"""
         return self._settings.copy()
 
-    def clear(self):
+    def clear(self) -> None:
         """全ての設定をクリア"""
         self._settings = {}
         self._save_settings()

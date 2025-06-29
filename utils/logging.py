@@ -15,6 +15,7 @@ class BuzzClipLogger:
     """TextffCut用のロガークラス"""
 
     _instance: Optional["BuzzClipLogger"] = None
+    _initialized: bool
 
     def __new__(cls):
         if cls._instance is None:
@@ -22,7 +23,7 @@ class BuzzClipLogger:
             cls._instance._initialized = False
         return cls._instance
 
-    def __init__(self):
+    def __init__(self) -> None:
         if self._initialized:
             return
 
@@ -56,23 +57,23 @@ class BuzzClipLogger:
 
         self.log_file = log_file
 
-    def debug(self, message: str):
+    def debug(self, message: str) -> None:
         """デバッグレベルのログ"""
         self.logger.debug(message)
 
-    def info(self, message: str):
+    def info(self, message: str) -> None:
         """情報レベルのログ"""
         self.logger.info(message)
 
-    def warning(self, message: str):
+    def warning(self, message: str) -> None:
         """警告レベルのログ"""
         self.logger.warning(message)
 
-    def error(self, message: str, exc_info: bool = True):
+    def error(self, message: str, exc_info: bool = True) -> None:
         """エラーレベルのログ"""
         self.logger.error(message, exc_info=exc_info)
 
-    def critical(self, message: str, exc_info: bool = True):
+    def critical(self, message: str, exc_info: bool = True) -> None:
         """クリティカルレベルのログ"""
         self.logger.critical(message, exc_info=exc_info)
 
@@ -111,7 +112,7 @@ def log_function_call(func):
     return wrapper
 
 
-def show_log_info():
+def show_log_info() -> None:
     """Streamlit UIでログ情報を表示"""
     with st.expander("📋 デバッグ情報", expanded=False):
         st.info(f"ログファイル: {logger.log_file}")

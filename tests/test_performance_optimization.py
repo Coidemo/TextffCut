@@ -41,17 +41,17 @@ for i in range(5):
     end_time = time.time()
     elapsed = end_time - start_time
     times.append(elapsed)
-    print(f"実行{i+1}: {elapsed:.3f}秒")
+    print(f"実行{i + 1}: {elapsed:.3f}秒")
 
 avg_time = sum(times) / len(times)
 print(f"\n平均実行時間: {avg_time:.3f}秒")
 
 print("\n検出された時間範囲:")
 for i, (start, end) in enumerate(time_ranges):
-    print(f"  範囲{i+1}: {start:.2f}秒 - {end:.2f}秒")
+    print(f"  範囲{i + 1}: {start:.2f}秒 - {end:.2f}秒")
 
 # メモリ使用量の確認
-import sys
+import sys  # noqa: E402
 
 print("\n推定メモリ使用量:")
 print(f"  TranscriptionResult: {sys.getsizeof(transcription) / 1024:.1f} KB")

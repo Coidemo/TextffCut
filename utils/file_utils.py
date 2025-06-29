@@ -44,7 +44,7 @@ def get_video_files(directory: Path, extensions: list[str] | None = None) -> lis
     if not directory.exists():
         return []
 
-    video_files = []
+    video_files: list[Path] = []
     for ext in extensions:
         video_files.extend(directory.glob(f"*{ext}"))
         video_files.extend(directory.glob(f"*{ext.upper()}"))

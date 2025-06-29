@@ -99,7 +99,7 @@ def main():
         st.header("🎮 再生コントロール")
 
         # 再生コントロール
-        playback_state = playback.create_playback_controls()
+        playback.create_playback_controls()
 
         st.divider()
 
@@ -209,7 +209,7 @@ def create_demo_waveform() -> WaveformData:
 
     # 波形生成
     samples = []
-    for i, time in enumerate(t):
+    for _, time in enumerate(t):
         if 1.0 <= time <= 1.5 or 3.0 <= time <= 3.3:
             # 無音部分
             sample = 0.01 * np.random.randn()

@@ -54,7 +54,7 @@ try:
     # Streamlitをモックに置き換え
     import sys
 
-    sys.modules["streamlit"] = MockStreamlit()
+    sys.modules["streamlit"] = MockStreamlit()  # type: ignore
 
     print("✓ テスト完了")
 

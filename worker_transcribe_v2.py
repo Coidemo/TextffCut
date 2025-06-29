@@ -10,7 +10,9 @@ import json
 import os
 import sys
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 # プロジェクトのルートディレクトリをパスに追加
@@ -32,7 +34,7 @@ logger = get_logger(__name__)
 class WorkerConfig:
     """ワーカー設定のデータクラス"""
 
-    video_path: str
+    video_path: str | Path
     model_size: str
     use_cache: bool
     save_cache: bool
@@ -40,7 +42,7 @@ class WorkerConfig:
     config_dict: dict[str, Any]
 
 
-def send_progress(progress: float, message: str = ""):
+def send_progress(progress: float, message: str = "") -> None:
     """プログレス情報を親プロセスに送信"""
     print(f"PROGRESS:{progress}|{message}", flush=True)
 
@@ -48,7 +50,7 @@ def send_progress(progress: float, message: str = ""):
 class ConfigLoader:
     """設定ファイルの読み込みと検証"""
 
-    def __init__(self, config_path: str):
+    def __init__(self, config_path: str | Path) -> None:
         self.config_path = config_path
 
     def load(self) -> WorkerConfig:
@@ -83,7 +85,7 @@ class ConfigLoader:
 class MemoryManager:
     """メモリ監視と最適化の管理"""
 
-    def __init__(self, model_size: str):
+    def __init__(self, model_size: str) -> None:
         self.optimizer = AutoOptimizer(model_size)
         self.monitor = MemoryMonitor()
         self.optimizer.reset_diagnostic_mode()
@@ -144,7 +146,7 @@ class MemoryManager:
 class BaseTaskHandler(ABC):
     """タスクハンドラーの基底クラス"""
 
-    def __init__(self, worker_config: WorkerConfig, optimizer: AutoOptimizer, memory_monitor: MemoryMonitor):
+    def __init__(self, worker_config: WorkerConfig, optimizer: AutoOptimizer, memory_monitor: MemoryMonitor) -> None:
         self.worker_config = worker_config
         self.config = self._create_config()
         self.optimizer = optimizer
@@ -173,7 +175,7 @@ class BaseTaskHandler(ABC):
         """タスクを処理（サブクラスで実装）"""
         pass
 
-    def _create_progress_callback(self):
+    def _create_progress_callback(self) -> Callable[[float, str], None]:
         """進捗報告用コールバックを作成"""
 
         def callback(progress: float, message: str):
@@ -182,7 +184,7 @@ class BaseTaskHandler(ABC):
 
         return callback
 
-    def _create_transcriber(self):
+    def _create_transcriber(self) -> Any:
         """Transcriberインスタンスを作成"""
         if self.config.transcription.use_api:
             # APIモードの場合
@@ -205,17 +207,17 @@ class BaseTaskHandler(ABC):
 
             return SmartBoundaryTranscriber(self.config, optimizer=self.optimizer, memory_monitor=self.memory_monitor)
 
-    def _validate_result(self, result: Any) -> None:
+    def _validate_result(self, result: Any) -> bool:
         """結果の検証（wordsフィールドのチェック）"""
         # APIモードの場合は検証をスキップ
         if self.config.transcription.use_api:
             logger.info("APIモード: wordsフィールドの検証をスキップします")
-            return
+            return True
 
         # ローカルモードでtranscribe_onlyの場合もスキップ
         if self.worker_config.task_type == "transcribe_only":
             logger.info("transcribe_onlyモード: wordsフィールドの検証をスキップします")
-            return
+            return True
 
         # 検証を実行
         if result.segments:
@@ -235,6 +237,8 @@ class BaseTaskHandler(ABC):
                     # エラーメッセージを親プロセスに送信
                     print(f"ERROR:{str(e)}", flush=True)
                     raise
+
+        return True
 
 
 class TranscribeOnlyHandler(BaseTaskHandler):
@@ -377,9 +381,9 @@ class SeparatedModeHandler(BaseTaskHandler):
         # 診断結果のキャッシュキーを生成
         try:
             file_stat = os.stat(self.worker_config.video_path)
-            cache_key = f"{self.worker_config.video_path}_{file_stat.st_size}_{len(result.segments)}"
-        except:
-            cache_key = None
+            f"{self.worker_config.video_path}_{file_stat.st_size}_{len(result.segments)}"
+        except (OSError, AttributeError):
+            pass
 
         # キャッシュされた診断結果を確認（現在は無効化）
         diagnostic_result = None
@@ -454,7 +458,7 @@ class SeparatedModeHandler(BaseTaskHandler):
 class TranscriptionWorker:
     """ワーカープロセスのメインクラス"""
 
-    def __init__(self, config_path: str):
+    def __init__(self, config_path: str | Path) -> None:
         """初期化
 
         Args:
@@ -573,7 +577,7 @@ class TranscriptionWorker:
         sys.exit(1)
 
 
-def main():
+def main() -> None:
     """既存のmain関数との互換性のためのラッパー"""
     try:
         # コマンドライン引数から設定ファイルパスを取得

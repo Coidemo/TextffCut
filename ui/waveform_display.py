@@ -7,7 +7,7 @@ from typing import Any
 
 import numpy as np
 
-from core.waveform_processor import WaveformData
+from core.waveform_processor import ClipWaveformData
 from ui.timeline_color_scheme import TimelineColorScheme
 from utils.logging import get_logger
 from utils.time_utils import format_time
@@ -30,7 +30,7 @@ except ImportError:
 class WaveformDisplay:
     """波形表示クラス"""
 
-    def __init__(self, width: int = 800, height: int = 200, use_dark_mode: bool = None):
+    def __init__(self, width: int = 800, height: int = 200, use_dark_mode: bool | None = None) -> None:
         self.width = width
         self.height = height
         # ダークモード対応のカラースキームを取得
@@ -38,7 +38,7 @@ class WaveformDisplay:
 
     def render_waveform(
         self,
-        waveform_data: WaveformData,
+        waveform_data: ClipWaveformData,
         silence_regions: list[tuple[int, int]] | None = None,
         show_time_axis: bool = True,
     ) -> Any:
@@ -79,9 +79,9 @@ class WaveformDisplay:
             paper_bgcolor=self.colors["background"],
             width=self.width,
             height=self.height,
-            margin=dict(l=50, r=20, t=30, b=50),
+            margin={"l": 50, "r": 20, "t": 30, "b": 50},
             showlegend=False,
-            font=dict(color=self.colors["text_primary"]),  # フォント色も設定
+            font={"color": self.colors["text_primary"]},  # フォント色も設定
         )
 
         # 無音領域の背景を描画
@@ -107,7 +107,7 @@ class WaveformDisplay:
                 x=time_points,
                 y=positive_samples,
                 mode="lines",
-                line=dict(color=self.colors["waveform_positive"], width=1),
+                line={"color": self.colors["waveform_positive"], "width": 1},
                 fill="tozeroy",
                 name="Positive",
                 hovertemplate="時間: %{x:.2f}s<br>振幅: %{y:.3f}<extra></extra>",
@@ -121,7 +121,7 @@ class WaveformDisplay:
                 x=time_points,
                 y=negative_samples,
                 mode="lines",
-                line=dict(color=self.colors["waveform_negative"], width=1),
+                line={"color": self.colors["waveform_negative"], "width": 1},
                 fill="tozeroy",
                 name="Negative",
                 hovertemplate="時間: %{x:.2f}s<br>振幅: %{y:.3f}<extra></extra>",
@@ -136,7 +136,7 @@ class WaveformDisplay:
             zeroline=True,
             zerolinecolor=self.colors["grid_major"],
             range=[0, duration],
-            tickfont=dict(color=self.colors["text_secondary"]),
+            tickfont={"color": self.colors["text_secondary"]},
         )
 
         fig.update_yaxes(
@@ -146,29 +146,34 @@ class WaveformDisplay:
             zeroline=True,
             zerolinecolor=self.colors["grid_major"],
             range=[-1.1, 1.1],
-            tickfont=dict(color=self.colors["text_secondary"]),
+            tickfont={"color": self.colors["text_secondary"]},
         )
 
         # タイトル（ダークモード対応）
         title_text = f"セグメント {waveform_data.segment_id}: {format_time(waveform_data.start_time)} - {format_time(waveform_data.end_time)}"
 
         # 最終的なレイアウト設定（ダークモード対応強化）
-        final_layout = dict(
-            title=dict(text=title_text, font=dict(size=14, color=self.colors["text_primary"]), x=0.5, xanchor="center"),
+        final_layout = {
+            "title": {
+                "text": title_text,
+                "font": {"size": 14, "color": self.colors["text_primary"]},
+                "x": 0.5,
+                "xanchor": "center",
+            },
             # 再度背景色を設定（確実に適用されるように）
-            plot_bgcolor=self.colors["background"],
-            paper_bgcolor=self.colors["background"],
+            "plot_bgcolor": self.colors["background"],
+            "paper_bgcolor": self.colors["background"],
             # ホバーラベルのスタイル
-            hoverlabel=dict(
-                bgcolor=self.colors["background"],
-                bordercolor=self.colors["grid_major"],
-                font=dict(color=self.colors["text_primary"]),
-            ),
+            "hoverlabel": {
+                "bgcolor": self.colors["background"],
+                "bordercolor": self.colors["grid_major"],
+                "font": {"color": self.colors["text_primary"]},
+            },
             # マージン設定（重要：背景色を見せるため）
-            margin=dict(l=50, r=20, t=50, b=50, pad=0),
+            "margin": {"l": 50, "r": 20, "t": 50, "b": 50, "pad": 0},
             # オートサイズを無効化
-            autosize=True,
-        )
+            "autosize": True,
+        }
 
         # ダークモードの場合は template を明示的に設定
         if TimelineColorScheme.is_dark_mode():
@@ -178,7 +183,7 @@ class WaveformDisplay:
 
         return fig
 
-    def render_timeline_overview(self, segments: list[WaveformData], total_duration: float) -> Any:
+    def render_timeline_overview(self, segments: list[ClipWaveformData], total_duration: float) -> Any:
         """
         タイムライン全体の概要を表示
 
@@ -213,7 +218,7 @@ class WaveformDisplay:
                 y1=1,
                 fillcolor=color,
                 opacity=0.6,
-                line=dict(color=color, width=2),
+                line={"color": color, "width": 2},
             )
 
             # セグメントIDを表示
@@ -222,26 +227,26 @@ class WaveformDisplay:
                 y=0.5,
                 text=segment.segment_id,
                 showarrow=False,
-                font=dict(size=10, color=self.colors["text_primary"]),
+                font={"size": 10, "color": self.colors["text_primary"]},
             )
 
         # レイアウト設定
         fig.update_layout(
             width=self.width,
             height=100,
-            margin=dict(l=50, r=20, t=30, b=30),
-            xaxis=dict(
-                range=[0, total_duration],
-                title="時間 (秒)",
-                showgrid=True,
-                gridcolor=self.colors["grid_lines"],
-                tickfont=dict(color=self.colors["text_secondary"]),
-            ),
-            yaxis=dict(range=[0, 1], showticklabels=False, showgrid=False),
+            margin={"l": 50, "r": 20, "t": 30, "b": 30},
+            xaxis={
+                "range": [0, total_duration],
+                "title": "時間 (秒)",
+                "showgrid": True,
+                "gridcolor": self.colors["grid_lines"],
+                "tickfont": {"color": self.colors["text_secondary"]},
+            },
+            yaxis={"range": [0, 1], "showticklabels": False, "showgrid": False},
             plot_bgcolor=self.colors["background"],
             paper_bgcolor=self.colors["background"],
             showlegend=False,
-            font=dict(color=self.colors["text_primary"]),
+            font={"color": self.colors["text_primary"]},
         )
 
         return fig
@@ -258,7 +263,7 @@ class WaveformDisplay:
             y=0.5,
             text="波形データがありません",
             showarrow=False,
-            font=dict(size=14, color="#999999"),
+            font={"size": 14, "color": "#999999"},
             xref="paper",
             yref="paper",
         )
@@ -268,8 +273,8 @@ class WaveformDisplay:
             height=self.height,
             plot_bgcolor=self.colors["background"],
             paper_bgcolor=self.colors["background"],
-            xaxis=dict(visible=False),
-            yaxis=dict(visible=False),
+            xaxis={"visible": False},
+            yaxis={"visible": False},
         )
 
         return fig

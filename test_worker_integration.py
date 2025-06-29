@@ -10,13 +10,14 @@ import os
 import subprocess
 import sys
 import tempfile
+from pathlib import Path
 
 # プロジェクトのルートディレクトリをパスに追加
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 
 def create_test_config(
-    video_path: str, model_size: str = "base", task_type: str = "full", use_api: bool = False
+    video_path: str | Path, model_size: str = "base", task_type: str = "full", use_api: bool = False
 ) -> str:
     """テスト用の設定ファイルを作成"""
     config_data = {
@@ -45,7 +46,7 @@ def create_test_config(
         return f.name
 
 
-def run_worker(script_name: str, config_path: str) -> dict:
+def run_worker(script_name: str, config_path: str | Path) -> dict:
     """ワーカースクリプトを実行して結果を取得"""
     result_path = os.path.join(os.path.dirname(config_path), "result.json")
 
@@ -80,7 +81,7 @@ def run_worker(script_name: str, config_path: str) -> dict:
     return {"result": result, "progress_lines": progress_lines, "stdout": stdout, "stderr": stderr}
 
 
-def compare_imports():
+def compare_imports() -> None:
     """両方のスクリプトがインポートできることを確認"""
     print("=== インポートテスト ===")
 
@@ -101,7 +102,7 @@ def compare_imports():
     return True
 
 
-def compare_basic_structure():
+def compare_basic_structure() -> None:
     """基本的な構造比較"""
     print("\n=== 構造比較 ===")
 
@@ -129,7 +130,7 @@ def compare_basic_structure():
         print(f"✅ model_size={config.model_size}, task_type={config.task_type}")
 
         # TranscriptionWorkerの初期化テスト
-        worker = TranscriptionWorker(config_path)
+        TranscriptionWorker(config_path)
         print("✅ TranscriptionWorkerの初期化成功")
 
         return True
@@ -143,7 +144,7 @@ def compare_basic_structure():
         os.unlink(config_path)
 
 
-def compare_memory_manager():
+def compare_memory_manager() -> None:
     """メモリ管理機能の比較"""
     print("\n=== メモリ管理機能の比較 ===")
 
@@ -157,7 +158,7 @@ def compare_memory_manager():
 
         # 両方で同じモデルサイズで初期化
         old_optimizer = OldOptimizer("base")
-        old_monitor = OldMonitor()
+        OldMonitor()
 
         new_manager = MemoryManager("base")
 
@@ -185,7 +186,7 @@ def compare_memory_manager():
         return False
 
 
-def test_error_handling():
+def test_error_handling() -> None:
     """エラーハンドリングの比較"""
     print("\n=== エラーハンドリングテスト ===")
 
@@ -233,7 +234,7 @@ def test_error_handling():
             os.unlink(result_path)
 
 
-def main():
+def main() -> None:
     """メインテスト実行"""
     print("=== worker_transcribe リファクタリング統合テスト ===\n")
 

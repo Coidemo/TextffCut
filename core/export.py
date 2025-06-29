@@ -17,7 +17,7 @@ from .video import VideoInfo
 class ExportSegment:
     """エクスポート用セグメント情報"""
 
-    source_path: str
+    source_path: str | Path
     start_time: float
     end_time: float
     timeline_start: float
@@ -30,13 +30,13 @@ class ExportSegment:
 class FCPXMLExporter:
     """FCPXMLエクスポートクラス"""
 
-    def __init__(self, config: Config):
+    def __init__(self, config: Config) -> None:
         self.config = config
 
     def export(
         self,
         segments: list[ExportSegment],
-        output_path: str,
+        output_path: str | Path,
         timeline_fps: int = 30,
         project_name: str = "Buzz Clip Project",
     ) -> bool:
@@ -54,10 +54,11 @@ class FCPXMLExporter:
         """
         try:
             # 動画情報を取得
-            video_infos = {}
+            video_infos: dict[str, VideoInfo] = {}
             for seg in segments:
-                if seg.source_path not in video_infos:
-                    video_infos[seg.source_path] = VideoInfo.from_file(seg.source_path)
+                source_path_str = str(seg.source_path)
+                if source_path_str not in video_infos:
+                    video_infos[source_path_str] = VideoInfo.from_file(seg.source_path)
 
             # XMLを構築
             xml_content = self._build_fcpxml(segments, video_infos, timeline_fps, project_name)
@@ -72,15 +73,15 @@ class FCPXMLExporter:
         except OSError as e:
             from utils.exceptions import FileNotFoundError as BuzzFileNotFoundError
 
-            raise BuzzFileNotFoundError(f"FCPXML書き込みエラー: {str(e)}")
+            raise BuzzFileNotFoundError(f"FCPXML書き込みエラー: {str(e)}") from e
         except PermissionError as e:
             from utils.exceptions import VideoProcessingError
 
-            raise VideoProcessingError(f"FCPXML書き込み権限エラー: {str(e)}")
+            raise VideoProcessingError(f"FCPXML書き込み権限エラー: {str(e)}") from e
         except Exception as e:
             from utils.exceptions import VideoProcessingError
 
-            raise VideoProcessingError(f"FCPXMLエクスポートエラー: {str(e)}")
+            raise VideoProcessingError(f"FCPXMLエクスポートエラー: {str(e)}") from e
 
     def _build_fcpxml(
         self, segments: list[ExportSegment], video_infos: dict[str, VideoInfo], timeline_fps: int, project_name: str
@@ -95,7 +96,8 @@ class FCPXMLExporter:
 <!DOCTYPE fcpxml>
 <fcpxml version="1.9">
     <resources>
-        <format width="1920" name="FFVideoFormat1080p{timeline_fps}" id="r0" height="1080" frameDuration="1/{timeline_fps}s"/>
+        <format width="1920" name="FFVideoFormat1080p{timeline_fps}" id="r0" height="1080"
+                frameDuration="1/{timeline_fps}s"/>
 """
 
         # リソース（使用する動画ファイル）を追加
@@ -117,10 +119,13 @@ class FCPXMLExporter:
                 # ローカル環境は通常通り
                 file_url = f"file://{Path(path).resolve()}"
 
-            xml_content += f"""        <asset format="r0" name="{Path(path).name}" audioChannels="2" duration="{duration_frames}/{timeline_fps}s" audioSources="1" id="{resource_id}" hasVideo="1" hasAudio="1" start="0/1s">
-            <media-rep src="{file_url}" kind="original-media"/>
-        </asset>
-"""
+            xml_content += (
+                f'        <asset format="r0" name="{Path(path).name}" audioChannels="2" '
+                f'duration="{duration_frames}/{timeline_fps}s" audioSources="1" '
+                f'id="{resource_id}" hasVideo="1" hasAudio="1" start="0/1s">\n'
+                f'            <media-rep src="{file_url}" kind="original-media"/>\n'
+                f"        </asset>\n"
+            )
 
         xml_content += (
             '''    </resources>
@@ -140,8 +145,9 @@ class FCPXMLExporter:
         current_timeline_pos = 0
 
         for i, seg in enumerate(segments, 1):
-            resource_id = resource_map[seg.source_path]
-            info = video_infos[seg.source_path]
+            source_path_str = str(seg.source_path)
+            resource_id = resource_map[source_path_str]
+            info = video_infos[source_path_str]
 
             # フレーム単位で計算
             start_frames = round(seg.start_time * info.fps)
@@ -150,10 +156,15 @@ class FCPXMLExporter:
             # タイムラインのFPSに合わせて変換
             timeline_start_frames = round(start_frames * (timeline_fps / info.fps))
 
-            xml_content += f"""                        <asset-clip tcFormat="NDF" offset="{current_timeline_pos}/{timeline_fps}s" format="r0" name="Segment {i}" duration="{duration_frames}/{timeline_fps}s" ref="{resource_id}" enabled="1" start="{timeline_start_frames}/{timeline_fps}s">
-                            <adjust-transform scale="1 1" anchor="0 0" position="0 0"/>
-                        </asset-clip>
-"""
+            xml_content += (
+                f'                        <asset-clip tcFormat="NDF" '
+                f'offset="{current_timeline_pos}/{timeline_fps}s" format="r0" '
+                f'name="Segment {i}" duration="{duration_frames}/{timeline_fps}s" '
+                f'ref="{resource_id}" enabled="1" '
+                f'start="{timeline_start_frames}/{timeline_fps}s">\n'
+                f'                            <adjust-transform scale="1 1" anchor="0 0" position="0 0"/>\n'
+                f"                        </asset-clip>\n"
+            )
 
             current_timeline_pos += duration_frames
 
@@ -170,13 +181,13 @@ class FCPXMLExporter:
 class XMEMLExporter:
     """Premiere Pro用XMEML形式エクスポートクラス"""
 
-    def __init__(self, config: Config):
+    def __init__(self, config: Config) -> None:
         self.config = config
 
     def export(
         self,
         segments: list[ExportSegment],
-        output_path: str,
+        output_path: str | Path,
         timeline_fps: int = 30,
         project_name: str = "TextffCut Project",
     ) -> bool:
@@ -194,10 +205,11 @@ class XMEMLExporter:
         """
         try:
             # 動画情報を取得
-            video_infos = {}
+            video_infos: dict[str, VideoInfo] = {}
             for seg in segments:
-                if seg.source_path not in video_infos:
-                    video_infos[seg.source_path] = VideoInfo.from_file(seg.source_path)
+                source_path_str = str(seg.source_path)
+                if source_path_str not in video_infos:
+                    video_infos[source_path_str] = VideoInfo.from_file(seg.source_path)
 
             # XMLを構築
             xml_content = self._build_xmeml(segments, video_infos, timeline_fps, project_name)
@@ -212,15 +224,15 @@ class XMEMLExporter:
         except OSError as e:
             from utils.exceptions import FileNotFoundError as BuzzFileNotFoundError
 
-            raise BuzzFileNotFoundError(f"XMEML書き込みエラー: {str(e)}")
+            raise BuzzFileNotFoundError(f"XMEML書き込みエラー: {str(e)}") from e
         except PermissionError as e:
             from utils.exceptions import VideoProcessingError
 
-            raise VideoProcessingError(f"XMEML書き込み権限エラー: {str(e)}")
+            raise VideoProcessingError(f"XMEML書き込み権限エラー: {str(e)}") from e
         except Exception as e:
             from utils.exceptions import VideoProcessingError
 
-            raise VideoProcessingError(f"XMEMLエクスポートエラー: {str(e)}")
+            raise VideoProcessingError(f"XMEMLエクスポートエラー: {str(e)}") from e
 
     def _build_xmeml(
         self, segments: list[ExportSegment], video_infos: dict[str, VideoInfo], timeline_fps: int, project_name: str
@@ -329,18 +341,19 @@ class XMEMLExporter:
                 file_url = f"file://localhost{source_path}".replace("\\", "/")
             else:
                 # ローカル環境: 実際のパスを使用
-                source_path = Path(seg.source_path).resolve()
+                source_path_resolved = Path(seg.source_path).resolve()
 
                 # Windowsの場合はドライブレターの処理
                 if os.name == "nt":
                     # C:\path\to\file -> /C:/path/to/file
-                    file_url = f"file://localhost/{str(source_path)}".replace("\\", "/")
+                    file_url = f"file://localhost/{str(source_path_resolved)}".replace("\\", "/")
                 else:
                     # Unix系: /path/to/file -> file://localhost/path/to/file
-                    file_url = f"file://localhost{source_path}"
+                    file_url = f"file://localhost{source_path_resolved}"
 
             # 総ファイルduration
-            total_file_duration = round(video_infos[seg.source_path].duration * timeline_fps)
+            source_path_str = str(seg.source_path)
+            total_file_duration = round(video_infos[source_path_str].duration * timeline_fps)
 
             xml_content += f"""					<clipitem id="clipitem-{i}">
 						<masterclipid>masterclip-1</masterclipid>
@@ -473,8 +486,9 @@ class XMEMLExporter:
 """
 
         # オーディオトラック1を追加
-        xml_content += """				<track currentExplodedTrackIndex="0" totalExplodedTrackCount="2" premiereTrackType="Stereo">
-"""
+        xml_content += (
+            '				<track currentExplodedTrackIndex="0" totalExplodedTrackCount="2" ' 'premiereTrackType="Stereo">\n'
+        )
 
         for i, seg in enumerate(segments, 1):
             file_id = file_map[seg.source_path]
@@ -489,67 +503,69 @@ class XMEMLExporter:
             timeline_end_frames = timeline_start_frames + duration_frames
 
             # 総ファイルduration
-            total_file_duration = round(video_infos[seg.source_path].duration * timeline_fps)
+            total_file_duration = round(video_infos[str(seg.source_path)].duration * timeline_fps)
 
-            xml_content += f"""					<clipitem id="clipitem-{video_clip_count + i}" premiereChannelType="stereo">
-						<masterclipid>masterclip-1</masterclipid>
-						<name>{Path(seg.source_path).stem}</name>
-						<enabled>TRUE</enabled>
-						<duration>{total_file_duration}</duration>
-						<rate>
-							<timebase>{timeline_fps}</timebase>
-							<ntsc>FALSE</ntsc>
-						</rate>
-						<start>{timeline_start_frames}</start>
-						<end>{timeline_end_frames}</end>
-						<in>{start_frames}</in>
-						<out>{end_frames}</out>
-						<file id="{file_id}"/>
-						<sourcetrack>
-							<mediatype>audio</mediatype>
-							<trackindex>1</trackindex>
-						</sourcetrack>
-						<link>
-							<linkclipref>clipitem-{i}</linkclipref>
-							<mediatype>video</mediatype>
-							<trackindex>1</trackindex>
-							<clipindex>{i}</clipindex>
-						</link>
-						<link>
-							<linkclipref>clipitem-{video_clip_count + i}</linkclipref>
-							<mediatype>audio</mediatype>
-							<trackindex>1</trackindex>
-							<clipindex>{i}</clipindex>
-							<groupindex>1</groupindex>
-						</link>
-						<link>
-							<linkclipref>clipitem-{video_clip_count * 2 + i}</linkclipref>
-							<mediatype>audio</mediatype>
-							<trackindex>2</trackindex>
-							<clipindex>{i}</clipindex>
-							<groupindex>1</groupindex>
-						</link>
-						<logginginfo>
-							<description></description>
-							<scene></scene>
-							<shottake></shottake>
-							<lognote></lognote>
-							<good></good>
-							<originalvideofilename></originalvideofilename>
-							<originalaudiofilename></originalaudiofilename>
-						</logginginfo>
-						<colorinfo>
-							<lut></lut>
-							<lut1></lut1>
-							<asc_sop></asc_sop>
-							<asc_sat></asc_sat>
-							<lut2></lut2>
-						</colorinfo>
-						<labels>
-							<label2>Iris</label2>
-						</labels>
-					</clipitem>
-"""
+            xml_content += (
+                f'					<clipitem id="clipitem-{video_clip_count + i}" '
+                f'premiereChannelType="stereo">\n'
+                f"						<masterclipid>masterclip-1</masterclipid>\n"
+                f"						<name>{Path(seg.source_path).stem}</name>\n"
+                f"						<enabled>TRUE</enabled>\n"
+                f"						<duration>{total_file_duration}</duration>\n"
+                f"						<rate>\n"
+                f"							<timebase>{timeline_fps}</timebase>\n"
+                f"							<ntsc>FALSE</ntsc>\n"
+                f"						</rate>\n"
+                f"						<start>{timeline_start_frames}</start>\n"
+                f"						<end>{timeline_end_frames}</end>\n"
+                f"						<in>{start_frames}</in>\n"
+                f"						<out>{end_frames}</out>\n"
+                f'						<file id="{file_id}"/>\n'
+                f"						<sourcetrack>\n"
+                f"							<mediatype>audio</mediatype>\n"
+                f"							<trackindex>1</trackindex>\n"
+                f"						</sourcetrack>\n"
+                f"						<link>\n"
+                f"							<linkclipref>clipitem-{i}</linkclipref>\n"
+                f"							<mediatype>video</mediatype>\n"
+                f"							<trackindex>1</trackindex>\n"
+                f"							<clipindex>{i}</clipindex>\n"
+                f"						</link>\n"
+                f"						<link>\n"
+                f"							<linkclipref>clipitem-{video_clip_count + i}</linkclipref>\n"
+                f"							<mediatype>audio</mediatype>\n"
+                f"							<trackindex>1</trackindex>\n"
+                f"							<clipindex>{i}</clipindex>\n"
+                f"							<groupindex>1</groupindex>\n"
+                f"						</link>\n"
+                f"						<link>\n"
+                f"							<linkclipref>clipitem-{video_clip_count * 2 + i}</linkclipref>\n"
+                f"							<mediatype>audio</mediatype>\n"
+                f"							<trackindex>2</trackindex>\n"
+                f"							<clipindex>{i}</clipindex>\n"
+                f"							<groupindex>1</groupindex>\n"
+                f"						</link>\n"
+                f"						<logginginfo>\n"
+                f"							<description></description>\n"
+                f"							<scene></scene>\n"
+                f"							<shottake></shottake>\n"
+                f"							<lognote></lognote>\n"
+                f"							<good></good>\n"
+                f"							<originalvideofilename></originalvideofilename>\n"
+                f"							<originalaudiofilename></originalaudiofilename>\n"
+                f"						</logginginfo>\n"
+                f"						<colorinfo>\n"
+                f"							<lut></lut>\n"
+                f"							<lut1></lut1>\n"
+                f"							<asc_sop></asc_sop>\n"
+                f"							<asc_sat></asc_sat>\n"
+                f"							<lut2></lut2>\n"
+                f"						</colorinfo>\n"
+                f"						<labels>\n"
+                f"							<label2>Iris</label2>\n"
+                f"						</labels>\n"
+                f"					</clipitem>\n"
+            )
 
         xml_content += """					<enabled>TRUE</enabled>
 					<locked>FALSE</locked>
@@ -558,8 +574,9 @@ class XMEMLExporter:
 """
 
         # オーディオトラック2を追加
-        xml_content += """				<track currentExplodedTrackIndex="1" totalExplodedTrackCount="2" premiereTrackType="Stereo">
-"""
+        xml_content += (
+            '				<track currentExplodedTrackIndex="1" totalExplodedTrackCount="2" ' 'premiereTrackType="Stereo">\n'
+        )
 
         for i, seg in enumerate(segments, 1):
             file_id = file_map[seg.source_path]
@@ -574,67 +591,69 @@ class XMEMLExporter:
             timeline_end_frames = timeline_start_frames + duration_frames
 
             # 総ファイルduration
-            total_file_duration = round(video_infos[seg.source_path].duration * timeline_fps)
+            total_file_duration = round(video_infos[str(seg.source_path)].duration * timeline_fps)
 
-            xml_content += f"""					<clipitem id="clipitem-{video_clip_count * 2 + i}" premiereChannelType="stereo">
-						<masterclipid>masterclip-1</masterclipid>
-						<name>{Path(seg.source_path).stem}</name>
-						<enabled>TRUE</enabled>
-						<duration>{total_file_duration}</duration>
-						<rate>
-							<timebase>{timeline_fps}</timebase>
-							<ntsc>FALSE</ntsc>
-						</rate>
-						<start>{timeline_start_frames}</start>
-						<end>{timeline_end_frames}</end>
-						<in>{start_frames}</in>
-						<out>{end_frames}</out>
-						<file id="{file_id}"/>
-						<sourcetrack>
-							<mediatype>audio</mediatype>
-							<trackindex>2</trackindex>
-						</sourcetrack>
-						<link>
-							<linkclipref>clipitem-{i}</linkclipref>
-							<mediatype>video</mediatype>
-							<trackindex>1</trackindex>
-							<clipindex>{i}</clipindex>
-						</link>
-						<link>
-							<linkclipref>clipitem-{video_clip_count + i}</linkclipref>
-							<mediatype>audio</mediatype>
-							<trackindex>1</trackindex>
-							<clipindex>{i}</clipindex>
-							<groupindex>1</groupindex>
-						</link>
-						<link>
-							<linkclipref>clipitem-{video_clip_count * 2 + i}</linkclipref>
-							<mediatype>audio</mediatype>
-							<trackindex>2</trackindex>
-							<clipindex>{i}</clipindex>
-							<groupindex>1</groupindex>
-						</link>
-						<logginginfo>
-							<description></description>
-							<scene></scene>
-							<shottake></shottake>
-							<lognote></lognote>
-							<good></good>
-							<originalvideofilename></originalvideofilename>
-							<originalaudiofilename></originalaudiofilename>
-						</logginginfo>
-						<colorinfo>
-							<lut></lut>
-							<lut1></lut1>
-							<asc_sop></asc_sop>
-							<asc_sat></asc_sat>
-							<lut2></lut2>
-						</colorinfo>
-						<labels>
-							<label2>Iris</label2>
-						</labels>
-					</clipitem>
-"""
+            xml_content += (
+                f'					<clipitem id="clipitem-{video_clip_count * 2 + i}" '
+                f'premiereChannelType="stereo">\n'
+                f"						<masterclipid>masterclip-1</masterclipid>\n"
+                f"						<name>{Path(seg.source_path).stem}</name>\n"
+                f"						<enabled>TRUE</enabled>\n"
+                f"						<duration>{total_file_duration}</duration>\n"
+                f"						<rate>\n"
+                f"							<timebase>{timeline_fps}</timebase>\n"
+                f"							<ntsc>FALSE</ntsc>\n"
+                f"						</rate>\n"
+                f"						<start>{timeline_start_frames}</start>\n"
+                f"						<end>{timeline_end_frames}</end>\n"
+                f"						<in>{start_frames}</in>\n"
+                f"						<out>{end_frames}</out>\n"
+                f'						<file id="{file_id}"/>\n'
+                f"						<sourcetrack>\n"
+                f"							<mediatype>audio</mediatype>\n"
+                f"							<trackindex>2</trackindex>\n"
+                f"						</sourcetrack>\n"
+                f"						<link>\n"
+                f"							<linkclipref>clipitem-{i}</linkclipref>\n"
+                f"							<mediatype>video</mediatype>\n"
+                f"							<trackindex>1</trackindex>\n"
+                f"							<clipindex>{i}</clipindex>\n"
+                f"						</link>\n"
+                f"						<link>\n"
+                f"							<linkclipref>clipitem-{video_clip_count + i}</linkclipref>\n"
+                f"							<mediatype>audio</mediatype>\n"
+                f"							<trackindex>1</trackindex>\n"
+                f"							<clipindex>{i}</clipindex>\n"
+                f"							<groupindex>1</groupindex>\n"
+                f"						</link>\n"
+                f"						<link>\n"
+                f"							<linkclipref>clipitem-{video_clip_count * 2 + i}</linkclipref>\n"
+                f"							<mediatype>audio</mediatype>\n"
+                f"							<trackindex>2</trackindex>\n"
+                f"							<clipindex>{i}</clipindex>\n"
+                f"							<groupindex>1</groupindex>\n"
+                f"						</link>\n"
+                f"						<logginginfo>\n"
+                f"							<description></description>\n"
+                f"							<scene></scene>\n"
+                f"							<shottake></shottake>\n"
+                f"							<lognote></lognote>\n"
+                f"							<good></good>\n"
+                f"							<originalvideofilename></originalvideofilename>\n"
+                f"							<originalaudiofilename></originalaudiofilename>\n"
+                f"						</logginginfo>\n"
+                f"						<colorinfo>\n"
+                f"							<lut></lut>\n"
+                f"							<lut1></lut1>\n"
+                f"							<asc_sop></asc_sop>\n"
+                f"							<asc_sat></asc_sat>\n"
+                f"							<lut2></lut2>\n"
+                f"						</colorinfo>\n"
+                f"						<labels>\n"
+                f"							<label2>Iris</label2>\n"
+                f"						</labels>\n"
+                f"					</clipitem>\n"
+            )
 
         xml_content += (
             """					<enabled>TRUE</enabled>
@@ -676,11 +695,15 @@ class XMEMLExporter:
 class EDLExporter:
     """EDL（Edit Decision List）エクスポートクラス"""
 
-    def __init__(self, config: Config):
+    def __init__(self, config: Config) -> None:
         self.config = config
 
     def export(
-        self, segments: list[ExportSegment], output_path: str, timeline_fps: int = 30, title: str = "Buzz Clip EDL"
+        self,
+        segments: list[ExportSegment],
+        output_path: str | Path,
+        timeline_fps: int = 30,
+        title: str = "Buzz Clip EDL",
     ) -> bool:
         """
         EDLファイルをエクスポート
@@ -704,10 +727,10 @@ class EDLExporter:
 
             for i, seg in enumerate(segments, 1):
                 # タイムコードを計算
-                source_in = frames_to_timecode(seg.start_time, timeline_fps)
-                source_out = frames_to_timecode(seg.end_time, timeline_fps)
-                record_in = frames_to_timecode(timeline_pos, timeline_fps)
-                record_out = frames_to_timecode(timeline_pos + seg.duration, timeline_fps)
+                source_in = frames_to_timecode(int(seg.start_time), timeline_fps)
+                source_out = frames_to_timecode(int(seg.end_time), timeline_fps)
+                record_in = frames_to_timecode(int(timeline_pos), timeline_fps)
+                record_out = frames_to_timecode(int(timeline_pos + seg.duration), timeline_fps)
 
                 # EDLエントリ
                 edl_content += f"{i:03d}  001      V     C        "
@@ -727,12 +750,12 @@ class EDLExporter:
         except OSError as e:
             from utils.exceptions import FileNotFoundError as BuzzFileNotFoundError
 
-            raise BuzzFileNotFoundError(f"EDL書き込みエラー: {str(e)}")
+            raise BuzzFileNotFoundError(f"EDL書き込みエラー: {str(e)}") from e
         except PermissionError as e:
             from utils.exceptions import VideoProcessingError
 
-            raise VideoProcessingError(f"EDL書き込み権限エラー: {str(e)}")
+            raise VideoProcessingError(f"EDL書き込み権限エラー: {str(e)}") from e
         except Exception as e:
             from utils.exceptions import VideoProcessingError
 
-            raise VideoProcessingError(f"EDLエクスポートエラー: {str(e)}")
+            raise VideoProcessingError(f"EDLエクスポートエラー: {str(e)}") from e

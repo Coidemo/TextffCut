@@ -54,7 +54,7 @@ class WorkerMemoryStatus:
 class EnhancedMemoryMonitor(MemoryMonitor):
     """拡張メモリ監視クラス"""
 
-    def __init__(self, history_size: int = 100):
+    def __init__(self, history_size: int = 100) -> None:
         """初期化"""
         super().__init__(history_size)
         self.worker_status: dict[str, WorkerMemoryStatus] = {}
@@ -158,7 +158,7 @@ class EnhancedMemoryMonitor(MemoryMonitor):
 class MemoryOptimizer:
     """メモリ最適化実行クラス"""
 
-    def __init__(self, monitor: EnhancedMemoryMonitor):
+    def __init__(self, monitor: EnhancedMemoryMonitor) -> None:
         """初期化"""
         self.monitor = monitor
         self.optimization_history = defaultdict(list)
@@ -220,7 +220,7 @@ class MemoryOptimizer:
         actions = []
 
         # 積極的なガベージコレクション
-        for i in range(3):
+        for _ in range(3):
             collected = gc.collect()
             if collected == 0:
                 break
@@ -266,7 +266,7 @@ class MemoryOptimizer:
 class ProcessMemoryManager:
     """プロセス全体のメモリ管理"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """初期化"""
         self.monitor = EnhancedMemoryMonitor()
         self.optimizer = MemoryOptimizer(self.monitor)
@@ -287,7 +287,7 @@ class ProcessMemoryManager:
             memory_info = process.memory_info()
             memory_mb = memory_info.rss / 1024 / 1024
             memory_percent = memory_data.get("memory_percent", 0.0)
-        except:
+        except Exception:
             logger.error(f"Failed to get process info for worker {worker_id}")
             return None
 
@@ -359,7 +359,7 @@ def test_memory_management():
         ("worker_3", current_pid, 4096, 92.0, "Emergency level"),
     ]
 
-    for worker_id, pid, memory_mb, memory_percent, description in test_scenarios:
+    for worker_id, pid, _, memory_percent, description in test_scenarios:
         print(f"\n--- {description} ---")
 
         # メモリレポートメッセージを作成

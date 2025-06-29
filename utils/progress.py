@@ -7,6 +7,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 import streamlit as st
+from streamlit.delta_generator import DeltaGenerator
 
 
 @dataclass
@@ -30,7 +31,7 @@ class ProgressStep:
 class ProgressTracker:
     """詳細なプログレス追跡クラス"""
 
-    def __init__(self, steps: list[str], weights: list[float] | None = None):
+    def __init__(self, steps: list[str], weights: list[float] | None = None) -> None:
         """
         Args:
             steps: ステップ名のリスト
@@ -47,12 +48,12 @@ class ProgressTracker:
         self.start_time = time.time()
 
         # Streamlit要素
-        self.progress_bar = None
-        self.status_text = None
-        self.time_text = None
-        self.details_container = None
+        self.progress_bar: DeltaGenerator | None = None
+        self.status_text: DeltaGenerator | None = None
+        self.time_text: DeltaGenerator | None = None
+        self.details_container: DeltaGenerator | None = None
 
-    def initialize_ui(self):
+    def initialize_ui(self) -> None:
         """Streamlit UIを初期化"""
         self.progress_bar = st.progress(0.0)
         col1, col2 = st.columns([3, 1])
@@ -62,7 +63,7 @@ class ProgressTracker:
             self.time_text = st.empty()
         self.details_container = st.container()
 
-    def start_step(self, step_index: int | None = None):
+    def start_step(self, step_index: int | None = None) -> None:
         """ステップを開始"""
         if step_index is not None:
             self.current_step_index = step_index
@@ -73,7 +74,7 @@ class ProgressTracker:
             step.completed = False
             self._update_display()
 
-    def complete_step(self):
+    def complete_step(self) -> None:
         """現在のステップを完了"""
         if 0 <= self.current_step_index < len(self.steps):
             step = self.steps[self.current_step_index]
@@ -82,14 +83,14 @@ class ProgressTracker:
             self.current_step_index += 1
             self._update_display()
 
-    def update_progress(self, step_progress: float, message: str | None = None):
+    def update_progress(self, step_progress: float, message: str | None = None) -> None:
         """現在のステップ内の進捗を更新"""
         if message:
             self._update_display(step_progress, message)
         else:
             self._update_display(step_progress)
 
-    def _update_display(self, step_progress: float = 0.0, custom_message: str | None = None):
+    def _update_display(self, step_progress: float = 0.0, custom_message: str | None = None) -> None:
         """表示を更新"""
         if not self.progress_bar:
             return
@@ -105,7 +106,8 @@ class ProgressTracker:
         total_progress = (completed_weight + current_step_weight) / self.total_weight
 
         # プログレスバーを更新
-        self.progress_bar.progress(total_progress)
+        if self.progress_bar is not None:
+            self.progress_bar.progress(total_progress)
 
         # ステータステキストを更新
         if custom_message:
@@ -116,28 +118,31 @@ class ProgressTracker:
         else:
             status_message = "完了"
 
-        self.status_text.text(status_message)
+        if self.status_text is not None:
+            self.status_text.text(status_message)
 
         # 時間情報を更新
-        elapsed_time = time.time() - self.start_time
-        if total_progress > 0 and total_progress < 1.0:
-            estimated_total = elapsed_time / total_progress
-            remaining = estimated_total - elapsed_time
-            self.time_text.text(f"残り: {self._format_time(remaining)}")
-        else:
-            self.time_text.text(f"経過: {self._format_time(elapsed_time)}")
+        if self.time_text is not None:
+            elapsed_time = time.time() - self.start_time
+            if total_progress > 0 and total_progress < 1.0:
+                estimated_total = elapsed_time / total_progress
+                remaining = estimated_total - elapsed_time
+                self.time_text.text(f"残り: {self._format_time(remaining)}")
+            else:
+                self.time_text.text(f"経過: {self._format_time(elapsed_time)}")
 
-    def show_summary(self):
+    def show_summary(self) -> None:
         """処理のサマリーを表示"""
-        with self.details_container:
-            total_time = time.time() - self.start_time
-            st.success(f"✅ 処理完了（合計時間: {self._format_time(total_time)}）")
+        if self.details_container is not None:
+            with self.details_container:
+                total_time = time.time() - self.start_time
+                st.success(f"✅ 処理完了（合計時間: {self._format_time(total_time)}）")
 
-            # 各ステップの詳細
-            with st.expander("処理の詳細", expanded=False):
-                for step in self.steps:
-                    if step.completed:
-                        st.write(f"- {step.name}: {self._format_time(step.duration)}")
+                # 各ステップの詳細
+                with st.expander("処理の詳細", expanded=False):
+                    for step in self.steps:
+                        if step.completed:
+                            st.write(f"- {step.name}: {self._format_time(step.duration)}")
 
     def _format_time(self, seconds: float) -> str:
         """時間をフォーマット"""

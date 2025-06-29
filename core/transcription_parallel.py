@@ -9,6 +9,7 @@ import tempfile
 import time
 from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from pathlib import Path
 
 import psutil
 
@@ -23,7 +24,7 @@ logger = get_logger(__name__)
 class ParallelTranscriber(SmartBoundaryTranscriber):
     """並列処理による高速文字起こしクラス"""
 
-    def __init__(self, config):
+    def __init__(self, config) -> None:
         """初期化"""
         super().__init__(config)
         # max_workersは削除されたので、常に自動計算
@@ -70,7 +71,7 @@ class ParallelTranscriber(SmartBoundaryTranscriber):
 
     def transcribe(
         self,
-        video_path: str,
+        video_path: str | Path,
         model_size: str | None = None,
         progress_callback: Callable[[float, str], None] | None = None,
         use_cache: bool = True,
@@ -94,7 +95,7 @@ class ParallelTranscriber(SmartBoundaryTranscriber):
 
         # 動画の長さを取得
         duration = self._get_video_duration(video_path)
-        logger.info(f"動画時間: {duration/60:.1f}分")
+        logger.info(f"動画時間: {duration / 60:.1f}分")
 
         # 一時ディレクトリ作成
         self.temp_dir = tempfile.mkdtemp(prefix="textffcut_parallel_")
@@ -105,7 +106,7 @@ class ParallelTranscriber(SmartBoundaryTranscriber):
 
             # スマート境界検出で分割点を決定
             split_points = self._find_smart_boundaries(video_path, duration)
-            logger.info(f"分割点: {[f'{p/60:.1f}分' for p in split_points]}")
+            logger.info(f"分割点: {[f'{p / 60:.1f}分' for p in split_points]}")
 
             # セグメントに分割
             segments = []
@@ -282,7 +283,7 @@ def process_segment_worker(segment_data: dict) -> tuple[int, list[dict]]:
             segments_data = aligned_result["segments"]
         except Exception as e:
             # アライメント失敗時はエラーを発生させる
-            raise RuntimeError(f"アライメント処理に失敗しました: {str(e)}")
+            raise RuntimeError(f"アライメント処理に失敗しました: {str(e)}") from e
 
         # セグメントを変換（オフセット適用）
         segments = []

@@ -15,17 +15,17 @@ from core.transcription_optimized import OptimizedTranscriber
 
 def test_real_video(video_path: str):
     """実際の動画でテスト"""
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("実際の動画でのテスト")
     print(f"動画ファイル: {video_path}")
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
 
     # 動画情報を取得
     from core.video import VideoInfo
 
     try:
         video_info = VideoInfo.from_file(video_path)
-        print(f"動画時間: {video_info.duration:.1f}秒 ({video_info.duration/60:.1f}分)")
+        print(f"動画時間: {video_info.duration:.1f}秒 ({video_info.duration / 60:.1f}分)")
         print(f"解像度: {video_info.width}x{video_info.height}")
         print(f"FPS: {video_info.fps:.1f}")
         print(f"コーデック: {video_info.codec}")
@@ -62,7 +62,7 @@ def test_real_video(video_path: str):
 
         # プログレス表示
         def progress_callback(progress: float, status: str):
-            print(f"  {progress*100:.1f}% - {status}")
+            print(f"  {progress * 100:.1f}% - {status}")
 
         # 文字起こし実行
         start_time = time.time()
@@ -86,23 +86,23 @@ def test_real_video(video_path: str):
             }
 
             print("\n  ✅ 成功")
-            print(f"  処理時間: {elapsed_time:.1f}秒 (x{video_info.duration/elapsed_time:.1f}速)")
+            print(f"  処理時間: {elapsed_time:.1f}秒 (x{video_info.duration / elapsed_time:.1f}速)")
             print(f"  セグメント数: {len(result.segments)}")
             print(f"  最初のテキスト: {results[mode]['sample_text'][:50]}...")
 
             if mode == "api":
                 # API料金の計算
                 api_cost = (video_info.duration / 60) * 0.006
-                print(f"  API料金: ${api_cost:.3f} (約{api_cost*150:.0f}円)")
+                print(f"  API料金: ${api_cost:.3f} (約{api_cost * 150:.0f}円)")
 
         except Exception as e:
             results[mode] = {"success": False, "error": str(e)}
             print(f"\n  ❌ エラー: {e}")
 
     # 結果サマリー
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("📊 結果サマリー")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
 
     if "local" in results and results["local"]["success"]:
         print(f"ローカルモード: {results['local']['time']:.1f}秒 ({results['local']['segments']}セグメント)")

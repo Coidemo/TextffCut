@@ -202,7 +202,6 @@ class TextffCutMCPTest:
 
             # テキスト入力
             print("  ⌨️ テスト文字を入力")
-            test_text = "テストサンプル"
             # puppeteer_fill("textarea", test_text)
 
             # 更新ボタン
@@ -213,7 +212,6 @@ class TextffCutMCPTest:
 
             # エラーケーステスト
             print("  ❌ エラーケースをテスト")
-            error_text = "存在しないテキスト"
             # puppeteer_fill("textarea", error_text)
             # puppeteer_click("button:contains('更新')")
             time.sleep(2)
@@ -232,7 +230,6 @@ class TextffCutMCPTest:
         try:
             # 正しいテキストに戻す
             print("  📝 有効なテキストを設定")
-            valid_text = "テスト"
             # puppeteer_fill("textarea", valid_text)
             # puppeteer_click("button:contains('更新')")
             time.sleep(2)
@@ -353,7 +350,7 @@ def main():
     try:
         response = requests.get("http://localhost:8501", timeout=5)
         print("  Streamlitアプリ: 起動中")
-    except:
+    except Exception:
         print("  Streamlitアプリ: ❌ 未起動")
         print("\n先に以下のコマンドでアプリを起動してください:")
         print("  streamlit run main.py")

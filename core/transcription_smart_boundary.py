@@ -8,6 +8,7 @@ import subprocess
 import tempfile
 import time
 from collections.abc import Callable
+from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
 from utils.logging import get_logger
@@ -34,7 +35,7 @@ class SmartBoundaryTranscriber(Transcriber):
 
     def __init__(
         self, config, optimizer: Optional["AutoOptimizer"] = None, memory_monitor: Optional["MemoryMonitor"] = None
-    ):
+    ) -> None:
         """初期化"""
         super().__init__(config)
         self.temp_dir = None
@@ -44,7 +45,7 @@ class SmartBoundaryTranscriber(Transcriber):
 
     def transcribe(
         self,
-        video_path: str,
+        video_path: str | Path,
         model_size: str | None = None,
         progress_callback: Callable[[float, str], None] | None = None,
         use_cache: bool = True,
@@ -72,7 +73,7 @@ class SmartBoundaryTranscriber(Transcriber):
 
         # 動画の長さを取得
         duration = self._get_video_duration(video_path)
-        logger.info(f"動画時間: {duration/60:.1f}分")
+        logger.info(f"動画時間: {duration / 60:.1f}分")
 
         # 一時ディレクトリ作成
         self.temp_dir = tempfile.mkdtemp(prefix="textffcut_boundary_")
@@ -83,7 +84,7 @@ class SmartBoundaryTranscriber(Transcriber):
 
             # スマート境界検出で分割点を決定
             split_points = self._find_smart_boundaries(video_path, duration)
-            logger.info(f"分割点: {[f'{p/60:.1f}分' for p in split_points]}")
+            logger.info(f"分割点: {[f'{p / 60:.1f}分' for p in split_points]}")
 
             # セグメントに分割
             segments = []
@@ -95,7 +96,7 @@ class SmartBoundaryTranscriber(Transcriber):
             for i, (start, end) in enumerate(segments):
                 if progress_callback:
                     base_progress = 0.2 + (0.7 * i / len(segments))
-                    progress_callback(base_progress, f"セグメント {i+1}/{len(segments)} を処理中...")
+                    progress_callback(base_progress, f"セグメント {i + 1}/{len(segments)} を処理中...")
 
                 # セグメントを処理
                 segment_result = self._process_segment(video_path, start, end, model_size, i)
@@ -126,7 +127,7 @@ class SmartBoundaryTranscriber(Transcriber):
 
                 shutil.rmtree(self.temp_dir)
 
-    def _get_video_duration(self, video_path: str) -> float:
+    def _get_video_duration(self, video_path: str | Path) -> float:
         """動画の長さを取得"""
         cmd = [
             "ffprobe",
@@ -141,7 +142,7 @@ class SmartBoundaryTranscriber(Transcriber):
         result = subprocess.run(cmd, capture_output=True, text=True)
         return float(result.stdout.strip())
 
-    def _find_smart_boundaries(self, video_path: str, duration: float) -> list[float]:
+    def _find_smart_boundaries(self, video_path: str | Path, duration: float) -> list[float]:
         """スマートに境界を検出"""
         boundaries = [0.0]  # 開始点
 
@@ -159,7 +160,7 @@ class SmartBoundaryTranscriber(Transcriber):
                 search_start = max(0, ideal_point - self.BOUNDARY_WINDOW)
                 search_end = min(duration, ideal_point + self.BOUNDARY_WINDOW)
 
-                logger.info(f"境界検索: {search_start/60:.1f}分 - {search_end/60:.1f}分")
+                logger.info(f"境界検索: {search_start / 60:.1f}分 - {search_end / 60:.1f}分")
 
                 # この範囲の無音を検出
                 silence_in_window = self._detect_silence_in_range(video_path, search_start, search_end)
@@ -169,20 +170,20 @@ class SmartBoundaryTranscriber(Transcriber):
                     best_silence = min(silence_in_window, key=lambda s: abs((s.start + s.end) / 2 - ideal_point))
                     boundary = (best_silence.start + best_silence.end) / 2
                     boundaries.append(boundary)
-                    logger.info(f"境界を発見: {boundary/60:.1f}分")
+                    logger.info(f"境界を発見: {boundary / 60:.1f}分")
                 else:
                     # 無音がなければ理想点をそのまま使用
                     boundaries.append(ideal_point)
-                    logger.info(f"無音なし、理想点を使用: {ideal_point/60:.1f}分")
+                    logger.info(f"無音なし、理想点を使用: {ideal_point / 60:.1f}分")
             except Exception as e:
-                logger.error(f"境界検出エラー（理想点 {ideal_point/60:.1f}分）: {str(e)}")
+                logger.error(f"境界検出エラー（理想点 {ideal_point / 60:.1f}分）: {str(e)}")
                 # エラーが発生した場合は理想点を使用
                 boundaries.append(ideal_point)
 
         boundaries.append(duration)  # 終了点
         return boundaries
 
-    def _detect_silence_in_range(self, video_path: str, start: float, end: float) -> list[SilenceInfo]:
+    def _detect_silence_in_range(self, video_path: str | Path, start: float, end: float) -> list[SilenceInfo]:
         """指定範囲の無音を検出"""
         # 一時WAVファイルを作成
         temp_wav = os.path.join(self.temp_dir, f"range_{start}_{end}.wav")
@@ -237,7 +238,7 @@ class SmartBoundaryTranscriber(Transcriber):
                 os.unlink(temp_wav)
 
     def _process_segment(
-        self, video_path: str, start: float, end: float, model_size: str, segment_index: int
+        self, video_path: str | Path, start: float, end: float, model_size: str, segment_index: int
     ) -> list[TranscriptionSegment]:
         """セグメントを処理"""
         # 動的メモリ最適化
@@ -335,7 +336,7 @@ class SmartBoundaryTranscriber(Transcriber):
                 logger.error(f"アライメント処理に失敗しました: {str(e)}")
                 raise RuntimeError(
                     f"文字位置情報の取得に失敗しました。アライメント処理でエラーが発生しました: {str(e)}"
-                )
+                ) from e
 
             # セグメントを変換（オフセット適用）
             segments = []

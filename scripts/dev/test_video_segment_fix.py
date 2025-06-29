@@ -39,7 +39,7 @@ def test_video_segment_creation():
     # textパラメータは存在しないことを確認
     try:
         # これはTypeErrorが発生するはず
-        segment_with_text = VideoSegment(start=0.0, end=1.0, text="test")
+        VideoSegment(start=0.0, end=1.0, text="test")
         print("✗ textパラメータが受け入れられてしまいました（エラーのはず）")
         assert False, "VideoSegmentにtextパラメータが存在してはいけない"
     except TypeError as e:

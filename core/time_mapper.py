@@ -25,7 +25,7 @@ class TimeMapping:
 class TimeMapper:
     """無音削除による時間マッピングを管理"""
 
-    def __init__(self, original_ranges: list[tuple[float, float]], kept_ranges: list[tuple[float, float]]):
+    def __init__(self, original_ranges: list[tuple[float, float]], kept_ranges: list[tuple[float, float]]) -> None:
         """
         Args:
             original_ranges: 元の時間範囲（差分検出結果）
@@ -34,7 +34,9 @@ class TimeMapper:
         self.mappings: list[TimeMapping] = []
         self._build_mapping(original_ranges, kept_ranges)
 
-    def _build_mapping(self, original_ranges: list[tuple[float, float]], kept_ranges: list[tuple[float, float]]):
+    def _build_mapping(
+        self, original_ranges: list[tuple[float, float]], kept_ranges: list[tuple[float, float]]
+    ) -> None:
         """マッピングテーブルを構築"""
         current_time = 0.0
 

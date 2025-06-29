@@ -8,6 +8,7 @@ TextffCut 2段階処理アーキテクチャ用データモデル
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
+from pathlib import Path
 from typing import Any
 
 
@@ -110,17 +111,15 @@ class TranscriptionSegmentV2:
                 if isinstance(w, WordInfo):
                     if w.is_valid():
                         return True
-                elif isinstance(w, dict):
-                    if w.get("start") is not None and w.get("end") is not None:
-                        return True
+                elif isinstance(w, dict) and w.get("start") is not None and w.get("end") is not None:
+                    return True
         if self.chars:
             for c in self.chars:
                 if isinstance(c, CharInfo):
                     if c.is_valid():
                         return True
-                elif isinstance(c, dict):
-                    if c.get("start") is not None and c.get("end") is not None:
-                        return True
+                elif isinstance(c, dict) and c.get("start") is not None and c.get("end") is not None:
+                    return True
         return False
 
     def validate_for_search(self) -> tuple[bool, str | None]:
@@ -182,7 +181,9 @@ class TranscriptionSegmentV2:
 
     def _convert_words_to_dict(self) -> list[dict[str, Any]]:
         """wordsを辞書形式に変換（WordInfoオブジェクトと辞書の両方に対応）"""
-        result = []
+        result: list[dict[str, Any]] = []
+        if self.words is None:
+            return result
         for w in self.words:
             if isinstance(w, dict):
                 result.append(w)
@@ -195,7 +196,9 @@ class TranscriptionSegmentV2:
 
     def _convert_chars_to_dict(self) -> list[dict[str, Any]]:
         """charsを辞書形式に変換（CharInfoオブジェクトと辞書の両方に対応）"""
-        result = []
+        result: list[dict[str, Any]] = []
+        if self.chars is None:
+            return result
         for c in self.chars:
             if isinstance(c, dict):
                 result.append(c)
@@ -270,7 +273,7 @@ class TranscriptionSegmentV2:
 class ProcessingMetadata:
     """処理に関するメタデータ"""
 
-    video_path: str
+    video_path: str | Path
     video_duration: float
     processing_mode: str  # "api" or "local"
     model_size: str
@@ -292,13 +295,13 @@ class ProcessingMetadata:
     errors: list[dict[str, Any]] = field(default_factory=list)
     warnings: list[dict[str, Any]] = field(default_factory=list)
 
-    def add_error(self, stage: str, error: str, details: dict[str, Any] | None = None):
+    def add_error(self, stage: str, error: str, details: dict[str, Any] | None = None) -> None:
         """エラーを記録"""
         self.errors.append(
             {"stage": stage, "error": error, "details": details or {}, "timestamp": datetime.now().isoformat()}
         )
 
-    def add_warning(self, stage: str, warning: str, details: dict[str, Any] | None = None):
+    def add_warning(self, stage: str, warning: str, details: dict[str, Any] | None = None) -> None:
         """警告を記録"""
         self.warnings.append(
             {"stage": stage, "warning": warning, "details": details or {}, "timestamp": datetime.now().isoformat()}
@@ -351,11 +354,11 @@ class TranscriptionResultV2:
     aligned_segments: int = 0
     failed_segments: int = 0
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """初期化後の処理"""
         self.update_statistics()
 
-    def update_statistics(self):
+    def update_statistics(self) -> None:
         """統計情報を更新"""
         self.total_segments = len(self.segments)
         self.transcribed_segments = sum(1 for s in self.segments if s.transcription_completed)
@@ -412,9 +415,9 @@ class TranscriptionResultV2:
                 )
 
                 # エラータイプの分類
-                if "words情報が欠落" in error_msg:
+                if error_msg and "words情報が欠落" in error_msg:
                     segments_without_words.append(segment)
-                elif "wordでタイムスタンプが欠落" in error_msg:
+                elif error_msg and "wordでタイムスタンプが欠落" in error_msg:
                     segments_with_invalid_words.append(segment)
 
         # エラーサマリーの作成
@@ -447,7 +450,7 @@ class TranscriptionResultV2:
 
         return is_valid, errors
 
-    def require_valid_words(self):
+    def require_valid_words(self) -> None:
         """
         有効なwords情報を要求（なければ例外を発生）
         主にUI表示前のチェックポイントで使用
@@ -523,7 +526,7 @@ class TranscriptionResultV2:
 class ProcessingRequest:
     """処理リクエストのデータ構造"""
 
-    video_path: str
+    video_path: str | Path
     model_size: str
     language: str
     processing_mode: str  # "api" or "local"
@@ -567,7 +570,7 @@ class AlignmentRequest:
     """アライメント処理リクエスト"""
 
     segments: list[TranscriptionSegmentV2]
-    audio_path: str
+    audio_path: str | Path
     language: str
     device: str = "cpu"
 
@@ -594,7 +597,7 @@ class CacheEntry:
     """キャッシュエントリのデータ構造"""
 
     cache_key: str
-    file_path: str
+    file_path: str | Path
     created_at: datetime
     accessed_at: datetime
 

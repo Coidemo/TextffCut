@@ -7,6 +7,7 @@ TextffCut 2段階処理アーキテクチャ用インターフェース定義
 
 from abc import ABC, abstractmethod
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 from .models import (
@@ -23,7 +24,7 @@ class ITranscriptionProcessor(ABC):
     @abstractmethod
     def transcribe(
         self,
-        audio_path: str,
+        audio_path: str | Path,
         language: str,
         model_size: str,
         progress_callback: Callable[[float, str], None] | None = None,
@@ -76,7 +77,7 @@ class IAlignmentProcessor(ABC):
     def align(
         self,
         segments: list[TranscriptionSegmentV2],
-        audio_path: str,
+        audio_path: str | Path,
         language: str,
         progress_callback: Callable[[float, str], None] | None = None,
     ) -> list[TranscriptionSegmentV2]:
@@ -134,7 +135,7 @@ class ICacheManager(ABC):
     """キャッシュ管理のインターフェース"""
 
     @abstractmethod
-    def get_cache_key(self, video_path: str, model_size: str, processing_mode: str, stage: str) -> str:
+    def get_cache_key(self, video_path: str | Path, model_size: str, processing_mode: str, stage: str) -> str:
         """
         キャッシュキーを生成
 
@@ -197,7 +198,7 @@ class ICacheManager(ABC):
         pass
 
     @abstractmethod
-    def list_caches(self, video_path: str) -> list[CacheEntry]:
+    def list_caches(self, video_path: str | Path) -> list[CacheEntry]:
         """
         指定された動画のキャッシュ一覧を取得
 
@@ -227,7 +228,7 @@ class IProgressReporter(ABC):
     """進捗報告のインターフェース"""
 
     @abstractmethod
-    def report_progress(self, stage: str, current: float, total: float, message: str):
+    def report_progress(self, stage: str, current: float, total: float, message: str) -> None:
         """
         進捗を報告
 
@@ -240,7 +241,7 @@ class IProgressReporter(ABC):
         pass
 
     @abstractmethod
-    def report_error(self, stage: str, error: Exception, recoverable: bool = False):
+    def report_error(self, stage: str, error: Exception, recoverable: bool = False) -> None:
         """
         エラーを報告
 
@@ -252,7 +253,7 @@ class IProgressReporter(ABC):
         pass
 
     @abstractmethod
-    def report_warning(self, stage: str, warning: str, details: dict[str, Any] | None = None):
+    def report_warning(self, stage: str, warning: str, details: dict[str, Any] | None = None) -> None:
         """
         警告を報告
 
@@ -355,7 +356,7 @@ class IUnifiedTranscriber(ABC):
         pass
 
     @abstractmethod
-    def get_available_caches(self, video_path: str) -> list[dict[str, Any]]:
+    def get_available_caches(self, video_path: str | Path) -> list[dict[str, Any]]:
         """
         利用可能なキャッシュのリストを取得
 

@@ -61,7 +61,7 @@ def test_state_persistence_with_output_change():
     }
 
     # 出力ファイル名を変更
-    old_output = session_state.get("output_filename", "output.mp4")
+    session_state.get("output_filename", "output.mp4")
     session_state["output_filename"] = "new_output.mp4"
 
     # タイムライン編集結果が保持されていることを確認
@@ -85,25 +85,24 @@ def test_inline_timeline_editor_behavior():
     print("\n=== インラインタイムラインエディタの動作テスト ===")
 
     # render_timeline_editorがNoneを返すことでインライン表示を継続
-    with patch("streamlit.session_state", {}):
-        with patch("services.timeline_editing_service.TimelineEditingService"):
-            # 編集中はNoneを返す
-            result = None  # 実際の関数は編集中にNoneを返す
-            assert result is None
-            print("✓ 編集中：Noneを返してインライン表示を継続")
+    with patch("streamlit.session_state", {}), patch("services.timeline_editing_service.TimelineEditingService"):
+        # 編集中はNoneを返す
+        result = None  # 実際の関数は編集中にNoneを返す
+        assert result is None
+        print("✓ 編集中：Noneを返してインライン表示を継続")
 
-            # 編集完了時は調整後の時間範囲を返す
-            result = [(0.5, 9.5), (20.5, 29.5)]  # 実際の関数は完了時に時間範囲を返す
-            assert result is not None
-            assert isinstance(result, list)
-            print("✓ 編集完了：調整後の時間範囲を返す")
+        # 編集完了時は調整後の時間範囲を返す
+        result = [(0.5, 9.5), (20.5, 29.5)]  # 実際の関数は完了時に時間範囲を返す
+        assert result is not None
+        assert isinstance(result, list)
+        print("✓ 編集完了：調整後の時間範囲を返す")
 
-            # キャンセル時もNoneを返すが、show_timeline_sectionがFalseになる
-            result = None
-            session_state_after_cancel = {"show_timeline_section": False}
-            assert result is None
-            assert session_state_after_cancel.get("show_timeline_section") == False
-            print("✓ キャンセル：Noneを返し、show_timeline_sectionがFalseに")
+        # キャンセル時もNoneを返すが、show_timeline_sectionがFalseになる
+        result = None
+        session_state_after_cancel = {"show_timeline_section": False}
+        assert result is None
+        assert session_state_after_cancel.get("show_timeline_section") == False
+        print("✓ キャンセル：Noneを返し、show_timeline_sectionがFalseに")
 
     print("\n✅ インラインタイムラインエディタの動作テスト完了")
 

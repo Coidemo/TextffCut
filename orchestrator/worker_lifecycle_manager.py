@@ -61,7 +61,7 @@ class WorkerLifecycleManager:
         num_workers: int = 2,
         max_restart_count: int = 3,
         heartbeat_timeout: float = 30.0,
-    ):
+    ) -> None:
         """
         初期化
 

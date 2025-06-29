@@ -13,7 +13,7 @@ from typing import Any
 import numpy as np
 
 try:
-    import torch
+    import torch  # noqa: F401
     import whisperx
 
     WHISPERX_AVAILABLE = True
@@ -40,14 +40,14 @@ class SmartSplitTranscriber(Transcriber):
     MAX_DURATION = 15 * 60  # 最大15分
     MIN_SPLIT_DURATION = 15 * 60  # 15分以下は分割しない
 
-    def __init__(self, config: Config):
+    def __init__(self, config: Config) -> None:
         """初期化"""
         super().__init__(config)
         self.video_processor = VideoProcessor(config)
 
     def transcribe(
         self,
-        video_path: str,
+        video_path: str | Path,
         model_size: str | None = None,
         progress_callback: Callable[[float, str], None] | None = None,
         use_cache: bool = True,
@@ -88,11 +88,11 @@ class SmartSplitTranscriber(Transcriber):
         video_info = VideoInfo.from_file(video_path)
         duration = video_info.duration
 
-        logger.info(f"動画時間: {duration/60:.1f}分")
+        logger.info(f"動画時間: {duration / 60:.1f}分")
 
         # 分割判定
         if duration <= self.MIN_SPLIT_DURATION:
-            logger.info(f"{self.MIN_SPLIT_DURATION/60:.0f}分以下なので分割せずに処理")
+            logger.info(f"{self.MIN_SPLIT_DURATION / 60:.0f}分以下なので分割せずに処理")
             result = self._transcribe_full_vad(video_path, model_size, progress_callback)
         else:
             logger.info("スマート分割処理を開始")
@@ -105,7 +105,7 @@ class SmartSplitTranscriber(Transcriber):
         return result
 
     def _transcribe_full_vad(
-        self, video_path: str, model_size: str, progress_callback: Callable | None = None
+        self, video_path: str | Path, model_size: str, progress_callback: Callable | None = None
     ) -> TranscriptionResult:
         """WhisperXのFull VAD処理で文字起こし"""
         start_time = time.time()
@@ -176,7 +176,7 @@ class SmartSplitTranscriber(Transcriber):
         )
 
     def _transcribe_with_split(
-        self, video_path: str, model_size: str, duration: float, progress_callback: Callable | None = None
+        self, video_path: str | Path, model_size: str, duration: float, progress_callback: Callable | None = None
     ) -> TranscriptionResult:
         """分割して文字起こし"""
         start_time = time.time()
@@ -201,7 +201,7 @@ class SmartSplitTranscriber(Transcriber):
         for i, (start, end) in enumerate(split_points):
             segment_duration = end - start
             logger.info(
-                f"セグメント {i+1}/{total_segments}: {start/60:.1f}分 - {end/60:.1f}分 ({segment_duration/60:.1f}分)"
+                f"セグメント {i + 1}/{total_segments}: {start / 60:.1f}分 - {end / 60:.1f}分 ({segment_duration / 60:.1f}分)"
             )
 
             # プログレス計算
@@ -212,7 +212,7 @@ class SmartSplitTranscriber(Transcriber):
             def segment_callback(progress, status):
                 if progress_callback:
                     total_progress = base_progress + (progress * segment_progress_weight)
-                    progress_callback(total_progress, f"セグメント {i+1}/{total_segments}: {status}")
+                    progress_callback(total_progress, f"セグメント {i + 1}/{total_segments}: {status}")
 
             # セグメントを処理
             segment_result = self._process_segment(video_path, start, end, model_size, segment_callback)
@@ -230,7 +230,7 @@ class SmartSplitTranscriber(Transcriber):
 
         return merged_result
 
-    def _detect_silence_regions(self, video_path: str) -> list[SilenceInfo]:
+    def _detect_silence_regions(self, video_path: str | Path) -> list[SilenceInfo]:
         """無音部分を検出"""
         # メモリ不足対策: 無音検出をスキップするオプション
         if os.environ.get("SKIP_SILENCE_DETECTION", "false").lower() == "true":
@@ -289,7 +289,7 @@ class SmartSplitTranscriber(Transcriber):
             n_splits = max(1, n_splits - 1)
             ideal_duration = total_duration / n_splits
 
-        logger.info(f"理想的な分割: {n_splits}個 x {ideal_duration/60:.1f}分")
+        logger.info(f"理想的な分割: {n_splits}個 x {ideal_duration / 60:.1f}分")
 
         # 分割点を探す
         split_times = [0.0]
@@ -302,11 +302,11 @@ class SmartSplitTranscriber(Transcriber):
 
             if best_silence is not None:
                 split_times.append(best_silence)
-                logger.info(f"分割点 {i}: {best_silence/60:.1f}分（目標: {target_time/60:.1f}分）")
+                logger.info(f"分割点 {i}: {best_silence / 60:.1f}分（目標: {target_time / 60:.1f}分）")
             else:
                 # 無音が見つからない場合は目標時間で分割
                 split_times.append(target_time)
-                logger.warning(f"分割点 {i}: 無音が見つからないため {target_time/60:.1f}分で分割")
+                logger.warning(f"分割点 {i}: 無音が見つからないため {target_time / 60:.1f}分で分割")
 
         split_times.append(total_duration)
 
@@ -341,7 +341,12 @@ class SmartSplitTranscriber(Transcriber):
         return best_silence
 
     def _process_segment(
-        self, video_path: str, start: float, end: float, model_size: str, progress_callback: Callable | None = None
+        self,
+        video_path: str | Path,
+        start: float,
+        end: float,
+        model_size: str,
+        progress_callback: Callable | None = None,
     ) -> dict[str, Any]:
         """セグメントを処理"""
         # 音声セグメントを抽出
@@ -363,7 +368,7 @@ class SmartSplitTranscriber(Transcriber):
 
         return result
 
-    def _extract_audio_segment(self, video_path: str, start: float, end: float) -> np.ndarray:
+    def _extract_audio_segment(self, video_path: str | Path, start: float, end: float) -> np.ndarray:
         """音声セグメントを抽出"""
         import subprocess
 
@@ -439,7 +444,7 @@ class SmartSplitTranscriber(Transcriber):
             return result
 
     def _merge_results(
-        self, results: list[tuple[int, dict[str, Any]]], video_path: str, model_size: str
+        self, results: list[tuple[int, dict[str, Any]]], video_path: str | Path, model_size: str
     ) -> TranscriptionResult:
         """結果を統合"""
         # インデックス順にソート
@@ -469,7 +474,6 @@ class SmartSplitTranscriber(Transcriber):
     def _get_optimal_batch_size(self) -> int:
         """最適なバッチサイズを取得"""
         # デフォルトバッチサイズ定数
-        DEFAULT_BATCH_SIZE_GPU = 16
         DEFAULT_BATCH_SIZE_CPU = 4
 
         # 利用可能メモリを取得
@@ -489,7 +493,7 @@ class SmartSplitTranscriber(Transcriber):
 
     def _transcribe_api_optimized(
         self,
-        video_path: str,
+        video_path: str | Path,
         model_size: str | None = None,
         progress_callback: Callable | None = None,
         use_cache: bool = True,
@@ -501,7 +505,7 @@ class SmartSplitTranscriber(Transcriber):
         video_info = VideoInfo.from_file(video_path)
         duration = video_info.duration
 
-        logger.info(f"APIモード最適化：動画時間 {duration/60:.1f}分")
+        logger.info(f"APIモード最適化：動画時間 {duration / 60:.1f}分")
 
         # 25分以下の場合は通常のAPI処理
         if duration <= self.MIN_SPLIT_DURATION:
@@ -521,7 +525,7 @@ class SmartSplitTranscriber(Transcriber):
 
     def _transcribe_api_with_split_alignment(
         self,
-        video_path: str,
+        video_path: str | Path,
         model_size: str,
         duration: float,
         progress_callback: Callable | None = None,
@@ -592,7 +596,7 @@ class SmartSplitTranscriber(Transcriber):
 
                 if progress_callback:
                     base_progress = 0.5 + (0.45 * i / n_splits)
-                    progress_callback(base_progress, f"アライメント処理 {i+1}/{n_splits}")
+                    progress_callback(base_progress, f"アライメント処理 {i + 1}/{n_splits}")
 
                 # この時間範囲のセグメントを抽出
                 chunk_segments = [seg for seg in segments if start_time <= seg.start < end_time]

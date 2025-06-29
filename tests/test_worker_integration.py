@@ -129,7 +129,7 @@ def compare_basic_structure():
         print(f"✅ model_size={config.model_size}, task_type={config.task_type}")
 
         # TranscriptionWorkerの初期化テスト
-        worker = TranscriptionWorker(config_path)
+        TranscriptionWorker(config_path)
         print("✅ TranscriptionWorkerの初期化成功")
 
         return True
@@ -157,7 +157,7 @@ def compare_memory_manager():
 
         # 両方で同じモデルサイズで初期化
         old_optimizer = OldOptimizer("base")
-        old_monitor = OldMonitor()
+        OldMonitor()
 
         new_manager = MemoryManager("base")
 

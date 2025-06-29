@@ -21,12 +21,12 @@ from utils.logging import get_logger
 logger = get_logger(__name__)
 
 
-def run_integration_test():
+def run_integration_test() -> None:
     """統合テストを実行"""
     print("=== Orchestrator Integration Test ===")
 
     # テスト用の設定
-    config = Config()
+    Config()
 
     # プロセスプールを作成（2ワーカー）
     pool = ProcessPool(num_workers=2)
@@ -50,17 +50,18 @@ def run_integration_test():
         "compute_type": "int8",
     }
 
-    for i in range(pool.num_workers):
+    for _ in range(pool.num_workers):
         pool.submit_task(f"init_{i}", init_task)
         print(f"→ Sent initialization task to worker {i}")
 
     # 初期化結果を待つ
     init_results = []
-    for i in range(pool.num_workers):
+    for _ in range(pool.num_workers):
         result = pool.get_result(timeout=30.0)
         if result and result.msg_type == MessageType.TASK_RESULT:
             init_results.append(result)
-            print(f"← Worker initialized: memory={result.data.get('current_memory_mb', 0):.1f}MB")
+            memory_mb = result.data.get("current_memory_mb", 0) if result.data else 0
+            print(f"← Worker initialized: memory={memory_mb:.1f}MB")
         elif result and result.msg_type == MessageType.TASK_ERROR:
             print(f"✗ Initialization failed: {result.error}")
             pool.shutdown()
@@ -78,7 +79,8 @@ def run_integration_test():
             break
         if msg.msg_type == MessageType.MEMORY_STATUS:
             memory_reports.append(msg)
-            print(f"← Memory report from {msg.worker_id}: {msg.data.get('memory_percent', 0):.1f}%")
+            memory_percent = msg.data.get("memory_percent", 0) if msg.data else 0
+            print(f"← Memory report from {msg.worker_id}: {memory_percent:.1f}%")
 
     # 3. ダミーセグメントでの並列処理テスト
     print("\n--- Phase 3: Parallel Processing Test ---")
@@ -103,7 +105,7 @@ def run_integration_test():
     # 結果を収集
     results = []
     errors = []
-    for i in range(len(dummy_segments)):
+    for _ in range(len(dummy_segments)):
         result = pool.get_result(timeout=10.0)
         if result:
             if result.msg_type == MessageType.TASK_RESULT:
@@ -113,7 +115,8 @@ def run_integration_test():
                 errors.append(result)
                 print(f"✗ Segment error: {result.error}")
             elif result.msg_type == MessageType.PROGRESS_UPDATE:
-                print(f"  Progress: {result.data.get('progress', 0):.1%} - {result.data.get('message', '')}")
+                if result.data:
+                    print(f"  Progress: {result.data.get('progress', 0):.1%} - {result.data.get('message', '')}")
 
     # 4. バッチ処理テスト
     print("\n--- Phase 4: Batch Processing Test ---")
@@ -132,7 +135,8 @@ def run_integration_test():
     batch_result = pool.get_result(timeout=15.0)
     if batch_result:
         if batch_result.msg_type == MessageType.TASK_RESULT:
-            print(f"← Batch completed: {batch_result.data.get('processed_count', 0)} segments")
+            processed_count = batch_result.data.get("processed_count", 0) if batch_result.data else 0
+            print(f"← Batch completed: {processed_count} segments")
         elif batch_result.msg_type == MessageType.TASK_ERROR:
             print(f"✗ Batch error: {batch_result.error}")
 

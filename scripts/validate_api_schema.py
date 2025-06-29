@@ -51,7 +51,7 @@ def check_api_consistency():
                 print("✅ Whisper API料金: $0.006/分で一致")
             else:
                 print("⚠️  main.pyのAPI料金を確認してください")
-    except:
+    except Exception:
         print("⚠️  main.pyが見つかりません")
 
 

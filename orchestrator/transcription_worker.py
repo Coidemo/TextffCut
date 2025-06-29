@@ -132,7 +132,7 @@ class TranscriptionWorker:
         for i in range(0, len(segments), batch_size):
             batch = segments[i : i + batch_size]
 
-            self.logger.info(f"バッチ処理: {i+1}-{min(i+batch_size, len(segments))}/{len(segments)}")
+            self.logger.info(f"バッチ処理: {i + 1}-{min(i + batch_size, len(segments))}/{len(segments)}")
 
             # 並列処理
             batch_results = self._process_batch_parallel(batch, audio_path, chunk_duration)

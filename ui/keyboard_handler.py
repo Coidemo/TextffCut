@@ -16,7 +16,7 @@ logger = get_logger(__name__)
 class KeyboardShortcuts:
     """キーボードショートカット管理クラス"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.shortcuts: dict[str, dict[str, Any]] = {
             # 再生制御
             "space": {"description": "再生/停止", "action": "toggle_playback", "modifier": None},
@@ -71,7 +71,7 @@ class KeyboardShortcuts:
         self.action_handlers: dict[str, Callable | None] = {}
         self.enabled = True
 
-    def register_handler(self, action: str, handler: Callable):
+    def register_handler(self, action: str, handler: Callable) -> None:
         """アクションハンドラーを登録"""
         self.action_handlers[action] = handler
         logger.debug(f"Registered handler for action: {action}")
@@ -164,16 +164,16 @@ class KeyboardShortcuts:
 
         return "\n".join(help_lines)
 
-    def enable(self):
+    def enable(self) -> None:
         """ショートカットを有効化"""
         self.enabled = True
 
-    def disable(self):
+    def disable(self) -> None:
         """ショートカットを無効化"""
         self.enabled = False
 
 
-def inject_keyboard_handler_script():
+def inject_keyboard_handler_script() -> None:
     """
     キーボードイベントハンドラーのJavaScriptを注入
     Streamlitページに追加して使用
@@ -188,7 +188,7 @@ def inject_keyboard_handler_script():
             e.target.isContentEditable) {
             return;
         }
-        
+
         // Streamlitのイベント送信
         const keyEvent = {
             key: e.key,
@@ -198,13 +198,13 @@ def inject_keyboard_handler_script():
             altKey: e.altKey,
             metaKey: e.metaKey
         };
-        
+
         // カスタムイベントを発火
         window.parent.postMessage({
             type: 'keyboard_event',
             data: keyEvent
         }, '*');
-        
+
         // デフォルト動作を抑制（Space, Arrow keys）
         if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
             e.preventDefault();

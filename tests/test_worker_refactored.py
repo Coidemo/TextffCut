@@ -100,7 +100,7 @@ class TestMemoryManager(unittest.TestCase):
         mock_optimizer_class.return_value = mock_optimizer
         mock_monitor_class.return_value = mock_monitor
 
-        manager = MemoryManager("base")
+        MemoryManager("base")
 
         mock_optimizer_class.assert_called_once_with("base")
         mock_monitor_class.assert_called_once()
@@ -242,7 +242,7 @@ class TestTranscriptionWorker(unittest.TestCase):
         mock_loader.load.return_value = mock_config
         mock_loader_class.return_value = mock_loader
 
-        worker = TranscriptionWorker(self.temp_file.name)
+        TranscriptionWorker(self.temp_file.name)
 
         mock_loader_class.assert_called_once_with(self.temp_file.name)
         mock_loader.load.assert_called_once()

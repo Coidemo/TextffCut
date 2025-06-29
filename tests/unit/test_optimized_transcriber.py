@@ -209,9 +209,6 @@ class TestOptimizedTranscriber(unittest.TestCase):
         with self.assertRaises(FileNotFoundError):
             transcriber.transcribe("test.mp4", model_size="base")
 
-            # フォールバックが呼ばれたことを確認
-            mock_fallback.assert_called_once()
-
 
 if __name__ == "__main__":
     unittest.main()

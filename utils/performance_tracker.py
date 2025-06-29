@@ -27,7 +27,7 @@ class PerformanceMetrics:
     api_chunks: int = 0
     alignment_chunks: int = 0
 
-    def calculate_metrics(self):
+    def calculate_metrics(self) -> None:
         """メトリクスを計算"""
         if self.end_time and self.start_time:
             self.duration_seconds = self.end_time - self.start_time
@@ -63,9 +63,9 @@ class PerformanceMetrics:
 class PerformanceTracker:
     """パフォーマンス追跡クラス"""
 
-    def __init__(self, video_path: str):
+    def __init__(self, video_path: str | Path) -> None:
         self.video_path = video_path
-        self.metrics = None
+        self.metrics: PerformanceMetrics | None = None
         self.history_file = self._get_history_file()
 
     def _get_history_file(self) -> Path:
@@ -94,7 +94,7 @@ class PerformanceTracker:
         )
         return self.metrics
 
-    def end_tracking(self, segments_processed: int = 0, api_chunks: int = 0, alignment_chunks: int = 0):
+    def end_tracking(self, segments_processed: int = 0, api_chunks: int = 0, alignment_chunks: int = 0) -> None:
         """パフォーマンス追跡を終了"""
         if self.metrics:
             self.metrics.end_time = time.time()
@@ -106,7 +106,7 @@ class PerformanceTracker:
             # 履歴に保存
             self._save_to_history(self.metrics)
 
-    def _save_to_history(self, metrics: PerformanceMetrics):
+    def _save_to_history(self, metrics: PerformanceMetrics) -> None:
         """履歴に保存"""
         history = self.load_history()
         history.append(metrics.to_dict())
@@ -125,7 +125,7 @@ class PerformanceTracker:
         try:
             with open(self.history_file, encoding="utf-8") as f:
                 return json.load(f)
-        except:
+        except Exception:
             return []
 
     def get_mode_statistics(self) -> dict[str, dict[str, float]]:
@@ -163,7 +163,7 @@ class PerformanceTracker:
                     stats["min_realtime_factor"] = rf
 
         # 平均を計算
-        for mode, stats in mode_stats.items():
+        for _, stats in mode_stats.items():
             if stats["count"] > 0 and stats["total_duration"] > 0:
                 stats["avg_realtime_factor"] = stats["total_video_duration"] / stats["total_duration"]
 

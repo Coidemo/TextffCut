@@ -96,7 +96,7 @@ def test_actual_calls():
             segments = [TranscriptionSegmentV2(id=0, start=0.0, end=5.0, text="test", words=[])]
 
             try:
-                result = service.remove_silence(video_path="/tmp/test.mp4", segments=segments, threshold=-35.0)
+                service.remove_silence(video_path="/tmp/test.mp4", segments=segments, threshold=-35.0)
 
                 # メソッドが呼ばれたか確認
                 if mock_method.called:

@@ -16,12 +16,14 @@ from core.types import (
     TimeSeconds,
     ValidationResult,
     VideoPath,
-    WordInfo,
+)
+from core.types import (
+    WordInfo as WordInfoDict,
 )
 
 
 @dataclass
-class WordInfo:
+class WordInfoData:
     """単語情報（型安全版）"""
 
     word: str
@@ -38,9 +40,27 @@ class WordInfo:
         return {"word": self.word, "start": self.start, "end": self.end, "confidence": self.confidence}
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "WordInfo":
+    def from_dict(cls, data: dict[str, Any]) -> "WordInfoData":
         """辞書から生成"""
         return cls(word=data["word"], start=data.get("start"), end=data.get("end"), confidence=data.get("confidence"))
+
+
+@dataclass
+class CharInfo:
+    """文字情報"""
+
+    char: str
+    start: TimeSeconds | None = None
+    end: TimeSeconds | None = None
+    confidence: float | None = None
+
+    def is_valid(self) -> bool:
+        """有効な文字情報かチェック"""
+        return self.start is not None and self.end is not None
+
+    def to_dict(self) -> dict[str, Any]:
+        """辞書形式に変換"""
+        return {"char": self.char, "start": self.start, "end": self.end, "confidence": self.confidence}
 
 
 @dataclass
@@ -53,7 +73,7 @@ class TranscriptionSegmentV2:
     text: str
     start: TimeSeconds
     end: TimeSeconds
-    words: list[WordInfo | dict[str, Any]] | None = None
+    words: list[WordInfoData | dict[str, Any]] | None = None
     chars: list[Union["CharInfo", dict[str, Any]]] | None = None
     confidence: float | None = None
     language: str | None = None
@@ -80,9 +100,9 @@ class TranscriptionSegmentV2:
 
         return False
 
-    def _is_word_valid(self, word: WordInfo | dict[str, Any]) -> bool:
+    def _is_word_valid(self, word: WordInfoData | dict[str, Any]) -> bool:
         """単語情報が有効かチェック"""
-        if isinstance(word, WordInfo):
+        if isinstance(word, WordInfoData):
             return word.is_valid()
         elif isinstance(word, dict):
             return word.get("start") is not None and word.get("end") is not None
@@ -126,7 +146,7 @@ class TranscriptionSegmentV2:
 
         return True, None
 
-    def get_word_at_position(self, char_position: int) -> WordInfo | dict[str, Any] | None:
+    def get_word_at_position(self, char_position: int) -> WordInfoData | dict[str, Any] | None:
         """指定された文字位置の単語情報を取得"""
         if not self.words:
             return None
@@ -134,7 +154,7 @@ class TranscriptionSegmentV2:
         current_pos: int = 0
         for word in self.words:
             word_text: str = ""
-            if isinstance(word, WordInfo):
+            if isinstance(word, WordInfoData):
                 word_text = word.word
             elif isinstance(word, dict):
                 word_text = word.get("word", "")
@@ -174,21 +194,27 @@ class TranscriptionSegmentV2:
 
         return result
 
-    def _convert_words_to_dict(self) -> list[dict[str, Any]]:
+    def _convert_words_to_dict(self) -> list[WordInfoDict]:
         """wordsを辞書形式に変換"""
         if not self.words:
             return []
 
-        result: list[dict[str, Any]] = []
+        result: list[WordInfoDict] = []
         for w in self.words:
             if isinstance(w, dict):
-                result.append(w)
+                # すでに辞書形式の場合はそのまま使用
+                result.append(w)  # type: ignore
             elif hasattr(w, "to_dict"):
-                result.append(w.to_dict())
+                result.append(w.to_dict())  # type: ignore
             else:
-                # WordInfoオブジェクトの場合
+                # WordInfoDataオブジェクトの場合
                 result.append(
-                    {"word": w.word, "start": w.start, "end": w.end, "confidence": getattr(w, "confidence", None)}
+                    {
+                        "word": w.word,
+                        "start": w.start or 0.0,
+                        "end": w.end or 0.0,
+                        "confidence": getattr(w, "confidence", None),
+                    }
                 )
         return result
 
@@ -363,12 +389,12 @@ class TranscriptionResultV2:
         for i, segment in enumerate(self.segments):
             is_valid, error = segment.validate_for_search()
             if not is_valid:
-                invalid_segments.append(f"セグメント{i+1}: {error}")
+                invalid_segments.append(f"セグメント{i + 1}: {error}")
 
         if invalid_segments:
             errors.extend(invalid_segments[:5])  # 最初の5件のみ
             if len(invalid_segments) > 5:
-                errors.append(f"...他{len(invalid_segments)-5}件のエラー")
+                errors.append(f"...他{len(invalid_segments) - 5}件のエラー")
 
         # メタデータの検証
         if not self.metadata:

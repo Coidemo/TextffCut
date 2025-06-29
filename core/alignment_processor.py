@@ -10,6 +10,8 @@ import os
 import subprocess
 import tempfile
 from collections.abc import Callable
+from contextlib import suppress
+from pathlib import Path
 from typing import Any
 
 from config import Config
@@ -38,7 +40,7 @@ class AlignmentProcessor(IAlignmentProcessor):
     # デフォルト値
     DEFAULT_BATCH_SIZE = BatchSizeLimits.DEFAULT
 
-    def __init__(self, config: Config, batch_size: int | None = None):
+    def __init__(self, config: Config, batch_size: int | None = None) -> None:
         """初期化
 
         Args:
@@ -56,7 +58,7 @@ class AlignmentProcessor(IAlignmentProcessor):
 
     def run_diagnostic(
         self,
-        audio_path: str,
+        audio_path: str | Path,
         language: str,
         sample_segments: list[TranscriptionSegmentV2] | None = None,
         progress_callback: Callable[[float, str], None] | None = None,
@@ -89,6 +91,10 @@ class AlignmentProcessor(IAlignmentProcessor):
             "max_safe_batch_size": self.DEFAULT_BATCH_SIZE,
             "diagnostic_completed": False,
         }
+
+        # 変数を事前に初期化（linter対策）
+        full_audio = None
+        test_audio = None
 
         try:
             # Step 1: アライメントモデルのロード
@@ -196,18 +202,19 @@ class AlignmentProcessor(IAlignmentProcessor):
                     test_batch = sample_segments[:test_size]
                     start_memory = memory_monitor.get_memory_usage()
 
-                    # 実際にアライメント処理を実行（エラーは無視）
-                    try:
+                    # 実際にアライメント処理を実行
+                    # エラーは無視する（メモリ測定が目的のため、処理の成否は問わない）
+                    with suppress(Exception):
                         self._process_batch(test_batch, full_audio, language)
-                    except Exception:
-                        pass  # アライメントエラーは無視（メモリ測定が目的）
 
                     end_memory = memory_monitor.get_memory_usage()
                     memory_increase = end_memory - start_memory
                     memory_increases.append(memory_increase / test_size)  # 1セグメントあたり
 
+                    per_segment = memory_increase / test_size
                     logger.info(
-                        f"バッチサイズ {test_size}: メモリ増加 {memory_increase:.1f}% ({memory_increase/test_size:.1f}%/セグメント)"
+                        f"バッチサイズ {test_size}: メモリ増加 {memory_increase:.1f}% "
+                        f"({per_segment:.1f}%/セグメント)"
                     )
 
                     # メモリが高すぎる場合は中断
@@ -266,6 +273,7 @@ class AlignmentProcessor(IAlignmentProcessor):
 
         finally:
             # 音声データのクリーンアップ
+            # 変数が存在する場合のみ削除
             if "full_audio" in locals():
                 del full_audio
             if "test_audio" in locals():
@@ -276,10 +284,9 @@ class AlignmentProcessor(IAlignmentProcessor):
             if self.temp_dir and os.path.exists(self.temp_dir):
                 import shutil
 
-                try:
+                # 一時ディレクトリの削除エラーは無視（既に削除されている場合など）
+                with suppress(OSError):
                     shutil.rmtree(self.temp_dir)
-                except:
-                    pass
                 self.temp_dir = None
 
         return diagnostic_result
@@ -301,7 +308,7 @@ class AlignmentProcessor(IAlignmentProcessor):
     def align(
         self,
         segments: list[TranscriptionSegmentV2],
-        audio_path: str,
+        audio_path: str | Path,
         language: str,
         progress_callback: Callable[[float, str], None] | None = None,
     ) -> list[TranscriptionSegmentV2]:
@@ -375,10 +382,9 @@ class AlignmentProcessor(IAlignmentProcessor):
             if self.temp_dir and os.path.exists(self.temp_dir):
                 import shutil
 
-                try:
+                # 一時ディレクトリの削除エラーは無視（既に削除されている場合など）
+                with suppress(OSError):
                     shutil.rmtree(self.temp_dir)
-                except:
-                    pass
 
     def align_single_segment(
         self, segment: TranscriptionSegmentV2, audio_data: Any, language: str
@@ -483,7 +489,7 @@ class AlignmentProcessor(IAlignmentProcessor):
         except ImportError:
             return False
 
-    def _load_align_model(self, language: str):
+    def _load_align_model(self, language: str) -> None:
         """アライメントモデルを読み込み"""
         try:
             import whisperx
@@ -496,9 +502,9 @@ class AlignmentProcessor(IAlignmentProcessor):
 
         except Exception as e:
             logger.error(f"アライメントモデルの読み込みエラー: {str(e)}")
-            raise AlignmentError(f"アライメントモデルの読み込みに失敗: {str(e)}")
+            raise AlignmentError(f"アライメントモデルの読み込みに失敗: {str(e)}") from e
 
-    def _load_audio(self, audio_path: str) -> Any:
+    def _load_audio(self, audio_path: str | Path) -> Any:
         """音声データを読み込み"""
         try:
             import whisperx
@@ -512,7 +518,7 @@ class AlignmentProcessor(IAlignmentProcessor):
             # FFmpegで変換を試みる
             return self._load_audio_with_ffmpeg(audio_path)
 
-    def _load_audio_with_ffmpeg(self, audio_path: str) -> Any:
+    def _load_audio_with_ffmpeg(self, audio_path: str | Path) -> Any:
         """FFmpegを使用して音声を読み込み"""
         temp_wav = os.path.join(self.temp_dir, "temp_audio.wav")
 
@@ -554,7 +560,7 @@ class AlignmentProcessor(IAlignmentProcessor):
 
         return segments
 
-    def _fix_word_continuity(self, words: list[Any]):
+    def _fix_word_continuity(self, words: list[Any]) -> None:
         """単語タイムスタンプの連続性を修正"""
         for i in range(1, len(words)):
             # 辞書形式に対応
@@ -565,23 +571,28 @@ class AlignmentProcessor(IAlignmentProcessor):
                 prev_end = prev_word.get("end")
                 curr_start = curr_word.get("start")
 
-                if prev_end and curr_start:
+                if prev_end and curr_start and prev_end > curr_start:
                     # 前の単語の終了時刻が次の単語の開始時刻より後の場合
-                    if prev_end > curr_start:
-                        # 中間点で分割
-                        mid_point = (prev_end + curr_start) / 2
-                        prev_word["end"] = mid_point
-                        curr_word["start"] = mid_point
+                    # 中間点で分割
+                    mid_point = (prev_end + curr_start) / 2
+                    prev_word["end"] = mid_point
+                    curr_word["start"] = mid_point
             else:
                 # WordInfoオブジェクトの場合（レガシー対応）
-                if hasattr(prev_word, "end") and hasattr(curr_word, "start"):
-                    if prev_word.end and curr_word.start:
-                        if prev_word.end > curr_word.start:
-                            mid_point = (prev_word.end + curr_word.start) / 2
-                            prev_word.end = mid_point
-                            curr_word.start = mid_point
+                if (
+                    hasattr(prev_word, "end")
+                    and hasattr(curr_word, "start")
+                    and prev_word.end
+                    and curr_word.start
+                    and prev_word.end > curr_word.start
+                ):
+                    mid_point = (prev_word.end + curr_word.start) / 2
+                    prev_word.end = mid_point
+                    curr_word.start = mid_point
 
-    def _adjust_segment_boundary(self, prev_segment: TranscriptionSegmentV2, curr_segment: TranscriptionSegmentV2):
+    def _adjust_segment_boundary(
+        self, prev_segment: TranscriptionSegmentV2, curr_segment: TranscriptionSegmentV2
+    ) -> None:
         """セグメント境界を調整"""
         # 前のセグメントの最後の単語
         prev_end = prev_segment.end
@@ -659,7 +670,7 @@ class AlignmentProcessor(IAlignmentProcessor):
         return segment
 
     def _fallback_alignment(
-        self, segments: list[TranscriptionSegmentV2], audio_path: str
+        self, segments: list[TranscriptionSegmentV2], _audio_path: str | Path
     ) -> list[TranscriptionSegmentV2]:
         """エラー時のフォールバック処理"""
         logger.warning("アライメントエラーのため、推定処理を実行")

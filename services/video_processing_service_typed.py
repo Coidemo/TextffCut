@@ -9,11 +9,11 @@ from typing import Any, NamedTuple, TypeVar
 
 from config import Config
 from core.constants import SilenceDetection
+from core.error_handling import ProcessingError, ValidationError
 from core.models import TranscriptionSegmentV2
 from core.types import (
     ProgressCallback,
     SilenceDetectionOptions,
-    TimeRange,
     TimeSeconds,
     VideoMetadata,
     VideoPath,
@@ -168,10 +168,10 @@ class VideoProcessingService(BaseService):
             for i, segment in enumerate(segments):
                 if wrapped_callback:
                     progress: float = i / len(segments)
-                    wrapped_callback(progress, f"セグメント {i+1}/{len(segments)} を切り出し中")
+                    wrapped_callback(progress, f"セグメント {i + 1}/{len(segments)} を切り出し中")
 
                 # 出力ファイル名を生成
-                output_file: Path = output_path / f"segment_{i+1:04d}.{format}"
+                output_file: Path = output_path / f"segment_{i + 1:04d}.{format}"
 
                 # セグメントを切り出し
                 success: bool = self._extract_single_segment(video_file, segment, output_file)

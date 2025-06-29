@@ -59,7 +59,7 @@ def test_waveform_generation():
 
     print("\nGenerating waveform visualizations...")
 
-    for i, waveform_data in enumerate(waveform_data_list):
+    for _, waveform_data in enumerate(waveform_data_list):
         # 無音領域を検出
         silence_regions = processor.detect_silence_regions(waveform_data)
 
@@ -103,7 +103,7 @@ def test_silence_detection():
 
     # 波形生成：最初の1秒は音あり、次の1秒は無音、その後音あり
     samples = []
-    for i, time in enumerate(t):
+    for _, time in enumerate(t):
         if 1.0 <= time <= 2.0 or 3.5 <= time <= 4.0:
             # 無音部分
             samples.append(0.0001 * np.random.randn())

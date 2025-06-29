@@ -53,4 +53,5 @@ __all__ = [
     "LOGS_DIR",
     "TEMP_DIR",
     "DEFAULT_HOST_PATH",
+    "run_command_with_timeout",
 ]

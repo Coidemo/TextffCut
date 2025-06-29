@@ -168,7 +168,7 @@ class ProcessTranscriptionWorker(BaseWorker):
             for i, segment in enumerate(segments):
                 # 進捗通知
                 progress = (i + 1) / len(segments)
-                self.communicator.send_progress(task_id, progress, f"セグメント {i+1}/{len(segments)} を処理中")
+                self.communicator.send_progress(task_id, progress, f"セグメント {i + 1}/{len(segments)} を処理中")
 
                 # セグメント処理
                 result = self.process_segment(

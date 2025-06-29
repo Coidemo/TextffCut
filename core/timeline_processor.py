@@ -107,7 +107,7 @@ class TimelineSegment:
 class TimelineProcessor:
     """タイムライン処理クラス"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.segments: list[TimelineSegment] = []
         self.video_duration: float = 0.0
         self.fps: float = 30.0
@@ -133,7 +133,7 @@ class TimelineProcessor:
             # 該当範囲のテキストを抽出
             text = self._extract_text_for_range(start, end, transcription_result)
 
-            segment = TimelineSegment(id=f"segment_{i+1}", start=start, end=end, text=text)
+            segment = TimelineSegment(id=f"segment_{i + 1}", start=start, end=end, text=text)
             self.segments.append(segment)
 
         return self.segments
@@ -305,7 +305,7 @@ class TimelineProcessor:
 
         # セグメントIDを再割り当て
         for i, segment in enumerate(merged):
-            segment.id = f"segment_{i+1}"
+            segment.id = f"segment_{i + 1}"
 
         self.segments = merged
         return merge_count
@@ -318,7 +318,7 @@ class TimelineProcessor:
             "fps": self.fps,
         }
 
-    def from_dict(self, data: dict):
+    def from_dict(self, data: dict) -> None:
         """辞書からデータを復元"""
         self.video_duration = data.get("video_duration", 0.0)
         self.fps = data.get("fps", 30.0)

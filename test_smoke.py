@@ -8,33 +8,33 @@ import os
 import sys
 
 
-def test_imports():
+def test_imports() -> bool:
     """必要なモジュールがインポートできるか確認"""
     print("1. インポートテスト...")
 
     try:
         # メインモジュール
-        import main
+        import main  # noqa: F401
 
         print("  ✅ main.py")
 
         # 設定
-        from config import Config
+        from config import Config  # noqa: F401
 
         print("  ✅ config.py")
 
         # コアモジュール
-        from core import FCPXMLExporter, TextProcessor, Transcriber, VideoProcessor
+        from core import FCPXMLExporter, TextProcessor, Transcriber, VideoProcessor  # noqa: F401
 
         print("  ✅ core modules")
 
         # UIモジュール
-        from ui import show_video_input
+        from ui import show_video_input  # noqa: F401
 
         print("  ✅ ui modules")
 
         # ユーティリティ
-        from utils.logging import get_logger
+        from utils.logging import get_logger  # noqa: F401
 
         print("  ✅ utils modules")
 
@@ -45,7 +45,7 @@ def test_imports():
         return False
 
 
-def test_config():
+def test_config() -> bool:
     """設定が正しく初期化できるか確認"""
     print("\n2. 設定初期化テスト...")
 
@@ -72,7 +72,7 @@ def test_config():
         return False
 
 
-def test_transcriber_init():
+def test_transcriber_init() -> bool:
     """Transcriberが初期化できるか確認"""
     print("\n3. Transcriber初期化テスト...")
 
@@ -84,13 +84,13 @@ def test_transcriber_init():
 
         # ローカルモード
         config.transcription.use_api = False
-        transcriber = Transcriber(config)
+        Transcriber(config)
         print("  ✅ ローカルモードTranscriber")
 
         # APIモード（初期化のみ）
         config.transcription.use_api = True
         config.transcription.api_provider = "openai"
-        transcriber_api = Transcriber(config)
+        Transcriber(config)
         print("  ✅ APIモードTranscriber")
 
         return True
@@ -100,7 +100,7 @@ def test_transcriber_init():
         return False
 
 
-def test_video_processor():
+def test_video_processor() -> bool:
     """VideoProcessorが初期化できるか確認"""
     print("\n4. VideoProcessor初期化テスト...")
 
@@ -124,7 +124,7 @@ def test_video_processor():
         return False
 
 
-def test_ffmpeg():
+def test_ffmpeg() -> bool:
     """FFmpegが利用可能か確認"""
     print("\n5. FFmpeg確認テスト...")
 
@@ -146,7 +146,7 @@ def test_ffmpeg():
         return False
 
 
-def test_worker_scripts():
+def test_worker_scripts() -> bool:
     """ワーカースクリプトが存在するか確認"""
     print("\n6. ワーカースクリプト確認...")
 
@@ -163,7 +163,7 @@ def test_worker_scripts():
     return all_exist
 
 
-def main():
+def main() -> None:
     """すべてのテストを実行"""
     print("=== TextffCut スモークテスト ===\n")
 

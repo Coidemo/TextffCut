@@ -392,7 +392,7 @@ class ExportService(BaseService):
         try:
             file = self.validate_file_exists(file_path)
 
-            validation_result = {"valid": False, "errors": [], "warnings": []}
+            validation_result: dict[str, Any] = {"valid": False, "errors": [], "warnings": []}
 
             if format.lower() == "fcpxml":
                 validation_result = self._validate_fcpxml(file)
@@ -432,7 +432,7 @@ class ExportService(BaseService):
         export_segments = []
         timeline_position = 0.0
 
-        for i, segment in enumerate(segments):
+        for _, segment in enumerate(segments):
             if isinstance(segment, ExportSegment):
                 export_segments.append(segment)
             elif isinstance(segment, (Segment, VideoSegment)):
@@ -535,7 +535,7 @@ class ExportService(BaseService):
         Returns:
             検証結果
         """
-        result = {"valid": True, "errors": [], "warnings": []}
+        result: dict[str, Any] = {"valid": True, "errors": [], "warnings": []}
 
         try:
             # XMLとして解析
@@ -573,7 +573,7 @@ class ExportService(BaseService):
         Returns:
             検証結果
         """
-        result = {"valid": True, "errors": [], "warnings": []}
+        result: dict[str, Any] = {"valid": True, "errors": [], "warnings": []}
 
         try:
             # XMLとして解析
@@ -606,7 +606,7 @@ class ExportService(BaseService):
         Returns:
             検証結果
         """
-        result = {"valid": True, "errors": [], "warnings": []}
+        result: dict[str, Any] = {"valid": True, "errors": [], "warnings": []}
 
         try:
             with open(file, encoding="utf-8") as f:
@@ -648,7 +648,7 @@ class ExportService(BaseService):
         Returns:
             検証結果
         """
-        result = {"valid": True, "errors": [], "warnings": []}
+        result: dict[str, Any] = {"valid": True, "errors": [], "warnings": []}
 
         try:
             with open(file, encoding="utf-8") as f:
@@ -677,7 +677,7 @@ class ExportService(BaseService):
                 result["valid"] = False
             else:
                 # エントリ番号の連続性チェック
-                for i, (num, start, end, text) in enumerate(entries):
+                for i, (num, start, end, _) in enumerate(entries):
                     expected_num = i + 1
                     if int(num) != expected_num:
                         result["warnings"].append(f"エントリ番号が連続していません: {num} (期待値: {expected_num})")

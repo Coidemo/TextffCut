@@ -185,18 +185,10 @@ class RefactoringCompletionTest:
 
         try:
             # 型定義のインポート
-            from core.types import (
-                TimeSeconds,
-                TranscriptionOptions,
-                VideoPath,
-            )
 
             # 型の使用確認
-            video_path: VideoPath = "/path/to/video.mp4"
-            duration: TimeSeconds = 123.45
 
             # TypedDictの確認
-            options: TranscriptionOptions = {"language": "ja", "model_size": "medium"}
 
             # mypyの設定確認
             pyproject_path = Path("pyproject.toml")
@@ -219,7 +211,7 @@ class RefactoringCompletionTest:
 
             # Configが新しい定数を使用しているか
 
-            config = Config()
+            Config()
 
             # サービス層が統合されているか
             # エラーハンドリングが統合されているか

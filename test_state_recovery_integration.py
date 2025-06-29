@@ -22,7 +22,7 @@ from utils.logging import get_logger
 logger = get_logger(__name__)
 
 
-def recovery_worker_process(request_queue, response_queue, worker_id, config_path=None):
+def recovery_worker_process(request_queue, response_queue, worker_id, config_path=None) -> None:
     """リカバリー機能付きワーカープロセスのエントリーポイント"""
     try:
         from orchestrator.process_communication import ProcessCommunicator
@@ -41,7 +41,7 @@ def recovery_worker_process(request_queue, response_queue, worker_id, config_pat
         logger.error(f"Recovery worker process {worker_id} failed: {e}")
 
 
-def test_basic_state_recovery():
+def test_basic_state_recovery() -> None:
     """基本的な状態復旧のテスト"""
     print("=== Basic State Recovery Test ===")
 
@@ -141,7 +141,7 @@ def test_basic_state_recovery():
     print("\n✓ Basic recovery test completed!")
 
 
-def test_startup_recovery_flow():
+def test_startup_recovery_flow() -> None:
     """起動時のリカバリーフローのテスト"""
     print("\n=== Startup Recovery Flow Test ===")
 
@@ -254,7 +254,7 @@ def test_startup_recovery_flow():
     print("\n✓ Startup recovery flow test completed!")
 
 
-def test_cleanup_task():
+def test_cleanup_task() -> None:
     """クリーンアップタスクのテスト"""
     print("\n=== Cleanup Task Test ===")
 
@@ -286,7 +286,7 @@ def test_cleanup_task():
     print("\n✓ Cleanup task test completed!")
 
 
-def run_all_tests():
+def run_all_tests() -> None:
     """すべてのテストを実行"""
     print("=== State Recovery Integration Tests ===\n")
 

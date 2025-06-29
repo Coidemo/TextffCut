@@ -17,6 +17,7 @@ from config import Config
 from orchestrator.process_communication import MessageType, ProcessCommunicator, ProcessMessage
 from orchestrator.processing_state_manager import ProcessingStateManager, TranscriptionRecovery
 from orchestrator.transcription_worker_process import ProcessTranscriptionWorker
+from utils.exceptions import ValidationError
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -154,7 +155,9 @@ class ProcessTranscriptionWorkerWithRecovery(ProcessTranscriptionWorker):
 
                 # 進捗通知
                 actual_progress = (len(segments) - len(indices_to_process) + idx + 1) / len(segments)
-                self.communicator.send_progress(task_id, actual_progress, f"セグメント {i+1}/{len(segments)} を処理中")
+                self.communicator.send_progress(
+                    task_id, actual_progress, f"セグメント {i + 1}/{len(segments)} を処理中"
+                )
 
                 # セグメント処理
                 result = self.process_segment(

@@ -1,8 +1,10 @@
 """
 React製タイムラインエディタのPythonラッパー
 """
-import streamlit.components.v1 as components
+
 import os
+
+import streamlit.components.v1 as components
 
 # 本番環境では False に設定
 _DEVELOP_MODE = os.getenv("TEXTFFCUT_COMPONENT_DEV", "false").lower() == "true"
@@ -17,16 +19,13 @@ else:
     # 本番環境ではビルド済みファイルを使用
     parent_dir = os.path.dirname(os.path.abspath(__file__))
     build_dir = os.path.join(parent_dir, "frontend", "build")
-    _component_func = components.declare_component(
-        "timeline_editor_react", 
-        path=build_dir
-    )
+    _component_func = components.declare_component("timeline_editor_react", path=build_dir)
 
 
 def timeline_editor_react(clips_data, key=None):
     """
     React製の高度なタイムラインエディタ
-    
+
     Args:
         clips_data: クリップデータのリスト
             [{
@@ -36,16 +35,12 @@ def timeline_editor_react(clips_data, key=None):
                 "waveform": [0.1, 0.2, ...]
             }, ...]
         key: Streamlitコンポーネントのキー
-    
+
     Returns:
         編集されたクリップデータ（同じ形式）
     """
-    component_value = _component_func(
-        clips=clips_data,
-        key=key,
-        default=clips_data
-    )
-    
+    component_value = _component_func(clips=clips_data, key=key, default=clips_data)
+
     return component_value
 
 

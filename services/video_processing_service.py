@@ -10,7 +10,9 @@ from pathlib import Path
 from typing import NamedTuple
 
 from core import TranscriptionSegment as Segment
+from core.constants import SilenceDetection
 from core.video import VideoInfo, VideoProcessor
+from utils.file_utils import ensure_directory
 
 from .base import BaseService, ProcessingError, ServiceResult, ValidationError
 
@@ -19,10 +21,6 @@ from .base import BaseService, ProcessingError, ServiceResult, ValidationError
 class TimeRange(NamedTuple):
     start: float
     end: float
-
-
-from core.constants import SilenceDetection
-from utils.file_utils import ensure_directory
 
 
 class VideoProcessingService(BaseService):
@@ -175,10 +173,10 @@ class VideoProcessingService(BaseService):
             for i, segment in enumerate(segments):
                 if wrapped_callback:
                     progress = i / len(segments)
-                    wrapped_callback(progress, f"セグメント {i+1}/{len(segments)} を切り出し中")
+                    wrapped_callback(progress, f"セグメント {i + 1}/{len(segments)} を切り出し中")
 
                 # 出力ファイル名を生成
-                output_file = output_path / f"segment_{i+1:04d}.{format}"
+                output_file = output_path / f"segment_{i + 1:04d}.{format}"
 
                 # セグメントを切り出し
                 success = self.video_processor.extract_segment(
@@ -188,7 +186,7 @@ class VideoProcessingService(BaseService):
                 if success and output_file.exists():
                     extracted_files.append(str(output_file))
                 else:
-                    self.logger.warning(f"セグメント {i+1} の切り出しに失敗")
+                    self.logger.warning(f"セグメント {i + 1} の切り出しに失敗")
 
             if wrapped_callback:
                 wrapped_callback(1.0, "切り出し完了")

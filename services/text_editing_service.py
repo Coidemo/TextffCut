@@ -9,14 +9,14 @@ from typing import Any
 
 from core import TranscriptionSegment
 from core.text_processor import TextProcessor
+from utils.time_utils import format_time
+from utils.time_utils import time_to_seconds as parse_time
 
 from .base import BaseService, ProcessingError, ServiceResult, ValidationError
 
 # エイリアスを定義（互換性のため）
 Segment = TranscriptionSegment
 DiffSegment = TranscriptionSegment
-from utils.time_utils import format_time
-from utils.time_utils import time_to_seconds as parse_time
 
 
 class TextEditingService(BaseService):
@@ -71,7 +71,7 @@ class TextEditingService(BaseService):
 
             # 仮の結果オブジェクトを作成してtime_rangesを取得
             class MockResult:
-                def __init__(self, segments):
+                def __init__(self, segments) -> None:
                     self.segments = segments
 
             mock_result = MockResult(original_segments)
@@ -159,7 +159,7 @@ class TextEditingService(BaseService):
                         # 結合
                         current_segment.end = segment.end
                         current_segment.text += " " + segment.text
-                        if segment.words:
+                        if segment.words and current_segment.words is not None:
                             current_segment.words.extend(segment.words)
                         merged_count += 1
                     else:

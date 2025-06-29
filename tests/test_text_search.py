@@ -43,7 +43,7 @@ print(f"正規化後の編集テキスト長: {len(diff.edited_text)}")
 
 print(f"\n共通部分の数: {len(diff.common_positions)}")
 for i, pos in enumerate(diff.common_positions):
-    print(f"  共通部分{i+1}: 位置{pos.start}-{pos.end}, テキスト: '{pos.text}'")
+    print(f"  共通部分{i + 1}: 位置{pos.start}-{pos.end}, テキスト: '{pos.text}'")
 
 print(f"\n追加文字: {diff.added_chars}")
 
@@ -52,7 +52,7 @@ try:
     time_ranges = diff.get_time_ranges(transcription)
     print("\n=== 検出された時間範囲 ===")
     for i, (start, end) in enumerate(time_ranges):
-        print(f"  範囲{i+1}: {start:.2f}秒 - {end:.2f}秒 (長さ: {end-start:.2f}秒)")
+        print(f"  範囲{i + 1}: {start:.2f}秒 - {end:.2f}秒 (長さ: {end - start:.2f}秒)")
 except Exception as e:
     print("\n=== エラー発生 ===")
     print(f"エラー: {e}")
@@ -60,7 +60,7 @@ except Exception as e:
 # セグメント情報を確認
 print("\n=== セグメント情報 ===")
 for i, seg in enumerate(transcription.segments[:5]):  # 最初の5セグメント
-    print(f"\nセグメント{i+1}: {seg.start:.1f}秒 - {seg.end:.1f}秒")
+    print(f"\nセグメント{i + 1}: {seg.start:.1f}秒 - {seg.end:.1f}秒")
     print(f"  テキスト: {seg.text[:100]}...")
 
     # wordsの状態を確認
@@ -79,7 +79,7 @@ for search_text in search_texts:
     found = False
     for i, seg in enumerate(transcription.segments):
         if search_text in seg.text:
-            print(f"  → セグメント{i+1}で発見: {seg.start:.1f}秒 - {seg.end:.1f}秒")
+            print(f"  → セグメント{i + 1}で発見: {seg.start:.1f}秒 - {seg.end:.1f}秒")
             found = True
     if not found:
         print("  → 見つかりませんでした")

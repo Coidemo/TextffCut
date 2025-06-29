@@ -34,7 +34,7 @@ class SystemResourceManager:
     LOW_SPEC_MEMORY = 4
     MID_SPEC_MEMORY = 8
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.process = psutil.Process()
 
     def get_system_spec(self) -> SystemSpec:
@@ -88,7 +88,7 @@ class SystemResourceManager:
 
     def _calculate_optimal_workers(
         self, available_memory_gb: float, cpu_count: int, spec_level: str
-    ) -> tuple[int, int]:
+    ) -> tuple[int, int, int]:
         """最適なワーカー数を計算"""
         # 低スペックPC（メモリ4GB未満）
         if spec_level == "low":
@@ -120,7 +120,10 @@ class SystemResourceManager:
             align_workers = min(align_workers, 2)
             logger.info(f"利用可能メモリ({available_memory_gb:.1f}GB)に基づいて並列数を調整")
 
-        return api_workers, align_workers
+        # チャンクサイズのデフォルト値
+        chunk_seconds = 600  # 10分
+
+        return api_workers, align_workers, chunk_seconds
 
     def get_memory_usage(self) -> float:
         """現在のプロセスのメモリ使用量を取得（GB）"""

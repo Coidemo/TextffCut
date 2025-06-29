@@ -81,7 +81,7 @@ def main():
         for i in range(3):
             seg_start = i * 5.0
             seg_end = (i + 1) * 5.0
-            seg_data = processor.extract_waveform(video_path, seg_start, seg_end, f"seg{i+1:03d}")
+            seg_data = processor.extract_waveform(video_path, seg_start, seg_end, f"seg{i + 1:03d}")
             demo_segments.append(seg_data)
 
         overview_fig = display.render_timeline_overview(demo_segments, 15.0)

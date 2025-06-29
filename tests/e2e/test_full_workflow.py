@@ -13,7 +13,7 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from tests.e2e.browser_base import BrowserTestBase
+from tests.e2e.browser_base import BrowserTestBase  # noqa: E402
 
 
 class TextffCutE2ETest(BrowserTestBase):
@@ -196,7 +196,7 @@ class TextffCutE2ETest(BrowserTestBase):
             await self.take_screenshot("11_edit_start", "編集開始")
 
             # テスト編集を実行
-            for i, edit_case in enumerate(self.config["test_data"]["test_edits"]):
+            for _, edit_case in enumerate(self.config["test_data"]["test_edits"]):
                 print(f"  📝 {edit_case['description']}")
 
                 # テキストエリアに入力

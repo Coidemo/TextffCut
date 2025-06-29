@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -6,12 +7,12 @@ import streamlit as st
 
 from services.timeline_editing_service import TimelineEditingService
 from ui.timeline_color_scheme import TimelineColorScheme
-from ui.timeline_dark_mode_fix import inject_dark_mode_css
 from utils.logging import get_logger
+from utils.time_utils import format_time
 
 # カスタムコンポーネントのインポートを試みる
 try:
-    from .custom_components.timeline import timeline_editor
+
     CUSTOM_COMPONENT_AVAILABLE = True
 except Exception as e:
     logger = get_logger(__name__)
@@ -24,7 +25,9 @@ from .timeline_editor_static import render_timeline_editor_static
 logger = get_logger(__name__)
 
 
-def render_timeline_editor(time_ranges: list[tuple[float, float]], transcription_result: Any, video_path: str) -> None:
+def render_timeline_editor(
+    time_ranges: list[tuple[float, float]], transcription_result: Any, video_path: str | Path
+) -> None:
     """
     タイムライン編集UI（静的コンポーネント版を使用）
 
@@ -37,7 +40,7 @@ def render_timeline_editor(time_ranges: list[tuple[float, float]], transcription
     render_timeline_editor_static(time_ranges, transcription_result, video_path)
 
 
-def render_integrated_waveform_selector(segments: list, current_idx: int, video_path: str, service) -> int:
+def render_integrated_waveform_selector(segments: list, current_idx: int, video_path: str | Path, service) -> int:
     """波形表示と統合されたセグメント選択UI"""
 
     # 波形生成（シンプルだが機能的）
@@ -58,7 +61,6 @@ def render_integrated_waveform_selector(segments: list, current_idx: int, video_
         # 選択状態に応じた設定
         is_selected = i == current_idx
         color = colors["segment_active"] if is_selected else colors["waveform_positive"]
-        opacity = 0.8 if is_selected else 0.5
 
         # 波形をシミュレート（実際の波形に見えるように）
         n_points = int(duration * 20)  # 1秒あたり20ポイント
@@ -88,10 +90,10 @@ def render_integrated_waveform_selector(segments: list, current_idx: int, video_
                 mode="lines",
                 fill="tozeroy",
                 fillcolor=fillcolor,
-                line=dict(color=color, width=1),
-                name=f"Segment {i+1}",
+                line={"color": color, "width": 1},
+                name=f"Segment {i + 1}",
                 showlegend=False,
-                hovertemplate=f"セグメント {i+1}<br>時間: %{{x:.1f}}秒<extra></extra>",
+                hovertemplate=f"セグメント {i + 1}<br>時間: %{{x:.1f}}秒<extra></extra>",
             )
         )
 
@@ -101,7 +103,7 @@ def render_integrated_waveform_selector(segments: list, current_idx: int, video_
             y=0.9 if is_selected else 0.7,
             text=str(i + 1),
             showarrow=False,
-            font=dict(size=16 if is_selected else 14, color="white"),
+            font={"size": 16 if is_selected else 14, "color": "white"},
             bgcolor=color,
             borderpad=4,
         )
@@ -113,17 +115,17 @@ def render_integrated_waveform_selector(segments: list, current_idx: int, video_
     # レイアウト設定
     fig.update_layout(
         height=200,
-        margin=dict(l=40, r=10, t=10, b=30),
-        xaxis=dict(
-            title="時間（秒）",
-            showgrid=True,
-            gridcolor=colors["grid_lines"],
-            dtick=total_duration / 10 if total_duration > 10 else 1,
-        ),
-        yaxis=dict(title="", showgrid=False, showticklabels=False, range=[-1.2, 1.2]),
+        margin={"l": 40, "r": 10, "t": 10, "b": 30},
+        xaxis={
+            "title": "時間（秒）",
+            "showgrid": True,
+            "gridcolor": colors["grid_lines"],
+            "dtick": total_duration / 10 if total_duration > 10 else 1,
+        },
+        yaxis={"title": "", "showgrid": False, "showticklabels": False, "range": [-1.2, 1.2]},
         plot_bgcolor=colors["background"],
         paper_bgcolor=colors["background"],
-        font=dict(color=colors["text_primary"]),
+        font={"color": colors["text_primary"]},
         hovermode="x unified",
     )
 
@@ -156,7 +158,7 @@ def render_integrated_waveform_selector(segments: list, current_idx: int, video_
                 with cols[col_idx]:
                     is_selected = i == current_idx
                     if st.button(
-                        f"#{i+1}",
+                        f"#{i + 1}",
                         key=f"seg_btn_{i}",
                         type="primary" if is_selected else "secondary",
                         use_container_width=True,
@@ -168,7 +170,7 @@ def render_integrated_waveform_selector(segments: list, current_idx: int, video_
     return current_idx
 
 
-def render_text_based_selector(segments: list, current_idx: int, video_path: str) -> int:
+def render_text_based_selector(segments: list, current_idx: int, video_path: str | Path) -> int:
     """テキストベースのセグメント選択UI"""
 
     # プレビュー表示オプション
@@ -203,7 +205,7 @@ def render_text_based_selector(segments: list, current_idx: int, video_path: str
         with col1:
             # セグメント番号
             if st.button(
-                f"{'▶' if is_selected else ''} {i+1}",
+                f"{'▶' if is_selected else ''} {i + 1}",
                 key=f"select_{i}",
                 type="primary" if is_selected else "secondary",
                 use_container_width=True,
@@ -233,7 +235,7 @@ def render_text_based_selector(segments: list, current_idx: int, video_path: str
             with col_a:
                 if st.button("プレビュー", key=f"preview_{i}", help="このセグメントをプレビュー"):
                     # TODO: セグメントのプレビュー再生
-                    st.info(f"セグメント{i+1}をプレビュー")
+                    st.info(f"セグメント{i + 1}をプレビュー")
 
             with col_b:
                 if is_selected:
@@ -267,7 +269,7 @@ def render_segment_selector(segments: list, current_idx: int) -> int:
             y1=1,
             fillcolor=fillcolor,
             opacity=opacity,
-            line=dict(color="darkgray", width=1),
+            line={"color": "darkgray", "width": 1},
         )
 
         # セグメント番号
@@ -276,15 +278,15 @@ def render_segment_selector(segments: list, current_idx: int) -> int:
             y=0.5,
             text=f"{i + 1}",
             showarrow=False,
-            font=dict(size=16, color="white", family="Arial Black"),
+            font={"size": 16, "color": "white", "family": "Arial Black"},
         )
 
     # レイアウト設定
     fig.update_layout(
         height=80,
-        margin=dict(l=0, r=0, t=0, b=30),
-        xaxis=dict(showgrid=False, zeroline=False, title="", tickformat=".0f"),
-        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False, range=[0, 1]),
+        margin={"l": 0, "r": 0, "t": 0, "b": 30},
+        xaxis={"showgrid": False, "zeroline": False, "title": "", "tickformat": ".0f"},
+        yaxis={"showgrid": False, "zeroline": False, "showticklabels": False, "range": [0, 1]},
         plot_bgcolor="#f0f0f0",
         showlegend=False,
     )
@@ -313,7 +315,9 @@ def render_segment_selector(segments: list, current_idx: int) -> int:
     return current_idx
 
 
-def render_realtime_waveform(video_path: str, segments: list, selected_idx: int, service: TimelineEditingService):
+def render_realtime_waveform(
+    video_path: str | Path, segments: list, selected_idx: int, service: TimelineEditingService
+) -> None:
     """リアルタイム更新される全体波形表示"""
 
     # シンプルな波形表示を作成
@@ -342,7 +346,7 @@ def render_realtime_waveform(video_path: str, segments: list, selected_idx: int,
             y1=0.8,
             fillcolor=color,
             opacity=0.7 if is_selected else 0.5,
-            line=dict(width=0),
+            line={"width": 0},
         )
 
         # セグメント番号を中央に表示
@@ -351,7 +355,7 @@ def render_realtime_waveform(video_path: str, segments: list, selected_idx: int,
             y=0,
             text=str(i + 1),
             showarrow=False,
-            font=dict(size=20, color="white", family="Arial Black"),
+            font={"size": 20, "color": "white", "family": "Arial Black"},
         )
 
         # 簡易的な波形表現（細い線）
@@ -363,7 +367,7 @@ def render_realtime_waveform(video_path: str, segments: list, selected_idx: int,
                 x=x_points,
                 y=y_points,
                 mode="lines",
-                line=dict(color="white", width=1),
+                line={"color": "white", "width": 1},
                 showlegend=False,
                 hoverinfo="skip",
             )
@@ -374,11 +378,17 @@ def render_realtime_waveform(video_path: str, segments: list, selected_idx: int,
     # レイアウト設定
     fig.update_layout(
         height=120,
-        margin=dict(l=0, r=0, t=0, b=0),
+        margin={"l": 0, "r": 0, "t": 0, "b": 0},
         paper_bgcolor=colors["background"],
         plot_bgcolor=colors["background"],
-        xaxis=dict(showgrid=False, zeroline=False, showticklabels=False, fixedrange=True, range=[0, max_duration]),
-        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False, fixedrange=True, range=[-1, 1]),
+        xaxis={
+            "showgrid": False,
+            "zeroline": False,
+            "showticklabels": False,
+            "fixedrange": True,
+            "range": [0, max_duration],
+        },
+        yaxis={"showgrid": False, "zeroline": False, "showticklabels": False, "fixedrange": True, "range": [-1, 1]},
         dragmode=False,
         hovermode=False,
     )
@@ -393,8 +403,8 @@ def render_segment_editor(
     all_segments: list,
     service: TimelineEditingService,
     transcription_result: dict,
-    video_path: str,
-):
+    video_path: str | Path,
+) -> None:
     """選択セグメントの詳細編集UI"""
 
     # 制約の計算
@@ -509,14 +519,14 @@ def render_segment_editor(
             st.rerun()
 
 
-def clear_waveform_cache():
+def clear_waveform_cache() -> None:
     """波形キャッシュをクリア"""
     keys_to_remove = [key for key in st.session_state.keys() if key.startswith("waveform_")]
     for key in keys_to_remove:
         del st.session_state[key]
 
 
-def render_action_buttons(service: TimelineEditingService):
+def render_action_buttons(service: TimelineEditingService) -> None:
     """アクションボタンをレンダリング"""
 
     # 全体プレビューボタン
@@ -560,7 +570,7 @@ def render_action_buttons(service: TimelineEditingService):
             st.rerun()
 
 
-def render_full_preview(service: TimelineEditingService):
+def render_full_preview(service: TimelineEditingService) -> None:
     """全セグメントの通しプレビューを表示"""
     import os
     import subprocess
@@ -581,7 +591,7 @@ def render_full_preview(service: TimelineEditingService):
 
         try:
             # 各セグメントを一時ファイルに抽出
-            for i, segment in enumerate(segments):
+            for _, segment in enumerate(segments):
                 with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp_file:
                     temp_path = tmp_file.name
                     temp_files.append(temp_path)
@@ -636,7 +646,7 @@ def render_full_preview(service: TimelineEditingService):
                     os.unlink(temp_file)
 
 
-def cleanup_session_state():
+def cleanup_session_state() -> None:
     """セッション状態をクリーンアップ"""
     keys_to_remove = ["timeline_initialized", "timeline_data", "selected_segment_idx"]
 

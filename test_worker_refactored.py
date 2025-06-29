@@ -27,7 +27,7 @@ from worker_transcribe_v2 import (
 class TestConfigLoader(unittest.TestCase):
     """ConfigLoaderのテスト"""
 
-    def setUp(self):
+    def setUp(self) -> None:
         """テスト用の一時ファイルを作成"""
         self.temp_file = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False)
         self.config_data = {
@@ -50,11 +50,11 @@ class TestConfigLoader(unittest.TestCase):
         json.dump(self.config_data, self.temp_file)
         self.temp_file.close()
 
-    def tearDown(self):
+    def tearDown(self) -> None:
         """一時ファイルを削除"""
         os.unlink(self.temp_file.name)
 
-    def test_load_valid_config(self):
+    def test_load_valid_config(self) -> None:
         """正常な設定ファイルの読み込み"""
         loader = ConfigLoader(self.temp_file.name)
         config = loader.load()
@@ -66,13 +66,13 @@ class TestConfigLoader(unittest.TestCase):
         self.assertTrue(config.save_cache)
         self.assertEqual(config.task_type, "full")
 
-    def test_load_missing_file(self):
+    def test_load_missing_file(self) -> None:
         """存在しないファイルの読み込み"""
         loader = ConfigLoader("/nonexistent/path.json")
         with self.assertRaises(FileNotFoundError):
             loader.load()
 
-    def test_default_values(self):
+    def test_default_values(self) -> None:
         """デフォルト値の適用"""
         # use_cacheとtask_typeを削除
         del self.config_data["use_cache"]
@@ -93,21 +93,21 @@ class TestMemoryManager(unittest.TestCase):
 
     @patch("worker_transcribe_v2.AutoOptimizer")
     @patch("worker_transcribe_v2.MemoryMonitor")
-    def test_initialization(self, mock_monitor_class, mock_optimizer_class):
+    def test_initialization(self, mock_monitor_class, mock_optimizer_class) -> None:
         """初期化のテスト"""
         mock_optimizer = Mock()
         mock_monitor = Mock()
         mock_optimizer_class.return_value = mock_optimizer
         mock_monitor_class.return_value = mock_monitor
 
-        manager = MemoryManager("base")
+        MemoryManager("base")
 
         mock_optimizer_class.assert_called_once_with("base")
         mock_monitor_class.assert_called_once()
         mock_optimizer.reset_diagnostic_mode.assert_called_once()
 
     @patch("psutil.Process")
-    def test_log_initial_memory(self, mock_process_class):
+    def test_log_initial_memory(self, mock_process_class) -> None:
         """初期メモリログのテスト"""
         mock_process = Mock()
         mock_process.memory_info.return_value = Mock(rss=1024 * 1024 * 100)  # 100MB
@@ -118,7 +118,7 @@ class TestMemoryManager(unittest.TestCase):
 
         mock_process.memory_info.assert_called_once()
 
-    def test_get_optimal_params(self):
+    def test_get_optimal_params(self) -> None:
         """最適パラメータ取得のテスト"""
         manager = MemoryManager("base")
         manager.monitor = Mock()
@@ -137,7 +137,7 @@ class TestMemoryManager(unittest.TestCase):
 class TestTaskHandlers(unittest.TestCase):
     """タスクハンドラーのテスト"""
 
-    def setUp(self):
+    def setUp(self) -> None:
         """共通のセットアップ"""
         self.worker_config = WorkerConfig(
             video_path="/path/to/video.mp4",
@@ -160,7 +160,7 @@ class TestTaskHandlers(unittest.TestCase):
         self.mock_monitor = Mock()
 
     @patch("core.transcription.Transcriber")
-    def test_transcribe_only_handler(self, mock_transcriber_class):
+    def test_transcribe_only_handler(self, mock_transcriber_class) -> None:
         """TranscribeOnlyHandlerのテスト"""
         mock_transcriber = Mock()
         mock_result = Mock()
@@ -185,7 +185,7 @@ class TestTaskHandlers(unittest.TestCase):
             skip_alignment=True,
         )
 
-    def test_create_progress_callback(self):
+    def test_create_progress_callback(self) -> None:
         """プログレスコールバックの作成テスト"""
         handler = TranscribeOnlyHandler(self.worker_config, self.mock_optimizer, self.mock_monitor)
 
@@ -209,7 +209,7 @@ class TestTaskHandlers(unittest.TestCase):
 class TestTranscriptionWorker(unittest.TestCase):
     """TranscriptionWorkerのテスト"""
 
-    def setUp(self):
+    def setUp(self) -> None:
         """テスト用の設定ファイルを作成"""
         self.temp_file = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False)
         self.config_data = {
@@ -229,26 +229,26 @@ class TestTranscriptionWorker(unittest.TestCase):
         json.dump(self.config_data, self.temp_file)
         self.temp_file.close()
 
-    def tearDown(self):
+    def tearDown(self) -> None:
         """一時ファイルを削除"""
         os.unlink(self.temp_file.name)
 
     @patch("worker_transcribe_v2.MemoryManager")
     @patch("worker_transcribe_v2.ConfigLoader")
-    def test_initialization(self, mock_loader_class, mock_manager_class):
+    def test_initialization(self, mock_loader_class, mock_manager_class) -> None:
         """初期化のテスト"""
         mock_loader = Mock()
         mock_config = Mock(model_size="base")
         mock_loader.load.return_value = mock_config
         mock_loader_class.return_value = mock_loader
 
-        worker = TranscriptionWorker(self.temp_file.name)
+        TranscriptionWorker(self.temp_file.name)
 
         mock_loader_class.assert_called_once_with(self.temp_file.name)
         mock_loader.load.assert_called_once()
         mock_manager_class.assert_called_once_with("base")
 
-    def test_create_task_handler_api_mode(self):
+    def test_create_task_handler_api_mode(self) -> None:
         """APIモードでのタスクハンドラー作成"""
         worker = TranscriptionWorker(self.temp_file.name)
         worker.worker_config.config_dict["transcription"]["use_api"] = True
@@ -259,7 +259,7 @@ class TestTranscriptionWorker(unittest.TestCase):
 
         self.assertIsInstance(handler, FullProcessHandler)
 
-    def test_create_task_handler_local_mode(self):
+    def test_create_task_handler_local_mode(self) -> None:
         """ローカルモードでのタスクハンドラー作成"""
         worker = TranscriptionWorker(self.temp_file.name)
         worker.worker_config.config_dict["transcription"]["use_api"] = False
@@ -271,7 +271,7 @@ class TestTranscriptionWorker(unittest.TestCase):
 
         self.assertIsInstance(handler, SeparatedModeHandler)
 
-    def test_save_result(self):
+    def test_save_result(self) -> None:
         """結果保存のテスト"""
         worker = TranscriptionWorker(self.temp_file.name)
 
@@ -295,7 +295,7 @@ class TestTranscriptionWorker(unittest.TestCase):
         # クリーンアップ
         os.unlink(result_path)
 
-    def test_handle_memory_error(self):
+    def test_handle_memory_error(self) -> None:
         """メモリエラー処理のテスト"""
         worker = TranscriptionWorker(self.temp_file.name)
 

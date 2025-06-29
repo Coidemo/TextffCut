@@ -48,7 +48,7 @@ class GCMetrics:
 class GarbageCollectionOptimizer:
     """ガベージコレクション最適化クラス"""
 
-    def __init__(self, initial_strategy: GCStrategy = GCStrategy.ADAPTIVE):
+    def __init__(self, initial_strategy: GCStrategy = GCStrategy.ADAPTIVE) -> None:
         """
         初期化
 
@@ -193,7 +193,7 @@ class GarbageCollectionOptimizer:
 
             # 複数回のフルGC
             total_metrics = None
-            for i in range(3):
+            for _ in range(3):
                 metrics = self.collect_with_metrics(2)
                 if total_metrics is None:
                     total_metrics = metrics

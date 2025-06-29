@@ -3,7 +3,7 @@
 """
 
 
-def get_dark_mode_styles():
+def get_dark_mode_styles() -> str:
     """ダークモード対応のCSSスタイルを返す"""
     return """
     <style>
@@ -18,11 +18,11 @@ def get_dark_mode_styles():
             border-radius: 3px;
         }
     }
-    
+
     /* ダークモード検出 */
     @media (prefers-color-scheme: dark) {
         /* ハイライト色の調整 */
-        
+
         /* 緑色ハイライト（マッチした部分）をより見やすく */
         .highlight-match,
         span[style*="background-color: #e6ffe6"] {
@@ -31,7 +31,7 @@ def get_dark_mode_styles():
             padding: 2px 4px;
             border-radius: 3px;
         }
-        
+
         /* 赤色ハイライト（追加文字）をより見やすく */
         .highlight-addition,
         span[style*="background-color: #ffe6e6"] {
@@ -40,7 +40,7 @@ def get_dark_mode_styles():
             padding: 2px 4px;
             border-radius: 3px;
         }
-        
+
         /* ダイアログ内のテキスト表示エリア */
         .edited-text-viewer,
         .diff-viewer,
@@ -49,15 +49,15 @@ def get_dark_mode_styles():
             color: #e0e0e0 !important;
             border-color: #444 !important;
         }
-        
+
     }
-    
+
     /* 共通のスタイル改善 */
     /* ハイライト表示の改善 */
     div[style*="overflow-y: auto"] span {
         transition: background-color 0.2s ease;
     }
-    
+
     /* モノスペースフォントの読みやすさ改善 */
     div[style*="font-family: monospace"] {
         font-size: 14px;
@@ -67,7 +67,7 @@ def get_dark_mode_styles():
     """
 
 
-def apply_dark_mode_styles():
+def apply_dark_mode_styles() -> None:
     """ダークモード対応のスタイルを適用"""
     import streamlit as st
 

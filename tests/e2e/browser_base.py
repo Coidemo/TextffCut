@@ -16,7 +16,7 @@ import yaml
 class BrowserTestBase:
     """ブラウザテストの基底クラス"""
 
-    def __init__(self, config_path: str = None):
+    def __init__(self, config_path: str = None) -> None:
         """初期化
 
         Args:

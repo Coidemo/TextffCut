@@ -13,6 +13,8 @@ import sys
 import tempfile
 import time
 from collections.abc import Callable
+from contextlib import suppress
+from pathlib import Path
 from typing import Any
 
 from core.transcription import Transcriber, TranscriptionResult
@@ -27,14 +29,14 @@ class SubprocessTranscriber(Transcriber):
     処理完了後にプロセスを終了することで完全なメモリクリーンアップを実現。
     """
 
-    def __init__(self, config):
+    def __init__(self, config) -> None:
         super().__init__(config)
         self.enable_subprocess_isolation = config.transcription.isolation_mode == "subprocess"
         logger.info(f"サブプロセス分離モード: {self.enable_subprocess_isolation}")
 
     def transcribe(
         self,
-        video_path: str,
+        video_path: str | Path,
         model_size: str | None = None,
         progress_callback: Callable[[float, str], None] | None = None,
         use_cache: bool = True,
@@ -92,33 +94,32 @@ class SubprocessTranscriber(Transcriber):
 
             # プログレス監視
             start_time = time.time()
-            last_progress = 0.0
 
             try:
                 # 標準出力を監視してプログレスを更新
-                for line in process.stdout:
-                    line = line.strip()
+                if process.stdout:
+                    for line in process.stdout:
+                        line = line.strip()
 
-                    # プログレス情報を抽出
-                    if line.startswith("PROGRESS:"):
-                        try:
-                            parts = line.split("|", 1)
-                            progress = float(parts[0].split(":")[1])
-                            message = parts[1] if len(parts) > 1 else ""
+                        # プログレス情報を抽出
+                        if line.startswith("PROGRESS:"):
+                            try:
+                                parts = line.split("|", 1)
+                                progress = float(parts[0].split(":")[1])
+                                message = parts[1] if len(parts) > 1 else ""
 
-                            if progress_callback:
-                                progress_callback(progress, message)
-                            last_progress = progress
-                        except Exception as e:
-                            logger.warning(f"プログレス解析エラー: {e}, 行: {line}")
+                                if progress_callback:
+                                    progress_callback(progress, message)
+                            except Exception as e:
+                                logger.warning(f"プログレス解析エラー: {e}, 行: {line}")
 
-                    # エラーチェック
-                    elif line.startswith("ERROR:"):
-                        logger.error(f"ワーカープロセスエラー: {line}")
+                        # エラーチェック
+                        elif line.startswith("ERROR:"):
+                            logger.error(f"ワーカープロセスエラー: {line}")
 
-                    # その他のログ
-                    elif line:
-                        logger.debug(f"ワーカーログ: {line}")
+                        # その他のログ
+                        elif line:
+                            logger.debug(f"ワーカーログ: {line}")
 
                 # プロセスの終了を待つ
                 return_code = process.wait()
@@ -176,21 +177,19 @@ class SubprocessTranscriber(Transcriber):
             except subprocess.TimeoutExpired:
                 logger.error("ワーカープロセスがタイムアウトしました")
                 process.kill()
-                raise RuntimeError("文字起こし処理がタイムアウトしました")
+                raise RuntimeError("文字起こし処理がタイムアウトしました") from None
             except Exception as e:
                 # エラー時はプロセスを強制終了
-                try:
+                # プロセス強制終了のエラーは無視（既に終了している場合など）
+                with suppress(Exception):
                     process.kill()
-                except:
-                    pass
                 raise e
 
         finally:
             # 作業ディレクトリをクリーンアップ
-            try:
+            # 作業ディレクトリの削除エラーは無視（権限不足や使用中の場合）
+            with suppress(Exception):
                 shutil.rmtree(work_dir)
-            except:
-                pass
 
     def _serialize_config(self) -> dict[str, Any]:
         """設定をシリアライズ"""

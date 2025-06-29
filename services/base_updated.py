@@ -86,7 +86,7 @@ class BaseService(ABC):
     共通のロギング、エラーハンドリング、設定管理を提供。
     """
 
-    def __init__(self, config: Config):
+    def __init__(self, config: Config) -> None:
         """初期化
 
         Args:
@@ -94,7 +94,7 @@ class BaseService(ABC):
         """
         self.config = config
         self.logger = get_logger(self.__class__.__name__)
-        self.error_handler = ErrorHandler(self.logger)  # 新規追加
+        self.error_handler = ErrorHandler(self.logger)  # type: ignore
         self._initialize()
 
     def _initialize(self):
@@ -115,7 +115,7 @@ class BaseService(ABC):
         """
         pass
 
-    def validate_file_exists(self, file_path: str) -> Path:
+    def validate_file_exists(self, file_path: str | Path) -> Path:
         """ファイルの存在確認
 
         Args:
@@ -211,8 +211,8 @@ class BaseService(ABC):
         return ServiceResult(
             success=False,
             error=user_message,
-            error_type=error_info.get("error_type", "UnknownError"),
-            error_code=error_info.get("error_code"),
+            error_type=error_info.get("error_type", "UnknownError") if error_info else "UnknownError",
+            error_code=error_info.get("error_code") if error_info else None,
             metadata={"error_details": error_info, "recoverable": ErrorHandler.is_recoverable(error)},
         )
 
@@ -227,7 +227,7 @@ class BaseService(ABC):
         Returns:
             ServiceResult: エラー結果
         """
-        self.logger.error(message, exc_info=True, extra=kwargs)
+        self.logger.error(message, exc_info=True)
         return self.wrap_error(error)
 
     def handle_service_error(self, operation: str, error: Exception) -> ServiceResult:
@@ -240,8 +240,6 @@ class BaseService(ABC):
         Returns:
             ServiceResult: エラー結果
         """
-        context_message = f"{self.__class__.__name__}.{operation}"
-
         # TextffCutErrorの場合は詳細情報を保持
         if isinstance(error, TextffCutError):
             return ServiceResult(

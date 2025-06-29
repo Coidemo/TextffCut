@@ -160,7 +160,7 @@ class TestUserScenarios(unittest.TestCase):
 
         # 1. 文字起こし
         transcriber = OptimizedTranscriber(self.config)
-        transcription_result = transcriber.transcribe(self.test_video, model_size="base", use_cache=False)
+        transcriber.transcribe(self.test_video, model_size="base", use_cache=False)
 
         # 2. 全体を対象に無音削除
         video_processor = VideoProcessor(self.config)
@@ -226,7 +226,7 @@ class TestUserScenarios(unittest.TestCase):
         # 結果表示
         print(f"\nローカル: {local_time:.1f}秒 ({results['local']['segments']}セグメント)")
         print(f"API: {api_time:.1f}秒 ({results['api']['segments']}セグメント)")
-        print(f"高速化: x{local_time/api_time:.1f}")
+        print(f"高速化: x{local_time / api_time:.1f}")
 
         # 検証
         self.assertLess(api_time, local_time * 1.5)  # APIの方が遅すぎないこと
@@ -258,7 +258,7 @@ class TestUserScenarios(unittest.TestCase):
         # 結果表示
         print(f"\n初回実行: {first_time:.2f}秒")
         print(f"キャッシュ読み込み: {cache_time:.2f}秒")
-        print(f"高速化: {first_time/cache_time:.1f}倍")
+        print(f"高速化: {first_time / cache_time:.1f}倍")
 
         # 検証
         self.assertEqual(len(result1.segments), len(result2.segments))

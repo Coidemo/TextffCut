@@ -9,6 +9,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+from core import TranscriptionResult
 from core import TranscriptionSegment as Segment
 from utils.file_utils import ensure_directory
 
@@ -467,7 +468,7 @@ class WorkflowService(BaseService):
 class WorkflowProgress:
     """ワークフロー進捗管理"""
 
-    def __init__(self, callback: Callable[[float, str], None] | None = None):
+    def __init__(self, callback: Callable[[float, str], None] | None = None) -> None:
         self.callback = callback
         self.current_progress = 0.0
         self.current_message = ""

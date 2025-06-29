@@ -169,7 +169,7 @@ class JapaneseLineBreakRules:
 
         # 前の文字が行末禁則文字
         if position > 0 and text[position - 1] in JapaneseLineBreakRules.LINE_END_NG:
-            logger.debug(f"行末禁則: '{text[position-1]}' at position {position-1}")
+            logger.debug(f"行末禁則: '{text[position - 1]}' at position {position - 1}")
             return False
 
         # 英単語の途中チェック
@@ -224,12 +224,11 @@ class JapaneseLineBreakRules:
 
             # max_length以下の候補位置をスコア付きで評価
             candidates = []
-            for boundary, surface, pos_tag in boundaries_with_pos:
-                if 0 < boundary <= max_length:
-                    if cls.can_break_at(text, boundary):
-                        score = cls.evaluate_break_position(boundaries_with_pos, boundary)
-                        candidates.append((boundary, score))
-                        logger.debug(f"候補位置 {boundary}: スコア {score}")
+            for boundary, _, _ in boundaries_with_pos:
+                if 0 < boundary <= max_length and cls.can_break_at(text, boundary):
+                    score = cls.evaluate_break_position(boundaries_with_pos, boundary)
+                    candidates.append((boundary, score))
+                    logger.debug(f"候補位置 {boundary}: スコア {score}")
 
             # スコアが一定以上の候補から、max_lengthに最も近い位置を選択
             if candidates:

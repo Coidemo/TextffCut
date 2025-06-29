@@ -30,7 +30,7 @@ diff = text_processor.find_differences(full_text, edited_text)
 
 print(f"\n共通部分の数: {len(diff.common_positions)}")
 for i, pos in enumerate(diff.common_positions):
-    print(f"  共通部分{i+1}: '{pos.text}'")
+    print(f"  共通部分{i + 1}: '{pos.text}'")
 
 # 時間範囲を取得
 print("\n=== 時間範囲の取得 ===")
@@ -38,13 +38,13 @@ try:
     time_ranges = diff.get_time_ranges(transcription)
     print("\n検出された時間範囲:")
     for i, (start, end) in enumerate(time_ranges):
-        print(f"  範囲{i+1}: {start:.2f}秒 - {end:.2f}秒 (長さ: {end-start:.2f}秒)")
+        print(f"  範囲{i + 1}: {start:.2f}秒 - {end:.2f}秒 (長さ: {end - start:.2f}秒)")
 
     # 全体の時間を計算
     if time_ranges:
         total_start = min(start for start, _ in time_ranges)
         total_end = max(end for _, end in time_ranges)
-        print(f"\n全体: {total_start:.2f}秒 - {total_end:.2f}秒 (総長: {total_end-total_start:.2f}秒)")
+        print(f"\n全体: {total_start:.2f}秒 - {total_end:.2f}秒 (総長: {total_end - total_start:.2f}秒)")
 
 except Exception as e:
     print(f"\nエラー発生: {e}")

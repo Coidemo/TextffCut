@@ -62,7 +62,7 @@ class TypedServiceResult(Generic[T]):
 class ServiceError(Exception):
     """サービス層の基本エラー"""
 
-    def __init__(self, message: str, error_type: str = "ServiceError"):
+    def __init__(self, message: str, error_type: str = "ServiceError") -> None:
         super().__init__(message)
         self.error_type = error_type
 
@@ -70,14 +70,14 @@ class ServiceError(Exception):
 class ValidationError(ServiceError):
     """入力検証エラー"""
 
-    def __init__(self, message: str):
+    def __init__(self, message: str) -> None:
         super().__init__(message, "ValidationError")
 
 
 class ProcessingError(ServiceError):
     """処理実行エラー"""
 
-    def __init__(self, message: str):
+    def __init__(self, message: str) -> None:
         super().__init__(message, "ProcessingError")
 
 
@@ -88,7 +88,7 @@ class BaseService(ABC):
     共通のロギング、エラーハンドリング、設定管理を提供。
     """
 
-    def __init__(self, config: Config):
+    def __init__(self, config: Config) -> None:
         """初期化
 
         Args:

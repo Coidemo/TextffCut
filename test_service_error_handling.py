@@ -22,15 +22,24 @@ class SampleService(BaseService):
         action = kwargs.get("action", "default")
 
         if action == "validate_file":
-            return self.validate_file_action(kwargs.get("file_path"))
+            file_path = kwargs.get("file_path")
+            if file_path is None:
+                return self.create_error_result("ファイルパスが指定されていません", error_type="ValidationError")
+            return self.validate_file_action(file_path)
         elif action == "process_video":
-            return self.process_video_action(kwargs.get("video_path"))
+            video_path = kwargs.get("video_path")
+            if video_path is None:
+                return self.create_error_result("動画パスが指定されていません", error_type="ValidationError")
+            return self.process_video_action(video_path)
         elif action == "error_test":
-            return self.error_test_action(kwargs.get("error_type"))
+            error_type = kwargs.get("error_type")
+            if error_type is None:
+                return self.create_error_result("エラータイプが指定されていません", error_type="ValidationError")
+            return self.error_test_action(error_type)
         else:
             return self.create_error_result("不明なアクション", error_type="ValidationError")
 
-    def validate_file_action(self, file_path: str) -> ServiceResult:
+    def validate_file_action(self, file_path: str | Path) -> ServiceResult:
         """ファイル検証アクション"""
         try:
             path = self.validate_file_exists(file_path)
@@ -40,14 +49,15 @@ class SampleService(BaseService):
         except FileValidationError as e:
             return self.handle_service_error("validate_file", e)
 
-    def process_video_action(self, video_path: str) -> ServiceResult:
+    def process_video_action(self, video_path: str | Path) -> ServiceResult:
         """動画処理アクション（エラーシミュレーション）"""
         try:
             # 動画処理のシミュレーション
             if not video_path:
                 raise ValidationError("動画パスが指定されていません")
 
-            if not video_path.endswith(".mp4"):
+            video_path_str = str(video_path)
+            if not video_path_str.endswith(".mp4"):
                 raise VideoProcessingError(
                     "サポートされていない形式",
                     details={"path": video_path, "supported": ["mp4", "mov"]},
@@ -75,7 +85,7 @@ class SampleService(BaseService):
             return self.wrap_error(e)
 
 
-def test_service_error_handling():
+def test_service_error_handling() -> None:
     """サービスのエラーハンドリングをテスト"""
     print("=== サービス層エラーハンドリングテスト ===\n")
 
@@ -138,7 +148,7 @@ def test_service_error_handling():
     print("=== テスト完了 ===")
 
 
-def test_error_metadata():
+def test_error_metadata() -> None:
     """エラーメタデータの詳細テスト"""
     print("\n=== エラーメタデータテスト ===\n")
 

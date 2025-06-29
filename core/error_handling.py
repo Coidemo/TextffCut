@@ -52,7 +52,7 @@ class TextffCutError(Exception):
         details: dict[str, Any] | None = None,
         cause: Exception | None = None,
         user_message: str | None = None,
-    ):
+    ) -> None:
         """
         エラーを初期化
 
@@ -256,7 +256,7 @@ class WordsFieldMissingError(ProcessingError):
 class ErrorHandler:
     """統一エラーハンドラー"""
 
-    def __init__(self, logger: logging.Logger | None = None):
+    def __init__(self, logger: logging.Logger | None = None) -> None:
         """
         エラーハンドラーを初期化
 

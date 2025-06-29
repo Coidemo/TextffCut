@@ -47,7 +47,7 @@ class SRTEntry:
 class SRTExporter:
     """SRT字幕エクスポータークラス"""
 
-    def __init__(self, config: Config):
+    def __init__(self, config: Config) -> None:
         """初期化
 
         Args:
@@ -63,7 +63,7 @@ class SRTExporter:
     def export(
         self,
         segments: list[Any],  # TranscriptionSegment
-        output_path: str,
+        output_path: str | Path,
         encoding: str = "utf-8",
         adjust_timing: bool = True,
     ) -> bool:
@@ -242,7 +242,7 @@ class SRTExporter:
 
         return adjusted
 
-    def _write_srt_file(self, entries: list[SRTEntry], output_path: str, encoding: str) -> None:
+    def _write_srt_file(self, entries: list[SRTEntry], output_path: str | Path, encoding: str) -> None:
         """SRTファイルに書き込み（CRLF改行）
 
         Args:
@@ -264,7 +264,7 @@ class SRTExporter:
     def export_with_style(
         self,
         segments: list[Any],  # TranscriptionSegment
-        output_path: str,
+        output_path: str | Path,
         style_options: dict[str, Any] | None = None,
     ) -> bool:
         """スタイル付きSRTをエクスポート（将来の拡張用）
@@ -283,7 +283,7 @@ class SRTExporter:
 
 
 # テスト用関数
-def test_srt_exporter():
+def test_srt_exporter() -> bool:
     """SRTエクスポーターのテスト"""
     from core.transcription import TranscriptionSegment
 

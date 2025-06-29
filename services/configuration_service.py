@@ -7,6 +7,7 @@
 import os
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from core.constants import ErrorMessages, MemoryEstimates
 from utils.file_utils import ensure_directory
@@ -102,7 +103,12 @@ class ConfigurationService(BaseService):
             ServiceResult: 検証結果と推奨事項
         """
         try:
-            validation_result = {"valid": True, "warnings": [], "recommendations": [], "memory_status": None}
+            validation_result: dict[str, Any] = {
+                "valid": True,
+                "warnings": [],
+                "recommendations": [],
+                "memory_status": None,
+            }
 
             if use_api:
                 # APIモードの検証
@@ -209,7 +215,6 @@ class ConfigurationService(BaseService):
 
             # 重複チェックと連番付与
             counter = 1
-            original_path = output_path
             while output_path.exists():
                 output_name = f"{base_name}{process_suffix}{timestamp}_{counter}{extension}"
                 output_path = output_dir / output_name

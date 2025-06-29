@@ -37,19 +37,26 @@ def safe_load_align_model(language_code: str, device: str = "cpu") -> tuple[Any 
                 if hasattr(processor, "feature_extractor"):
                     if hasattr(processor.feature_extractor, "sampling_rate"):
                         sampling_rate = processor.feature_extractor.sampling_rate
-                    elif hasattr(processor.feature_extractor, "config"):
-                        if hasattr(processor.feature_extractor.config, "sampling_rate"):
-                            sampling_rate = processor.feature_extractor.config.sampling_rate
+                    elif hasattr(processor.feature_extractor, "config") and hasattr(
+                        processor.feature_extractor.config, "sampling_rate"
+                    ):
+                        sampling_rate = processor.feature_extractor.config.sampling_rate
 
                 # 2. configから直接取得
-                if sampling_rate is None and hasattr(processor, "config"):
-                    if hasattr(processor.config, "sampling_rate"):
-                        sampling_rate = processor.config.sampling_rate
+                if (
+                    sampling_rate is None
+                    and hasattr(processor, "config")
+                    and hasattr(processor.config, "sampling_rate")
+                ):
+                    sampling_rate = processor.config.sampling_rate
 
                 # 3. モデル自体から取得
-                if sampling_rate is None and hasattr(align_model, "config"):
-                    if hasattr(align_model.config, "sampling_rate"):
-                        sampling_rate = align_model.config.sampling_rate
+                if (
+                    sampling_rate is None
+                    and hasattr(align_model, "config")
+                    and hasattr(align_model.config, "sampling_rate")
+                ):
+                    sampling_rate = align_model.config.sampling_rate
 
                 # 設定または警告
                 if sampling_rate is not None:
@@ -65,7 +72,7 @@ def safe_load_align_model(language_code: str, device: str = "cpu") -> tuple[Any 
                 # 呼び出し可能な場合、ラップする
                 original_call = processor.__call__
 
-                def wrapped_call(*args, **kwargs):
+                def wrapped_call(*args, **kwargs) -> Any:
                     # sampling_rateをkwargsに追加
                     if "sampling_rate" not in kwargs and hasattr(processor, "sampling_rate"):
                         kwargs["sampling_rate"] = processor.sampling_rate

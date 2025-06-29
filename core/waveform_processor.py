@@ -37,7 +37,7 @@ class ClipWaveformData:
 class WaveformProcessor:
     """波形処理クラス"""
 
-    def __init__(self, config: Config | None = None):
+    def __init__(self, config: Config | None = None) -> None:
         self.config = config or Config()
         self.cache_dir = Path(".cache/waveforms")
         self.cache_dir.mkdir(parents=True, exist_ok=True)
@@ -58,7 +58,7 @@ class WaveformProcessor:
         return downsampled
 
     def extract_waveforms_for_clips(
-        self, video_path: str, time_ranges: list[tuple[float, float]], samples_per_clip: int = 500
+        self, video_path: str | Path, time_ranges: list[tuple[float, float]], samples_per_clip: int = 500
     ) -> list[ClipWaveformData] | None:
         """
         指定された複数の時間範囲（クリップ）の波形データを一括で抽出する。
@@ -79,7 +79,7 @@ class WaveformProcessor:
             logger.info(f"Loading full audio for {video_path} to extract {len(time_ranges)} clips.")
             # 動画全体の音声を一度だけ読み込む
             full_audio, sr = librosa.load(video_path, sr=None, mono=True)
-            logger.info(f"Full audio loaded. Sample rate: {sr}, Duration: {len(full_audio)/sr:.2f}s")
+            logger.info(f"Full audio loaded. Sample rate: {sr}, Duration: {len(full_audio) / sr:.2f}s")
 
             results = []
             for i, (start_time, end_time) in enumerate(time_ranges):
@@ -104,7 +104,7 @@ class WaveformProcessor:
                     id=clip_id,
                     start_time=start_time,
                     end_time=end_time,
-                    sample_rate=sr,
+                    sample_rate=int(sr),
                     samples=normalized_audio.tolist(),
                 )
                 results.append(clip_data)

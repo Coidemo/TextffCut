@@ -22,7 +22,7 @@ def fix_timeline_issues():
     # パターン1: 更新ボタンの処理後にadjusted_time_rangesをチェック
     pattern1 = r'(if st\.button\("🔄 更新".*?\n\s+st\.session_state\.edited_text = edited_text)'
     replacement1 = r"""\1
-                    
+
                     # タイムライン編集で調整された時間範囲があれば保持
                     if "adjusted_time_ranges" in st.session_state:
                         st.session_state.time_ranges_cache = st.session_state.adjusted_time_ranges"""
@@ -45,7 +45,7 @@ def fix_timeline_issues():
     # パターン3: 出力設定の変更を検出してクリア
     pattern3 = r'(# 出力形式の選択.*?\n.*?st\.selectbox.*?"primary_format".*?\))'
     replacement3 = r"""\1
-            
+
             # 出力形式が変更されたらタイムライン編集のキャッシュをクリア
             if "last_primary_format" in st.session_state:
                 if st.session_state.last_primary_format != primary_format:

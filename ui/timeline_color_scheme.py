@@ -10,7 +10,7 @@ class TimelineColorScheme:
     """タイムライン編集のカラースキーム"""
 
     @staticmethod
-    def get_colors(is_dark_mode: bool = None) -> dict:
+    def get_colors(is_dark_mode: bool | None = None) -> dict:
         """
         ダークモード状態に応じたカラースキームを返す
 
@@ -88,12 +88,12 @@ class TimelineColorScheme:
             # theme.baseの設定を確認
             theme_base = st.get_option("theme.base")
             return theme_base == "dark"
-        except:
+        except Exception:
             # エラーの場合はデフォルトでライトモード
             return False
 
     @staticmethod
-    def apply_plotly_theme(fig, is_dark_mode: bool = None):
+    def apply_plotly_theme(fig, is_dark_mode: bool | None = None) -> None:
         """
         Plotlyグラフにダークモードテーマを適用
 
@@ -107,25 +107,25 @@ class TimelineColorScheme:
         colors = TimelineColorScheme.get_colors(is_dark_mode)
 
         # レイアウトの更新
-        layout_update = dict(
-            plot_bgcolor=colors["background"],
-            paper_bgcolor=colors["background"],
-            font=dict(color=colors["text_primary"]),
-            xaxis=dict(
-                gridcolor=colors["grid_lines"],
-                linecolor=colors["grid_major"],
-                tickcolor=colors["text_secondary"],
-                tickfont=dict(color=colors["text_secondary"]),
-                zerolinecolor=colors["grid_major"],
-            ),
-            yaxis=dict(
-                gridcolor=colors["grid_lines"],
-                linecolor=colors["grid_major"],
-                tickcolor=colors["text_secondary"],
-                tickfont=dict(color=colors["text_secondary"]),
-                zerolinecolor=colors["grid_major"],
-            ),
-        )
+        layout_update = {
+            "plot_bgcolor": colors["background"],
+            "paper_bgcolor": colors["background"],
+            "font": {"color": colors["text_primary"]},
+            "xaxis": {
+                "gridcolor": colors["grid_lines"],
+                "linecolor": colors["grid_major"],
+                "tickcolor": colors["text_secondary"],
+                "tickfont": {"color": colors["text_secondary"]},
+                "zerolinecolor": colors["grid_major"],
+            },
+            "yaxis": {
+                "gridcolor": colors["grid_lines"],
+                "linecolor": colors["grid_major"],
+                "tickcolor": colors["text_secondary"],
+                "tickfont": {"color": colors["text_secondary"]},
+                "zerolinecolor": colors["grid_major"],
+            },
+        }
 
         # テンプレートを使わず、直接色を設定
         # Plotlyのテンプレートはグラフエリア外の背景色を変更しないことがある
