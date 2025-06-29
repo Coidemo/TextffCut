@@ -20,6 +20,17 @@ class ExportSegment:
         self.label = label
 
 
+class TimeMapper:
+    """時間マッピングユーティリティ"""
+    def __init__(self, silence_ranges: List[TimeRange]):
+        self.silence_ranges = silence_ranges
+    
+    def map_time_range(self, time_range: TimeRange) -> Optional[TimeRange]:
+        """時間範囲をマッピング"""
+        # 実装はアダプター層で行う
+        pass
+
+
 class IExportGateway(Protocol):
     """エクスポート機能の基本インターフェース"""
     
@@ -40,6 +51,24 @@ class IExportGateway(Protocol):
         Raises:
             ExportError: エクスポート失敗
         """
+        ...
+    
+    def get_video_info(self, video_path: FilePath) -> Dict[str, Any]:
+        """動画情報を取得"""
+        ...
+    
+    def generate_fcpxml(
+        self,
+        timeline_name: str,
+        asset: Any,  # FCPXMLAsset
+        clips: List[Any],  # List[FCPXMLClip]
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> str:
+        """FCPXMLコンテンツを生成"""
+        ...
+    
+    def create_time_mapper(self, silence_ranges: List[TimeRange]) -> TimeMapper:
+        """時間マッピングユーティリティを作成"""
         ...
 
 
