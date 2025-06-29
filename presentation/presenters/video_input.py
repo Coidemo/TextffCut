@@ -8,11 +8,8 @@ from pathlib import Path
 from typing import Optional, List
 import logging
 
-from dependency_injector.wiring import Provide, inject
-
 from .base import BasePresenter
 from presentation.view_models.video_input import VideoInputViewModel, VideoInfo
-from di.containers import ApplicationContainer
 from domain.value_objects import FilePath
 
 logger = logging.getLogger(__name__)
@@ -25,12 +22,11 @@ class VideoInputPresenter(BasePresenter[VideoInputViewModel]):
     動画ファイルの一覧取得、選択、情報取得などの処理を行います。
     """
     
-    @inject
     def __init__(
         self,
         view_model: VideoInputViewModel,
-        file_gateway=Provide[ApplicationContainer.gateways.file_gateway],
-        video_gateway=Provide[ApplicationContainer.gateways.video_processor_gateway]
+        file_gateway,
+        video_gateway
     ):
         """
         初期化
