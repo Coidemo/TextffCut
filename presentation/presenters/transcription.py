@@ -162,15 +162,20 @@ class TranscriptionPresenter(BasePresenter[TranscriptionViewModel]):
             return False
         
         try:
-            # キャッシュ読み込みユースケースを実行
-            request = LoadCacheRequest(
-                video_path=FilePath(str(self.view_model.video_path))
+            # 選択されたキャッシュファイルを直接読み込む
+            # TranscriptionGatewayの実装を直接使用
+            legacy_transcriber = self.transcription_gateway._legacy_transcriber
+            result = legacy_transcriber.load_from_cache(
+                str(self.view_model.selected_cache.file_path)
             )
             
-            result = self.load_cache_use_case.execute(request)
-            
             if result:
-                self.view_model.transcription_result = result
+                # 結果をドメインエンティティに変換
+                from adapters.converters.transcription_converter import TranscriptionConverter
+                converter = TranscriptionConverter()
+                domain_result = converter.legacy_to_domain(result)
+                
+                self.view_model.transcription_result = domain_result
                 self.view_model.notify()
                 return True
             else:

@@ -141,7 +141,7 @@ class TestTranscriptionPresenter:
         assert presenter.view_model.selected_cache == cache
         assert presenter.view_model.use_cache is True
     
-    def test_load_selected_cache_success(self, presenter, mock_load_cache_use_case):
+    def test_load_selected_cache_success(self, presenter, mock_transcription_gateway):
         """キャッシュ読み込み成功のテスト"""
         cache = TranscriptionCache(
             file_path=Path("/test/cache.json"),
@@ -152,11 +152,16 @@ class TestTranscriptionPresenter:
         )
         presenter.view_model.selected_cache = cache
         
+        # モックの設定
+        mock_legacy_transcriber = Mock()
+        mock_legacy_transcriber.load_from_cache.return_value = Mock(segments=[])
+        mock_transcription_gateway._legacy_transcriber = mock_legacy_transcriber
+        
         result = presenter.load_selected_cache()
         
         assert result is True
         assert presenter.view_model.transcription_result is not None
-        mock_load_cache_use_case.execute.assert_called_once()
+        mock_legacy_transcriber.load_from_cache.assert_called_once_with("/test/cache.json")
     
     def test_load_selected_cache_no_cache(self, presenter):
         """キャッシュ未選択時のテスト"""
