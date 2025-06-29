@@ -9,7 +9,7 @@ from typing import Any
 
 import streamlit as st
 
-from config import config
+from config import config  # 段階的にConfigurationService経由に移行中
 from core import TextProcessor
 from core.alignment_processor import AlignmentProcessor
 from core.constants import (
@@ -34,233 +34,47 @@ from ui import (
     show_transcription_controls,
     show_video_input,
 )
+from ui.styles import get_custom_css
 from ui.recovery_components import (
     show_recovery_check,
     show_recovery_history,
     show_recovery_settings,
     show_recovery_status,
-    show_startup_recovery,
 )
 from utils import ProcessingContext, cleanup_intermediate_files
-from utils.environment import IS_DOCKER, VIDEOS_DIR
+from utils.config_helpers import get_ui_page_title, get_ui_layout, get_isolation_mode, set_api_mode, is_api_mode
+from utils.debug_helpers import debug_words_status
+from utils.environment import VIDEOS_DIR
 from utils.file_utils import ensure_directory, get_safe_filename
 from utils.logging import get_logger
+from utils.path_helpers import get_display_path
 from utils.time_utils import format_time
+from utils.startup import run_initial_checks
+from ui.constants import get_app_icon
+from ui.components_modules.header import show_app_title
 
 logger = get_logger(__name__)
 
 # Streamlitの設定
-# アイコンファイルのパスを設定
-
-icon_path = Path(__file__).parent / "assets" / "icon.png"
-page_icon = str(icon_path) if icon_path.exists() else "🎬"
-
 st.set_page_config(
-    page_title=config.ui.page_title, page_icon=page_icon, layout=config.ui.layout, initial_sidebar_state="expanded"
+    page_title=get_ui_page_title(), page_icon=get_app_icon(), layout=get_ui_layout(), initial_sidebar_state="expanded"
 )
 
 # フォントサイズを調整するCSS
-st.markdown(
-    """
-<style>
-    /* 全体的なフォントサイズを小さく */
-    .stApp {
-        font-size: 14px;
-    }
-
-    /* 見出しのサイズ調整 */
-    h1 {
-        font-size: 2rem !important;
-    }
-    h2 {
-        font-size: 1.5rem !important;
-    }
-    h3 {
-        font-size: 1.25rem !important;
-    }
-    h4 {
-        font-size: 1.1rem !important;
-    }
-
-    /* テキスト入力やセレクトボックスのフォントサイズ */
-    .stSelectbox > div > div {
-        font-size: 14px !important;
-    }
-
-    /* ボタンのフォントサイズ */
-    .stButton > button {
-        font-size: 14px !important;
-    }
-
-    /* キャプションのフォントサイズ */
-    .caption {
-        font-size: 12px !important;
-    }
-
-    /* サイドバーのフォントサイズ調整 */
-    .sidebar .sidebar-content {
-        font-size: 14px !important;
-    }
-
-    /* サイドバーの見出し */
-    .sidebar h1, .sidebar h2, .sidebar h3, .sidebar h4 {
-        font-size: 1rem !important;
-    }
-
-    /* サイドバーのボタン */
-    .sidebar .stButton > button {
-        font-size: 13px !important;
-    }
-
-    /* サイドバーのタブ */
-    .sidebar .stTabs [data-baseweb="tab-list"] button {
-        font-size: 13px !important;
-    }
-
-    /* サイドバーのセレクトボックス */
-    .sidebar .stSelectbox {
-        font-size: 13px !important;
-    }
-
-    /* 画像の表示品質を向上 */
-    img {
-        image-rendering: auto;
-        image-rendering: -webkit-optimize-contrast;
-        max-width: 100%;
-        height: auto;
-    }
-</style>
-""",
-    unsafe_allow_html=True,
-)
+st.markdown(get_custom_css(), unsafe_allow_html=True)
 
 # ダークモード対応のスタイルを適用
 apply_dark_mode_styles()
 
 
-def debug_words_status(result: Any) -> None:
-    """wordsフィールドの状態を詳細に出力（デバッグ用）"""
-    logger = get_logger(__name__)
-
-    if hasattr(result, "segments"):
-        total_segments = len(result.segments)
-        segments_with_words = sum(1 for seg in result.segments if hasattr(seg, "words") and seg.words)
-        logger.info(f"Words状態: {segments_with_words}/{total_segments} セグメント")
-
-        # 最初の数セグメントの詳細
-        for i, seg in enumerate(result.segments[:3]):
-            if hasattr(seg, "words") and seg.words:
-                logger.info(f"  セグメント{i}: {len(seg.words)}words - {seg.text[:30]}...")
-            else:
-                logger.warning(f"  セグメント{i}: wordsなし! - {seg.text[:30]}...")
-
-
-def get_display_path(file_path: str | Path) -> str:
-    """
-    ファイルパスを表示用に変換
-
-    Args:
-        file_path: 実際のファイルパス
-
-    Returns:
-        表示用のパス
-    """
-    if IS_DOCKER:
-        # Docker環境：ホストパスに変換
-        host_base = os.getenv("HOST_VIDEOS_PATH", os.getenv("PWD", "/app") + "/videos")
-        # /app/videos/xxx を host_path/xxx に変換
-        relative_path = str(file_path).replace(VIDEOS_DIR + "/", "")
-        if relative_path == str(file_path):
-            # VIDEOS_DIR以外のパスの場合はそのまま返す
-            return str(file_path)
-        return os.path.join(host_base, relative_path)
-    else:
-        # ローカル環境：そのまま返す
-        return str(file_path)
-
-
 def main() -> None:
     """メインアプリケーション"""
 
-    # ロガーを初期化
-    from utils.logging import get_logger as _get_logger
-
-    logger = _get_logger(__name__)
-
-    # ロゴを表示（ダークモード対応）
-    icon_svg = """
-    <svg width="45" height="50" viewBox="0 0 139.61 154.82" xmlns="http://www.w3.org/2000/svg"
-         style="vertical-align: middle; margin-right: 10px;" class="textffcut-logo">
-      <style>
-        @media (prefers-color-scheme: dark) {
-          .textffcut-logo .icon-dark { fill: #ffffff; }
-          .textffcut-logo .icon-red { fill: #fd444d; }
-        }
-        @media (prefers-color-scheme: light) {
-          .textffcut-logo .icon-dark { fill: #2a363b; }
-          .textffcut-logo .icon-red { fill: #fd444d; }
-        }
-      </style>
-      <path class="icon-dark" d="M30.29,33.32C31.39,15.5,44.76,1.16,62.8.19c11.65-.62,23.84.49,35.54,0,
-               3.39.21,5.97.97,8.62,3.14l29.53,29.75c4.33,5.24,2.49,14.91,2.51,21.49,0,3.18-.02,6.41,0,9.59
-               .06,14.84,1.16,31.13.27,45.85-1.02,16.99-15.67,31.08-32.53,32.03-6.37.36-16.28.53-22.55,0
-               -4.89-.42-8.08-4.88-5.6-9.43,1.3-2.39,3.75-3.1,6.31-3.29,13.41-.98,28.28,4.04,37.67-8.41,
-               1.48-1.96,4.22-7.35,4.22-9.7v-61.68s-.33-.36-.36-.36h-18.48c-6.87,0-14.52-8.54-14.52-15.24
-               V12.92h-32.76c-4.15,0-10.3,4.41-12.83,7.57-6.53,8.16-5.23,14-5.28,23.74s.62,20.49,0,30.02
-               c-.55,8.4-9.92,9.57-12.25,1.79.73.13.46-.37.48-.83.52-13.04.44-28,0-41.06-.02-.46.24-.96-.48-.83Z
-               M123.18,37.64c.44-.44-1.49-2.58-1.91-3.01-4.53-4.7-9.37-9.2-13.94-13.9-.37-.38-.69-1.09-1.06-1.34
-               -1.35-.92-.63.56-.6,1.32.13,3.91-.39,8.46,0,12.25s3.98,4.66,7.32,4.92c1.17.09,9.84.12,10.2-.24Z"/>
-      <path class="icon-red" d="M69.41,89.96c5.54-.69,11.11-1.24,16.65-1.95,6.41-.83,13.88-2.55,20.2-2.84,
-               4.56-.21,7.15,3.02,4.4,7.04-4.89,7.14-13.45,9.51-21.5,10.9-8.65,1.49-17.5,1.97-26.12,3.64
-               -.17,1.11-3.04,6.07-2.99,6.61.05.56,2.34,2.49,2.89,3.14,9.22,10.9,9.98,26.45-2.7,34.97
-               -12.08,8.12-30.07.79-31.61-13.86-.05-.47.09-2.43,0-2.52-.25-.25-6.01.09-7.08,0
-               -18.82-1.55-28.92-25.82-15.16-39.51,8.13-8.09,20.56-8.98,30.72-4.37,2.11.96,3.13,2.24,5.55,2.12,
-               2.76-.14,6.43-.64,9.24-.96,5.8-.66,11.66-1.67,17.52-2.4Z
-               M47.57,106.28c-.05-.05-1.12.03-1.5-.06-9.08-1.97-19.86-9.92-28.96-4.36-11.06,6.75-4.66,21.86,
-               7.79,22.18,7.33.19,19.23-8.91,21.99-15.44.16-.38.92-2.08.68-2.32Z
-               M49.91,123.62c-1.6.31-6,3.57-7.14,4.86-3.55,4.01-3.95,10.19.89,13.28,8.8,5.63,18.62-4.16,
-               13.8-13.32-1.4-2.67-4.27-5.44-7.55-4.82Z"/>
-      <path class="icon-dark" d="M69.41,89.96c-5.86.73-11.72,1.74-17.52,2.4,4.22-9.39,6.59-19.65,11.44-28.76,
-               3.08-5.79,7.68-11,13.6-14,3.3-1.67,6.38-2.77,9.92-.96,2.77,1.41,3.26,4.72,1.62,7.23-1.86,2.85
-               -3.67,5.17-5.43,8.25-4.81,8.45-8.84,17.37-13.64,25.84Z"/>
-      <path class="icon-dark" d="M95.03,65.78h19.8c4.77,1.39,4.4,7.98-.69,8.55-6.03.67-13.2-.39-19.35-.02
-               -4.41-1.47-4.15-7.26.24-8.53Z"/>
-    </svg>
-    """
-
-    # Docker環境判定（環境変数から取得）
-    is_docker = IS_DOCKER
-
-    # バージョン情報を取得（VERSION.txtから読み込む）
-    try:
-        version_file = Path(__file__).parent / "VERSION.txt"
-        version = version_file.read_text().strip() if version_file.exists() else "v1.0.0"
-    except OSError:
-        version = "v1.0.0"  # エラー時のフォールバック
-
-    # 起動時のリカバリーチェック（自動リカバリーが有効な場合）
-    if st.session_state.get("auto_recovery", True) and "startup_recovery_checked" not in st.session_state:
-        st.session_state["startup_recovery_checked"] = True
-        recoverable = show_startup_recovery()
-        if recoverable:
-            # リカバリー可能な処理があれば停止
-            st.stop()
+    # 初期チェックを実行
+    is_docker, version = run_initial_checks()
 
     # タイトル表示
-    title_text = (
-        f'Text<span style="color: red; font-style: italic;">ff</span>Cut '
-        f'<span style="color: #666; font-size: 1rem;">{version}</span>'
-    )
-    subtitle_text = "切り抜き動画編集支援ツール"
-
-    st.markdown(
-        f'{icon_svg}<span style="font-size: 3rem; font-weight: bold; vertical-align: middle;">{title_text}</span>',
-        unsafe_allow_html=True,
-    )
-    st.markdown(
-        f'<p style="margin-top: -10px; margin-bottom: 20px; color: #666; font-size: 1.1rem;">{subtitle_text}</p>',
-        unsafe_allow_html=True,
-    )
+    show_app_title(version)
 
     # サイドバー
     with st.sidebar:
@@ -402,7 +216,7 @@ def main() -> None:
 
     # 分離モードに応じて適切なTranscriberを選択
     transcriber: Any
-    if config.transcription.isolation_mode == "subprocess":
+    if get_isolation_mode() == "subprocess":
         transcriber = SubprocessTranscriber(config)
     else:
         transcriber = SmartSplitTranscriber(config)
@@ -642,14 +456,13 @@ def main() -> None:
                 # 実行前にAPI設定を反映（確認モーダルの情報を使用）
                 confirmation_info = st.session_state.get("confirmation_info", {})
                 if confirmation_info.get("mode") == "api":
-                    config.transcription.use_api = True
-                    config.transcription.api_key = st.session_state.get("api_key", "")
+                    set_api_mode(True, st.session_state.get("api_key", ""))
                 else:
-                    config.transcription.use_api = False
+                    set_api_mode(False)
 
                 # 設定を反映したTranscriberを再初期化
                 # 分離モードに応じて適切なTranscriberを選択
-                if config.transcription.isolation_mode == "subprocess":
+                if get_isolation_mode() == "subprocess":
                     transcriber = SubprocessTranscriber(config)
                 else:
                     transcriber = SmartSplitTranscriber(config)
@@ -678,7 +491,7 @@ def main() -> None:
 
                 if result:
                     # APIモードでwordsが欠落している場合、アライメント処理を実行
-                    if config.transcription.use_api:
+                    if is_api_mode():
                         try:
                             # wordsフィールドのチェック
                             has_words = True
@@ -762,7 +575,7 @@ def main() -> None:
 
                     # デバッグ: wordsフィールドの状態を出力
                     if os.environ.get("TEXTFFCUT_DEBUG"):
-                        debug_words_status(result)
+                        debug_words_status(result, logger_name=__name__)
 
                     st.session_state.transcription_result = result
                     st.session_state.transcription_in_progress = False
@@ -1465,10 +1278,9 @@ def main() -> None:
 
                 # 実行前にAPI設定を反映
                 if st.session_state.get("use_api", False):
-                    config.transcription.use_api = True
-                    config.transcription.api_key = st.session_state.get("api_key", "")
+                    set_api_mode(True, st.session_state.get("api_key", ""))
                 else:
-                    config.transcription.use_api = False
+                    set_api_mode(False)
 
                 # 区切り文字対応の差分検索を使用
                 text_processor = TextProcessor()
