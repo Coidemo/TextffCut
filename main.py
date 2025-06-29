@@ -5,9 +5,13 @@ TextffCut - メインアプリケーション
 
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 import streamlit as st
+
+# DI統合
+from di.bootstrap import bootstrap_di, inject_streamlit_session
+from di.containers import ApplicationContainer
 
 from config import config  # 段階的にConfigurationService経由に移行中
 from core import TextProcessor
@@ -64,6 +68,16 @@ from ui.components_modules.header import show_app_title
 
 logger = get_logger(__name__)
 
+# DIコンテナのグローバルインスタンス
+_app_container: Optional[ApplicationContainer] = None
+
+def get_container() -> ApplicationContainer:
+    """アプリケーションコンテナを取得"""
+    global _app_container
+    if _app_container is None:
+        _app_container = bootstrap_di()
+    return _app_container
+
 # Streamlitの設定
 st.set_page_config(
     page_title=get_ui_page_title(), page_icon=get_app_icon(), layout=get_ui_layout(), initial_sidebar_state="expanded"
@@ -78,6 +92,14 @@ apply_dark_mode_styles()
 
 def main() -> None:
     """メインアプリケーション"""
+
+    # DIコンテナを初期化
+    container = get_container()
+    inject_streamlit_session(container)
+    
+    # DIコンテナの状態をログ出力（デバッグ用）
+    logger.info("DI container initialized")
+    logger.debug(f"Container config: {container.config().environment}")
 
     # 初期チェックを実行
     is_docker, version = run_initial_checks()
@@ -1841,6 +1863,15 @@ def main() -> None:
     if st.session_state.get("need_rerun", False):
         st.session_state.need_rerun = False
         st.rerun()
+    
+    # DIコンテナのデバッグ情報（開発環境のみ）
+    if os.getenv("TEXTFFCUT_ENV", "production") == "development":
+        with st.sidebar:
+            with st.expander("🔧 DI Container Debug", expanded=False):
+                st.caption("DI Container Status")
+                st.text(f"Environment: {container.config().environment}")
+                st.text(f"Testing Mode: {container.config().is_testing}")
+                st.text(f"Container ID: {id(container)}")
 
 
 # モーダル関数は削除（メイン画面表示に変更）
