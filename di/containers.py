@@ -31,6 +31,9 @@ from services.transcription_service import TranscriptionService
 from services.video_processing_service import VideoProcessingService
 from services.text_editing_service import TextEditingService
 
+# Presentation層のインポート
+from presentation.di_config import PresentationContainer
+
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -198,6 +201,13 @@ class ApplicationContainer(containers.DeclarativeContainer):
         config=providers.DependenciesContainer(
             legacy_config=legacy_config
         )
+    )
+    
+    # Presentation層コンテナ
+    presentation = providers.Container(
+        PresentationContainer,
+        gateways=gateways,
+        use_cases=use_cases
     )
     
     # Streamlit連携用プロバイダー
