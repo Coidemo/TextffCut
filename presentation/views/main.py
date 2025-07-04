@@ -144,9 +144,15 @@ class MainView(BaseView[MainViewModel]):
 
         # メインコンテンツ
         with st.container():
-            # タイトル
-            st.markdown("# 🎬 TextffCut")
-            st.markdown("動画の文字起こしと切り抜きを効率化するツール")
+            # タイトル（SVGロゴとスタイル付き）
+            from ui.components_modules.header import show_app_title
+            from utils.version_helpers import get_app_version
+            
+            # SVGが表示されない場合は、以下のコメントを外してPNG版を使用
+            # from ui.components_modules.header_alternative import show_app_title_with_image
+            # show_app_title_with_image(version=get_app_version())
+            
+            show_app_title(version=get_app_version())
 
             # エラー表示
             if self.view_model.has_error:

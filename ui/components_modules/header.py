@@ -24,20 +24,28 @@ def show_app_title(version: str = "v1.0.0") -> None:
         タイトルの"ff"部分は赤色イタリック体で強調表示される。
         バージョンは灰色の小さい文字で表示される。
     """
-    # タイトルテキストの構築
+    # タイトルテキストの構築（元の実装と同じ）
     title_text = (
         f'Text<span style="color: red; font-style: italic;">ff</span>Cut '
         f'<span style="color: #666; font-size: 1rem;">{version}</span>'
     )
-    subtitle_text = "切り抜き動画編集支援ツール"
+    subtitle_text = "動画の文字起こしと切り抜きを効率化するツール"
 
-    # タイトル表示
-    st.markdown(
-        f'{ICON_SVG}<span style="font-size: 3rem; font-weight: bold; vertical-align: middle;">{title_text}</span>',
-        unsafe_allow_html=True,
-    )
-
-    # サブタイトル表示
+    # SVGが表示されない場合のフォールバック処理
+    try:
+        # まずSVGを試す
+        st.markdown(
+            f'{ICON_SVG}<span style="font-size: 3rem; font-weight: bold; vertical-align: middle;">{title_text}</span>',
+            unsafe_allow_html=True,
+        )
+    except:
+        # SVGが表示されない場合は、タイトルのみ表示
+        st.markdown(
+            f'<span style="font-size: 3rem; font-weight: bold;">{title_text}</span>',
+            unsafe_allow_html=True,
+        )
+    
+    # サブタイトル
     st.markdown(
         f'<p style="margin-top: -10px; margin-bottom: 20px; color: #666; font-size: 1.1rem;">{subtitle_text}</p>',
         unsafe_allow_html=True,

@@ -24,9 +24,15 @@ def main() -> None:
     """メインアプリケーション（MVP版）"""
 
     # ページ設定を最初に行う
+    from pathlib import Path
+    
+    # アイコンファイルのパスを取得
+    icon_path = Path(__file__).parent / "assets" / "icon.png"
+    page_icon = str(icon_path) if icon_path.exists() else "🎬"
+    
     st.set_page_config(
         page_title="TextffCut - 動画の文字起こしと切り抜き",
-        page_icon="🎬",
+        page_icon=page_icon,
         layout="wide",
         initial_sidebar_state="expanded",
     )
