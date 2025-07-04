@@ -1,14 +1,17 @@
 """
-エクスポートゲートウェイ
+エクスポートゲートウェイのアダプター実装
 
-既存のエクスポート機能をクリーンアーキテクチャのインターフェースに適合させます。
+各種エクスポート形式のゲートウェイアダプターを提供します。
 """
 
-from .fcpxml_export_gateway import FCPXMLExportGatewayAdapter, FCPXMLTimeMapper
+from .edl_export_gateway import EDLExportGatewayAdapter
+from .fcpxml_export_gateway import FCPXMLExportGatewayAdapter
 from .srt_export_gateway import SRTExportGatewayAdapter
+from .video_export_gateway import VideoExportGatewayAdapter
 
 __all__ = [
+    "VideoExportGatewayAdapter",
     "FCPXMLExportGatewayAdapter",
-    "FCPXMLTimeMapper",
-    "SRTExportGatewayAdapter"
+    "EDLExportGatewayAdapter",
+    "SRTExportGatewayAdapter",
 ]

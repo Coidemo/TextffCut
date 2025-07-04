@@ -5,31 +5,29 @@
 セッション状態管理を改善する。
 """
 
-import streamlit as st
-from typing import Optional
 
-from ui import show_video_input as legacy_show_video_input
 from infrastructure.ui.session_manager import get_session_manager
+from ui import show_video_input as legacy_show_video_input
 
 
-def show_video_input_section() -> Optional[str]:
+def show_video_input_section() -> str | None:
     """
     動画入力セクションを表示
-    
+
     Returns:
         選択された動画のパス（なければNone）
     """
     # セッション管理
     session = get_session_manager()
-    
+
     # 既存の動画入力UIを使用
     video_path = legacy_show_video_input()
-    
+
     # 動画が変更された場合の処理
     if video_path and video_path != session.get_video_path():
         # 動画が変更されたら、関連する状態をクリア
         _handle_video_change(video_path, session)
-    
+
     return video_path
 
 
@@ -54,10 +52,10 @@ def _handle_video_change(video_path: str, session):
         "previous_transcription_mode",
         "previous_transcription_model",
     ]
-    
+
     for key in session_keys_to_clear:
         session.delete(key)
-    
+
     # 新しい動画パスを設定
     session.set_video_path(video_path)
     # session.set_video_pathが両方のキーを設定するので、以下は不要

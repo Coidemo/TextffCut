@@ -5,9 +5,9 @@
 等価性は属性の値によって判断されます。
 """
 
-from .time_range import TimeRange
-from .file_path import FilePath
 from .duration import Duration
+from .file_path import FilePath
+from .time_range import TimeRange
 
 __all__ = [
     "TimeRange",

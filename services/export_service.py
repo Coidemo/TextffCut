@@ -106,10 +106,10 @@ class ExportService(BaseService):
 
             # FCPXMLエクスポート実行
             self.fcpxml_exporter.export(
-                segments=export_segments, 
-                output_path=str(output_file), 
+                segments=export_segments,
+                output_path=str(output_file),
                 timeline_fps=timeline_fps,
-                project_name=project_name
+                project_name=project_name,
             )
 
             # エクスポートファイルの検証

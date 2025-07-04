@@ -1559,9 +1559,83 @@ CUDA_VISIBLE_DEVICES=0 (GPU使用時)
    - 明確なインターフェース定義
    - ドキュメント化の簡素化
 
-## 13. UI表示制御設計
+## 13. MVP実装状況
 
-### 13.1 セクション表示制御
+### 13.1 Phase 7: Transcription MVP（完了）
+
+#### 13.1.1 実装内容
+- **TranscriptionViewModel**: 文字起こし画面の状態管理
+  - API/ローカルモード切り替え
+  - モデルサイズ選択
+  - キャッシュ管理
+  - 処理状態とプログレス
+- **TranscriptionPresenter**: ビジネスロジック
+  - 文字起こし実行
+  - キャッシュ読み込み
+  - 料金計算
+  - エラーハンドリング
+- **TranscriptionView**: UI実装
+  - モード選択UI
+  - キャッシュ選択UI
+  - プログレス表示
+  - 結果表示
+
+#### 13.1.2 特記事項
+- キャッシュ読み込みでレガシー形式を維持（main.py互換性のため）
+- SessionManagerを通じた状態管理
+
+### 13.2 Phase 8: TextEditor MVP（完了）
+
+#### 13.2.1 実装内容
+- **TextEditorViewModel**: テキスト編集の状態管理
+  - 編集テキスト
+  - 時間範囲
+  - 境界調整
+  - タイムライン編集状態
+- **TextEditorPresenter**: テキスト処理ロジック
+  - 差分検出
+  - 時間範囲計算
+  - 境界調整マーカー処理
+  - セクション分割
+- **TextEditorView**: 編集UI
+  - 2カラムレイアウト
+  - ハイライト表示
+  - タイムライン編集UI
+  - 音声プレビュー
+
+#### 13.2.2 特記事項
+- モーダルダイアログをインライン表示に変更
+- タイムライン編集機能を`timeline_editor_simple.py`で実装
+
+### 13.3 Phase 9: ExportSettings MVP（完了）
+
+#### 13.3.1 実装内容
+- **ExportSettingsViewModel**: エクスポート設定の状態管理
+  - 無音削除設定
+  - エクスポート形式
+  - SRT字幕設定
+  - 処理状態とプログレス
+- **ExportSettingsPresenter**: エクスポート処理ロジック
+  - 動画エクスポート
+  - FCPXML/EDL生成
+  - SRT字幕生成
+  - 無音削除処理
+- **ExportSettingsView**: 設定UI
+  - 無音削除設定パネル
+  - 形式選択
+  - 実行ボタンとプログレス
+  - 結果表示
+
+#### 13.3.2 ゲートウェイアダプター
+- **VideoExportGatewayAdapter**: 動画クリップ抽出
+- **FCPXMLExportGatewayAdapter**: FCPXML生成
+- **EDLExportGatewayAdapter**: EDL生成
+- **SRTExportGatewayAdapter**: SRT字幕生成
+- **VideoProcessorGatewayAdapter**: 無音削除処理
+
+## 14. UI表示制御設計
+
+### 14.1 セクション表示制御
 
 #### 13.1.1 セッション状態設計
 
@@ -3745,9 +3819,81 @@ def show_boundary_adjusted_preview(
 
 なし（2025-06-28時点）
 
+## 22. MVP実装状況（2025-01-01更新）
+
+### 22.1 Phase 7-9 完了
+
+**VideoInput MVP** (Phase 7)
+- ✅ VideoInputViewModel
+- ✅ VideoInputPresenter
+- ✅ VideoInputView
+- ✅ 統合テスト実装
+
+**TextEditor MVP** (Phase 8)
+- ✅ TextEditorViewModel
+- ✅ TextEditorPresenter
+- ✅ TextEditorView
+- ✅ text_processor_gateway実装
+
+**ExportSettings MVP** (Phase 9)
+- ✅ ExportSettingsViewModel
+- ✅ ExportSettingsPresenter
+- ✅ ExportSettingsView
+- ✅ 各種エクスポートゲートウェイ実装
+
+### 22.2 Phase 10 実装中
+
+**Phase 10.1: 基盤整備** ✅
+- ✅ MainViewModel
+- ✅ MainPresenter
+- ✅ TranscriptionResultAdapter（ドメイン↔レガシー変換）
+
+**Phase 10.2: サイドバーMVP化** ✅
+- ✅ SidebarViewModel
+- ✅ SidebarPresenter
+- ✅ SidebarView
+
+**Phase 10.3: 統合作業** 🔄
+- ✅ MainView実装
+- ✅ main_mvp.py作成
+- ✅ 環境変数による切り替え機能（TEXTFFCUT_USE_MVP）
+
+**Phase 10.4: テストと切り替え** 📋
+- 統合テスト実装
+- パフォーマンス測定
+- 本番環境への切り替え
+
+### 22.3 アーキテクチャの改善点
+
+1. **責任の分離**
+   - UIロジックとビジネスロジックの完全分離
+   - 各コンポーネントが単一責任原則に従う
+
+2. **依存性注入**
+   - dependency-injectorによる統一的なDI
+   - テスト時のモック注入が容易
+
+3. **アダプターパターン**
+   - TranscriptionResultAdapterでレガシー互換性を維持
+   - 段階的な移行が可能
+
+### 22.4 残作業
+
+1. **統合テスト**
+   - エンドツーエンドテスト
+   - MVP間の連携テスト
+
+2. **パフォーマンス最適化**
+   - 不要な再描画の削減
+   - キャッシュの最適化
+
+3. **ドキュメント更新**
+   - アーキテクチャドキュメント
+   - 開発者ガイド
+
 ---
 
 **作成日**: 2025-06-22  
-**バージョン**: 3.6  
-**最終更新**: 2025-06-28  
-**次回更新**: YouTube URL対応機能実装時  
+**バージョン**: 3.7  
+**最終更新**: 2025-01-01  
+**次回更新**: Phase 10完了時  

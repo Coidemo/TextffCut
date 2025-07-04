@@ -5,14 +5,14 @@
 エンティティは同一性を持ち、ライフサイクルを通じて追跡されます。
 """
 
+from .text_difference import TextDifference
 from .transcription import (
+    Char,
     TranscriptionResult,
     TranscriptionSegment,
     Word,
-    Char,
 )
 from .video_segment import VideoSegment
-from .text_difference import TextDifference
 
 __all__ = [
     "TranscriptionResult",

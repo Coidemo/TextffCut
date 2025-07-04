@@ -8,7 +8,6 @@
 from config import config
 from services import ConfigurationService
 
-
 # グローバルなConfigurationServiceインスタンス（遅延初期化）
 _config_service = None
 
@@ -16,7 +15,7 @@ _config_service = None
 def get_config_service() -> ConfigurationService:
     """
     ConfigurationServiceのシングルトンインスタンスを取得
-    
+
     Returns:
         ConfigurationService: 設定サービスのインスタンス
     """
@@ -29,10 +28,10 @@ def get_config_service() -> ConfigurationService:
 def get_ui_page_title() -> str:
     """
     UIのページタイトルを取得
-    
+
     Returns:
         str: ページタイトル
-        
+
     Note:
         将来的にはConfigurationService経由での取得に完全移行予定
     """
@@ -43,7 +42,7 @@ def get_ui_page_title() -> str:
 def get_ui_layout() -> str:
     """
     UIのレイアウト設定を取得
-    
+
     Returns:
         str: レイアウト設定（"wide"など）
     """
@@ -53,7 +52,7 @@ def get_ui_layout() -> str:
 def get_whisper_models() -> list[str]:
     """
     利用可能なWhisperモデルのリストを取得
-    
+
     Returns:
         list[str]: モデル名のリスト
     """
@@ -63,7 +62,7 @@ def get_whisper_models() -> list[str]:
 def get_api_models() -> list[str]:
     """
     利用可能なAPIモデルのリストを取得
-    
+
     Returns:
         list[str]: APIモデル名のリスト
     """
@@ -73,7 +72,7 @@ def get_api_models() -> list[str]:
 def is_api_mode() -> bool:
     """
     API使用モードかどうかを確認
-    
+
     Returns:
         bool: API使用モードの場合True
     """
@@ -83,7 +82,7 @@ def is_api_mode() -> bool:
 def get_default_model_size() -> str:
     """
     デフォルトのモデルサイズを取得
-    
+
     Returns:
         str: デフォルトのモデルサイズ
     """
@@ -93,7 +92,7 @@ def get_default_model_size() -> str:
 def get_isolation_mode() -> str:
     """
     文字起こし処理の分離モードを取得
-    
+
     Returns:
         str: 分離モード（"subprocess"など）
     """
@@ -103,7 +102,7 @@ def get_isolation_mode() -> str:
 def set_api_mode(use_api: bool, api_key: str | None = None) -> None:
     """
     API使用モードとAPIキーを設定
-    
+
     Args:
         use_api: API使用フラグ
         api_key: APIキー（use_apiがTrueの場合は必須）

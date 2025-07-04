@@ -10,14 +10,14 @@ UIスタイル定義
 def get_custom_css() -> str:
     """
     カスタムCSSスタイルを取得
-    
+
     アプリケーション全体に適用されるCSSスタイルを返す。
     フォントサイズの調整、サイドバーのスタイル、
     画像表示の最適化などを含む。
-    
+
     Returns:
         str: CSSスタイル文字列
-        
+
     Note:
         このCSSはStreamlitのmarkdownで直接適用される。
         st.markdown(get_custom_css(), unsafe_allow_html=True)
@@ -98,10 +98,10 @@ def get_custom_css() -> str:
 def get_font_sizes() -> dict[str, str]:
     """
     フォントサイズの設定を辞書形式で取得
-    
+
     Returns:
         dict[str, str]: 要素名とフォントサイズのマッピング
-        
+
     Examples:
         >>> sizes = get_font_sizes()
         >>> print(sizes["h1"])
@@ -122,7 +122,7 @@ def get_font_sizes() -> dict[str, str]:
 def get_image_optimization_css() -> str:
     """
     画像表示最適化用のCSSを取得
-    
+
     Returns:
         str: 画像最適化用のCSSスタイル
     """

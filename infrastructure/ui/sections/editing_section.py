@@ -4,17 +4,18 @@
 Phase 1では実装を簡略化し、既存のロジックを呼び出す。
 """
 
+from typing import Any
+
 import streamlit as st
-from typing import Optional, Any, List, Tuple
 
 
-def show_editing_section(transcription_result: Any) -> Tuple[Optional[str], Optional[List[Tuple[float, float]]]]:
+def show_editing_section(transcription_result: Any) -> tuple[str | None, list[tuple[float, float]] | None]:
     """
     編集セクションを表示（プレースホルダー）
-    
+
     Args:
         transcription_result: 文字起こし結果
-        
+
     Returns:
         編集されたテキストと時間範囲のタプル
     """

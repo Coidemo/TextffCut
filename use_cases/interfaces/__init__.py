@@ -5,18 +5,18 @@
 これらのインターフェースはアダプター層で実装されます。
 """
 
-from .transcription_gateway import ITranscriptionGateway
-from .text_processor_gateway import ITextProcessorGateway
-from .video_processor_gateway import IVideoProcessorGateway
 from .export_gateway import (
+    ExportSegment,
     IExportGateway,
     IFCPXMLExportGateway,
     IPremiereXMLExportGateway,
     ISRTExportGateway,
-    ExportSegment,
     TimeMapper,
 )
 from .file_gateway import IFileGateway
+from .text_processor_gateway import ITextProcessorGateway
+from .transcription_gateway import ITranscriptionGateway
+from .video_processor_gateway import IVideoProcessorGateway
 
 __all__ = [
     "ITranscriptionGateway",

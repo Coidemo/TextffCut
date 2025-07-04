@@ -245,8 +245,13 @@ class Transcriber:
         textffcut_dir = video_parent / f"{safe_name}_TextffCut"
         cache_dir = textffcut_dir / "transcriptions"
 
-        # シンプルなファイル名（動画名不要）
-        return cache_dir / f"{model_size}.json"
+        # APIモードかどうかで、ファイル名を変える
+        if self.config.transcription.use_api:
+            # APIモードの場合は_apiサフィックスを追加
+            return cache_dir / f"{model_size}_api.json"
+        else:
+            # ローカルモードの場合はそのまま
+            return cache_dir / f"{model_size}.json"
 
     def get_available_caches(self, video_path: str | Path) -> list[dict[str, Any]]:
         """利用可能なキャッシュファイルのリストを取得"""

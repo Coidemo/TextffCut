@@ -12,13 +12,13 @@ from pathlib import Path
 def get_app_icon() -> str:
     """
     アプリケーションのアイコンを取得
-    
+
     アイコンファイルが存在する場合はそのパスを、
     存在しない場合はデフォルトの絵文字を返す。
-    
+
     Returns:
         str: アイコンファイルのパスまたはデフォルト絵文字
-        
+
     Examples:
         >>> icon = get_app_icon()
         >>> # ファイルが存在する場合: "/path/to/assets/icon.png"

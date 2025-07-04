@@ -3,7 +3,7 @@
 """
 
 from dataclasses import dataclass
-from typing import Optional, List, Dict, Any
+from typing import Any
 
 from domain.entities import TranscriptionResult
 from domain.value_objects import FilePath
@@ -15,9 +15,10 @@ from use_cases.interfaces import ITranscriptionGateway
 @dataclass
 class LoadCacheRequest:
     """キャッシュ読み込みリクエスト"""
+
     video_path: FilePath
-    model_size: Optional[str] = None  # Noneの場合は最新のキャッシュを選択
-    
+    model_size: str | None = None  # Noneの場合は最新のキャッシュを選択
+
     def __post_init__(self):
         """パスの検証"""
         if not isinstance(self.video_path, FilePath):
@@ -27,6 +28,7 @@ class LoadCacheRequest:
 @dataclass
 class CacheInfo:
     """キャッシュ情報"""
+
     path: FilePath
     model_size: str
     language: str
@@ -38,102 +40,92 @@ class CacheInfo:
 class LoadTranscriptionCacheUseCase(UseCase[LoadCacheRequest, TranscriptionResult]):
     """
     文字起こしキャッシュを読み込むユースケース
-    
+
     指定されたモデルのキャッシュを読み込みます。
     モデルが指定されていない場合は、最新のキャッシュを選択します。
     """
-    
+
     def __init__(self, transcription_gateway: ITranscriptionGateway):
         super().__init__()
         self.gateway = transcription_gateway
-    
+
     def execute(self, request: LoadCacheRequest) -> TranscriptionResult:
         """キャッシュの読み込み"""
         # 利用可能なキャッシュの一覧を取得
         available_caches = self.gateway.list_available_caches(request.video_path)
-        
+
         if not available_caches:
-            raise CacheNotFoundError(
-                f"No cache found for video: {request.video_path.name}"
-            )
-        
+            raise CacheNotFoundError(f"No cache found for video: {request.video_path.name}")
+
         # キャッシュの選択
         selected_cache = self._select_cache(available_caches, request.model_size)
-        
+
         if not selected_cache:
             raise CacheNotFoundError(
-                f"No cache found for model '{request.model_size}' "
-                f"and video: {request.video_path.name}"
+                f"No cache found for model '{request.model_size}' " f"and video: {request.video_path.name}"
             )
-        
+
         self.logger.info(
-            f"Loading cache: model={selected_cache['model_size']}, "
-            f"created_at={selected_cache['created_at']}"
+            f"Loading cache: model={selected_cache['model_size']}, " 
+            f"created_at={selected_cache.get('created_at', selected_cache.get('modified_time', 'unknown'))}"
         )
-        
+
         try:
             # キャッシュの読み込み
             result = self.gateway.load_from_cache(
-                video_path=request.video_path,
-                model_size=selected_cache['model_size']
+                video_path=request.video_path, model_size=selected_cache["model_size"]
             )
-            
+
             if not result:
+                self.logger.warning(f"Gateway returned None for cache: {request.video_path}, model: {selected_cache['model_size']}")
                 raise CacheNotFoundError("Cache file exists but could not be loaded")
-            
+
             # 検証
             if not result.segments:
                 raise TranscriptionError("Cached result has no segments")
-            
+
             self.logger.info(
-                f"Cache loaded successfully. "
-                f"Language: {result.language}, "
-                f"Segments: {len(result.segments)}"
+                f"Cache loaded successfully. " f"Language: {result.language}, " f"Segments: {len(result.segments)}"
             )
-            
+
             return result
-            
+
         except CacheNotFoundError:
             raise
         except Exception as e:
             self.logger.error(f"Failed to load cache: {str(e)}")
-            raise TranscriptionError(
-                f"Failed to load cache: {str(e)}",
-                cause=e
-            )
-    
+            raise TranscriptionError(f"Failed to load cache: {str(e)}", cause=e)
+
     def _select_cache(
-        self,
-        available_caches: List[Dict[str, Any]],
-        model_size: Optional[str]
-    ) -> Optional[Dict[str, Any]]:
+        self, available_caches: list[dict[str, Any]], model_size: str | None
+    ) -> dict[str, Any] | None:
         """キャッシュを選択"""
         if model_size:
             # 指定されたモデルのキャッシュを探す
             for cache in available_caches:
-                if cache.get('model_size') == model_size:
+                if cache.get("model_size") == model_size:
                     return cache
             return None
         else:
             # 最新のキャッシュを選択（作成日時でソート済みと仮定）
             return available_caches[0] if available_caches else None
-    
-    def list_available_caches(self, video_path: FilePath) -> List[CacheInfo]:
+
+    def list_available_caches(self, video_path: FilePath) -> list[CacheInfo]:
         """
         利用可能なキャッシュの情報を取得
-        
+
         このメソッドは直接呼び出し可能なヘルパーメソッドです。
         """
         caches = self.gateway.list_available_caches(video_path)
-        
+
         return [
             CacheInfo(
-                path=FilePath(cache['path']),
-                model_size=cache['model_size'],
-                language=cache.get('language', 'unknown'),
-                created_at=cache['created_at'],
-                file_size=cache.get('file_size', 0),
-                segment_count=cache.get('segment_count', 0)
+                path=FilePath(cache["path"]),
+                model_size=cache["model_size"],
+                language=cache.get("language", "unknown"),
+                created_at=cache.get("created_at", cache.get("modified_time", 0)),
+                file_size=cache.get("file_size", 0),
+                segment_count=cache.get("segment_count", 0),
             )
             for cache in caches
         ]

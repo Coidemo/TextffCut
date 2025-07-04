@@ -8,6 +8,6 @@ from .header import show_app_title, show_simple_title, show_version_info
 
 __all__ = [
     "show_app_title",
-    "show_simple_title", 
+    "show_simple_title",
     "show_version_info",
 ]
