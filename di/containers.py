@@ -24,11 +24,11 @@ from di.providers import StreamlitSessionProvider
 # Presentation層のインポート
 from presentation.di_config import PresentationContainer
 
-# サービス層のインポート（段階的移行用）
-from services.configuration_service import ConfigurationService
-from services.text_editing_service import TextEditingService
-from services.transcription_service import TranscriptionService
-from services.video_processing_service import VideoProcessingService
+# サービス層のインポート（段階的移行用） - servicesパッケージ削除済み
+# from services.configuration_service import ConfigurationService
+# from services.text_editing_service import TextEditingService
+# from services.transcription_service import TranscriptionService
+# from services.video_processing_service import VideoProcessingService
 from use_cases.editing.find_differences import FindTextDifferencesUseCase
 from use_cases.export.export_fcpxml import ExportFCPXMLUseCase
 from use_cases.export.export_srt import ExportSRTUseCase
@@ -120,25 +120,13 @@ class ServiceContainer(containers.DeclarativeContainer):
     """
     サービス層のコンテナ（レガシー互換性のため）
 
-    既存のサービス層を段階的に移行するための一時的なコンテナです。
+    servicesパッケージが削除されたため、空のコンテナとして保持。
     """
 
     # 設定
     config = providers.DependenciesContainer()
 
-    # 設定サービス
-    configuration_service = providers.Singleton(ConfigurationService, config=config.legacy_config)
-
-    # 文字起こしサービス
-    transcription_service = providers.Singleton(TranscriptionService, config=config.legacy_config)
-
-    # 動画処理サービス
-    video_processing_service = providers.Singleton(VideoProcessingService, config=config.legacy_config)
-
-    # テキスト編集サービス
-    text_editing_service = providers.Singleton(TextEditingService, config=config.legacy_config)
-
-    # エラーハンドラー
+    # エラーハンドラーのみ保持
     error_handler = providers.Singleton(
         ErrorHandlerAdapter, logger=providers.Callable(get_logger, name="error_handler")
     )

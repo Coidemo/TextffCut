@@ -19,7 +19,7 @@ from .components import (
 )
 from .dark_mode_styles import apply_dark_mode_styles
 from .file_upload import cleanup_temp_files, show_video_input
-from .session_state_adapter import EditingState, ProcessingState, SessionStateAdapter, TranscriptionState
+# from .session_state_adapter import EditingState, ProcessingState, SessionStateAdapter, TranscriptionState  # servicesパッケージ削除により無効化
 
 __all__ = [
     "show_api_key_manager",
@@ -39,8 +39,8 @@ __all__ = [
     "apply_dark_mode_styles",
     "show_audio_preview_for_clips",
     "show_boundary_adjusted_preview",
-    "SessionStateAdapter",
-    "TranscriptionState",
-    "EditingState",
-    "ProcessingState",
+    # "SessionStateAdapter",  # servicesパッケージ削除により無効化
+    # "TranscriptionState",  # servicesパッケージ削除により無効化
+    # "EditingState",  # servicesパッケージ削除により無効化
+    # "ProcessingState",  # servicesパッケージ削除により無効化
 ]
