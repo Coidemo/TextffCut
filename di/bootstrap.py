@@ -29,10 +29,12 @@ def bootstrap_di(
     if modules_to_wire is None:
         modules_to_wire = [
             "main",
-            "services.configuration_service",
-            "services.transcription_service",
-            "services.video_processing_service",
-            "services.text_editing_service",
+            "presentation.presenters.main",
+            "presentation.presenters.sidebar",
+            "presentation.presenters.video_input",
+            "presentation.presenters.transcription",
+            "presentation.presenters.text_editor",
+            "presentation.presenters.export_settings",
         ]
 
     # コンテナの作成

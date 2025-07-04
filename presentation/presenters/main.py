@@ -170,6 +170,11 @@ class MainPresenter:
             if step == "export" and not self.view_model.can_proceed_to_export:
                 self.view_model.set_error("テキスト編集を完了してください")
                 return
+            
+            # エクスポートからテキスト編集に戻る場合は、特別な処理
+            if self.view_model.current_step == "export" and step == "text_edit":
+                # text_edit_completedフラグはそのまま維持（エクスポートに戻れるように）
+                pass
 
             # ステップを変更
             self.view_model.set_current_step(step)

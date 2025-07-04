@@ -4,6 +4,7 @@
 既存のVideoProcessorクラスをラップし、クリーンアーキテクチャのインターフェースを提供します。
 """
 
+import os
 from collections.abc import Callable
 from pathlib import Path
 
@@ -327,9 +328,10 @@ class VideoProcessorGatewayAdapter(IVideoProcessorGateway):
         try:
             # レガシーメソッドを呼び出し
             keep_ranges = self._legacy_processor.remove_silence_new(
-                video_path=str(video_path),
+                input_path=str(video_path),
                 time_ranges=time_ranges,
-                threshold=silence_params.get("threshold", -35.0),
+                output_dir="temp_silence_removal",  # 一時ディレクトリ
+                noise_threshold=silence_params.get("threshold", -35.0),
                 min_silence_duration=silence_params.get("min_duration", 0.3),
                 min_segment_duration=silence_params.get("min_duration", 0.3),
                 padding_start=silence_params.get("pad_start", 0.3),
@@ -428,8 +430,10 @@ class VideoProcessorGatewayAdapter(IVideoProcessorGateway):
                     audio_segments.append(segment_path)
                 
                 if audio_segments:
-                    # 音声セグメントを結合
-                    self._legacy_processor.combine_videos(audio_segments, output_path, audio_only=True)
+                    # 音声セグメントを結合（音声のみなのでcombine_videosをそのまま使用）
+                    success = self._legacy_processor.combine_videos(audio_segments, output_path)
+                    if not success:
+                        raise RuntimeError("音声セグメントの結合に失敗しました")
                 else:
                     raise RuntimeError("音声セグメントの抽出に失敗しました")
 

@@ -50,7 +50,7 @@ class ExportSettingsPresenter(BasePresenter[ExportSettingsViewModel]):
             video_processor_gateway: 動画処理ゲートウェイ
             video_export_gateway: 動画エクスポートゲートウェイ
             fcpxml_export_gateway: FCPXMLエクスポートゲートウェイ
-            edl_export_gateway: EDLエクスポートゲートウェイ
+            edl_export_gateway: EDLエクスポートゲートウェイ（将来の削除予定）
             srt_export_gateway: SRTエクスポートゲートウェイ
             session_manager: セッション管理
             error_handler: エラーハンドラー
@@ -59,7 +59,8 @@ class ExportSettingsPresenter(BasePresenter[ExportSettingsViewModel]):
         self.video_processor_gateway = video_processor_gateway
         self.video_export_gateway = video_export_gateway
         self.fcpxml_export_gateway = fcpxml_export_gateway
-        self.edl_export_gateway = edl_export_gateway
+        # EDLは使用しないが、インターフェースの互換性のため保持
+        # self.edl_export_gateway = edl_export_gateway
         self.srt_export_gateway = srt_export_gateway
         self.session_manager = session_manager
         self.error_handler = error_handler
@@ -72,12 +73,28 @@ class ExportSettingsPresenter(BasePresenter[ExportSettingsViewModel]):
         )
         self.view_model.transcription_result = self.session_manager.get_transcription_result()
         self.view_model.edited_text = self.session_manager.get_edited_text()
-        self.view_model.time_ranges = self.session_manager.get_time_ranges()
+        
+        # time_rangesを取得（タプル形式の可能性があるので変換）
+        time_ranges = self.session_manager.get_time_ranges()
+        if time_ranges:
+            # タプル形式の場合はTimeRangeオブジェクトに変換
+            if time_ranges and isinstance(time_ranges[0], tuple):
+                from domain.value_objects.time_range import TimeRange
+                self.view_model.time_ranges = [TimeRange(start=r[0], end=r[1]) for r in time_ranges]
+            else:
+                self.view_model.time_ranges = time_ranges
+        else:
+            self.view_model.time_ranges = []
 
         # 調整済み時間範囲を取得（もしあれば）
         adjusted_ranges = self.session_manager.get("adjusted_time_ranges")
         if adjusted_ranges:
-            self.view_model.adjusted_time_ranges = adjusted_ranges
+            # タプル形式の場合はTimeRangeオブジェクトに変換
+            if adjusted_ranges and isinstance(adjusted_ranges[0], tuple):
+                from domain.value_objects.time_range import TimeRange
+                self.view_model.adjusted_time_ranges = [TimeRange(start=r[0], end=r[1]) for r in adjusted_ranges]
+            else:
+                self.view_model.adjusted_time_ranges = adjusted_ranges
 
     def set_remove_silence(self, enabled: bool) -> None:
         """無音削除の有効/無効を設定"""
@@ -146,8 +163,8 @@ class ExportSettingsPresenter(BasePresenter[ExportSettingsViewModel]):
                 results = self._export_video(wrapped_progress)
             elif self.view_model.export_format == "fcpxml":
                 results = self._export_fcpxml(wrapped_progress)
-            elif self.view_model.export_format == "edl":
-                results = self._export_edl(wrapped_progress)
+            elif self.view_model.export_format == "xmeml":
+                results = self._export_xmeml(wrapped_progress)
             elif self.view_model.export_format == "srt":
                 results = self._export_srt(wrapped_progress)
 
@@ -165,8 +182,8 @@ class ExportSettingsPresenter(BasePresenter[ExportSettingsViewModel]):
     def _export_video(self, progress_callback: Callable[[float, str, str], None]) -> list[str]:
         """動画エクスポート"""
         try:
-            # 出力パスを生成
-            output_base = self._generate_output_path("mp4")
+            # 出力パスを生成（拡張子なし）
+            output_base = self._generate_output_base()
 
             # 時間範囲を取得
             time_ranges = self.view_model.effective_time_ranges
@@ -244,25 +261,49 @@ class ExportSettingsPresenter(BasePresenter[ExportSettingsViewModel]):
         except Exception as e:
             logger.error(f"FCPXMLエクスポートエラー: {e}")
             raise
-
-    def _export_edl(self, progress_callback: Callable[[float, str, str], None]) -> list[str]:
-        """EDLエクスポート"""
+    
+    def _export_xmeml(self, progress_callback: Callable[[float, str, str], None]) -> list[str]:
+        """XMEMLエクスポート（Premiere Pro用）"""
         try:
-            output_path = self._generate_output_path("edl")
+            output_path = self._generate_output_path("xml")
 
             # 時間範囲を取得
             time_ranges = self.view_model.effective_time_ranges
             legacy_ranges = [(r.start, r.end) for r in time_ranges]
 
-            # EDLを生成
-            self.edl_export_gateway.export(FilePath(str(self.view_model.video_path)), legacy_ranges, str(output_path))
+            # XMEMLExporterを使用
+            from core.export import XMEMLExporter, ExportSegment
+            from config import Config
+            
+            exporter = XMEMLExporter(Config())
+            
+            # ExportSegmentのリストを作成
+            segments = []
+            timeline_start = 0.0
+            
+            for r in time_ranges:
+                segment = ExportSegment(
+                    source_path=str(self.view_model.video_path),
+                    start_time=r.start,
+                    end_time=r.end,
+                    timeline_start=timeline_start
+                )
+                segments.append(segment)
+                timeline_start += (r.end - r.start)
+            
+            # XMEMLを生成
+            success = exporter.export(segments, str(output_path))
+            
+            if not success:
+                raise RuntimeError("XMEMLの生成に失敗しました")
 
-            progress_callback(1.0, "EDL出力完了", "complete")
+            progress_callback(1.0, "Premiere Pro XML出力完了", "complete")
             return [str(output_path)]
 
         except Exception as e:
-            logger.error(f"EDLエクスポートエラー: {e}")
+            logger.error(f"XMEMLエクスポートエラー: {e}")
             raise
+
 
     def _export_srt(self, progress_callback: Callable[[float, str, str], None]) -> list[str]:
         """SRT字幕エクスポート"""
@@ -312,6 +353,48 @@ class ExportSettingsPresenter(BasePresenter[ExportSettingsViewModel]):
         base_name = f"{video_name}_TextffCut{suffix}"
 
         return output_dir / f"{base_name}.{extension}"
+    
+    def _generate_output_base(self) -> Path:
+        """出力ベースパスを生成（拡張子なし）"""
+        video_name = self.view_model.video_path.stem
+        video_dir = self.view_model.video_path.parent
+
+        # TextffCutフォルダ内に出力
+        output_dir = video_dir / f"{video_name}_TextffCut"
+        output_dir.mkdir(exist_ok=True)
+
+        # セッション連番を取得または生成
+        session_number = self._get_or_create_session_number()
+        
+        # ファイル名を生成
+        suffix = "_NoSilence" if self.view_model.remove_silence else "_Clip"
+        base_name = f"{video_name}_TextffCut_{session_number:04d}{suffix}"
+
+        return output_dir / base_name
+    
+    def _get_or_create_session_number(self) -> int:
+        """セッション連番を取得または生成"""
+        import streamlit as st
+        
+        # 編集されたテキストのハッシュを計算（同じテキストなら同じ連番）
+        text_hash = hash(self.view_model.edited_text) if self.view_model.edited_text else 0
+        
+        # セッション状態に保存されている連番マップを取得
+        if "export_session_numbers" not in st.session_state:
+            st.session_state.export_session_numbers = {}
+        
+        # このテキストハッシュに対応する連番があるか確認
+        if text_hash in st.session_state.export_session_numbers:
+            return st.session_state.export_session_numbers[text_hash]
+        
+        # 新しい連番を生成（既存の最大値+1）
+        existing_numbers = list(st.session_state.export_session_numbers.values())
+        next_number = max(existing_numbers) + 1 if existing_numbers else 1
+        
+        # 連番を保存
+        st.session_state.export_session_numbers[text_hash] = next_number
+        
+        return next_number
 
     def handle_error(self, error: Exception, context: str) -> None:
         """

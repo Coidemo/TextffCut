@@ -76,9 +76,9 @@ class VideoInfo:
 
             raise FFmpegError("ffprobe", e.stderr) from e
         except FileNotFoundError:
-            from utils.exceptions import FileNotFoundError as BuzzFileNotFoundError
+            from utils.exceptions import FileNotFoundError as TextffCutFileNotFoundError
 
-            raise BuzzFileNotFoundError(str(video_path)) from None
+            raise TextffCutFileNotFoundError(str(video_path)) from None
         except json.JSONDecodeError as e:
             from utils.exceptions import VideoProcessingError
 
@@ -190,9 +190,9 @@ class VideoProcessor:
             cmd_str = " ".join(str(c) for c in cmd)
             raise FFmpegError(cmd_str, e.stderr) from e
         except FileNotFoundError:
-            from utils.exceptions import FileNotFoundError as BuzzFileNotFoundError
+            from utils.exceptions import FileNotFoundError as TextffCutFileNotFoundError
 
-            raise BuzzFileNotFoundError(str(input_path)) from None
+            raise TextffCutFileNotFoundError(str(input_path)) from None
         except OSError as e:
             from utils.exceptions import VideoProcessingError
 
@@ -866,9 +866,9 @@ class VideoProcessor:
             cmd_str = " ".join(str(c) for c in cmd)
             raise FFmpegError(cmd_str, e.stderr) from e
         except FileNotFoundError as e:
-            from utils.exceptions import FileNotFoundError as BuzzFileNotFoundError
+            from utils.exceptions import FileNotFoundError as TextffCutFileNotFoundError
 
-            raise BuzzFileNotFoundError(str(e)) from e
+            raise TextffCutFileNotFoundError(str(e)) from e
         except OSError as e:
             from utils.exceptions import VideoProcessingError
 
@@ -879,27 +879,34 @@ class VideoProcessor:
             raise VideoProcessingError(f"動画結合エラー: {str(e)}") from e
 
     def extract_audio_segment(
-        self, input_path: str | Path, output_path: str | Path, start_time: float, end_time: float
+        self, input_path: str | Path, start_time: float, end_time: float, output_path: str | Path
     ) -> None:
         """
         指定された時間範囲の音声を抽出
 
         Args:
             input_path: 入力動画ファイルパス
-            output_path: 出力音声ファイルパス
             start_time: 開始時間（秒）
             end_time: 終了時間（秒）
+            output_path: 出力音声ファイルパス
         """
         try:
+            # 時間パラメータを数値に変換
+            start_time = float(start_time)
+            end_time = float(end_time)
+            
+            # 継続時間を計算
+            duration = end_time - start_time
+            
             cmd = [
                 "ffmpeg",
                 "-y",
                 "-ss",
                 str(start_time),
-                "-to",
-                str(end_time),
                 "-i",
                 str(input_path),
+                "-t",  # -toではなく-tで継続時間を指定
+                str(duration),
                 "-vn",  # ビデオなし
                 "-acodec",
                 "pcm_s16le",
@@ -916,7 +923,9 @@ class VideoProcessor:
 
             if result.returncode != 0:
                 from utils.exceptions import FFmpegError
-
+                
+                logger.error(f"FFmpeg command failed: {' '.join(cmd)}")
+                logger.error(f"FFmpeg stderr: {result.stderr}")
                 raise FFmpegError(" ".join(cmd), result.stderr)
 
             logger.info(f"音声セグメント抽出成功: {start_time}s-{end_time}s")
@@ -926,9 +935,9 @@ class VideoProcessor:
 
             raise FFmpegError(" ".join(cmd), e.stderr) from e
         except FileNotFoundError as e:
-            from utils.exceptions import FileNotFoundError as BuzzFileNotFoundError
+            from utils.exceptions import FileNotFoundError as TextffCutFileNotFoundError
 
-            raise BuzzFileNotFoundError(str(e)) from e
+            raise TextffCutFileNotFoundError(str(e)) from e
         except Exception as e:
             from utils.exceptions import VideoProcessingError
 

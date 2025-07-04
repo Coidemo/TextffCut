@@ -225,26 +225,40 @@ class TextEditorView:
             if st.session_state.get("preview_update_requested", False) and self.view_model.time_ranges:
                 # 音声を生成
                 try:
+                    # セッション状態から動画パスを取得（SessionManagerが設定する複数のキーを確認）
+                    video_path = (
+                        st.session_state.get("video_path") or 
+                        st.session_state.get("current_video_path") or
+                        st.session_state.get("selected_video")
+                    )
+                    if not video_path:
+                        # デバッグ情報を表示
+                        import logging
+                        logger = logging.getLogger(__name__)
+                        logger.error(f"動画パスが見つかりません。セッション状態: video_path={st.session_state.get('video_path')}, current_video_path={st.session_state.get('current_video_path')}, selected_video={st.session_state.get('selected_video')}")
+                        st.error("動画が選択されていません。動画を選択してから文字起こしを実行してください。")
+                    else:
+                        # Presenter経由で音声プレビューを生成
+                        # プレビュー用の時間範囲を準備
+                        time_ranges = [(tr.start, tr.end) for tr in self.view_model.time_ranges]
 
-                    # Presenter経由で音声プレビューを生成
-                    # プレビュー用の時間範囲を準備
-                    time_ranges = [(tr.start, tr.end) for tr in self.view_model.time_ranges]
+                        # Presenter経由で音声プレビューを生成
+                        audio_path = self.presenter.generate_audio_preview(str(video_path), time_ranges, max_duration=30.0)
 
-                    # Presenter経由で音声プレビューを生成
-                    audio_path = self.presenter.generate_audio_preview(str(video_path), time_ranges, max_duration=30.0)
+                        if audio_path:
+                            # 音声プレイヤーを表示
+                            with open(audio_path, "rb") as audio_file:
+                                audio_bytes = audio_file.read()
+                                st.audio(audio_bytes, format="audio/wav")
 
-                    if audio_path:
-                        # 音声プレイヤーを表示
-                        with open(audio_path, "rb") as audio_file:
-                            audio_bytes = audio_file.read()
-                            st.audio(audio_bytes, format="audio/wav")
+                            # 一時ファイルを削除
+                            import os
+                            os.unlink(audio_path)
 
-                        # 一時ファイルを削除
-                        import os
-                        os.unlink(audio_path)
-
-                        # プレビュー情報を表示
-                        st.caption(f"音声プレビューを生成しました")
+                            # プレビュー情報を表示
+                            st.caption(f"音声プレビューを生成しました（最大30秒）")
+                        else:
+                            st.warning("音声プレビューの生成に失敗しました")
 
                 except Exception as e:
                     st.error(f"音声プレビューの生成に失敗しました: {e}")
@@ -260,6 +274,18 @@ class TextEditorView:
             key="boundary_adjustment_checkbox",
         )
         st.session_state.boundary_adjustment_mode = boundary_mode
+        
+        # エクスポートへ進むボタン（時間範囲が計算されている場合のみ表示）
+        if self.view_model.has_time_ranges:
+            st.markdown("---")
+            col1, col2, col3 = st.columns([1, 2, 1])
+            with col2:
+                if st.button("🎬 エクスポートへ進む", type="primary", use_container_width=True):
+                    # テキスト編集完了フラグを設定
+                    st.session_state.text_edit_completed = True
+                    # MainPresenterに通知
+                    self.presenter.handle_error(None, "text_edit_completed")  # 一時的な通知方法
+                    st.rerun()
 
     def _render_boundary_markers_info(self) -> None:
         """境界調整マーカー情報を表示"""

@@ -1,5 +1,5 @@
 """
-Buzz Clip UIモジュール
+TextffCut UIモジュール
 """
 
 from .audio_preview import show_audio_preview_for_clips, show_boundary_adjusted_preview

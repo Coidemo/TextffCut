@@ -1,0 +1,43 @@
+[run]
+source = .
+omit = 
+    */tests/*
+    */test_*
+    */__pycache__/*
+    */venv/*
+    */env/*
+    setup.py
+    */migrations/*
+    */ui/*
+    */core/*
+    */infrastructure/*
+    */orchestrator/*
+    */scripts/*
+    */utils/*
+    */models/*
+    */di/*
+    run_all_tests.py
+
+[report]
+exclude_lines =
+    pragma: no cover
+    def __repr__
+    def __str__
+    raise AssertionError
+    raise NotImplementedError
+    if __name__ == .__main__.:
+    if TYPE_CHECKING:
+    @abstract
+    @abstractmethod
+    pass
+
+precision = 2
+show_missing = True
+skip_covered = False
+
+[html]
+directory = htmlcov
+title = TextffCut Code Coverage Report
+
+[xml]
+output = coverage.xml

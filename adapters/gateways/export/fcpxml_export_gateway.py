@@ -50,17 +50,30 @@ class FCPXMLExportGatewayAdapter(IFCPXMLExportGateway):
             with_gap_removal: 隙間を詰めて配置するかどうか
         """
         try:
-            # 動画情報を取得
-            video_info = self.video_processor.get_video_info(str(video_path))
-
             # FCPXMLExporterのインスタンスを作成
-            exporter = FCPXMLExporter(str(video_path), video_info)
+            exporter = FCPXMLExporter(self.config)
 
-            # FCPXMLを生成
-            fcpxml_content = exporter.export(time_ranges, with_gap_removal)
+            # ExportSegmentのリストを作成
+            from core.export import ExportSegment
+            segments = []
+            timeline_start = 0.0
+            
+            for start, end in time_ranges:
+                segment = ExportSegment(
+                    source_path=str(video_path),
+                    start_time=start,
+                    end_time=end,
+                    timeline_start=timeline_start if with_gap_removal else start
+                )
+                segments.append(segment)
+                if with_gap_removal:
+                    timeline_start += (end - start)
 
-            # ファイルに書き出し
-            Path(output_path).write_text(fcpxml_content, encoding="utf-8")
+            # FCPXMLを生成（exportメソッドが直接ファイルに書き込む）
+            success = exporter.export(segments, output_path)
+            
+            if not success:
+                raise RuntimeError("FCPXMLの生成に失敗しました")
 
             logger.info(f"FCPXMLファイルを出力しました: {output_path}")
 

@@ -17,6 +17,7 @@ from presentation.views.sidebar import SidebarView
 from presentation.views.text_editor import TextEditorView
 from presentation.views.transcription import TranscriptionView
 from presentation.views.video_input import VideoInputView
+from ui.dark_mode_styles import apply_dark_mode_styles
 
 
 class MainView(BaseView[MainViewModel]):
@@ -40,6 +41,9 @@ class MainView(BaseView[MainViewModel]):
 
         # カスタムCSS
         self._apply_custom_css()
+        
+        # ダークモード対応スタイルを適用
+        apply_dark_mode_styles()
 
     def _apply_custom_css(self) -> None:
         """カスタムCSSを適用"""
@@ -248,6 +252,9 @@ class MainView(BaseView[MainViewModel]):
                 key="goto_text_edit",
                 disabled=not self.view_model.can_proceed_to_text_edit or self.view_model.current_step == "text_edit",
             ):
+                # エクスポートから戻る場合は、text_edit_completedフラグをリセット
+                if self.view_model.current_step == "export":
+                    st.session_state.text_edit_completed = False
                 self.presenter.navigate_to_step("text_edit")
                 st.rerun()
 

@@ -8,10 +8,10 @@ TextffCut 2段階処理アーキテクチャ用例外クラス
 from pathlib import Path
 from typing import Any
 
-from utils.exceptions import BuzzClipError
+from utils.exceptions import TextffCutError
 
 
-class ProcessingError(BuzzClipError):
+class ProcessingError(TextffCutError):
     """処理全般のエラー基底クラス"""
 
     def __init__(

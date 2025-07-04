@@ -43,17 +43,29 @@ class EDLExportGatewayAdapter(IEDLExportGateway):
             output_path: 出力EDLファイルパス
         """
         try:
-            # 動画情報を取得
-            video_info = self.video_processor.get_video_info(str(video_path))
-
             # EDLExporterのインスタンスを作成
-            exporter = EDLExporter(str(video_path), video_info)
+            exporter = EDLExporter(self.config)
 
-            # EDLを生成
-            edl_content = exporter.export(time_ranges)
+            # ExportSegmentのリストを作成
+            from core.export import ExportSegment
+            segments = []
+            timeline_start = 0.0
+            
+            for start, end in time_ranges:
+                segment = ExportSegment(
+                    source_path=str(video_path),
+                    start_time=start,
+                    end_time=end,
+                    timeline_start=timeline_start
+                )
+                segments.append(segment)
+                timeline_start += (end - start)
 
-            # ファイルに書き出し
-            Path(output_path).write_text(edl_content, encoding="utf-8")
+            # EDLを生成（exportメソッドが直接ファイルに書き込む）
+            success = exporter.export(segments, output_path)
+            
+            if not success:
+                raise RuntimeError("EDLの生成に失敗しました")
 
             logger.info(f"EDLファイルを出力しました: {output_path}")
 

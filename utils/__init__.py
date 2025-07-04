@@ -6,7 +6,7 @@ from .api_key_manager import api_key_manager
 from .cleanup import ProcessingContext, TempFileManager, cleanup_intermediate_files, cleanup_old_projects
 from .environment import DEFAULT_HOST_PATH, LOGS_DIR, OUTPUT_DIR, TEMP_DIR, VIDEOS_DIR
 from .exceptions import (
-    BuzzClipError,
+    TextffCutError,
     ConfigurationError,
     FFmpegError,
     MemoryError,
@@ -33,7 +33,7 @@ __all__ = [
     "get_logger",
     "log_function_call",
     "show_log_info",
-    "BuzzClipError",
+    "TextffCutError",
     "TranscriptionError",
     "VideoProcessingError",
     "FFmpegError",

@@ -54,7 +54,15 @@ class ExportSettingsView:
 
         # メインコンテナ
         with st.container(border=True):
-            st.markdown("### 🎬 切り抜き処理")
+            # ヘッダーと戻るボタン
+            col1, col2 = st.columns([4, 1])
+            with col1:
+                st.markdown("### 🎬 切り抜き処理")
+            with col2:
+                if st.button("← 戻る", use_container_width=True):
+                    # テキスト編集画面に戻る
+                    st.session_state.text_edit_completed = False
+                    st.rerun()
 
             # 無音削除設定
             self._render_silence_removal_settings()
@@ -133,7 +141,7 @@ class ExportSettingsView:
         format_options = {
             "video": "🎥 動画（MP4）",
             "fcpxml": "🎬 Final Cut Pro XML",
-            "edl": "🎞️ EDL (DaVinci Resolve)",
+            "xmeml": "🎬 Premiere Pro XML",
             "srt": "💬 SRT字幕のみ",
         }
 
@@ -204,35 +212,60 @@ class ExportSettingsView:
                     use_container_width=True,
                     disabled=not self.view_model.is_ready_to_export,
                 ):
-                    self.view_model.should_run = True
+                    # セッション状態にフラグを保存
+                    st.session_state.export_should_run = True
                     st.rerun()
 
         # 処理中の表示
-        if self.view_model.should_run and not self.view_model.is_processing:
+        if st.session_state.get("export_should_run", False) and not self.view_model.is_processing:
             self._execute_export()
         elif self.view_model.is_processing:
             self._show_progress()
 
     def _execute_export(self) -> None:
         """エクスポート実行"""
-        with st.spinner("処理中..."):
-            # プログレスバーとステータステキスト
-            progress_bar = st.progress(0.0)
-            status_text = st.empty()
-            operation_text = st.empty()
+        # デバッグ情報を表示
+        with st.expander("デバッグ情報", expanded=False):
+            st.write(f"is_ready_to_export: {self.view_model.is_ready_to_export}")
+            st.write(f"video_path: {self.view_model.video_path}")
+            st.write(f"edited_text: {self.view_model.edited_text[:50] if self.view_model.edited_text else None}")
+            st.write(f"time_ranges: {self.view_model.time_ranges}")
+            st.write(f"effective_time_ranges: {self.view_model.effective_time_ranges}")
+        
+        # プログレスバーとステータステキスト
+        progress_bar = st.progress(0.0)
+        status_text = st.empty()
+        operation_text = st.empty()
+        result_container = st.empty()
 
-            def progress_callback(progress: float, message: str) -> None:
-                progress_bar.progress(min(progress, 1.0))
-                status_text.info(message)
-                if self.view_model.current_operation:
-                    operation_text.caption(f"🔄 {self.view_model.current_operation}")
+        def progress_callback(progress: float, message: str) -> None:
+            progress_bar.progress(min(progress, 1.0))
+            status_text.info(message)
+            if self.view_model.current_operation:
+                operation_text.caption(f"🔄 {self.view_model.current_operation}")
 
+        try:
             # エクスポート実行
-            if self.presenter.start_export(progress_callback):
-                st.success("✅ エクスポート完了！")
+            success = self.presenter.start_export(progress_callback)
+            
+            # 処理完了後の表示
+            if success:
+                result_container.success("✅ エクスポート完了！")
                 st.balloons()
+                # フラグをリセット
+                st.session_state.export_should_run = False
             else:
-                st.error(f"❌ {self.view_model.error_message}")
+                result_container.error(f"❌ エクスポート失敗: {self.view_model.error_message}")
+                # フラグをリセット
+                st.session_state.export_should_run = False
+        except Exception as e:
+            result_container.error(f"❌ エクスポート中にエラーが発生しました: {str(e)}")
+            # フラグをリセット
+            st.session_state.export_should_run = False
+            # スタックトレースも表示
+            import traceback
+            with st.expander("エラー詳細"):
+                st.code(traceback.format_exc())
 
     def _show_progress(self) -> None:
         """進捗表示"""

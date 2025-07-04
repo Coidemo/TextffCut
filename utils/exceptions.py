@@ -6,8 +6,8 @@ from pathlib import Path
 from typing import Any
 
 
-class BuzzClipError(Exception):
-    """Buzz Clipの基本例外クラス"""
+class TextffCutError(Exception):
+    """TextffCutの基本例外クラス"""
 
     def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
         super().__init__(message)
@@ -23,19 +23,19 @@ class BuzzClipError(Exception):
         return {"error_type": self.__class__.__name__, "message": self.message, "details": self.details}
 
 
-class TranscriptionError(BuzzClipError):
+class TranscriptionError(TextffCutError):
     """文字起こし関連のエラー"""
 
     pass
 
 
-class VideoProcessingError(BuzzClipError):
+class VideoProcessingError(TextffCutError):
     """動画処理関連のエラー"""
 
     pass
 
 
-class FileNotFoundError(BuzzClipError):
+class FileNotFoundError(TextffCutError):
     """ファイルが見つからないエラー"""
 
     def __init__(self, file_path: str | Path) -> None:
@@ -67,7 +67,7 @@ class WhisperError(TranscriptionError):
         super().__init__(message, {"model_size": model_size})
 
 
-class MemoryError(BuzzClipError):
+class MemoryError(TextffCutError):
     """メモリ不足エラー"""
 
     def __init__(self, required_memory: float | None = None) -> None:
@@ -77,7 +77,7 @@ class MemoryError(BuzzClipError):
         super().__init__(message, {"required_memory": required_memory})
 
 
-class ConfigurationError(BuzzClipError):
+class ConfigurationError(TextffCutError):
     """設定関連のエラー"""
 
     pass

@@ -205,3 +205,8 @@ class TextEditorViewModel(BaseViewModel):
     def has_time_ranges(self) -> bool:
         """時間範囲が計算されているかどうか"""
         return len(self.time_ranges) > 0
+    
+    @property
+    def has_edited_text(self) -> bool:
+        """編集されたテキストが存在するかどうか"""
+        return bool(self.edited_text.strip() and self.has_time_ranges)

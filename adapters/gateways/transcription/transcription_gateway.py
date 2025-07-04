@@ -81,7 +81,7 @@ class TranscriptionGatewayAdapter(ITranscriptionGateway):
             domain_result = self._converter.legacy_to_domain(legacy_result, processing_time=processing_time)
 
             # 変換の妥当性を検証（デバッグモードのみ）
-            # BuzzClipLoggerではisEnabledForが使えないため、環境変数でチェック
+            # TextffCutLoggerではisEnabledForが使えないため、環境変数でチェック
             import os
 
             if os.getenv("DEBUG", "").lower() in ("true", "1", "yes"):
