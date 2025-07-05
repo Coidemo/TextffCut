@@ -519,7 +519,7 @@ class APITranscriber:
                 language=self.api_config.language,
                 segments=aligned_segments,
                 original_audio_path=original_audio_path,
-                model_size="whisper-1_api",
+                model_size="whisper-1",
                 processing_time=processing_time,
             )
 
@@ -920,7 +920,7 @@ class APITranscriber:
                 language=self.api_config.language,
                 segments=all_segments,
                 original_audio_path=audio_path,
-                model_size="whisper-1_api",
+                model_size="whisper-1",
                 processing_time=0.0,
             )
 
@@ -1077,7 +1077,7 @@ class APITranscriber:
                 language=self.api_config.language,
                 segments=final_segments,
                 original_audio_path=original_audio_path,
-                model_size="whisper-1_api",
+                model_size="whisper-1",
                 processing_time=processing_time,
             )
 

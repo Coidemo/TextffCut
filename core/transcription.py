@@ -523,7 +523,8 @@ class Transcriber:
         model_size = model_size or self.config.transcription.model_size
 
         # キャッシュ確認
-        cache_path = self.get_cache_path(video_path, f"{model_size}_api")
+        # APIモードでは model_size を使用（デフォルトは "whisper-1"）
+        cache_path = self.get_cache_path(video_path, model_size or "whisper-1")
         if use_cache:
             logger.info(f"キャッシュ確認: {cache_path}")
             cached_result = self.load_from_cache(cache_path)
@@ -543,6 +544,8 @@ class Transcriber:
 
         # キャッシュに保存
         if save_cache:
+            # 結果のmodel_sizeを使用してキャッシュパスを更新
+            cache_path = self.get_cache_path(video_path, result.model_size)
             self.save_to_cache(result, cache_path)
 
         return result
