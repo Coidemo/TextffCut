@@ -368,11 +368,11 @@ class APITranscriber:
                     align_model = None
                     align_meta = None
 
-                # 各チャンクのAPI処理を送信
+                # 各チャンクのAPI処理を送信（アライメントなしで）
                 futures = []
                 for chunk_file, start_offset, chunk_idx in chunk_files:
                     future = executor.submit(
-                        self._transcribe_chunk_api, client, chunk_file, start_offset, chunk_idx, align_model, align_meta
+                        self._transcribe_chunk_api, client, chunk_file, start_offset, chunk_idx, None, None
                     )
                     futures.append(future)
 
@@ -382,12 +382,15 @@ class APITranscriber:
 
                 # futureとチャンク情報のマッピング
                 future_to_chunk = {futures[i]: (chunk_files[i], i) for i in range(len(futures))}
+                
+                # API処理結果を一時保存（アライメント前）
+                api_results = {}
 
                 for future in as_completed(futures):
                     chunk_info, idx = future_to_chunk[future]
                     try:
                         segments = future.result()
-                        all_segments.extend(segments)
+                        api_results[idx] = (chunk_info, segments)
                         completed_chunks += 1
 
                         logger.info(
@@ -395,29 +398,66 @@ class APITranscriber:
                         )
 
                         if progress_callback:
-                            progress = 0.2 + (0.7 * completed_chunks / len(chunk_files))
-                            progress_callback(progress, f"チャンク {completed_chunks}/{len(chunk_files)} 完了")
+                            progress = 0.2 + (0.4 * completed_chunks / len(chunk_files))
+                            progress_callback(progress, f"API処理 {completed_chunks}/{len(chunk_files)} 完了")
 
                     except openai.RateLimitError as e:
                         logger.warning(f"チャンク[{idx}] レート制限エラー: {e}")
+                        api_results[idx] = (chunk_info, [])
                         completed_chunks += 1
-                        # レート制限の場合は空のリストを追加
-                        all_segments.extend([])
                     except openai.APIError as e:
                         logger.warning(f"チャンク[{idx}] API エラー: {e}")
+                        api_results[idx] = (chunk_info, [])
                         completed_chunks += 1
-                        # APIエラーの場合も空のリストを追加
-                        all_segments.extend([])
                     except Exception as e:
                         logger.warning(f"チャンク[{idx}] 処理失敗: {e}")
                         import traceback
 
                         logger.error(f"詳細なエラー: {traceback.format_exc()}")
+                        api_results[idx] = (chunk_info, [])
                         completed_chunks += 1
-                        # その他のエラーも空のリストを追加
-                        all_segments.extend([])
 
-                logger.info(f"すべてのAPIチャンク処理完了: 合計{len(all_segments)}セグメント")
+                logger.info(f"すべてのAPIチャンク処理完了")
+                
+                # アライメント処理（順次実行）
+                if align_model is not None and align_meta is not None:
+                    logger.info("アライメント処理を開始（順次実行）")
+                    aligned_chunks = 0
+                    # インデックス順にソート
+                    for idx in sorted(api_results.keys()):
+                        chunk_info, segments = api_results[idx]
+                        chunk_file, start_offset, chunk_idx = chunk_info
+                        
+                        if segments and len(segments) > 0:
+                            try:
+                                # チャンクの音声を読み込み
+                                chunk_audio, sr = self._load_audio_chunk(chunk_file)
+                                
+                                # アライメント実行
+                                aligned_segments = self._align_chunk(
+                                    segments, chunk_audio, align_model, align_meta, 
+                                    start_offset, chunk_idx
+                                )
+                                all_segments.extend(aligned_segments)
+                                aligned_chunks += 1
+                                
+                                if progress_callback:
+                                    progress = 0.6 + (0.3 * aligned_chunks / len(api_results))
+                                    progress_callback(progress, f"アライメント {aligned_chunks}/{len(api_results)} 完了")
+                                    
+                            except Exception as e:
+                                logger.warning(f"チャンク {chunk_idx} のアライメント失敗: {e}")
+                                # アライメント失敗時は元のセグメントを使用
+                                all_segments.extend(segments)
+                        else:
+                            all_segments.extend(segments)
+                else:
+                    # アライメントなしの場合は、API結果をそのまま使用
+                    for idx in sorted(api_results.keys()):
+                        _, segments = api_results[idx]
+                        all_segments.extend(segments)
+                
+                logger.info(f"統合処理完了: 合計{len(all_segments)}セグメント")
 
             if progress_callback:
                 progress_callback(0.9, "結果を統合中...")
@@ -1367,3 +1407,76 @@ class APITranscriber:
             current_time += word_duration
 
         return estimated_words
+    
+    def _load_audio_chunk(self, chunk_file: str) -> tuple[np.ndarray, int]:
+        """チャンクファイルから音声データを読み込む"""
+        from pydub import AudioSegment
+        
+        audio = AudioSegment.from_file(chunk_file)
+        samples = np.array(audio.get_array_of_samples())
+        if audio.channels == 2:
+            samples = samples.reshape((-1, 2))
+            samples = samples.mean(axis=1)
+        samples = samples.astype(np.float32) / 32768.0
+        
+        return samples, audio.frame_rate
+    
+    def _align_chunk(
+        self,
+        segments: list[TranscriptionSegment],
+        chunk_audio: np.ndarray,
+        align_model,
+        align_meta,
+        start_offset: float,
+        chunk_idx: int
+    ) -> list[TranscriptionSegment]:
+        """チャンクのアライメント処理（順次実行用）"""
+        import whisperx
+        
+        try:
+            # TranscriptionSegmentをWhisperX形式に変換
+            whisperx_segments = []
+            for seg in segments:
+                whisperx_seg = {
+                    "start": seg.start - start_offset,  # チャンク相対時間に変換
+                    "end": seg.end - start_offset,
+                    "text": seg.text,
+                }
+                whisperx_segments.append(whisperx_seg)
+            
+            # アライメント実行
+            aligned_result = whisperx.align(
+                whisperx_segments,
+                align_model,
+                align_meta,
+                chunk_audio,
+                "cpu",
+                return_char_alignments=True,
+            )
+            
+            # 結果を元の形式に戻す
+            aligned_segments = []
+            for seg in aligned_result["segments"]:
+                aligned_seg = TranscriptionSegment(
+                    start=seg["start"] + start_offset,  # 絶対時間に戻す
+                    end=seg["end"] + start_offset,
+                    text=seg["text"],
+                    words=seg.get("words"),
+                    chars=seg.get("chars"),
+                )
+                # wordsのタイムスタンプも調整
+                if aligned_seg.words:
+                    for word in aligned_seg.words:
+                        if isinstance(word, dict):
+                            if "start" in word and word["start"] is not None:
+                                word["start"] += start_offset
+                            if "end" in word and word["end"] is not None:
+                                word["end"] += start_offset
+                aligned_segments.append(aligned_seg)
+            
+            logger.info(f"チャンク {chunk_idx} アライメント完了: {len(aligned_segments)}セグメント")
+            return aligned_segments
+            
+        except Exception as e:
+            logger.error(f"チャンク {chunk_idx} のアライメント中にエラー: {e}")
+            raise
