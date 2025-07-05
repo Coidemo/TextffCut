@@ -49,6 +49,28 @@ class MainView(BaseView[MainViewModel]):
         """カスタムCSSを適用"""
         css = """
         <style>
+        /* Streamlitのデフォルト余白を調整 */
+        .block-container {
+            padding-top: 1rem !important;
+            padding-bottom: 2rem !important;
+            max-width: 1200px !important;
+        }
+        
+        /* メインエリアの上部余白を削除 */
+        .main .block-container {
+            padding-top: 0.5rem !important;
+        }
+        
+        /* タイトル部分の余白調整 */
+        .stMarkdown h1:first-of-type {
+            margin-top: 0 !important;
+        }
+        
+        /* Streamlitヘッダーの余白調整 */
+        [data-testid="stHeader"] {
+            height: 3rem !important;
+        }
+        
         /* メインコンテナのスタイル */
         .main-container {
             padding: 1rem;
@@ -93,21 +115,118 @@ class MainView(BaseView[MainViewModel]):
             color: #999;
         }
         
-        /* プログレスバー */
-        .progress-container {
-            width: 100%;
-            height: 8px;
-            background: #e0e0e0;
-            border-radius: 4px;
-            margin: 1rem 0;
-            overflow: hidden;
+        /* シンプルステップインジケーター */
+        .simple-step-indicator {
+            margin: 1.5rem 0;
         }
         
-        .progress-bar {
-            height: 100%;
-            background: linear-gradient(90deg, #1f77b4 0%, #2ca02c 100%);
-            transition: width 0.3s ease;
+        /* ステップコンテナ */
+        .steps-container {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0;
         }
+        
+        /* ステップアイテムラッパー */
+        .step-item-wrapper {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.5rem;
+            position: relative;
+            z-index: 2;
+        }
+        
+        /* ステップサークル */
+        .step-circle {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            font-size: 0.9rem;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            background: #2a2a3e;
+            border: 2px solid #333;
+            color: #666;
+        }
+        
+        .step-circle.completed {
+            background: #00b894;
+            border-color: #00b894;
+            color: #fff;
+        }
+        
+        .step-circle.current {
+            background: #fff;
+            border-color: #00b894;
+            color: #00b894;
+            box-shadow: 0 0 0 3px rgba(0, 184, 148, 0.2);
+        }
+        
+        .step-circle.disabled {
+            cursor: not-allowed;
+            opacity: 0.5;
+        }
+        
+        .step-circle:not(.disabled):not(.current):hover {
+            transform: scale(1.05);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+        }
+        
+        /* ステップラベル */
+        .step-label {
+            font-size: 0.8rem;
+            color: rgba(255, 255, 255, 0.6);
+            text-align: center;
+            white-space: nowrap;
+        }
+        
+        .step-label.completed {
+            color: #00b894;
+        }
+        
+        .step-label.current {
+            color: #fff;
+            font-weight: 500;
+        }
+        
+        /* ステップコネクター */
+        .step-connector {
+            width: 60px;
+            height: 2px;
+            background: #333;
+            margin: 0 -8px;
+            margin-bottom: 1.5rem;
+            z-index: 1;
+            transition: background 0.3s ease;
+        }
+        
+        .step-connector.completed {
+            background: #00b894;
+        }
+        
+        /* ナビゲーションボタンのスタイル */
+        [data-testid*="nav_"] > button {
+            background: transparent !important;
+            border: 1px solid rgba(255, 255, 255, 0.2) !important;
+            color: rgba(255, 255, 255, 0.8) !important;
+            font-size: 0.8rem !important;
+            padding: 0.25rem 0.5rem !important;
+            height: auto !important;
+            transition: all 0.2s ease !important;
+        }
+        
+        [data-testid*="nav_"] > button:hover {
+            background: rgba(0, 184, 148, 0.1) !important;
+            border-color: #00b894 !important;
+            color: #00b894 !important;
+        }
+        
         
         /* エラーメッセージ */
         .error-container {
@@ -126,10 +245,42 @@ class MainView(BaseView[MainViewModel]):
             padding: 1rem;
             margin: 1rem 0;
         }
+        
         </style>
         """
 
         st.markdown(css, unsafe_allow_html=True)
+        
+        # ダークテーマ用の追加スタイル
+        dark_theme_css = """
+        <style>
+        /* ボタンの追加エフェクト */
+        .step-grid .stButton > button::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(45deg, transparent 30%, rgba(255, 255, 255, 0.1) 50%, transparent 70%);
+            transform: translateX(-100%);
+            transition: transform 0.6s;
+        }
+        
+        .step-grid .stButton > button:hover::before {
+            transform: translateX(100%);
+        }
+        
+        /* 区切り線のスタイル */
+        hr {
+            border: none;
+            height: 1px;
+            background: rgba(255, 255, 255, 0.1);
+            margin: 2rem 0;
+        }
+        </style>
+        """
+        st.markdown(dark_theme_css, unsafe_allow_html=True)
 
     def render(self) -> None:
         """UIをレンダリング"""
@@ -140,6 +291,29 @@ class MainView(BaseView[MainViewModel]):
         if st.session_state.get("reset_requested", False):
             self.presenter.reset_workflow()
             st.session_state["reset_requested"] = False
+            st.rerun()
+
+        # ナビゲーション遷移チェック（最初に処理）
+        if st.session_state.get("navigate_to_export", False):
+            st.session_state.navigate_to_export = False
+            self.presenter.view_model.complete_text_edit()
+            st.rerun()
+        
+        # 戻るボタンのナビゲーション要求を処理
+        if st.session_state.get("request_navigation_to_transcription", False):
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info("request_navigation_to_transcription detected")
+            st.session_state.request_navigation_to_transcription = False
+            self.presenter.view_model.set_current_step("transcription")
+            st.rerun()
+        
+        if st.session_state.get("request_navigation_to_video_input", False):
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info("request_navigation_to_video_input detected")
+            st.session_state.request_navigation_to_video_input = False
+            self.presenter.view_model.set_current_step("video_input")
             st.rerun()
 
         # メインコンテンツ
@@ -157,15 +331,10 @@ class MainView(BaseView[MainViewModel]):
             # エラー表示
             if self.view_model.has_error:
                 self._show_error()
-
-            # プログレス表示
-            self._render_progress()
-
-            # ステップインジケーター
-            self._render_step_indicator()
-
-            # 現在のステップに応じたコンテンツを表示
-            self._render_current_step()
+            
+            # 現在のステップを初期化とコンテンツ表示
+            self.presenter.initialize_step(self.view_model.current_step)
+            self._render_step_content(self.view_model.current_step)
 
     def _show_error(self) -> None:
         """エラーメッセージを表示"""
@@ -178,110 +347,11 @@ class MainView(BaseView[MainViewModel]):
             self.view_model.clear_error()
             st.rerun()
 
-    def _render_progress(self) -> None:
-        """全体の進捗を表示"""
-        progress = self.view_model.workflow_progress
-
-        # プログレスバーHTML
-        progress_html = f"""
-        <div class="progress-container">
-            <div class="progress-bar" style="width: {progress * 100}%"></div>
-        </div>
-        <p style="text-align: center; color: #666;">
-            全体の進捗: {int(progress * 100)}%
-        </p>
-        """
-
-        st.markdown(progress_html, unsafe_allow_html=True)
-
-    def _render_step_indicator(self) -> None:
-        """ステップインジケーターを表示"""
-        steps = [
-            ("video_input", "1. 動画選択", self.view_model.video_input_completed),
-            ("transcription", "2. 文字起こし", self.view_model.transcription_completed),
-            ("text_edit", "3. テキスト編集", self.view_model.text_edit_completed),
-            ("export", "4. エクスポート", self.view_model.export_completed),
-        ]
-
-        # ダークモードクラス
-        dark_class = "dark" if self.view_model.dark_mode else ""
-
-        indicator_html = f'<div class="step-indicator {dark_class}">'
-
-        for step_id, label, completed in steps:
-            # ステップの状態を判定
-            if completed:
-                step_class = "completed"
-            elif step_id == self.view_model.current_step:
-                step_class = "active"
-            else:
-                # 到達可能かチェック
-                can_reach = False
-                if step_id == "video_input":
-                    can_reach = True
-                elif step_id == "transcription":
-                    can_reach = self.view_model.can_proceed_to_transcription
-                elif step_id == "text_edit":
-                    can_reach = self.view_model.can_proceed_to_text_edit
-                elif step_id == "export":
-                    can_reach = self.view_model.can_proceed_to_export
-
-                step_class = "disabled" if not can_reach else ""
-
-            indicator_html += f'<div class="step {step_class}">{label}</div>'
-
-        indicator_html += "</div>"
-
-        st.markdown(indicator_html, unsafe_allow_html=True)
-
-        # ステップ切り替えボタン
-        col1, col2, col3, col4 = st.columns(4)
-
-        with col1:
-            if st.button("動画選択", key="goto_video", disabled=self.view_model.current_step == "video_input"):
-                self.presenter.navigate_to_step("video_input")
-                st.rerun()
-
-        with col2:
-            if st.button(
-                "文字起こし",
-                key="goto_transcription",
-                disabled=not self.view_model.can_proceed_to_transcription
-                or self.view_model.current_step == "transcription",
-            ):
-                self.presenter.navigate_to_step("transcription")
-                st.rerun()
-
-        with col3:
-            if st.button(
-                "テキスト編集",
-                key="goto_text_edit",
-                disabled=not self.view_model.can_proceed_to_text_edit or self.view_model.current_step == "text_edit",
-            ):
-                # エクスポートから戻る場合は、text_edit_completedフラグをリセット
-                if self.view_model.current_step == "export":
-                    st.session_state.text_edit_completed = False
-                self.presenter.navigate_to_step("text_edit")
-                st.rerun()
-
-        with col4:
-            if st.button(
-                "エクスポート",
-                key="goto_export",
-                disabled=not self.view_model.can_proceed_to_export or self.view_model.current_step == "export",
-            ):
-                self.presenter.navigate_to_step("export")
-                st.rerun()
-
-    def _render_current_step(self) -> None:
-        """現在のステップのコンテンツを表示"""
-        st.markdown("---")
-
-        # 現在のステップを初期化
-        self.presenter.initialize_step(self.view_model.current_step)
+    def _render_step_content(self, step: str) -> None:
+        """指定されたステップのコンテンツを表示"""
 
         # ステップに応じたビューを表示
-        if self.view_model.current_step == "video_input":
+        if step == "video_input":
             container = st.container()
             with container:
                 # 現在のPresenterから対応するPresenterを取得
@@ -294,10 +364,12 @@ class MainView(BaseView[MainViewModel]):
                     # 現在の状態と比較して、新しく動画が選択された場合
                     if not self.view_model.video_input_completed:
                         self.presenter._on_video_input_changed()
+                        # 自動的に文字起こしタブに移動
+                        self.presenter.navigate_to_step("transcription")
                         # ページを再実行して状態を反映
                         st.rerun()
 
-        elif self.view_model.current_step == "transcription":
+        elif step == "transcription":
             container = st.container()
             with container:
                 # 現在のPresenterから対応するPresenterを取得
@@ -305,7 +377,7 @@ class MainView(BaseView[MainViewModel]):
                 view = TranscriptionView(transcription_presenter)
                 view.render()
 
-        elif self.view_model.current_step == "text_edit":
+        elif step == "text_edit":
             container = st.container()
             with container:
                 # 現在のPresenterから対応するPresenterを取得
@@ -331,7 +403,7 @@ class MainView(BaseView[MainViewModel]):
                 else:
                     st.error("文字起こし結果または動画パスが見つかりません")
 
-        elif self.view_model.current_step == "export":
+        elif step == "export":
             container = st.container()
             with container:
                 # 現在のPresenterから対応するPresenterを取得

@@ -157,6 +157,10 @@ class MainPresenter:
         Args:
             step: 移動先のステップ (video_input, transcription, text_edit, export)
         """
+        logger.info(f"navigate_to_step called with step: {step}")
+        logger.info(f"Current step: {self.view_model.current_step}")
+        logger.info(f"Can proceed to export: {self.view_model.can_proceed_to_export}")
+        
         try:
             # 移動可能かチェック
             if step == "transcription" and not self.view_model.can_proceed_to_transcription:
@@ -281,6 +285,14 @@ class MainPresenter:
                     self.text_editor_presenter.initialize(transcription_result)
                 else:
                     logger.warning("文字起こし結果が見つかりません")
+                
+                # テキスト編集完了フラグをチェックして更新
+                if self.session_manager.get("text_edit_completed", False):
+                    self.view_model.complete_text_edit()
+                    logger.info("テキスト編集完了状態を更新")
+                
+                # 時間範囲が計算されている場合もエクスポートボタンを表示するが、
+                # text_edit_completedフラグは設定しない（画面遷移を防ぐため）
             elif step == "export":
                 self.export_settings_presenter.initialize()
 

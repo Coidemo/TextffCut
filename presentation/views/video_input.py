@@ -52,9 +52,6 @@ class VideoInputView:
         # 初期化を保証
         self.presenter.ensure_initialized()
 
-        # ヘッダー
-        st.subheader("📹 動画ファイルの選択")
-
         # エラー表示
         if self.view_model.error_message:
             st.error(f"❌ {self.view_model.error_message}")
@@ -62,39 +59,31 @@ class VideoInputView:
                 with st.expander("詳細"):
                     st.json(self.view_model.error_details)
 
-        # 更新ボタンとオプション
-        col1, col2 = st.columns([1, 3])
-
-        with col1:
-            if st.button("🔄 更新", help="動画ファイル一覧を更新"):
-                self.presenter.refresh_video_list()
-
-        with col2:
-            show_all = st.checkbox(
-                "すべてのファイルを表示",
-                value=self.view_model.show_all_files,
-                help="対応していない拡張子のファイルも表示します",
-            )
-            if show_all != self.view_model.show_all_files:
-                self.presenter.toggle_show_all_files()
-
         # ローディング表示
         if self.view_model.is_refreshing:
             st.info("🔍 動画ファイルを検索中...")
             st.spinner()
 
-        # ファイル選択
+        # ファイル選択と更新ボタン（mainブランチのレイアウト）
         if self.view_model.video_files:
-            # 現在の選択を含むオプションリスト
-            options = ["-- 選択してください --"] + self.view_model.video_files
+            col1, col2 = st.columns([4, 1])
+            
+            with col1:
+                # 現在の選択を含むオプションリスト
+                options = ["-- 選択してください --"] + self.view_model.video_files
 
-            # 現在の選択インデックス
-            current_index = 0
-            if self.view_model.selected_file in self.view_model.video_files:
-                current_index = self.view_model.video_files.index(self.view_model.selected_file) + 1
+                # 現在の選択インデックス
+                current_index = 0
+                if self.view_model.selected_file in self.view_model.video_files:
+                    current_index = self.view_model.video_files.index(self.view_model.selected_file) + 1
 
-            # セレクトボックス
-            selected = st.selectbox("動画ファイル", options=options, index=current_index, key="video_file_select")
+                # セレクトボックス（ラベルなし）
+                selected = st.selectbox("", options=options, index=current_index, key="video_file_select", label_visibility="collapsed")
+            
+            with col2:
+                # 更新ボタン
+                if st.button("🔄 更新", help="動画ファイル一覧を更新", use_container_width=True):
+                    self.presenter.refresh_video_list()
 
             # 選択が変更された場合
             if selected != "-- 選択してください --":
@@ -106,29 +95,10 @@ class VideoInputView:
         else:
             st.info("📁 動画ファイルが見つかりません。videosフォルダに動画ファイルを配置してください。")
 
-        # 動画情報表示
+        # 動画情報表示（mainブランチのようにシンプルに）
         if self.view_model.is_loading:
-            st.info("⏳ 動画情報を読み込み中...")
-            with st.spinner("処理中..."):
+            with st.spinner("動画情報を読み込み中..."):
                 pass
-        elif self.view_model.video_info:
-            with st.expander("📊 動画情報", expanded=True):
-                col1, col2 = st.columns(2)
-
-                with col1:
-                    st.metric("動画の長さ", self.view_model.duration_text)
-                    st.metric("解像度", f"{self.view_model.video_info.width}x{self.view_model.video_info.height}")
-                    st.metric("FPS", f"{self.view_model.video_info.fps:.1f}")
-
-                with col2:
-                    st.metric("ファイルサイズ", self.view_model.file_size_text)
-                    st.metric("コーデック", self.view_model.video_info.codec)
-
-                    # 処理可能かどうかの表示
-                    if self.view_model.is_ready:
-                        st.success("✅ 処理可能")
-                    else:
-                        st.warning("⚠️ 動画情報の読み込みが必要です")
 
         # 選択された動画のパスを返す
         return self.presenter.get_selected_video_path()

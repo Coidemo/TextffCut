@@ -698,14 +698,14 @@ def show_diff_viewer(original_text: str, diff: TextDifference | None = None, hei
         # 差分がない場合は元のテキストを表示
         html_content = (
             f'<div class="diff-viewer" style="height: {height}px; overflow-y: auto; '
-            f'padding: 10px; border: 1px solid #ddd; border-radius: 5px;">{original_text}</div>'
+            f'padding: 10px; border: 1px solid #ddd; border-radius: 5px; box-sizing: border-box;">{original_text}</div>'
         )
     else:
         # 差分をHTML形式で生成（従来通りシンプル版）
         html_content = (
             '<div class="diff-viewer" style="height: '
             + str(height)
-            + 'px; overflow-y: auto; padding: 10px; border: 1px solid #ddd; border-radius: 5px;">'
+            + 'px; overflow-y: auto; padding: 10px; border: 1px solid #ddd; border-radius: 5px; box-sizing: border-box;">'
         )
 
         # ドメインエンティティ形式の場合

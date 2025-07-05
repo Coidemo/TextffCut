@@ -55,6 +55,7 @@ class TranscriptionView:
 
         # 動画情報で初期化
         self.presenter.initialize_with_video(video_path)
+        
 
         # 処理フラグ
         use_cache = False
@@ -99,9 +100,6 @@ class TranscriptionView:
                     if self.presenter.load_selected_cache():
                         use_cache = True
                         # SessionManagerが内部で状態を管理
-                        st.success(
-                            f"✅ {selected_cache.mode}モード（{selected_cache.model_size}）の文字起こし結果を読み込みました！"
-                        )
                         st.rerun()
 
         # 新規実行UI

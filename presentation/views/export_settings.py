@@ -54,15 +54,8 @@ class ExportSettingsView:
 
         # メインコンテナ
         with st.container(border=True):
-            # ヘッダーと戻るボタン
-            col1, col2 = st.columns([4, 1])
-            with col1:
-                st.markdown("### 🎬 切り抜き処理")
-            with col2:
-                if st.button("← 戻る", use_container_width=True):
-                    # テキスト編集画面に戻る
-                    st.session_state.text_edit_completed = False
-                    st.rerun()
+            # ヘッダー
+            st.markdown("### 🎬 切り抜き処理")
 
             # 無音削除設定
             self._render_silence_removal_settings()

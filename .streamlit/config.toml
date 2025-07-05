@@ -21,8 +21,13 @@ base = "dark"
 # ファイルサイズ制限を2GBに設定
 maxUploadSize = 2048
 # ファイル監視タイプ（"auto", "poll", "none"）
-fileWatcherType = "auto"
+# PyTorchとの競合を回避するため"none"に設定
+fileWatcherType = "none"
 
 [runner]
 # マジックコマンドを無効化（PyTorchとの互換性のため）
 magicEnabled = false
+
+[client]
+# ツールバーモードを最小化
+toolbarMode = "minimal"

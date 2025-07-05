@@ -78,13 +78,13 @@ class MainViewModel(BaseViewModel):
         self.video_path = video_path
         self.video_duration = duration
         self.video_input_completed = True
-        self.current_step = "transcription"
+        self.current_step = "transcription"  # 自動的に文字起こし画面へ
         self.notify()
 
     def complete_transcription(self) -> None:
         """文字起こし完了"""
         self.transcription_completed = True
-        self.current_step = "text_edit"
+        self.current_step = "text_edit"  # 自動的にテキスト編集画面へ
         self.notify()
 
     def complete_text_edit(self) -> None:

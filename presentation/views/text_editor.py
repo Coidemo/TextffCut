@@ -79,17 +79,14 @@ class TextEditorView:
 
         # 左カラム: 文字起こし結果
         with col1:
-            st.markdown("#### 文字起こし結果", help="transcription-result-title")
+            st.markdown("#### 文字起こし結果")
             st.caption("切り抜き箇所に指定した箇所が緑色でハイライトされます")
-            # 文字起こし結果にdata-testidを追加
-            with st.container():
-                st.markdown('<div data-testid="transcription-result-container">', unsafe_allow_html=True)
-                self._render_transcription_result()
-                st.markdown("</div>", unsafe_allow_html=True)
+            # 文字起こし結果を表示
+            self._render_transcription_result()
 
         # 右カラム: テキスト編集
         with col2:
-            st.markdown("#### 切り抜き箇所", help="edit-section-title")
+            st.markdown("#### 切り抜き箇所")
             st.caption("文字起こし結果から切り抜く箇所を入力してください")
 
             # テキストエディタ
@@ -210,6 +207,10 @@ class TextEditorView:
                     time_ranges_tuples = [(tr.start, tr.end) for tr in self.view_model.time_ranges]
                     st.session_state.time_ranges = time_ranges_tuples
                     st.session_state.has_boundary_adjustments = self.view_model.has_boundary_markers
+                    
+                    # 時間範囲が計算されたらナビゲーションを有効にするためのフラグ
+                    st.session_state.text_edit_has_time_ranges = True
+                    # text_edit_completedは「エクスポートへ進む」ボタンを押した時のみ設定
 
                 # 差分に追加された文字がある場合はモーダル表示フラグを設定
                 if self.view_model.differences and self._has_added_chars(self.view_model.differences):
@@ -243,7 +244,7 @@ class TextEditorView:
                         time_ranges = [(tr.start, tr.end) for tr in self.view_model.time_ranges]
 
                         # Presenter経由で音声プレビューを生成
-                        audio_path = self.presenter.generate_audio_preview(str(video_path), time_ranges, max_duration=30.0)
+                        audio_path = self.presenter.generate_audio_preview(str(video_path), time_ranges, max_duration=60.0)
 
                         if audio_path:
                             # 音声プレイヤーを表示
@@ -256,7 +257,7 @@ class TextEditorView:
                             os.unlink(audio_path)
 
                             # プレビュー情報を表示
-                            st.caption(f"音声プレビューを生成しました（最大30秒）")
+                            st.caption(f"音声プレビューを生成しました（最大60秒）")
                         else:
                             st.warning("音声プレビューの生成に失敗しました")
 
@@ -275,17 +276,6 @@ class TextEditorView:
         )
         st.session_state.boundary_adjustment_mode = boundary_mode
         
-        # エクスポートへ進むボタン（時間範囲が計算されている場合のみ表示）
-        if self.view_model.has_time_ranges:
-            st.markdown("---")
-            col1, col2, col3 = st.columns([1, 2, 1])
-            with col2:
-                if st.button("🎬 エクスポートへ進む", type="primary", use_container_width=True):
-                    # テキスト編集完了フラグを設定
-                    st.session_state.text_edit_completed = True
-                    # MainPresenterに通知
-                    self.presenter.handle_error(None, "text_edit_completed")  # 一時的な通知方法
-                    st.rerun()
 
     def _render_boundary_markers_info(self) -> None:
         """境界調整マーカー情報を表示"""
@@ -383,6 +373,7 @@ class TextEditorView:
                 if diff_type == DifferenceType.ADDED:
                     return True
         return False
+
 
 
 def show_text_editor_section(

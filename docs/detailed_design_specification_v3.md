@@ -3297,6 +3297,146 @@ def render_time_adjustment_controls(segment: dict, position: str) -> float:
     
     # ミリ秒調整行
     cols = st.columns(6)
+```
+
+## 20. Streamlitナビゲーション実装の教訓
+
+### 20.1 問題の概要
+2025年7月のTextffCut開発において、Streamlitでのステップ間ナビゲーション実装で重大な問題に直面しました。特にテキスト編集画面からエクスポート画面への遷移が、様々な実装方法で動作しませんでした。
+
+### 20.2 失敗した実装パターン
+
+#### 20.2.1 下部固定ナビゲーション方式
+```python
+# 失敗例：複雑なレンダリング順序とボタンイベント
+def _render_tabs(self):
+    self.presenter.initialize_step()  # 1. 状態更新
+    self._render_step_content()       # 2. コンテンツ描画
+    self._render_bottom_navigation()  # 3. ナビゲーション描画
+    
+    # ナビゲーションボタン
+    if st.button("エクスポート →"):
+        self.presenter.navigate_to_step("export")  # 複雑な処理
+        st.rerun()
+```
+
+**問題点**：
+- レンダリング順序が複雑で、ボタンイベントが正しく発火しない
+- `navigate_to_step`経由の間接的な状態更新
+- 固定位置CSS（position: fixed）がStreamlitのイベント処理と干渉
+
+#### 20.2.2 セッション状態を使った間接制御
+```python
+# 失敗例：セッション状態での制御試行
+if st.button("エクスポート →"):
+    st.session_state["navigate_to"] = "export"
+    st.session_state["navigation_triggered"] = True
+    st.rerun()
+```
+
+**問題点**：
+- セッション状態の更新タイミングが不安定
+- 複数の再レンダリングサイクルが必要
+
+#### 20.2.3 ラジオボタン方式
+```python
+# 失敗例：ラジオボタンでのナビゲーション
+selected_step = st.radio("ステップを選択", steps)
+if selected_step != current_step:
+    self.presenter.navigate_to_step(selected_step)
+    st.rerun()
+```
+
+**問題点**：
+- UIが直感的でない
+- 値変更イベントが期待通りに動作しない
+
+### 20.3 成功した実装パターン
+
+#### 20.3.1 直接的なViewModelアップデート
+```python
+# 成功例：シンプルで直接的なアプローチ
+# text_editor.py内
+if st.button("🎬 エクスポートへ進む", type="primary"):
+    st.session_state.text_edit_completed = True
+    st.session_state.force_navigate_to_export = True
+    st.rerun()
+
+# main.py内（_render_tabs()の最初）
+if st.session_state.get("force_navigate_to_export", False):
+    st.session_state.force_navigate_to_export = False
+    self.presenter.view_model.complete_text_edit()  # 直接更新
+    st.rerun()
+```
+
+**成功の理由**：
+1. **タイミング**: レンダリングの最初に状態をチェック
+2. **シンプルさ**: 複雑なメソッドチェーンを避ける
+3. **確実性**: セッション状態でフラグ管理
+
+### 20.4 Streamlit開発のベストプラクティス
+
+#### 20.4.1 状態管理
+1. **直接的な更新を優先**
+   - ViewModelの直接更新 > 複雑なメソッドチェーン
+   - `complete_text_edit()` > `navigate_to_step("export")`
+
+2. **レンダリング順序を意識**
+   - 状態チェックは`render()`メソッドの最初に
+   - 状態更新後は即座に`st.rerun()`
+
+3. **セッション状態の活用**
+   - フラグ管理にセッション状態を使用
+   - 次回レンダリング時の処理を保証
+
+#### 20.4.2 UI設計
+1. **シンプルなボタン配置**
+   - 固定位置CSS（position: fixed）は避ける
+   - 通常のフロー内にボタンを配置
+
+2. **明示的なアクション**
+   - 自動遷移と手動遷移を明確に区別
+   - ユーザーの意図を確実に反映
+
+#### 20.4.3 デバッグ手法
+```python
+# デバッグ情報の表示
+st.write(f"Debug: current_step = {self.view_model.current_step}")
+st.write(f"Debug: can_proceed = {self.view_model.can_proceed_to_export}")
+st.write(f"Debug: session_state = {st.session_state.get('text_edit_completed')}")
+```
+
+### 20.5 実装ガイドライン
+
+#### 20.5.1 ナビゲーション実装チェックリスト
+- [ ] 状態更新は直接的か？
+- [ ] レンダリング順序は適切か？
+- [ ] セッション状態でフラグ管理しているか？
+- [ ] 複雑なCSSを避けているか？
+- [ ] デバッグログを仕込んでいるか？
+
+#### 20.5.2 推奨実装パターン
+```python
+# 推奨：画面遷移の実装
+class StepView:
+    def render(self):
+        # 1. 遷移フラグのチェック（最初に！）
+        if st.session_state.get("navigate_flag", False):
+            st.session_state.navigate_flag = False
+            self.update_state_directly()  # 直接更新
+            st.rerun()
+        
+        # 2. 通常のコンテンツレンダリング
+        self.render_content()
+        
+        # 3. アクションボタン（シンプルな配置）
+        if st.button("次へ進む"):
+            st.session_state.navigate_flag = True
+            st.rerun()
+```
+
+### 20.6 まとめ
+Streamlitでのナビゲーション実装は、フレームワークの特性を理解し、**シンプルで直接的なアプローチ**を取ることが成功の鍵です。複雑な状態管理やUIパターンは避け、Streamlitの再レンダリングサイクルに沿った実装を心がけるべきです。
     for i, (delta, unit) in enumerate(ms_adjustments):
         with cols[i]:
             if st.button(f"{delta:+d}{unit}", key=f"{position}_ms_{i}"):
