@@ -73,38 +73,46 @@ class TranscriptionView:
         )
         logger.info(f"has_result: {self.view_model.has_result}, should_run: {self.view_model.should_run}")
 
-        # キャッシュが利用可能で、まだ結果が読み込まれていない場合
+        # キャッシュ選択UI（結果がない場合のみ表示）
         if self.view_model.available_caches and not self.view_model.has_result:
-            st.markdown("#### 📝 文字起こし方法を選択")
-            
-            # 選択肢を作成
-            options = ["🆕 新規に文字起こしを実行"]
-            cache_map = {}
-            
-            for i, cache in enumerate(self.view_model.available_caches):
-                from datetime import datetime
-                modified_date = datetime.fromtimestamp(cache.modified_time).strftime("%Y-%m-%d %H:%M")
-                option_text = f"💾 {cache.mode}モード - {cache.model_size} | {modified_date}"
-                options.append(option_text)
-                cache_map[option_text] = cache
-            
-            # ラジオボタンで選択
-            selected = st.radio(
-                "実行方法",
-                options,
-                index=0,  # デフォルトは新規実行
-                label_visibility="collapsed"
-            )
-            
-            # キャッシュが選択された場合
-            if selected != options[0] and selected in cache_map:
-                selected_cache = cache_map[selected]
-                self.presenter.select_cache(selected_cache)
-                
+            with st.container(border=True):
+                st.markdown("#### 📝 過去の文字起こし結果を利用する")
+
+                # キャッシュ選択
+                cache_options = []
+                cache_map = {}
+
+                for cache in self.view_model.available_caches:
+                    from datetime import datetime
+
+                    modified_date = datetime.fromtimestamp(cache.modified_time).strftime("%Y-%m-%d %H:%M")
+
+                    option_text = f"{cache.mode}モード - {cache.model_size} | {modified_date}"
+                    cache_options.append(option_text)
+                    cache_map[option_text] = cache
+
+                selected_option = st.selectbox(
+                    "保存済みの文字起こし結果", 
+                    cache_options, 
+                    index=None,  # デフォルトで何も選択しない
+                    placeholder="キャッシュを選択してください",
+                    help="使用する文字起こし結果を選択してください"
+                )
+
+                if selected_option:
+                    selected_cache = cache_map[selected_option]
+                    self.presenter.select_cache(selected_cache)
+
                 # キャッシュ使用ボタン
-                if st.button("💾 選択した結果を使用", type="primary", use_container_width=True):
+                if st.button(
+                    "💾 選択した結果を使用", 
+                    type="primary", 
+                    use_container_width=True,
+                    disabled=selected_option is None  # 選択されていない場合は無効
+                ):
                     if self.presenter.load_selected_cache():
                         use_cache = True
+                        # SessionManagerが内部で状態を管理
                         st.rerun()
 
         # 既存の結果がある場合の処理
