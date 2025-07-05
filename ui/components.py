@@ -17,6 +17,7 @@ def show_api_key_manager() -> None:
     from utils.api_key_manager import api_key_manager
 
     st.markdown("#### 🔑 APIキー設定")
+    st.caption("DEBUG: Using ui/components.py")
 
     # 保存されたAPIキーを確認
     saved_key = api_key_manager.load_api_key()
@@ -30,6 +31,9 @@ def show_api_key_manager() -> None:
         # 削除ボタンを保存済みキー情報の下に配置
         if st.button("🗑️ 保存済みキーを削除", use_container_width=True):
             if api_key_manager.delete_api_key():
+                # セッション状態をクリア
+                if "api_key" in st.session_state:
+                    del st.session_state.api_key
                 st.success("保存されたAPIキーを削除しました")
                 st.rerun()
             else:

@@ -63,10 +63,14 @@ class SidebarPresenter(BasePresenter[SidebarViewModel]):
             self._load_settings()
             
             # APIキーマネージャーから保存済みキーを読み込み
+            # 注意: settings.jsonではなく、暗号化されたファイルを優先
             from utils.api_key_manager import api_key_manager
             saved_key = api_key_manager.load_api_key()
             if saved_key:
                 self.view_model.api_key = saved_key
+            else:
+                # 暗号化ファイルがない場合は、ViewModelからもクリア
+                self.view_model.api_key = None
 
             # プロセス状態を初期化
             self.view_model.update_process_status("ready", "準備完了")
@@ -135,7 +139,8 @@ class SidebarPresenter(BasePresenter[SidebarViewModel]):
             api_settings = settings.get("api", {})
             self.view_model.update_api_settings(
                 use_api=api_settings.get("use_api", False),
-                api_key=api_settings.get("api_key"),
+                # APIキーは暗号化ファイルから読み込むため、ここでは設定しない
+                api_key=None,
                 model=api_settings.get("model", "whisper-1"),
             )
 
@@ -169,7 +174,8 @@ class SidebarPresenter(BasePresenter[SidebarViewModel]):
                 },
                 "api": {
                     "use_api": self.view_model.use_api,
-                    "api_key": self.view_model.api_key,
+                    # APIキーは暗号化ファイルで管理するため、settings.jsonには保存しない
+                    # "api_key": self.view_model.api_key,
                     "model": self.view_model.api_model,
                 },
                 "advanced": {
@@ -357,11 +363,34 @@ class SidebarPresenter(BasePresenter[SidebarViewModel]):
         """APIキーを削除"""
         try:
             from utils.api_key_manager import api_key_manager
-            if api_key_manager.delete_api_key():
-                self.view_model.api_key = None
-                self.view_model.notify()
-                return True
-            return False
+            import streamlit as st
+            
+            # 削除前の状態を記録
+            logger.info(f"DEBUG: delete_api_key()開始")
+            logger.info(f"DEBUG: 削除前のファイル存在: {api_key_manager.key_file.exists()}")
+            
+            # 削除を実行
+            result = api_key_manager.delete_api_key()
+            logger.info(f"DEBUG: delete_api_key()の結果: {result}")
+            logger.info(f"DEBUG: 削除後のファイル存在: {api_key_manager.key_file.exists()}")
+            
+            # 成功/失敗に関わらずViewModelをクリア
+            # （ファイルが既に削除されている場合もクリアすべき）
+            self.view_model.api_key = None
+            self.view_model.use_api = False  # APIモードも無効化
+            self.view_model.notify()
+            logger.info(f"DEBUG: ViewModelをクリアしました")
+            
+            # セッション状態もクリア
+            if "api_key" in st.session_state:
+                logger.info(f"DEBUG: session_state.api_keyをクリア")
+                del st.session_state.api_key
+                
+            # 設定を保存（APIキーがNoneの状態で）
+            self.save_settings()
+            logger.info(f"DEBUG: 設定を保存しました")
+                
+            return result
         except Exception as e:
             self.handle_error(e, "APIキー削除")
             return False
