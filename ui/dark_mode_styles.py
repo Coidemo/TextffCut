@@ -7,27 +7,44 @@ def get_dark_mode_styles() -> str:
     """ダークモード対応のCSSスタイルを返す"""
     return """
     <style>
-    /* ライトモードでの緑ハイライトを見やすく */
-    @media (prefers-color-scheme: light) {
-        /* 緑色ハイライト（マッチした部分）をより見やすく */
-        .highlight-match,
-        span[style*="background-color: #e6ffe6"] {
-            background-color: #28a745 !important;  /* はっきりした緑 */
-            color: #ffffff !important;  /* 白文字 */
-            padding: 2px 4px;
-            border-radius: 3px;
-        }
+    /* Streamlitのダークモードクラスも考慮 */
+    /* ライトモード */
+    .main:not(.st-emotion-cache-dark) .highlight-match,
+    .main:not(.st-emotion-cache-dark) span[style*="background-color: #e6ffe6"] {
+        background-color: #28a745 !important;  /* はっきりした緑 */
+        color: #ffffff !important;  /* 白文字 */
+        padding: 2px 4px;
+        border-radius: 3px;
     }
 
-    /* ダークモード検出 */
-    @media (prefers-color-scheme: dark) {
-        /* ハイライト色の調整 */
+    /* ダークモード - Streamlitのダークモードクラスとメディアクエリの両方に対応 */
+    .st-emotion-cache-dark .highlight-match,
+    .st-emotion-cache-dark span[style*="background-color: #e6ffe6"],
+    [data-testid="stAppViewContainer"][data-theme="dark"] .highlight-match,
+    [data-testid="stAppViewContainer"][data-theme="dark"] span[style*="background-color: #e6ffe6"] {
+        background-color: #2d5a2d !important;  /* 見やすい緑背景 */
+        color: #b8e7b8 !important;  /* 明るい緑の文字 */
+        padding: 2px 4px;
+        border-radius: 3px;
+    }
 
+    .st-emotion-cache-dark .highlight-addition,
+    .st-emotion-cache-dark span[style*="background-color: #ffe6e6"],
+    [data-testid="stAppViewContainer"][data-theme="dark"] .highlight-addition,
+    [data-testid="stAppViewContainer"][data-theme="dark"] span[style*="background-color: #ffe6e6"] {
+        background-color: #5a2d2d !important;  /* 見やすい赤背景 */
+        color: #ffb3b3 !important;  /* 明るい赤の文字 */
+        padding: 2px 4px;
+        border-radius: 3px;
+    }
+
+    /* メディアクエリによる検出も残す（フォールバック） */
+    @media (prefers-color-scheme: dark) {
         /* 緑色ハイライト（マッチした部分）をより見やすく */
         .highlight-match,
         span[style*="background-color: #e6ffe6"] {
-            background-color: #1a4d1a !important;  /* 暗い緑 */
-            color: #90ee90 !important;  /* 明るい緑の文字 */
+            background-color: #2d5a2d !important;  /* 見やすい緑背景 */
+            color: #b8e7b8 !important;  /* 明るい緑の文字 */
             padding: 2px 4px;
             border-radius: 3px;
         }
@@ -35,8 +52,8 @@ def get_dark_mode_styles() -> str:
         /* 赤色ハイライト（追加文字）をより見やすく */
         .highlight-addition,
         span[style*="background-color: #ffe6e6"] {
-            background-color: #4d1a1a !important;  /* 暗い赤 */
-            color: #ff9999 !important;  /* 明るい赤の文字 */
+            background-color: #5a2d2d !important;  /* 見やすい赤背景 */
+            color: #ffb3b3 !important;  /* 明るい赤の文字 */
             padding: 2px 4px;
             border-radius: 3px;
         }

@@ -38,7 +38,7 @@ class FCPXMLExporter:
         segments: list[ExportSegment],
         output_path: str | Path,
         timeline_fps: int = 30,
-        project_name: str = "Buzz Clip Project",
+        project_name: str = "TextffCut Project",
     ) -> bool:
         """
         FCPXMLファイルをエクスポート
@@ -71,9 +71,9 @@ class FCPXMLExporter:
             return True
 
         except OSError as e:
-            from utils.exceptions import FileNotFoundError as BuzzFileNotFoundError
+            from utils.exceptions import FileNotFoundError as TextffCutFileNotFoundError
 
-            raise BuzzFileNotFoundError(f"FCPXML書き込みエラー: {str(e)}") from e
+            raise TextffCutFileNotFoundError(f"FCPXML書き込みエラー: {str(e)}") from e
         except PermissionError as e:
             from utils.exceptions import VideoProcessingError
 
@@ -130,7 +130,7 @@ class FCPXMLExporter:
         xml_content += (
             '''    </resources>
     <library>
-        <event name="Buzz Clip Event">
+        <event name="TextffCut Event">
             <project name="'''
             + project_name
             + '''">
@@ -222,9 +222,9 @@ class XMEMLExporter:
             return True
 
         except OSError as e:
-            from utils.exceptions import FileNotFoundError as BuzzFileNotFoundError
+            from utils.exceptions import FileNotFoundError as TextffCutFileNotFoundError
 
-            raise BuzzFileNotFoundError(f"XMEML書き込みエラー: {str(e)}") from e
+            raise TextffCutFileNotFoundError(f"XMEML書き込みエラー: {str(e)}") from e
         except PermissionError as e:
             from utils.exceptions import VideoProcessingError
 
@@ -703,7 +703,7 @@ class EDLExporter:
         segments: list[ExportSegment],
         output_path: str | Path,
         timeline_fps: int = 30,
-        title: str = "Buzz Clip EDL",
+        title: str = "TextffCut EDL",
     ) -> bool:
         """
         EDLファイルをエクスポート
@@ -748,9 +748,9 @@ class EDLExporter:
             return True
 
         except OSError as e:
-            from utils.exceptions import FileNotFoundError as BuzzFileNotFoundError
+            from utils.exceptions import FileNotFoundError as TextffCutFileNotFoundError
 
-            raise BuzzFileNotFoundError(f"EDL書き込みエラー: {str(e)}") from e
+            raise TextffCutFileNotFoundError(f"EDL書き込みエラー: {str(e)}") from e
         except PermissionError as e:
             from utils.exceptions import VideoProcessingError
 

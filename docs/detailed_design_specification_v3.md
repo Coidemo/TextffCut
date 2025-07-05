@@ -1559,9 +1559,83 @@ CUDA_VISIBLE_DEVICES=0 (GPU使用時)
    - 明確なインターフェース定義
    - ドキュメント化の簡素化
 
-## 13. UI表示制御設計
+## 13. MVP実装状況
 
-### 13.1 セクション表示制御
+### 13.1 Phase 7: Transcription MVP（完了）
+
+#### 13.1.1 実装内容
+- **TranscriptionViewModel**: 文字起こし画面の状態管理
+  - API/ローカルモード切り替え
+  - モデルサイズ選択
+  - キャッシュ管理
+  - 処理状態とプログレス
+- **TranscriptionPresenter**: ビジネスロジック
+  - 文字起こし実行
+  - キャッシュ読み込み
+  - 料金計算
+  - エラーハンドリング
+- **TranscriptionView**: UI実装
+  - モード選択UI
+  - キャッシュ選択UI
+  - プログレス表示
+  - 結果表示
+
+#### 13.1.2 特記事項
+- キャッシュ読み込みでレガシー形式を維持（main.py互換性のため）
+- SessionManagerを通じた状態管理
+
+### 13.2 Phase 8: TextEditor MVP（完了）
+
+#### 13.2.1 実装内容
+- **TextEditorViewModel**: テキスト編集の状態管理
+  - 編集テキスト
+  - 時間範囲
+  - 境界調整
+  - タイムライン編集状態
+- **TextEditorPresenter**: テキスト処理ロジック
+  - 差分検出
+  - 時間範囲計算
+  - 境界調整マーカー処理
+  - セクション分割
+- **TextEditorView**: 編集UI
+  - 2カラムレイアウト
+  - ハイライト表示
+  - タイムライン編集UI
+  - 音声プレビュー
+
+#### 13.2.2 特記事項
+- モーダルダイアログをインライン表示に変更
+- タイムライン編集機能を`timeline_editor_simple.py`で実装
+
+### 13.3 Phase 9: ExportSettings MVP（完了）
+
+#### 13.3.1 実装内容
+- **ExportSettingsViewModel**: エクスポート設定の状態管理
+  - 無音削除設定
+  - エクスポート形式
+  - SRT字幕設定
+  - 処理状態とプログレス
+- **ExportSettingsPresenter**: エクスポート処理ロジック
+  - 動画エクスポート
+  - FCPXML/EDL生成
+  - SRT字幕生成
+  - 無音削除処理
+- **ExportSettingsView**: 設定UI
+  - 無音削除設定パネル
+  - 形式選択
+  - 実行ボタンとプログレス
+  - 結果表示
+
+#### 13.3.2 ゲートウェイアダプター
+- **VideoExportGatewayAdapter**: 動画クリップ抽出
+- **FCPXMLExportGatewayAdapter**: FCPXML生成
+- **EDLExportGatewayAdapter**: EDL生成
+- **SRTExportGatewayAdapter**: SRT字幕生成
+- **VideoProcessorGatewayAdapter**: 無音削除処理
+
+## 14. UI表示制御設計
+
+### 14.1 セクション表示制御
 
 #### 13.1.1 セッション状態設計
 
@@ -3223,6 +3297,146 @@ def render_time_adjustment_controls(segment: dict, position: str) -> float:
     
     # ミリ秒調整行
     cols = st.columns(6)
+```
+
+## 20. Streamlitナビゲーション実装の教訓
+
+### 20.1 問題の概要
+2025年7月のTextffCut開発において、Streamlitでのステップ間ナビゲーション実装で重大な問題に直面しました。特にテキスト編集画面からエクスポート画面への遷移が、様々な実装方法で動作しませんでした。
+
+### 20.2 失敗した実装パターン
+
+#### 20.2.1 下部固定ナビゲーション方式
+```python
+# 失敗例：複雑なレンダリング順序とボタンイベント
+def _render_tabs(self):
+    self.presenter.initialize_step()  # 1. 状態更新
+    self._render_step_content()       # 2. コンテンツ描画
+    self._render_bottom_navigation()  # 3. ナビゲーション描画
+    
+    # ナビゲーションボタン
+    if st.button("エクスポート →"):
+        self.presenter.navigate_to_step("export")  # 複雑な処理
+        st.rerun()
+```
+
+**問題点**：
+- レンダリング順序が複雑で、ボタンイベントが正しく発火しない
+- `navigate_to_step`経由の間接的な状態更新
+- 固定位置CSS（position: fixed）がStreamlitのイベント処理と干渉
+
+#### 20.2.2 セッション状態を使った間接制御
+```python
+# 失敗例：セッション状態での制御試行
+if st.button("エクスポート →"):
+    st.session_state["navigate_to"] = "export"
+    st.session_state["navigation_triggered"] = True
+    st.rerun()
+```
+
+**問題点**：
+- セッション状態の更新タイミングが不安定
+- 複数の再レンダリングサイクルが必要
+
+#### 20.2.3 ラジオボタン方式
+```python
+# 失敗例：ラジオボタンでのナビゲーション
+selected_step = st.radio("ステップを選択", steps)
+if selected_step != current_step:
+    self.presenter.navigate_to_step(selected_step)
+    st.rerun()
+```
+
+**問題点**：
+- UIが直感的でない
+- 値変更イベントが期待通りに動作しない
+
+### 20.3 成功した実装パターン
+
+#### 20.3.1 直接的なViewModelアップデート
+```python
+# 成功例：シンプルで直接的なアプローチ
+# text_editor.py内
+if st.button("🎬 エクスポートへ進む", type="primary"):
+    st.session_state.text_edit_completed = True
+    st.session_state.force_navigate_to_export = True
+    st.rerun()
+
+# main.py内（_render_tabs()の最初）
+if st.session_state.get("force_navigate_to_export", False):
+    st.session_state.force_navigate_to_export = False
+    self.presenter.view_model.complete_text_edit()  # 直接更新
+    st.rerun()
+```
+
+**成功の理由**：
+1. **タイミング**: レンダリングの最初に状態をチェック
+2. **シンプルさ**: 複雑なメソッドチェーンを避ける
+3. **確実性**: セッション状態でフラグ管理
+
+### 20.4 Streamlit開発のベストプラクティス
+
+#### 20.4.1 状態管理
+1. **直接的な更新を優先**
+   - ViewModelの直接更新 > 複雑なメソッドチェーン
+   - `complete_text_edit()` > `navigate_to_step("export")`
+
+2. **レンダリング順序を意識**
+   - 状態チェックは`render()`メソッドの最初に
+   - 状態更新後は即座に`st.rerun()`
+
+3. **セッション状態の活用**
+   - フラグ管理にセッション状態を使用
+   - 次回レンダリング時の処理を保証
+
+#### 20.4.2 UI設計
+1. **シンプルなボタン配置**
+   - 固定位置CSS（position: fixed）は避ける
+   - 通常のフロー内にボタンを配置
+
+2. **明示的なアクション**
+   - 自動遷移と手動遷移を明確に区別
+   - ユーザーの意図を確実に反映
+
+#### 20.4.3 デバッグ手法
+```python
+# デバッグ情報の表示
+st.write(f"Debug: current_step = {self.view_model.current_step}")
+st.write(f"Debug: can_proceed = {self.view_model.can_proceed_to_export}")
+st.write(f"Debug: session_state = {st.session_state.get('text_edit_completed')}")
+```
+
+### 20.5 実装ガイドライン
+
+#### 20.5.1 ナビゲーション実装チェックリスト
+- [ ] 状態更新は直接的か？
+- [ ] レンダリング順序は適切か？
+- [ ] セッション状態でフラグ管理しているか？
+- [ ] 複雑なCSSを避けているか？
+- [ ] デバッグログを仕込んでいるか？
+
+#### 20.5.2 推奨実装パターン
+```python
+# 推奨：画面遷移の実装
+class StepView:
+    def render(self):
+        # 1. 遷移フラグのチェック（最初に！）
+        if st.session_state.get("navigate_flag", False):
+            st.session_state.navigate_flag = False
+            self.update_state_directly()  # 直接更新
+            st.rerun()
+        
+        # 2. 通常のコンテンツレンダリング
+        self.render_content()
+        
+        # 3. アクションボタン（シンプルな配置）
+        if st.button("次へ進む"):
+            st.session_state.navigate_flag = True
+            st.rerun()
+```
+
+### 20.6 まとめ
+Streamlitでのナビゲーション実装は、フレームワークの特性を理解し、**シンプルで直接的なアプローチ**を取ることが成功の鍵です。複雑な状態管理やUIパターンは避け、Streamlitの再レンダリングサイクルに沿った実装を心がけるべきです。
     for i, (delta, unit) in enumerate(ms_adjustments):
         with cols[i]:
             if st.button(f"{delta:+d}{unit}", key=f"{position}_ms_{i}"):
@@ -3745,9 +3959,81 @@ def show_boundary_adjusted_preview(
 
 なし（2025-06-28時点）
 
+## 22. MVP実装状況（2025-01-01更新）
+
+### 22.1 Phase 7-9 完了
+
+**VideoInput MVP** (Phase 7)
+- ✅ VideoInputViewModel
+- ✅ VideoInputPresenter
+- ✅ VideoInputView
+- ✅ 統合テスト実装
+
+**TextEditor MVP** (Phase 8)
+- ✅ TextEditorViewModel
+- ✅ TextEditorPresenter
+- ✅ TextEditorView
+- ✅ text_processor_gateway実装
+
+**ExportSettings MVP** (Phase 9)
+- ✅ ExportSettingsViewModel
+- ✅ ExportSettingsPresenter
+- ✅ ExportSettingsView
+- ✅ 各種エクスポートゲートウェイ実装
+
+### 22.2 Phase 10 実装中
+
+**Phase 10.1: 基盤整備** ✅
+- ✅ MainViewModel
+- ✅ MainPresenter
+- ✅ TranscriptionResultAdapter（ドメイン↔レガシー変換）
+
+**Phase 10.2: サイドバーMVP化** ✅
+- ✅ SidebarViewModel
+- ✅ SidebarPresenter
+- ✅ SidebarView
+
+**Phase 10.3: 統合作業** 🔄
+- ✅ MainView実装
+- ✅ main_mvp.py作成
+- ✅ 環境変数による切り替え機能（TEXTFFCUT_USE_MVP）
+
+**Phase 10.4: テストと切り替え** 📋
+- 統合テスト実装
+- パフォーマンス測定
+- 本番環境への切り替え
+
+### 22.3 アーキテクチャの改善点
+
+1. **責任の分離**
+   - UIロジックとビジネスロジックの完全分離
+   - 各コンポーネントが単一責任原則に従う
+
+2. **依存性注入**
+   - dependency-injectorによる統一的なDI
+   - テスト時のモック注入が容易
+
+3. **アダプターパターン**
+   - TranscriptionResultAdapterでレガシー互換性を維持
+   - 段階的な移行が可能
+
+### 22.4 残作業
+
+1. **統合テスト**
+   - エンドツーエンドテスト
+   - MVP間の連携テスト
+
+2. **パフォーマンス最適化**
+   - 不要な再描画の削減
+   - キャッシュの最適化
+
+3. **ドキュメント更新**
+   - アーキテクチャドキュメント
+   - 開発者ガイド
+
 ---
 
 **作成日**: 2025-06-22  
-**バージョン**: 3.6  
-**最終更新**: 2025-06-28  
-**次回更新**: YouTube URL対応機能実装時  
+**バージョン**: 3.7  
+**最終更新**: 2025-01-01  
+**次回更新**: Phase 10完了時  

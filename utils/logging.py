@@ -11,10 +11,10 @@ from typing import Optional
 import streamlit as st
 
 
-class BuzzClipLogger:
+class TextffCutLogger:
     """TextffCut用のロガークラス"""
 
-    _instance: Optional["BuzzClipLogger"] = None
+    _instance: Optional["TextffCutLogger"] = None
     _initialized: bool
 
     def __new__(cls):
@@ -79,10 +79,10 @@ class BuzzClipLogger:
 
 
 # グローバルロガーインスタンス
-logger = BuzzClipLogger()
+logger = TextffCutLogger()
 
 
-def get_logger(name: str | None = None) -> BuzzClipLogger:
+def get_logger(name: str | None = None) -> TextffCutLogger:
     """
     ロガーインスタンスを取得
 
@@ -90,7 +90,7 @@ def get_logger(name: str | None = None) -> BuzzClipLogger:
         name: ロガー名（現在は未使用）
 
     Returns:
-        BuzzClipLoggerインスタンス
+        TextffCutLoggerインスタンス
     """
     return logger
 

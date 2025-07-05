@@ -98,7 +98,7 @@ class VideoService(BaseService):
 
 | 旧クラス (utils.exceptions) | 新クラス (core.error_handling) |
 |---------------------------|------------------------------|
-| BuzzClipError | TextffCutError |
+| TextffCutError | TextffCutError |
 | TranscriptionError | TranscriptionError |
 | VideoProcessingError | VideoProcessingError |
 | FileNotFoundError | FileValidationError |

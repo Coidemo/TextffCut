@@ -26,7 +26,7 @@ from .error_handling import (
 # 既存のエラークラス（後方互換性のため）
 try:
     from utils.exceptions import (
-        BuzzClipError,
+        TextffCutError as OldTextffCutError,
     )
     from utils.exceptions import (
         ConfigurationError as OldConfigurationError,  # noqa: F401
@@ -83,7 +83,7 @@ class ErrorMigration:
     # 旧エラークラスから新エラークラスへのマッピング
     ERROR_MAPPING: dict[str, type[TextffCutError]] = {
         # utils.exceptions からの移行
-        "BuzzClipError": TextffCutError,
+        "TextffCutError": TextffCutError,
         "TranscriptionError": TranscriptionError,
         "VideoProcessingError": VideoProcessingError,
         "FileNotFoundError": FileValidationError,
@@ -166,7 +166,7 @@ def create_compatibility_aliases() -> dict[str, type[Exception]]:
 
     # utils.exceptions のエイリアス
     if UTILS_EXCEPTIONS_AVAILABLE:
-        aliases["BuzzClipError"] = ErrorMigration.create_compatibility_wrapper(BuzzClipError)
+        aliases["TextffCutError"] = ErrorMigration.create_compatibility_wrapper(OldTextffCutError)
         # 他のエイリアスも必要に応じて追加
 
     # core.exceptions のエイリアス

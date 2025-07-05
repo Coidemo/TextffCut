@@ -382,6 +382,7 @@ def show_text_editor(initial_text: str = "", height: int = 400) -> str:
         value=st.session_state.get("text_editor_value", initial_text),
         height=height,
         label_visibility="collapsed",
+        key="text_editor_widget",
         help=(
             "文字起こし結果から切り抜く文章をコピペしてください。\n\n"
             "**💡 複数セクション指定**\n"
@@ -393,7 +394,6 @@ def show_text_editor(initial_text: str = "", height: int = 400) -> str:
             "[<数値] = 後のクリップを早める\n"
             "[>数値] = 後のクリップを遅らせる"
         ),
-        key="text_editor_widget",
     )
 
     # エディタの値をセッション状態に保存
@@ -441,24 +441,47 @@ def show_edited_text_with_highlights(edited_text: str, diff: TextDifference | No
     # 既存の共通部分の情報を使用
     covered_positions = set()
 
-    # 共通部分でカバーされている編集テキストの位置をマーク（cleaned_textベース）
-    for common_pos in diff.common_positions:
-        # 編集テキスト内でこの共通テキストを検索
-        common_text = common_pos.text
-        search_start = 0
+    # ドメインエンティティ形式とレガシー形式の両方に対応
+    if hasattr(diff, 'differences'):
+        # ドメインエンティティ形式
+        from domain.entities.text_difference import DifferenceType
+        
+        # 共通部分（UNCHANGED）のテキストを抽出
+        for diff_type, text, _ in diff.differences:
+            if diff_type == DifferenceType.UNCHANGED:
+                # 編集テキスト内でこの共通テキストを検索
+                search_start = 0
+                while True:
+                    found_pos = cleaned_text.find(text, search_start)
+                    if found_pos == -1:
+                        break
 
-        while True:
-            found_pos = cleaned_text.find(common_text, search_start)
-            if found_pos == -1:
-                break
+                    # この位置がまだカバーされていない場合のみマーク
+                    if not any(pos in covered_positions for pos in range(found_pos, found_pos + len(text))):
+                        for i in range(found_pos, found_pos + len(text)):
+                            covered_positions.add(i)
+                        break
 
-            # この位置がまだカバーされていない場合のみマーク
-            if not any(pos in covered_positions for pos in range(found_pos, found_pos + len(common_text))):
-                for i in range(found_pos, found_pos + len(common_text)):
-                    covered_positions.add(i)
-                break
+                    search_start = found_pos + 1
+    else:
+        # レガシー形式
+        for common_pos in diff.common_positions:
+            # 編集テキスト内でこの共通テキストを検索
+            common_text = common_pos.text
+            search_start = 0
 
-            search_start = found_pos + 1
+            while True:
+                found_pos = cleaned_text.find(common_text, search_start)
+                if found_pos == -1:
+                    break
+
+                # この位置がまだカバーされていない場合のみマーク
+                if not any(pos in covered_positions for pos in range(found_pos, found_pos + len(common_text))):
+                    for i in range(found_pos, found_pos + len(common_text)):
+                        covered_positions.add(i)
+                    break
+
+                search_start = found_pos + 1
 
     # HTMLを生成
     cleaned_pos = 0  # cleaned_text内での位置
@@ -627,14 +650,34 @@ def show_red_highlight_modal(edited_text: str, diff: TextDifference | None = Non
             cleaned_sections = []
             for section in sections:
                 section_diff = text_processor.find_differences(full_text, section)
-                cleaned_section = "".join(pos.text for pos in section_diff.common_positions)
+                # ドメインエンティティとレガシー形式の両方に対応
+                if hasattr(section_diff, 'differences'):
+                    # ドメインエンティティ形式
+                    from domain.entities.text_difference import DifferenceType
+                    cleaned_section = "".join(
+                        text for diff_type, text, _ in section_diff.differences 
+                        if diff_type == DifferenceType.UNCHANGED
+                    )
+                else:
+                    # レガシー形式
+                    cleaned_section = "".join(pos.text for pos in section_diff.common_positions)
                 if cleaned_section.strip():
                     cleaned_sections.append(cleaned_section)
 
             cleaned_text = f"\n{found_separator}\n".join(cleaned_sections)
         else:
             # 区切り文字がない場合：通常の処理
-            cleaned_text = "".join(pos.text for pos in diff.common_positions)
+            # ドメインエンティティとレガシー形式の両方に対応
+            if hasattr(diff, 'differences'):
+                # ドメインエンティティ形式
+                from domain.entities.text_difference import DifferenceType
+                cleaned_text = "".join(
+                    text for diff_type, text, _ in diff.differences 
+                    if diff_type == DifferenceType.UNCHANGED
+                )
+            else:
+                # レガシー形式
+                cleaned_text = "".join(pos.text for pos in diff.common_positions)
 
         st.session_state.edited_text = cleaned_text
         st.session_state.show_modal = False
@@ -655,29 +698,60 @@ def show_diff_viewer(original_text: str, diff: TextDifference | None = None, hei
         # 差分がない場合は元のテキストを表示
         html_content = (
             f'<div class="diff-viewer" style="height: {height}px; overflow-y: auto; '
-            f'padding: 10px; border: 1px solid #ddd; border-radius: 5px;">{original_text}</div>'
+            f'padding: 10px; border: 1px solid #ddd; border-radius: 5px; box-sizing: border-box;">{original_text}</div>'
         )
     else:
         # 差分をHTML形式で生成（従来通りシンプル版）
         html_content = (
             '<div class="diff-viewer" style="height: '
             + str(height)
-            + 'px; overflow-y: auto; padding: 10px; border: 1px solid #ddd; border-radius: 5px;">'
+            + 'px; overflow-y: auto; padding: 10px; border: 1px solid #ddd; border-radius: 5px; box-sizing: border-box;">'
         )
 
-        current_pos = 0
-        for pos in diff.common_positions:
-            # 共通部分の前のテキスト（削除された部分）
-            if current_pos < pos.start:
-                html_content += original_text[current_pos : pos.start]
+        # ドメインエンティティ形式の場合
+        if hasattr(diff, 'differences'):
+            # DifferenceTypeのインポート
+            from domain.entities.text_difference import DifferenceType
+            
+            # 元のテキスト全体を表示しつつ、共通部分（UNCHANGED）をハイライト
+            # 共通部分の位置を特定
+            highlight_positions = []
+            for diff_type, text, _ in diff.differences:
+                if diff_type == DifferenceType.UNCHANGED:
+                    # 元のテキストから該当箇所を探す
+                    start_pos = diff.original_text.find(text)
+                    if start_pos != -1:
+                        highlight_positions.append((start_pos, start_pos + len(text), text))
+            
+            # 元のテキストを表示しながらハイライト
+            current_pos = 0
+            for start, end, text in sorted(highlight_positions):
+                # ハイライト前の部分
+                if current_pos < start:
+                    html_content += original_text[current_pos:start]
+                # ハイライト部分（緑）
+                html_content += f'<span class="highlight-match" style="background-color: #e6ffe6;">{text}</span>'
+                current_pos = end
+            
+            # 残りの部分
+            if current_pos < len(original_text):
+                html_content += original_text[current_pos:]
+        
+        # レガシー形式の場合
+        elif hasattr(diff, 'common_positions'):
+            current_pos = 0
+            for pos in diff.common_positions:
+                # 共通部分の前のテキスト（削除された部分）
+                if current_pos < pos.start:
+                    html_content += original_text[current_pos : pos.start]
 
-            # 共通部分（緑でハイライト - クラス名を追加）
-            html_content += f'<span class="highlight-match" style="background-color: #e6ffe6;">{pos.text}</span>'
-            current_pos = pos.end
+                # 共通部分（緑でハイライト - クラス名を追加）
+                html_content += f'<span class="highlight-match" style="background-color: #e6ffe6;">{pos.text}</span>'
+                current_pos = pos.end
 
-        # 最後の部分
-        if current_pos < len(original_text):
-            html_content += original_text[current_pos:]
+            # 最後の部分
+            if current_pos < len(original_text):
+                html_content += original_text[current_pos:]
 
         html_content += "</div>"
 
