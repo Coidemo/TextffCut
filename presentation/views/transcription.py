@@ -106,14 +106,15 @@ class TranscriptionView:
                         # SessionManagerが内部で状態を管理
                         st.rerun()
 
-        # 新規実行UI
-        # キャッシュを読み込んだ直後（use_cacheがTrue）でも、既に結果がある場合でも表示する
-        if not use_cache or self.view_model.has_result:
-            # 既に結果がある場合は区切りを入れる
-            if self.view_model.has_result:
-                st.divider()
-                st.markdown("#### 🔄 新規文字起こし")
-            
+        # 既存の結果がある場合の処理
+        if self.view_model.has_result:
+            st.success("✅ 文字起こし結果が読み込まれています")
+            st.divider()
+            st.markdown("#### 🔄 新規文字起こし")
+            st.info("新規に文字起こしを実行すると、現在の結果は上書きされます")
+        
+        # 新規実行UI（結果の有無に関わらず表示）
+        if not use_cache:
             # 処理モード・モデル選択・動画時間・料金を4カラムで横並び表示
             mode_col, model_col, time_col, price_col = st.columns(4)
 
@@ -174,6 +175,12 @@ class TranscriptionView:
                     return
 
                 logger.info("実行フラグを設定")
+                
+                # 既存の結果をクリア
+                if self.view_model.has_result:
+                    logger.info("既存の結果をクリア")
+                    self.presenter.clear_result()
+                
                 # 実行フラグを設定（SessionManagerに保存）
                 self.presenter.session_manager.set("transcription_should_run", True)
                 run_new = True

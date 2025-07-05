@@ -386,3 +386,16 @@ class TranscriptionPresenter(BasePresenter[TranscriptionViewModel]):
 
         # ViewModelから取得
         return self.view_model.video_path
+    
+    def clear_result(self) -> None:
+        """文字起こし結果をクリア"""
+        logger.info("文字起こし結果をクリア")
+        
+        # ViewModelをクリア
+        self.view_model.transcription_result = None
+        
+        # SessionManagerからもクリア
+        self.session_manager.set_transcription_result(None)
+        
+        # 通知
+        self.view_model.notify()
