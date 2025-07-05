@@ -56,6 +56,21 @@ def render_video_input_section(container):
             # SessionManagerにも動画パスを設定
             presentation_container = container.presentation()
             session_manager = presentation_container.session_manager()
+            
+            # 動画パスが変更された場合、前回の結果をクリア
+            current_video_path = session_manager.get_video_path()
+            if current_video_path != video_path_str:
+                logger.info(f"動画が変更されました: {current_video_path} -> {video_path_str}")
+                # 文字起こし結果をクリア
+                session_manager.set_transcription_result(None)
+                # エクスポート設定もクリア
+                session_manager.clear_export_settings()
+                # Streamlitのセッション状態もクリア
+                if "transcription_completed" in st.session_state:
+                    del st.session_state.transcription_completed
+                if "transcription_result" in st.session_state:
+                    del st.session_state.transcription_result
+            
             session_manager.set_video_path(video_path_str)
             
         if video_input_presenter.view_model.duration > 0:
@@ -99,10 +114,14 @@ def render_transcription_section(container):
         st.session_state.transcription_completed = True
         return True
     
-    # SessionManagerから結果を確認
+    # SessionManagerから結果を確認（動画パスが一致する場合のみ）
     presentation_container = container.presentation()
     session_manager = presentation_container.session_manager()
-    if session_manager.get_transcription_result():
+    session_video_path = session_manager.get_video_path()
+    current_video_path = st.session_state.get("video_path")
+    
+    # 動画パスが一致する場合のみ、SessionManagerの結果を使用
+    if session_video_path == current_video_path and session_manager.get_transcription_result():
         st.session_state.transcription_completed = True
         return True
         
