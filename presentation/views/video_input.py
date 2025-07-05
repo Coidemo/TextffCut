@@ -64,36 +64,63 @@ class VideoInputView:
             st.info("🔍 動画ファイルを検索中...")
             st.spinner()
 
-        # ファイル選択と更新ボタン（mainブランチのレイアウト）
-        if self.view_model.video_files:
-            col1, col2 = st.columns([4, 1])
+        # ローカルファイル選択セクション
+        with st.container(border=True):
+            st.markdown("#### 📁 ローカルファイルから選択")
             
-            with col1:
-                # 現在の選択を含むオプションリスト
-                options = ["-- 選択してください --"] + self.view_model.video_files
+            # ファイル選択と更新ボタン（mainブランチのレイアウト）
+            if self.view_model.video_files:
+                col1, col2 = st.columns([4, 1])
+                
+                with col1:
+                    # 現在の選択を含むオプションリスト
+                    options = ["-- 選択してください --"] + self.view_model.video_files
 
-                # 現在の選択インデックス
-                current_index = 0
-                if self.view_model.selected_file in self.view_model.video_files:
-                    current_index = self.view_model.video_files.index(self.view_model.selected_file) + 1
+                    # 現在の選択インデックス
+                    current_index = 0
+                    if self.view_model.selected_file in self.view_model.video_files:
+                        current_index = self.view_model.video_files.index(self.view_model.selected_file) + 1
 
-                # セレクトボックス（ラベルなし）
-                selected = st.selectbox("", options=options, index=current_index, key="video_file_select", label_visibility="collapsed")
-            
-            with col2:
-                # 更新ボタン
-                if st.button("🔄 更新", help="動画ファイル一覧を更新", use_container_width=True):
-                    self.presenter.refresh_video_list()
+                    # セレクトボックス（ラベルなし）
+                    selected = st.selectbox("", options=options, index=current_index, key="video_file_select", label_visibility="collapsed")
+                
+                with col2:
+                    # 更新ボタン
+                    if st.button("🔄 更新", help="動画ファイル一覧を更新", use_container_width=True):
+                        self.presenter.refresh_video_list()
 
-            # 選択が変更された場合
-            if selected != "-- 選択してください --":
-                if selected != self.view_model.selected_file:
-                    self.presenter.select_video(selected)
+                # 選択が変更された場合
+                if selected != "-- 選択してください --":
+                    if selected != self.view_model.selected_file:
+                        self.presenter.select_video(selected)
+                else:
+                    if self.view_model.selected_file is not None:
+                        self.presenter.select_video(None)
             else:
-                if self.view_model.selected_file is not None:
-                    self.presenter.select_video(None)
+                st.info("📁 動画ファイルが見つかりません。videosフォルダに動画ファイルを配置してください。")
+            
+            # 動画フォルダのパス表示
+            st.caption(f"📁 動画フォルダのパス: {self.view_model.video_directory}")
+            st.caption("対応形式: MP4, MOV, AVI, MKV, WebM")
+        
+        # YouTubeダウンロードセクション
+        if "show_youtube_download" not in st.session_state:
+            st.session_state.show_youtube_download = False
+        
+        if not st.session_state.show_youtube_download:
+            # YouTubeダウンロードボタン
+            st.markdown("---")
+            st.markdown("**または**")
+            
+            if st.button("🎥 YouTubeからダウンロード", use_container_width=True):
+                st.session_state.show_youtube_download = True
+                st.rerun()
         else:
-            st.info("📁 動画ファイルが見つかりません。videosフォルダに動画ファイルを配置してください。")
+            # YouTubeダウンロードView を表示
+            from presentation.views.youtube_download import YouTubeDownloadView
+            youtube_view = st.session_state.get("youtube_download_view")
+            if youtube_view:
+                youtube_view.render()
 
         # 動画情報表示（mainブランチのようにシンプルに）
         if self.view_model.is_loading:
