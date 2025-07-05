@@ -71,6 +71,7 @@ class TranscriptionView:
         logger.info(
             f"TranscriptionView.render - 利用可能なキャッシュ数: {len(self.view_model.available_caches) if self.view_model.available_caches else 0}"
         )
+        logger.info(f"has_result: {self.view_model.has_result}, should_run: {self.view_model.should_run}")
 
         # キャッシュ選択UI
         if self.view_model.available_caches:
@@ -106,7 +107,13 @@ class TranscriptionView:
                         st.rerun()
 
         # 新規実行UI
-        if not use_cache:
+        # キャッシュを読み込んだ直後（use_cacheがTrue）でも、既に結果がある場合でも表示する
+        if not use_cache or self.view_model.has_result:
+            # 既に結果がある場合は区切りを入れる
+            if self.view_model.has_result:
+                st.divider()
+                st.markdown("#### 🔄 新規文字起こし")
+            
             # 処理モード・モデル選択・動画時間・料金を4カラムで横並び表示
             mode_col, model_col, time_col, price_col = st.columns(4)
 
