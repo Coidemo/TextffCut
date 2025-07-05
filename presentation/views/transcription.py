@@ -73,8 +73,8 @@ class TranscriptionView:
         )
         logger.info(f"has_result: {self.view_model.has_result}, should_run: {self.view_model.should_run}")
 
-        # キャッシュ選択UI
-        if self.view_model.available_caches:
+        # キャッシュ選択UI（結果がない場合のみ表示）
+        if self.view_model.available_caches and not self.view_model.has_result:
             with st.container(border=True):
                 st.markdown("#### 📝 過去の文字起こし結果を利用する")
 
@@ -92,7 +92,11 @@ class TranscriptionView:
                     cache_map[option_text] = cache
 
                 selected_option = st.selectbox(
-                    "保存済みの文字起こし結果", cache_options, help="使用する文字起こし結果を選択してください"
+                    "保存済みの文字起こし結果", 
+                    cache_options, 
+                    index=None,  # デフォルトで何も選択しない
+                    placeholder="キャッシュを選択してください",
+                    help="使用する文字起こし結果を選択してください"
                 )
 
                 if selected_option:
@@ -100,7 +104,12 @@ class TranscriptionView:
                     self.presenter.select_cache(selected_cache)
 
                 # キャッシュ使用ボタン
-                if st.button("💾 選択した結果を使用", type="primary", use_container_width=True):
+                if st.button(
+                    "💾 選択した結果を使用", 
+                    type="primary", 
+                    use_container_width=True,
+                    disabled=selected_option is None  # 選択されていない場合は無効
+                ):
                     if self.presenter.load_selected_cache():
                         use_cache = True
                         # SessionManagerが内部で状態を管理
@@ -165,6 +174,7 @@ class TranscriptionView:
             if self.view_model.available_caches:
                 st.warning("⚠️ 同じ設定の過去の文字起こし結果は上書きされます")
 
+            logger.info(f"実行ボタン表示 - text: {button_text}, has_result: {self.view_model.has_result}")
             if st.button(button_text, type=button_type, use_container_width=True):
                 logger.info(f"文字起こしボタンクリック - APIモード: {self.view_model.use_api}")
                 
