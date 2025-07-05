@@ -679,13 +679,22 @@ class Transcriber:
         if not skip_alignment:
             is_valid, errors = result.validate_has_words()
             if not is_valid:
-                # V2形式に変換して詳細なエラーを生成
-                v2_result = result.to_v2_format()
-                try:
-                    v2_result.require_valid_words()
-                except Exception as e:
-                    logger.error(f"文字起こし結果の検証に失敗: {str(e)}")
-                    raise
+                # words情報が欠落している場合は警告として扱う
+                logger.warning(f"文字起こし結果にwords情報が欠落しています: {errors}")
+                logger.warning("words情報なしで処理を続行します。タイムライン編集機能が制限される可能性があります。")
+                
+                # デバッグ情報：どのセグメントにwords情報がないか
+                segments_without_words = []
+                for i, seg in enumerate(result.segments):
+                    if not seg.words or len(seg.words) == 0:
+                        segments_without_words.append(i)
+                
+                if len(segments_without_words) > 10:
+                    logger.warning(f"words情報がないセグメント: {segments_without_words[:10]}... (他{len(segments_without_words)-10}個)")
+                else:
+                    logger.warning(f"words情報がないセグメント: {segments_without_words}")
+                
+                # エラーを投げずに処理を続行
 
         # キャッシュに保存
         if save_cache:
