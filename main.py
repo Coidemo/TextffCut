@@ -74,6 +74,9 @@ def render_transcription_section(container):
     # TranscriptionPresenterを使用
     transcription_presenter = container.presentation.transcription_presenter()
     
+    # 初期化処理（should_runフラグなどを復元）
+    transcription_presenter.initialize()
+    
     # 動画パスを設定
     video_path = st.session_state.get("video_path")
     if video_path:
@@ -254,6 +257,10 @@ def main():
     try:
         # DIコンテナを初期化
         app_container = bootstrap_di()
+        
+        # Streamlitセッション状態から設定を更新
+        from di.bootstrap import inject_streamlit_session
+        inject_streamlit_session(app_container)
         
         # サイドバー
         presentation_container = app_container.presentation()

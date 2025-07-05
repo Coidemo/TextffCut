@@ -19,7 +19,7 @@ class TranscribeVideoRequest:
     video_path: FilePath
     model_size: str = "medium"
     language: str | None = None
-    use_cache: bool = True
+    use_cache: bool = False  # デフォルトをFalseに変更（新規実行が基本）
     skip_alignment: bool = False
     progress_callback: Callable[[str], None] | None = None
 
@@ -61,13 +61,17 @@ class TranscribeVideoUseCase(UseCase[TranscribeVideoRequest, TranscriptionResult
     def execute(self, request: TranscribeVideoRequest) -> TranscriptionResult:
         """文字起こしの実行"""
         self.logger.info(f"Starting transcription for: {request.video_path.name} " f"with model: {request.model_size}")
+        self.logger.info(f"use_cache parameter: {request.use_cache}")
 
         # キャッシュの確認
         if request.use_cache:
+            self.logger.info("Checking cache because use_cache=True")
             cached_result = self._try_load_cache(request)
             if cached_result:
                 self.logger.info("Using cached transcription result")
                 return cached_result
+            else:
+                self.logger.info("No cache found or failed to load cache")
 
         # 進捗通知
         if request.progress_callback:

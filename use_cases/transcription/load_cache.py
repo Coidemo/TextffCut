@@ -35,6 +35,9 @@ class CacheInfo:
     created_at: float
     file_size: int
     segment_count: int
+    actual_filename: str | None = None  # 実際のファイル名（拡張子なし）
+    is_api: bool = False  # APIモードかどうか
+    mode: str = "ローカル"  # モード名
 
 
 class LoadTranscriptionCacheUseCase(UseCase[LoadCacheRequest, TranscriptionResult]):
@@ -66,14 +69,18 @@ class LoadTranscriptionCacheUseCase(UseCase[LoadCacheRequest, TranscriptionResul
             )
 
         self.logger.info(
-            f"Loading cache: model={selected_cache['model_size']}, " 
+            f"Loading cache: model={selected_cache['model_size']}, "
+            f"is_api={selected_cache.get('is_api', False)}, "
             f"created_at={selected_cache.get('created_at', selected_cache.get('modified_time', 'unknown'))}"
         )
 
         try:
+            # actual_filenameがある場合はそれを使用、なければmodel_sizeを使用
+            cache_model_size = selected_cache.get("actual_filename", selected_cache["model_size"])
+            
             # キャッシュの読み込み
             result = self.gateway.load_from_cache(
-                video_path=request.video_path, model_size=selected_cache["model_size"]
+                video_path=request.video_path, model_size=cache_model_size
             )
 
             if not result:
@@ -103,7 +110,8 @@ class LoadTranscriptionCacheUseCase(UseCase[LoadCacheRequest, TranscriptionResul
         if model_size:
             # 指定されたモデルのキャッシュを探す
             for cache in available_caches:
-                if cache.get("model_size") == model_size:
+                # model_sizeまたはactual_filenameで一致するものを探す
+                if cache.get("model_size") == model_size or cache.get("actual_filename") == model_size:
                     return cache
             return None
         else:
@@ -120,12 +128,15 @@ class LoadTranscriptionCacheUseCase(UseCase[LoadCacheRequest, TranscriptionResul
 
         return [
             CacheInfo(
-                path=FilePath(cache["path"]),
+                path=FilePath(cache.get("file_path", cache["path"]) if "file_path" in cache else cache["path"]),
                 model_size=cache["model_size"],
                 language=cache.get("language", "unknown"),
                 created_at=cache.get("created_at", cache.get("modified_time", 0)),
                 file_size=cache.get("file_size", 0),
-                segment_count=cache.get("segment_count", 0),
+                segment_count=cache.get("segment_count", cache.get("segments_count", 0)),
+                actual_filename=cache.get("actual_filename"),
+                is_api=cache.get("is_api", False),
+                mode=cache.get("mode", "ローカル"),
             )
             for cache in caches
         ]

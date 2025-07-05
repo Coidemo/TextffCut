@@ -88,18 +88,48 @@ class TranscriptionConverter:
     def _convert_word(word_data: dict[str, Any] | Any) -> domain.Word:
         """Word情報の変換"""
         if isinstance(word_data, dict):
-            return domain.Word(
-                word=word_data.get("word", ""),
-                start=float(word_data.get("start") or 0),
-                end=float(word_data.get("end") or 0),
-                confidence=word_data.get("confidence") or word_data.get("score"),
-            )
+            try:
+                # 値を安全に取得
+                start_val = word_data.get("start")
+                end_val = word_data.get("end")
+                
+                # デバッグ情報（より詳細に）
+                logger.debug(f"Converting word: {word_data}")
+                if start_val is not None and end_val is not None:
+                    logger.debug(f"Word data: start={start_val} (type={type(start_val)}), end={end_val} (type={type(end_val)})")
+                
+                # float変換
+                start = float(start_val if start_val is not None else 0)
+                end = float(end_val if end_val is not None else 0)
+                
+                # start と end が同じ場合、微小な差を追加
+                if end <= start:
+                    logger.debug(f"Adjusting end time: start={start}, end={end} -> end={start + 0.001}")
+                    end = start + 0.001
+                
+                # 最終値をログ出力
+                logger.debug(f"Final values: start={start}, end={end}")
+                    
+                return domain.Word(
+                    word=word_data.get("word", ""),
+                    start=start,
+                    end=end,
+                    confidence=word_data.get("confidence") or word_data.get("score"),
+                )
+            except Exception as e:
+                logger.error(f"Word conversion error: word_data={word_data}, error={e}")
+                raise
         elif hasattr(word_data, "word"):
             # オブジェクトの場合
+            start = float(word_data.start if word_data.start is not None else 0)
+            end = float(word_data.end if word_data.end is not None else 0)
+            # start と end が同じ場合、微小な差を追加
+            if end <= start:
+                end = start + 0.001
             return domain.Word(
                 word=word_data.word,
-                start=float(word_data.start if word_data.start is not None else 0),
-                end=float(word_data.end if word_data.end is not None else 0),
+                start=start,
+                end=end,
                 confidence=getattr(word_data, "confidence", None) or getattr(word_data, "score", None),
             )
         else:
@@ -109,18 +139,28 @@ class TranscriptionConverter:
     def _convert_char(char_data: dict[str, Any] | Any) -> domain.Char:
         """Char情報の変換"""
         if isinstance(char_data, dict):
+            start = float(char_data.get("start") or 0)
+            end = float(char_data.get("end") or 0)
+            # start と end が同じ場合、微小な差を追加
+            if end <= start:
+                end = start + 0.001
             return domain.Char(
                 char=char_data.get("char", ""),
-                start=float(char_data.get("start") or 0),
-                end=float(char_data.get("end") or 0),
+                start=start,
+                end=end,
                 confidence=char_data.get("confidence") or char_data.get("score"),
             )
         elif hasattr(char_data, "char"):
             # オブジェクトの場合
+            start = float(char_data.start if char_data.start is not None else 0)
+            end = float(char_data.end if char_data.end is not None else 0)
+            # start と end が同じ場合、微小な差を追加
+            if end <= start:
+                end = start + 0.001
             return domain.Char(
                 char=char_data.char,
-                start=float(char_data.start if char_data.start is not None else 0),
-                end=float(char_data.end if char_data.end is not None else 0),
+                start=start,
+                end=end,
                 confidence=getattr(char_data, "confidence", None) or getattr(char_data, "score", None),
             )
         else:

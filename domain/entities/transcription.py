@@ -24,7 +24,7 @@ class Word:
         if self.start < 0:
             raise ValueError("Start time cannot be negative")
         if self.end < self.start:
-            raise ValueError("End time must be greater than start time")
+            raise ValueError(f"End time must be greater than or equal to start time. Got start={self.start}, end={self.end}")
         if self.confidence is not None and not 0 <= self.confidence <= 1:
             raise ValueError("Confidence must be between 0 and 1")
 
@@ -65,7 +65,7 @@ class Char:
         if self.start < 0:
             raise ValueError("Start time cannot be negative")
         if self.end < self.start:
-            raise ValueError("End time must be greater than start time")
+            raise ValueError(f"End time must be greater than or equal to start time. Got start={self.start}, end={self.end}")
         if self.confidence is not None and not 0 <= self.confidence <= 1:
             raise ValueError("Confidence must be between 0 and 1")
 

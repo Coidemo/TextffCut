@@ -60,9 +60,9 @@ class DIConfig:
         Args:
             session_state: st.session_state の辞書
         """
-        # APIキーの更新（動的属性として設定）
+        # APIキーの更新
         if "api_key" in session_state:
-            self.legacy_config.api_key = session_state["api_key"]
+            self.legacy_config.transcription.api_key = session_state["api_key"]
 
         # モデルサイズの更新
         if "model_size" in session_state:
@@ -70,7 +70,7 @@ class DIConfig:
 
         # API使用フラグの更新
         if "use_api" in session_state:
-            self.legacy_config.use_api = session_state["use_api"]
+            self.legacy_config.transcription.use_api = session_state["use_api"]
 
     def to_dict(self) -> dict[str, Any]:
         """設定を辞書形式で取得（シリアライズ用）"""
@@ -80,8 +80,8 @@ class DIConfig:
             "container_config": self.container_config,
             "legacy_config": {
                 "model_size": self.legacy_config.transcription.model_size,
-                "use_api": getattr(self.legacy_config, "use_api", False),
-                "api_key": getattr(self.legacy_config, "api_key", ""),
+                "use_api": self.legacy_config.transcription.use_api,
+                "api_key": self.legacy_config.transcription.api_key or "",
                 "silence_threshold": getattr(self.legacy_config.video, "silence_threshold", -35.0),
                 "min_silence_duration": self.legacy_config.video.default_min_silence_duration,
                 "min_segment_duration": getattr(self.legacy_config.video, "min_segment_duration", 0.3),
@@ -104,11 +104,11 @@ class DIConfig:
                 legacy_config.video.default_min_silence_duration = legacy_data["min_silence_duration"]
             if "min_segment_duration" in legacy_data:
                 legacy_config.video.min_segment_duration = legacy_data["min_segment_duration"]
-            # 動的属性
+            # APIモード関連の設定
             if "api_key" in legacy_data:
-                legacy_config.api_key = legacy_data["api_key"]
+                legacy_config.transcription.api_key = legacy_data["api_key"]
             if "use_api" in legacy_data:
-                legacy_config.use_api = legacy_data["use_api"]
+                legacy_config.transcription.use_api = legacy_data["use_api"]
 
         return cls(
             legacy_config=legacy_config,

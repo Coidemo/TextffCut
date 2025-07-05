@@ -20,6 +20,7 @@ class TranscriptionCache:
     model_size: str
     modified_time: float
     is_api: bool
+    actual_filename: str | None = None  # 実際のファイル名（拡張子なし）
 
 
 @dataclass
@@ -160,6 +161,7 @@ class TranscriptionViewModel(BaseViewModel):
                     "model_size": self.selected_cache.model_size,
                     "modified_time": self.selected_cache.modified_time,
                     "is_api": self.selected_cache.is_api,
+                    "actual_filename": self.selected_cache.actual_filename,
                 }
                 if self.selected_cache
                 else None

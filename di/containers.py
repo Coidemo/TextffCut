@@ -58,7 +58,7 @@ class GatewayContainer(containers.DeclarativeContainer):
     file_gateway = providers.Singleton(FileGatewayAdapter)
 
     # 文字起こしゲートウェイ
-    transcription_gateway = providers.Singleton(TranscriptionGatewayAdapter, config=config.legacy_config)
+    transcription_gateway = providers.Factory(TranscriptionGatewayAdapter, config=config.legacy_config)
 
     # テキスト処理ゲートウェイ
     text_processor_gateway = providers.Singleton(TextProcessorGatewayAdapter)

@@ -4,6 +4,7 @@
 StreamlitのUIコンポーネントを使用して文字起こし画面を表示します。
 """
 
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +12,8 @@ import streamlit as st
 
 from presentation.presenters.transcription import TranscriptionPresenter
 from presentation.view_models.transcription import TranscriptionViewModel
+
+logger = logging.getLogger(__name__)
 
 
 class TranscriptionView:
@@ -68,9 +71,10 @@ class TranscriptionView:
         logger.info(
             f"TranscriptionView.render - 利用可能なキャッシュ数: {len(self.view_model.available_caches) if self.view_model.available_caches else 0}"
         )
+        logger.info(f"has_result: {self.view_model.has_result}, should_run: {self.view_model.should_run}")
 
-        # キャッシュ選択UI
-        if self.view_model.available_caches:
+        # キャッシュ選択UI（結果がない場合のみ表示）
+        if self.view_model.available_caches and not self.view_model.has_result:
             with st.container(border=True):
                 st.markdown("#### 📝 過去の文字起こし結果を利用する")
 
@@ -83,12 +87,25 @@ class TranscriptionView:
 
                     modified_date = datetime.fromtimestamp(cache.modified_time).strftime("%Y-%m-%d %H:%M")
 
-                    option_text = f"{cache.mode}モード - {cache.model_size} | {modified_date}"
+                    # デバッグ: cacheオブジェクトの内容を確認
+                    logger.info(f"Cache object: mode={getattr(cache, 'mode', 'NONE')}, model_size={cache.model_size}, is_api={cache.is_api}")
+                    
+                    # modeフィールドが存在しない場合のフォールバック
+                    cache_mode = getattr(cache, 'mode', None)
+                    if cache_mode is None:
+                        cache_mode = "API" if cache.is_api else "ローカル"
+                        logger.warning(f"modeフィールドが見つかりません。is_apiから推測: {cache_mode}")
+                    
+                    option_text = f"{cache_mode}モード - {cache.model_size} | {modified_date}"
                     cache_options.append(option_text)
                     cache_map[option_text] = cache
 
                 selected_option = st.selectbox(
-                    "保存済みの文字起こし結果", cache_options, help="使用する文字起こし結果を選択してください"
+                    "保存済みの文字起こし結果", 
+                    cache_options, 
+                    index=None,  # デフォルトで何も選択しない
+                    placeholder="キャッシュを選択してください",
+                    help="使用する文字起こし結果を選択してください"
                 )
 
                 if selected_option:
@@ -96,13 +113,41 @@ class TranscriptionView:
                     self.presenter.select_cache(selected_cache)
 
                 # キャッシュ使用ボタン
-                if st.button("💾 選択した結果を使用", type="primary", use_container_width=True):
+                if st.button(
+                    "💾 選択した結果を使用", 
+                    type="primary", 
+                    use_container_width=True,
+                    disabled=selected_option is None  # 選択されていない場合は無効
+                ):
                     if self.presenter.load_selected_cache():
                         use_cache = True
+                        st.success("✅ キャッシュから文字起こし結果を読み込みました")
                         # SessionManagerが内部で状態を管理
                         st.rerun()
 
-        # 新規実行UI
+        # 既存の結果がある場合の処理
+        if self.view_model.has_result:
+            # 文字起こし結果からモード情報を判断
+            if self.view_model.transcription_result:
+                # TranscriptionResultAdapterの場合は内部のドメインオブジェクトを取得
+                result = self.view_model.transcription_result
+                if hasattr(result, 'domain_result'):
+                    result = result.domain_result
+                
+                # model_sizeからモードを判断
+                if hasattr(result, 'model_size'):
+                    model_size = result.model_size
+                    mode_text = "API" if model_size == "whisper-1" else "ローカル"
+                    st.success(f"✅ 文字起こし結果が読み込まれています ({mode_text}モード - {model_size})")
+                else:
+                    st.success("✅ 文字起こし結果が読み込まれています")
+            else:
+                st.success("✅ 文字起こし結果が読み込まれています")
+            st.divider()
+            st.markdown("#### 🔄 新規文字起こし")
+            st.info("新規に文字起こしを実行すると、現在の結果は上書きされます")
+        
+        # 新規実行UI（結果の有無に関わらず表示）
         if not use_cache:
             # 処理モード・モデル選択・動画時間・料金を4カラムで横並び表示
             mode_col, model_col, time_col, price_col = st.columns(4)
@@ -154,20 +199,34 @@ class TranscriptionView:
             if self.view_model.available_caches:
                 st.warning("⚠️ 同じ設定の過去の文字起こし結果は上書きされます")
 
+            logger.info(f"実行ボタン表示 - text: {button_text}, has_result: {self.view_model.has_result}")
             if st.button(button_text, type=button_type, use_container_width=True):
+                logger.info(f"文字起こしボタンクリック - APIモード: {self.view_model.use_api}")
+                
                 # APIモードでAPIキーチェック
                 if self.view_model.use_api and not self.view_model.api_key:
+                    logger.warning("APIキーが設定されていません")
                     st.error("⚠️ APIキーが設定されていません。サイドバーのAPIキー設定で設定してください。")
                     return
 
+                logger.info("実行フラグを設定")
+                
+                # 既存の結果をクリア
+                if self.view_model.has_result:
+                    logger.info("既存の結果をクリア")
+                    self.presenter.clear_result()
+                
                 # 実行フラグを設定（SessionManagerに保存）
                 self.presenter.session_manager.set("transcription_should_run", True)
                 run_new = True
                 self.view_model.should_run = True
+                logger.info(f"should_run設定完了: {self.view_model.should_run}")
                 st.rerun()
 
         # 処理中の表示
+        logger.info(f"処理中の表示チェック - should_run: {self.view_model.should_run}, has_result: {self.view_model.has_result}")
         if self.view_model.should_run and not self.view_model.has_result:
+            logger.info("処理中UIを表示")
             self._show_processing_ui()
 
     def _get_button_text(self) -> str:
@@ -208,11 +267,14 @@ class TranscriptionView:
                 status_text.info(status)
 
             # 文字起こし実行
+            logger.info("start_transcription呼び出し開始")
             if self.presenter.start_transcription(progress_callback):
                 # SessionManagerが内部で状態を管理
+                logger.info("文字起こし完了")
                 st.success("✅ 文字起こし完了！")
                 st.rerun()
             else:
+                logger.error(f"文字起こし失敗 - is_cancelled: {self.view_model.is_cancelled}")
                 if self.view_model.is_cancelled:
                     st.warning("⚠️ 処理がキャンセルされました")
                 else:
