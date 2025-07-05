@@ -4,6 +4,7 @@ DIコンテナ定義
 アプリケーション全体の依存関係を管理するコンテナを定義します。
 """
 
+from pathlib import Path
 
 from dependency_injector import containers, providers
 
@@ -18,6 +19,7 @@ from adapters.gateways.file.file_gateway import FileGatewayAdapter
 from adapters.gateways.text_processing.text_processor_gateway import TextProcessorGatewayAdapter
 from adapters.gateways.transcription.transcription_gateway import TranscriptionGatewayAdapter
 from adapters.gateways.video_processing.video_processor_gateway import VideoProcessorGatewayAdapter
+from adapters.gateways.youtube.youtube_download_gateway import YouTubeDownloadGateway
 from di.config import DIConfig
 from di.providers import StreamlitSessionProvider
 
@@ -75,6 +77,12 @@ class GatewayContainer(containers.DeclarativeContainer):
 
     # 動画エクスポートゲートウェイ
     video_export_gateway = providers.Singleton(VideoExportGatewayAdapter, config=config.legacy_config)
+    
+    # YouTubeダウンロードゲートウェイ
+    youtube_download_gateway = providers.Singleton(
+        YouTubeDownloadGateway,
+        output_dir=Path("./videos")
+    )
 
 
 class UseCaseContainer(containers.DeclarativeContainer):
@@ -113,6 +121,14 @@ class UseCaseContainer(containers.DeclarativeContainer):
     # SRT字幕エクスポートユースケース
     export_srt = providers.Factory(
         ExportSRTUseCase, srt_gateway=gateways.srt_export_gateway, file_gateway=gateways.file_gateway
+    )
+    
+    # YouTubeダウンロードユースケース
+    download_youtube_video = providers.Factory(
+        providers.Callable(
+            lambda gw: __import__('use_cases.youtube', fromlist=['DownloadYouTubeVideo']).DownloadYouTubeVideo(gw),
+            gateways.youtube_download_gateway
+        )
     )
 
 

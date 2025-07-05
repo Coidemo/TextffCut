@@ -52,6 +52,9 @@ class VideoInputPresenter(BasePresenter[VideoInputViewModel]):
                     self.file_gateway.create_directory(FilePath(self.videos_dir))
                     logger.info(f"Created videos directory: {self.videos_dir}")
 
+                # ディレクトリパスをViewModelに設定
+                self.view_model.video_directory = str(Path(self.videos_dir).absolute())
+
                 # ファイル一覧を取得
                 patterns = ["*" + ext for ext in self.view_model.supported_extensions]
                 files = []

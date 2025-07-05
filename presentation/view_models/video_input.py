@@ -59,6 +59,9 @@ class VideoInputViewModel(BaseViewModel):
 
     # 利用可能な動画ファイル一覧
     video_files: list[str] = field(default_factory=list)
+    
+    # 動画ディレクトリのパス
+    video_directory: str = "./videos"
 
     # 選択された動画の情報
     video_info: VideoInfo | None = None

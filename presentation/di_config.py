@@ -13,12 +13,14 @@ from presentation.presenters.sidebar import SidebarPresenter
 from presentation.presenters.text_editor import TextEditorPresenter
 from presentation.presenters.transcription import TranscriptionPresenter
 from presentation.presenters.video_input import VideoInputPresenter
+from presentation.presenters.youtube_download import YouTubeDownloadPresenter
 from presentation.view_models.export_settings import ExportSettingsViewModel
 from presentation.view_models.main import MainViewModel
 from presentation.view_models.sidebar import SidebarViewModel
 from presentation.view_models.text_editor import TextEditorViewModel
 from presentation.view_models.transcription import TranscriptionViewModel
 from presentation.view_models.video_input import VideoInputViewModel
+from presentation.view_models.youtube_download import YouTubeDownloadViewModel
 
 
 class PresentationContainer(containers.DeclarativeContainer):
@@ -48,6 +50,7 @@ class PresentationContainer(containers.DeclarativeContainer):
     main_view_model = providers.Factory(MainViewModel)
 
     sidebar_view_model = providers.Factory(SidebarViewModel)
+    youtube_download_view_model = providers.Factory(YouTubeDownloadViewModel)
 
     # Presenters (ファクトリーパターン)
     video_input_presenter = providers.Factory(
@@ -93,6 +96,18 @@ class PresentationContainer(containers.DeclarativeContainer):
         view_model=sidebar_view_model,
         session_manager=session_manager,
         file_gateway=gateways.file_gateway,
+        error_handler=services.error_handler,
+    )
+    
+    youtube_download_presenter = providers.Factory(
+        YouTubeDownloadPresenter,
+        view_model=youtube_download_view_model,
+        session_manager=session_manager,
+        download_use_case=use_cases.download_youtube_video,
+        get_info_use_case=providers.Factory(
+            lambda gw: __import__('use_cases.youtube.download_youtube_video', fromlist=['GetVideoInfo']).GetVideoInfo(gw),
+            gateways.youtube_download_gateway
+        ),
         error_handler=services.error_handler,
     )
 
