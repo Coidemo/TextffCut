@@ -4,6 +4,7 @@
 StreamlitのUIコンポーネントを使用して文字起こし画面を表示します。
 """
 
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +12,8 @@ import streamlit as st
 
 from presentation.presenters.transcription import TranscriptionPresenter
 from presentation.view_models.transcription import TranscriptionViewModel
+
+logger = logging.getLogger(__name__)
 
 
 class TranscriptionView:
@@ -155,19 +158,26 @@ class TranscriptionView:
                 st.warning("⚠️ 同じ設定の過去の文字起こし結果は上書きされます")
 
             if st.button(button_text, type=button_type, use_container_width=True):
+                logger.info(f"文字起こしボタンクリック - APIモード: {self.view_model.use_api}")
+                
                 # APIモードでAPIキーチェック
                 if self.view_model.use_api and not self.view_model.api_key:
+                    logger.warning("APIキーが設定されていません")
                     st.error("⚠️ APIキーが設定されていません。サイドバーのAPIキー設定で設定してください。")
                     return
 
+                logger.info("実行フラグを設定")
                 # 実行フラグを設定（SessionManagerに保存）
                 self.presenter.session_manager.set("transcription_should_run", True)
                 run_new = True
                 self.view_model.should_run = True
+                logger.info(f"should_run設定完了: {self.view_model.should_run}")
                 st.rerun()
 
         # 処理中の表示
+        logger.info(f"処理中の表示チェック - should_run: {self.view_model.should_run}, has_result: {self.view_model.has_result}")
         if self.view_model.should_run and not self.view_model.has_result:
+            logger.info("処理中UIを表示")
             self._show_processing_ui()
 
     def _get_button_text(self) -> str:
@@ -208,11 +218,14 @@ class TranscriptionView:
                 status_text.info(status)
 
             # 文字起こし実行
+            logger.info("start_transcription呼び出し開始")
             if self.presenter.start_transcription(progress_callback):
                 # SessionManagerが内部で状態を管理
+                logger.info("文字起こし完了")
                 st.success("✅ 文字起こし完了！")
                 st.rerun()
             else:
+                logger.error(f"文字起こし失敗 - is_cancelled: {self.view_model.is_cancelled}")
                 if self.view_model.is_cancelled:
                     st.warning("⚠️ 処理がキャンセルされました")
                 else:

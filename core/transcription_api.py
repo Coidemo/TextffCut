@@ -60,6 +60,9 @@ class APITranscriber:
         Returns:
             TranscriptionResult: 文字起こし結果
         """
+        logger.info(f"APITranscriber.transcribe開始 - audio_path: {audio_path}")
+        logger.info(f"api_provider: {self.api_config.api_provider}, api_key: {'設定済み' if self.api_config.api_key else '未設定'}")
+        
         if progress_callback:
             progress_callback(0.1, "APIに接続中...")
 

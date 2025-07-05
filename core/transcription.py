@@ -215,14 +215,19 @@ class Transcriber:
         self.api_transcriber: Any | None = None
         self.device: str | None = None
 
+        logger.info(f"Transcriber初期化開始 - use_api: {self.config.transcription.use_api}")
+        logger.info(f"api_key: {'設定済み' if self.config.transcription.api_key else '未設定'}")
+        
         # APIモードかローカルモードかを判定
         if self.config.transcription.use_api:
             # API版を使用
+            logger.info("APITranscriberをインポート")
             from .transcription_api import APITranscriber
 
+            logger.info("APITranscriberインスタンスを作成")
             self.api_transcriber = APITranscriber(config)
             self.device = None
-            logger.info(f"APIモードで初期化: {self.config.transcription.api_provider}")
+            logger.info(f"APIモードで初期化完了: {self.config.transcription.api_provider}")
         else:
             # ローカル版を使用
             if not WHISPERX_AVAILABLE:
@@ -442,10 +447,15 @@ class Transcriber:
         Returns:
             TranscriptionResult: 文字起こし結果
         """
+        logger.info(f"Transcriber.transcribe開始 - APIモード: {self.config.transcription.use_api}")
+        logger.info(f"video_path: {video_path}, model_size: {model_size}")
+        
         # APIモードの場合はAPITranscriberに委譲
         if self.config.transcription.use_api:
+            logger.info("APIモードで処理開始 (_transcribe_api)")
             return self._transcribe_api(video_path, model_size, progress_callback, use_cache, save_cache)
         else:
+            logger.info("ローカルモードで処理開始 (_transcribe_local)")
             return self._transcribe_local(
                 video_path, model_size, progress_callback, use_cache, save_cache, skip_alignment
             )
@@ -459,18 +469,26 @@ class Transcriber:
         save_cache: bool = True,
     ) -> TranscriptionResult:
         """API版の文字起こし"""
+        logger.info("_transcribe_api開始")
         model_size = model_size or self.config.transcription.model_size
 
         # キャッシュ確認
         cache_path = self.get_cache_path(video_path, f"{model_size}_api")
         if use_cache:
+            logger.info(f"キャッシュ確認: {cache_path}")
             cached_result = self.load_from_cache(cache_path)
             if cached_result:
+                logger.info("キャッシュが見つかりました")
                 if progress_callback:
                     progress_callback(1.0, "キャッシュから読み込み完了")
                 return cached_result
 
         # APIで文字起こし実行
+        logger.info(f"APITranscriber.transcribe呼び出し - api_transcriber: {self.api_transcriber}")
+        if not self.api_transcriber:
+            logger.error("api_transcriberが初期化されていません！")
+            raise RuntimeError("APITranscriberが初期化されていません")
+            
         result = self.api_transcriber.transcribe(video_path, model_size, progress_callback)
 
         # キャッシュに保存

@@ -64,8 +64,10 @@ class TranscriptionPresenter(BasePresenter[TranscriptionViewModel]):
         """初期化処理"""
         # SessionManagerから実行フラグを復元
         should_run = self.session_manager.get("transcription_should_run", False)
+        logger.info(f"initialize - should_run from SessionManager: {should_run}")
         if should_run:
             self.view_model.should_run = True
+            logger.info("should_runをTrueに設定")
             # フラグをクリア（一度だけ実行）
             self.session_manager.set("transcription_should_run", False)
             
@@ -142,6 +144,8 @@ class TranscriptionPresenter(BasePresenter[TranscriptionViewModel]):
         Args:
             use_api: APIモードを使用するか
         """
+        logger.info(f"set_processing_mode呼び出し - use_api: {use_api}")
+        
         self.view_model.use_api = use_api
 
         # モデルサイズをモードに応じて設定
@@ -159,6 +163,13 @@ class TranscriptionPresenter(BasePresenter[TranscriptionViewModel]):
                 logger.warning("保存されたAPIキーが見つかりません")
         else:
             self.view_model.model_size = "medium"
+            
+        # SessionManagerに保存（DIコンテナが参照できるように）
+        self.session_manager.set("use_api", use_api)
+        self.session_manager.set("api_key", self.view_model.api_key)
+        self.session_manager.set("model_size", self.view_model.model_size)
+        
+        logger.info(f"SessionManagerに設定を保存 - use_api: {use_api}")
 
         # 料金を更新
         self._update_cost_estimation()
@@ -240,11 +251,15 @@ class TranscriptionPresenter(BasePresenter[TranscriptionViewModel]):
         Returns:
             成功したかどうか
         """
+        logger.info(f"start_transcription開始 - is_ready_to_run: {self.view_model.is_ready_to_run}")
+        logger.info(f"APIモード: {self.view_model.use_api}, APIキー: {'設定済み' if self.view_model.api_key else '未設定'}")
+        
         if not self.view_model.is_ready_to_run:
             self.view_model.set_error("実行に必要な情報が不足しています")
             return False
 
         try:
+            logger.info("start_processing呼び出し")
             self.view_model.start_processing()
 
             # 進捗コールバックのラッパー
@@ -267,6 +282,7 @@ class TranscriptionPresenter(BasePresenter[TranscriptionViewModel]):
                     progress_callback(progress, status)
 
             # 文字起こしユースケースを実行
+            logger.info(f"TranscribeVideoRequest作成 - video_path: {self.view_model.video_path}, model_size: {self.view_model.model_size}")
             request = TranscribeVideoRequest(
                 video_path=FilePath(str(self.view_model.video_path)),
                 model_size=self.view_model.model_size,
@@ -274,6 +290,9 @@ class TranscriptionPresenter(BasePresenter[TranscriptionViewModel]):
                 progress_callback=wrapped_progress,
             )
 
+            logger.info("transcribe_use_case.execute呼び出し")
+            logger.info(f"transcribe_use_case: {self.transcribe_use_case}")
+            logger.info(f"transcribe_use_case.__class__: {self.transcribe_use_case.__class__}")
             result = self.transcribe_use_case.execute(request)
 
             if result:

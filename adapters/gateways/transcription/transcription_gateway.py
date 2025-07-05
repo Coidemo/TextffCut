@@ -66,6 +66,19 @@ class TranscriptionGatewayAdapter(ITranscriptionGateway):
             # 開始時間を記録
             start_time = time.time()
 
+            # APIモードの設定を再確認（動的に設定が変更される可能性があるため）
+            current_use_api = self.config.transcription.use_api
+            logger.info(f"TranscriptionGatewayAdapter.transcribe - APIモード: {current_use_api}")
+            logger.info(f"model_size: {model_size}, video_path: {legacy_path}")
+            
+            # 現在の設定に基づいてTranscriberを再作成（設定が変更されている可能性があるため）
+            if current_use_api != getattr(self._legacy_transcriber, '_last_use_api', None):
+                logger.info(f"APIモード設定が変更されました。Transcriberを再作成します。")
+                from core.transcription import Transcriber as LegacyTranscriber
+                self._legacy_transcriber = LegacyTranscriber(self.config)
+                # 最後の設定を記録
+                self._legacy_transcriber._last_use_api = current_use_api
+            
             # レガシーメソッドを呼び出し
             legacy_result = self._legacy_transcriber.transcribe(
                 video_path=legacy_path,
