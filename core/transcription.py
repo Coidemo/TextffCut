@@ -381,6 +381,56 @@ class Transcriber:
         logger.debug(f"チャンク {chunk_idx}: 文字起こし完了 ({len(segments)}セグメント)")
         return segments
 
+    def _align_segments(
+        self, segments: list[dict[str, Any]], chunk: dict[str, Any], 
+        align_model: Any, align_meta: Any, chunk_idx: int
+    ) -> list[dict[str, Any]]:
+        """セグメントのアライメント処理（順次実行専用）"""
+        if align_model is None or align_meta is None or len(segments) == 0:
+            return segments
+            
+        try:
+            # アライメント用に一時的にオフセットを削除（既に適用済みのため）
+            segments_for_align = []
+            for seg in segments:
+                seg_copy = seg.copy()
+                seg_copy["start"] -= chunk["start"]
+                seg_copy["end"] -= chunk["start"]
+                segments_for_align.append(seg_copy)
+            
+            # チャンクの音声データでアライメント
+            aligned_result = whisperx.align(
+                segments_for_align,
+                align_model,
+                align_meta,
+                chunk["array"],  # チャンクの音声データのみ使用
+                self.device,
+                return_char_alignments=True,
+            )
+
+            # アライメント結果のオフセットを調整
+            aligned_segments = aligned_result["segments"]
+            for seg in aligned_segments:
+                # オフセットを再適用
+                seg["start"] += chunk["start"]
+                seg["end"] += chunk["start"]
+                # wordsのタイムスタンプも調整
+                if "words" in seg and seg["words"]:
+                    for word in seg["words"]:
+                        if "start" in word:
+                            word["start"] += chunk["start"]
+                        if "end" in word:
+                            word["end"] += chunk["start"]
+
+            logger.debug(f"チャンク {chunk_idx}: アライメント成功 ({len(aligned_segments)}セグメント, words数: {sum(len(seg.get('words', [])) for seg in aligned_segments)})")
+            return aligned_segments
+
+        except Exception as e:
+            logger.warning(f"チャンク {chunk_idx} のアライメント処理に失敗: {e}")
+            logger.debug(f"エラー詳細: {type(e).__name__}: {str(e)}")
+            # アライメント失敗時は元のセグメントを返す
+            return segments
+
     def transcribe_and_align_chunk(
         self, chunk: dict[str, Any], asr_model: Any, align_model: Any, align_meta: Any, chunk_idx: int
     ) -> list[dict[str, Any]]:
@@ -621,32 +671,52 @@ class Transcriber:
             except Exception as e:
                 logger.warning(f"アライメントモデルの読み込みに失敗: {e}")
 
+        # 文字起こしフェーズ（並列処理可能）
+        transcribed_chunks = []
         with ThreadPoolExecutor(max_workers=num_workers) as executor:
-            # チャンクごとに文字起こし（＋アライメント処理）
             futures = []
             for i, chunk in enumerate(chunks):
-                if skip_alignment:
-                    # アライメントをスキップして文字起こしのみ
-                    future = executor.submit(self.transcribe_chunk_without_alignment, chunk, asr_model, i)
-                else:
-                    # 文字起こし＋アライメント
-                    future = executor.submit(
-                        self.transcribe_and_align_chunk, chunk, asr_model, align_model, align_meta, i
-                    )
-                futures.append(future)
+                # まず文字起こしのみを並列実行
+                future = executor.submit(self.transcribe_chunk, chunk, asr_model)
+                futures.append((i, future))
 
-            for future in as_completed(futures):
+            for i, future in futures:
                 segments = future.result()
-                segments_all.extend(segments)
+                transcribed_chunks.append((i, chunks[i], segments))
                 completed_chunks += 1
 
                 if progress_callback:
-                    progress = 0.1 + (0.8 * completed_chunks / total_chunks)
-                    if skip_alignment:
-                        status = f"文字起こし処理中... ({completed_chunks}/{total_chunks} チャンク)"
-                    else:
-                        status = f"文字起こし・アライメント処理中... ({completed_chunks}/{total_chunks} チャンク)"
+                    progress = 0.1 + (0.4 * completed_chunks / total_chunks)
+                    status = f"文字起こし処理中... ({completed_chunks}/{total_chunks} チャンク)"
                     progress_callback(progress, status)
+
+        # アライメントフェーズ（順次処理）
+        if not skip_alignment and align_model is not None and align_meta is not None:
+            logger.info("アライメント処理を開始（順次実行）")
+            aligned_chunks_count = 0
+            for i, (chunk_idx, chunk, segments) in enumerate(transcribed_chunks):
+                try:
+                    # アライメント処理を順次実行
+                    aligned_segments = self._align_segments(
+                        segments, chunk, align_model, align_meta, chunk_idx
+                    )
+                    segments_all.extend(aligned_segments)
+                    aligned_chunks_count += 1
+                    
+                    if progress_callback:
+                        progress = 0.5 + (0.4 * aligned_chunks_count / len(transcribed_chunks))
+                        status = f"アライメント処理中... ({aligned_chunks_count}/{len(transcribed_chunks)} チャンク)"
+                        progress_callback(progress, status)
+                        
+                except Exception as e:
+                    logger.warning(f"チャンク {chunk_idx} のアライメント失敗: {e}")
+                    # アライメント失敗時は元のセグメントを使用
+                    segments_all.extend(segments)
+                    
+        else:
+            # アライメントをスキップする場合は、文字起こし結果をそのまま使用
+            for chunk_idx, chunk, segments in transcribed_chunks:
+                segments_all.extend(segments)
 
         # セグメントをソート
         segments_all.sort(key=lambda x: x["start"])
