@@ -110,7 +110,8 @@ class LoadTranscriptionCacheUseCase(UseCase[LoadCacheRequest, TranscriptionResul
         if model_size:
             # 指定されたモデルのキャッシュを探す
             for cache in available_caches:
-                if cache.get("model_size") == model_size:
+                # model_sizeまたはactual_filenameで一致するものを探す
+                if cache.get("model_size") == model_size or cache.get("actual_filename") == model_size:
                     return cache
             return None
         else:
