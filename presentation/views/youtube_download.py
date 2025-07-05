@@ -45,6 +45,7 @@ class YouTubeDownloadView(BaseView[YouTubeDownloadViewModel]):
                     placeholder="https://youtube.com/watch?v=...",
                     label_visibility="collapsed",
                     disabled=self.view_model.is_downloading or self.view_model.download_complete,
+                    help="作者の許可を得た動画のURLを入力してください"
                 )
                 
                 if url != self.view_model.url:
@@ -111,7 +112,8 @@ class YouTubeDownloadView(BaseView[YouTubeDownloadViewModel]):
                 use_container_width=True,
                 disabled=not self.view_model.can_download,
             ):
-                self.presenter.start_download(self.view_model.url)
+                with st.spinner(f"ダウンロード中... 動画サイズ: 約{self.view_model.estimated_size_mb:.1f}MB"):
+                    self.presenter.start_download(self.view_model.url)
         
         with col2:
             if st.button(
@@ -147,6 +149,9 @@ class YouTubeDownloadView(BaseView[YouTubeDownloadViewModel]):
                 f"{self.view_model.download_speed_mbps:.1f} MB/s"
             )
         
+        # ダウンロード実行中のメッセージ
+        st.info("💡 ダウンロードが完了するまでお待ちください...")
+        
         with col3:
             st.metric(
                 "残り時間",
@@ -171,7 +176,7 @@ class YouTubeDownloadView(BaseView[YouTubeDownloadViewModel]):
         
         with col1:
             if st.button(
-                "📂 動画選択画面へ",
+                "📂 動画ファイル選択へ",
                 type="primary",
                 use_container_width=True
             ):

@@ -74,6 +74,11 @@ class YouTubeDownloadGateway(IYouTubeDownloadGateway):
             "quiet": True,
             "no_warnings": True,
             "extract_flat": False,
+            # YouTubeのボット検出を回避するオプション
+            "http_headers": {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept-Language": "ja,en;q=0.9",
+            },
         }
 
         try:
@@ -127,7 +132,13 @@ class YouTubeDownloadGateway(IYouTubeDownloadGateway):
                 
         except Exception as e:
             logger.error(f"動画情報の取得に失敗: {e}")
-            raise RuntimeError(f"動画情報の取得に失敗しました: {str(e)}")
+            error_msg = str(e)
+            if "Sign in to confirm" in error_msg:
+                raise RuntimeError(
+                    "YouTubeがアクセスを制限しています。"
+                    "時間をおいて再試行するか、別の動画でお試しください。"
+                )
+            raise RuntimeError(f"動画情報の取得に失敗しました: {error_msg}")
 
     def download_video(
         self,
@@ -168,9 +179,15 @@ class YouTubeDownloadGateway(IYouTubeDownloadGateway):
             return filename
 
         ydl_opts = {
-            "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+            # macOSと互換性の高いフォーマットを優先（H.264を強制）
+            "format": "bestvideo[vcodec^=avc][height<=1080]+bestaudio[ext=m4a]/bestvideo[vcodec^=h264][height<=1080]+bestaudio/best[vcodec^=avc]/best[vcodec^=h264]/best",
             "outtmpl": str(self.output_dir / "%(title)s.%(ext)s"),
             "merge_output_format": "mp4",
+            # YouTubeのボット検出を回避するオプション
+            "http_headers": {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept-Language": "ja,en;q=0.9",
+            },
             "postprocessors": [{
                 "key": "FFmpegVideoConvertor",
                 "preferedformat": "mp4",
@@ -213,7 +230,13 @@ class YouTubeDownloadGateway(IYouTubeDownloadGateway):
                 
         except Exception as e:
             logger.error(f"ダウンロードに失敗: {e}")
-            raise RuntimeError(f"ダウンロードに失敗しました: {str(e)}")
+            error_msg = str(e)
+            if "Sign in to confirm" in error_msg:
+                raise RuntimeError(
+                    "YouTubeがアクセスを制限しています。"
+                    "時間をおいて再試行するか、別の動画でお試しください。"
+                )
+            raise RuntimeError(f"ダウンロードに失敗しました: {error_msg}")
 
     def _progress_hook(self, d: dict[str, Any]) -> None:
         """

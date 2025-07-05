@@ -140,6 +140,9 @@ class YouTubeDownloadPresenter(BasePresenter[YouTubeDownloadViewModel]):
                     speed_mbps=(progress.speed / (1024 * 1024)) if progress.speed else 0,
                     eta_seconds=progress.eta,
                 )
+                # 進捗をログに出力（デバッグ用）
+                if progress.percent % 10 < 1:  # 10%ごとにログ出力
+                    logger.info(f"ダウンロード進捗: {progress.percent:.1f}%")
 
             input_data = DownloadYouTubeVideoInput(
                 url=url,
@@ -183,7 +186,8 @@ class YouTubeDownloadPresenter(BasePresenter[YouTubeDownloadViewModel]):
             context: エラーのコンテキスト
         """
         logger.error(f"{context}でエラーが発生しました: {error}", exc_info=True)
-        error_message = self.error_handler.handle_error(error)
+        error_info = self.error_handler.handle_error(error, context=context, raise_after=False)
+        error_message = error_info.get("user_message", str(error)) if error_info else str(error)
         self.view_model.set_error(f"{context}: {error_message}")
         self.view_model.set_downloading(False)
         self.view_model.clear_loading()

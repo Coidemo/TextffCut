@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import Callable, Optional
 
 from domain.value_objects.file_path import FilePath
-from use_cases.base import BaseUseCase
+from use_cases.base import UseCase
 from use_cases.exceptions import UseCaseError
 from use_cases.interfaces.youtube_download_gateway import (
     IYouTubeDownloadGateway,
@@ -36,7 +36,7 @@ class DownloadYouTubeVideoOutput:
     video_info: VideoInfo
 
 
-class DownloadYouTubeVideo(BaseUseCase[DownloadYouTubeVideoInput, DownloadYouTubeVideoOutput]):
+class DownloadYouTubeVideo(UseCase[DownloadYouTubeVideoInput, DownloadYouTubeVideoOutput]):
     """
     YouTube 動画ダウンロードユースケース
     
@@ -71,8 +71,7 @@ class DownloadYouTubeVideo(BaseUseCase[DownloadYouTubeVideoInput, DownloadYouTub
             # URLの検証
             if not self.youtube_gateway.validate_url(input_data.url):
                 raise UseCaseError(
-                    "無効なYouTube URLです。正しいURLを入力してください。",
-                    details={"url": input_data.url}
+                    f"無効なYouTube URLです。正しいURLを入力してください。URL: {input_data.url}"
                 )
 
             # 動画情報の取得
@@ -100,19 +99,16 @@ class DownloadYouTubeVideo(BaseUseCase[DownloadYouTubeVideoInput, DownloadYouTub
 
         except ValueError as e:
             raise UseCaseError(
-                "入力値が不正です",
-                details={"error": str(e)}
+                f"入力値が不正です: {str(e)}"
             )
         except RuntimeError as e:
             raise UseCaseError(
-                "ダウンロードに失敗しました",
-                details={"error": str(e)}
+                f"ダウンロードに失敗しました: {str(e)}"
             )
         except Exception as e:
             logger.error(f"予期しないエラーが発生しました: {e}")
             raise UseCaseError(
-                "予期しないエラーが発生しました",
-                details={"error": str(e)}
+                f"予期しないエラーが発生しました: {str(e)}"
             )
 
 
@@ -123,7 +119,7 @@ class GetVideoInfoInput:
     url: str
 
 
-class GetVideoInfo(BaseUseCase[GetVideoInfoInput, VideoInfo]):
+class GetVideoInfo(UseCase[GetVideoInfoInput, VideoInfo]):
     """
     動画情報取得ユースケース
     
@@ -157,8 +153,7 @@ class GetVideoInfo(BaseUseCase[GetVideoInfoInput, VideoInfo]):
             # URLの検証
             if not self.youtube_gateway.validate_url(input_data.url):
                 raise UseCaseError(
-                    "無効なYouTube URLです。正しいURLを入力してください。",
-                    details={"url": input_data.url}
+                    f"無効なYouTube URLです。正しいURLを入力してください。URL: {input_data.url}"
                 )
 
             # 動画情報の取得
@@ -166,17 +161,14 @@ class GetVideoInfo(BaseUseCase[GetVideoInfoInput, VideoInfo]):
 
         except ValueError as e:
             raise UseCaseError(
-                "入力値が不正です",
-                details={"error": str(e)}
+                f"入力値が不正です: {str(e)}"
             )
         except RuntimeError as e:
             raise UseCaseError(
-                "動画情報の取得に失敗しました",
-                details={"error": str(e)}
+                f"動画情報の取得に失敗しました: {str(e)}"
             )
         except Exception as e:
             logger.error(f"予期しないエラーが発生しました: {e}")
             raise UseCaseError(
-                "予期しないエラーが発生しました",
-                details={"error": str(e)}
+                f"予期しないエラーが発生しました: {str(e)}"
             )
