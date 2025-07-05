@@ -61,15 +61,13 @@ def render_video_input_section(container):
             current_video_path = session_manager.get_video_path()
             if current_video_path != video_path_str:
                 logger.info(f"動画が変更されました: {current_video_path} -> {video_path_str}")
-                # 文字起こし結果をクリア
-                session_manager.set_transcription_result(None)
-                # エクスポート設定もクリア
-                session_manager.clear_export_settings()
+                # 文字起こし状態をクリア
+                session_manager.clear_transcription_state()
+                # 編集状態もクリア
+                session_manager.clear_editing_state()
                 # Streamlitのセッション状態もクリア
                 if "transcription_completed" in st.session_state:
                     del st.session_state.transcription_completed
-                if "transcription_result" in st.session_state:
-                    del st.session_state.transcription_result
             
             session_manager.set_video_path(video_path_str)
             
