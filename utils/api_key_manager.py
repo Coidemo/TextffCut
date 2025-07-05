@@ -94,10 +94,12 @@ class APIKeyManager:
         """保存されたAPIキーを削除"""
         try:
             if self.key_file.exists():
-                os.unlink(self.key_file)
+                self.key_file.unlink()
                 logger.info("保存されたAPIキーを削除しました")
                 return True
-            return False
+            else:
+                logger.warning("削除対象のAPIキーファイルが存在しません")
+                return True  # ファイルが存在しない場合も成功とみなす
 
         except Exception as e:
             logger.error(f"APIキー削除エラー: {e}")

@@ -146,9 +146,11 @@ class SidebarView(BaseView[SidebarViewModel]):
             
             # 削除ボタン
             if st.button("🗑️ 保存済みキーを削除", use_container_width=True):
-                self.presenter.delete_api_key()
-                st.success("保存されたAPIキーを削除しました")
-                st.rerun()
+                if self.presenter.delete_api_key():
+                    st.success("保存されたAPIキーを削除しました")
+                    st.rerun()
+                else:
+                    st.error("APIキーの削除に失敗しました")
         else:
             # APIキー入力
             api_key = st.text_input(

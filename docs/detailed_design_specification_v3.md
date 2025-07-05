@@ -2055,7 +2055,17 @@ config_manager.save_api_key("sk-xxxxxxxx", "openai")
 
 # APIキーの取得
 api_key = config_manager.get_api_key("openai")
+
+# APIキーの削除
+config_manager.delete_api_key("openai")
 ```
+
+**注意**: 実際の実装では`APIKeyManager`クラスとして実装されており、以下の主要メソッドを提供：
+- `save_api_key(api_key: str) -> bool`: APIキーを暗号化して保存
+- `load_api_key() -> str | None`: 保存されたAPIキーを復号化して読み込み
+- `delete_api_key() -> bool`: 保存されたAPIキーを削除（ファイルが存在しない場合も成功とみなす）
+- `has_saved_key() -> bool`: 保存されたAPIキーが存在するか確認
+- `mask_api_key(api_key: str) -> str`: APIキーをマスク表示用に変換
 
 ## 14. エラー処理設計
 
