@@ -87,7 +87,16 @@ class TranscriptionView:
 
                     modified_date = datetime.fromtimestamp(cache.modified_time).strftime("%Y-%m-%d %H:%M")
 
-                    option_text = f"{cache.mode}モード - {cache.model_size} | {modified_date}"
+                    # デバッグ: cacheオブジェクトの内容を確認
+                    logger.info(f"Cache object: mode={getattr(cache, 'mode', 'NONE')}, model_size={cache.model_size}, is_api={cache.is_api}")
+                    
+                    # modeフィールドが存在しない場合のフォールバック
+                    cache_mode = getattr(cache, 'mode', None)
+                    if cache_mode is None:
+                        cache_mode = "API" if cache.is_api else "ローカル"
+                        logger.warning(f"modeフィールドが見つかりません。is_apiから推測: {cache_mode}")
+                    
+                    option_text = f"{cache_mode}モード - {cache.model_size} | {modified_date}"
                     cache_options.append(option_text)
                     cache_map[option_text] = cache
 
