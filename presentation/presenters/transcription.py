@@ -68,6 +68,13 @@ class TranscriptionPresenter(BasePresenter[TranscriptionViewModel]):
             self.view_model.should_run = True
             # フラグをクリア（一度だけ実行）
             self.session_manager.set("transcription_should_run", False)
+            
+        # 保存されたAPIキーを読み込む
+        from utils.api_key_manager import api_key_manager
+        saved_key = api_key_manager.load_api_key()
+        if saved_key:
+            self.view_model.api_key = saved_key
+            logger.info("初期化時: 保存されたAPIキーを読み込みました")
 
     def initialize_with_video(self, video_path: Path) -> None:
         """
@@ -140,6 +147,16 @@ class TranscriptionPresenter(BasePresenter[TranscriptionViewModel]):
         # モデルサイズをモードに応じて設定
         if use_api:
             self.view_model.model_size = "whisper-1"
+            
+            # APIモードの場合、保存されたAPIキーを読み込む
+            from utils.api_key_manager import api_key_manager
+            saved_key = api_key_manager.load_api_key()
+            if saved_key:
+                self.view_model.api_key = saved_key
+                logger.info("保存されたAPIキーを読み込みました")
+            else:
+                self.view_model.api_key = None
+                logger.warning("保存されたAPIキーが見つかりません")
         else:
             self.view_model.model_size = "medium"
 
