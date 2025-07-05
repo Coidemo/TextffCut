@@ -4,7 +4,7 @@
     "threshold": -40.0,
     "min_duration": 0.3,
     "pad_start": 0.3,
-    "pad_end": 0.3
+    "pad_end": 0.2
   },
   "api": {
     "use_api": true,

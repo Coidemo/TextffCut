@@ -141,7 +141,7 @@ def render_export_section(container):
     if not st.session_state.get("text_edit_completed", False):
         return False
         
-    st.subheader("🎬 切り抜き箇所の抽出")
+    st.subheader("🎬 エクスポート")
     
     # ExportSettingsPresenterを使用
     export_settings_presenter = container.presentation.export_settings_presenter()

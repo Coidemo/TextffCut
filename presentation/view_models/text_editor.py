@@ -61,10 +61,7 @@ class TextEditorViewModel(BaseViewModel):
     # エラー状態
     error_message: str | None = None
 
-    # UI表示制御
-    show_timeline_editor: bool = False
-    timeline_edited: bool = False
-    adjusted_time_ranges: list[dict[str, Any]] | None = None
+    # UI表示制御（タイムライン編集機能は削除）
 
     def __post_init__(self):
         """初期化後の処理"""
@@ -153,9 +150,6 @@ class TextEditorViewModel(BaseViewModel):
         self.duration_text = ""
         self.differences = None
         self.error_message = None
-        self.show_timeline_editor = False
-        self.timeline_edited = False
-        self.adjusted_time_ranges = None
         self.notify()
 
     def to_dict(self) -> dict[str, Any]:
@@ -168,8 +162,6 @@ class TextEditorViewModel(BaseViewModel):
             "total_duration": self.total_duration,
             "duration_text": self.duration_text,
             "char_count": self.char_count,
-            "show_timeline_editor": self.show_timeline_editor,
-            "timeline_edited": self.timeline_edited,
             "error_message": self.error_message,
         }
 

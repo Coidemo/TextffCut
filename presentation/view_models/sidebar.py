@@ -32,8 +32,9 @@ class SidebarViewModel(BaseViewModel):
     remove_silence_enabled: bool = False
     silence_threshold: float = -35.0
     min_silence_duration: float = 0.3
-    silence_pad_start: float = 0.3
-    silence_pad_end: float = 0.3
+    min_segment_duration: float = 0.3
+    silence_pad_start: float = 0.1
+    silence_pad_end: float = 0.1
 
     # 設定 - API
     use_api: bool = False

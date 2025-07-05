@@ -54,12 +54,6 @@ class ExportSettingsView:
 
         # メインコンテナ
         with st.container(border=True):
-            # ヘッダー
-            st.markdown("### 🎬 切り抜き処理")
-
-            # 無音削除設定
-            self._render_silence_removal_settings()
-
             # エクスポート形式選択
             self._render_export_format_selection()
 
@@ -69,62 +63,6 @@ class ExportSettingsView:
             # 結果表示
             self._render_results()
 
-    def _render_silence_removal_settings(self) -> None:
-        """無音削除設定のレンダリング"""
-        with st.expander("🔇 無音削除設定", expanded=False):
-            # 無音削除の有効/無効
-            remove_silence = st.checkbox(
-                "無音部分を削除", value=self.view_model.remove_silence, help="動画から無音部分を自動的に削除します"
-            )
-            self.presenter.set_remove_silence(remove_silence)
-
-            if remove_silence:
-                col1, col2 = st.columns(2)
-
-                with col1:
-                    # 無音検出閾値
-                    threshold = st.slider(
-                        "無音検出閾値 (dB)",
-                        min_value=-60,
-                        max_value=-20,
-                        value=int(self.view_model.silence_threshold),
-                        step=1,
-                        help="この値より小さい音量を無音として検出します",
-                    )
-                    self.presenter.set_silence_threshold(float(threshold))
-
-                    # 最小無音時間
-                    min_duration = st.slider(
-                        "最小無音時間 (秒)",
-                        min_value=0.1,
-                        max_value=2.0,
-                        value=self.view_model.min_silence_duration,
-                        step=0.1,
-                        help="この時間以上続く無音のみを削除対象とします",
-                    )
-                    self.presenter.set_min_silence_duration(min_duration)
-
-                with col2:
-                    # パディング設定
-                    pad_start = st.slider(
-                        "開始パディング (秒)",
-                        min_value=0.0,
-                        max_value=1.0,
-                        value=self.view_model.silence_pad_start,
-                        step=0.1,
-                        help="有音部分の開始前に残す時間",
-                    )
-
-                    pad_end = st.slider(
-                        "終了パディング (秒)",
-                        min_value=0.0,
-                        max_value=1.0,
-                        value=self.view_model.silence_pad_end,
-                        step=0.1,
-                        help="有音部分の終了後に残す時間",
-                    )
-
-                    self.presenter.set_silence_padding(pad_start, pad_end)
 
     def _render_export_format_selection(self) -> None:
         """エクスポート形式選択のレンダリング"""
@@ -132,10 +70,10 @@ class ExportSettingsView:
 
         # 形式選択
         format_options = {
-            "video": "🎥 動画（MP4）",
-            "fcpxml": "🎬 Final Cut Pro XML",
-            "xmeml": "🎬 Premiere Pro XML",
-            "srt": "💬 SRT字幕のみ",
+            "video": "動画（MP4）",
+            "fcpxml": "Final Cut Pro XML",
+            "xmeml": "Premiere Pro XML",
+            "srt": "SRT字幕のみ",
         }
 
         selected_format = st.radio(
@@ -148,17 +86,39 @@ class ExportSettingsView:
         )
         self.presenter.set_export_format(selected_format)
 
-        # 動画出力時のSRT字幕オプション
-        if selected_format == "video":
-            include_srt = st.checkbox(
-                "SRT字幕も同時に出力",
-                value=self.view_model.include_srt,
-                help="各動画クリップに対応するSRT字幕ファイルを生成します",
+        # オプション設定（SRT字幕のみ以外）
+        if selected_format != "srt":
+            # 無音削除とSRT字幕を横並び
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                # 無音削除チェックボックス
+                remove_silence = st.checkbox(
+                    "無音部分を削除", 
+                    value=self.view_model.remove_silence, 
+                    help="無音部分を自動的に削除します。詳細設定はサイドバーで変更できます。"
+                )
+                self.presenter.set_remove_silence(remove_silence)
+            
+            with col2:
+                # SRT字幕出力チェックボックス
+                include_srt = st.checkbox(
+                    "SRT字幕も同時に出力",
+                    value=self.view_model.include_srt,
+                    help="各クリップに対応するSRT字幕ファイルを生成します",
+                )
+                self.presenter.set_include_srt(include_srt)
+        else:
+            # SRT字幕のみの場合：無音削除のみ
+            remove_silence = st.checkbox(
+                "無音部分を削除", 
+                value=self.view_model.remove_silence, 
+                help="無音部分を自動的に削除します。詳細設定はサイドバーで変更できます。"
             )
-            self.presenter.set_include_srt(include_srt)
+            self.presenter.set_remove_silence(remove_silence)
 
         # SRT字幕設定（SRT出力時のみ）
-        if selected_format == "srt" or (selected_format == "video" and self.view_model.include_srt):
+        if selected_format == "srt" or (selected_format != "srt" and self.view_model.include_srt):
             with st.expander("💬 SRT字幕設定", expanded=False):
                 col1, col2 = st.columns(2)
 
@@ -197,62 +157,65 @@ class ExportSettingsView:
 
         # 実行ボタン
         if not self.view_model.is_processing:
-            col1, col2, col3 = st.columns([2, 1, 2])
-            with col2:
-                if st.button(
-                    "🚀 処理を実行",
-                    type="primary",
-                    use_container_width=True,
-                    disabled=not self.view_model.is_ready_to_export,
-                ):
-                    # セッション状態にフラグを保存
-                    st.session_state.export_should_run = True
-                    st.rerun()
+            if st.button(
+                "🚀 処理を実行",
+                type="primary",
+                use_container_width=True,
+                disabled=not self.view_model.is_ready_to_export,
+            ):
+                # セッション状態にフラグを保存
+                st.session_state.export_should_run = True
+                st.rerun()
 
-        # 処理中の表示
-        if st.session_state.get("export_should_run", False) and not self.view_model.is_processing:
-            self._execute_export()
-        elif self.view_model.is_processing:
-            self._show_progress()
+        # 処理状態の表示用コンテナ（処理中・完了後で同じ位置を使用）
+        progress_container = st.container()
+        
+        with progress_container:
+            # 処理中の表示
+            if st.session_state.get("export_should_run", False) and not self.view_model.is_processing:
+                self._execute_export()
+            elif self.view_model.is_processing:
+                self._show_progress()
+            # 完了メッセージの表示
+            elif st.session_state.get("export_completed", False):
+                # プログレスバーとメッセージを表示
+                st.progress(1.0)
+                st.success("✅ エクスポート完了！")
 
     def _execute_export(self) -> None:
         """エクスポート実行"""
-        # デバッグ情報を表示
-        with st.expander("デバッグ情報", expanded=False):
-            st.write(f"is_ready_to_export: {self.view_model.is_ready_to_export}")
-            st.write(f"video_path: {self.view_model.video_path}")
-            st.write(f"edited_text: {self.view_model.edited_text[:50] if self.view_model.edited_text else None}")
-            st.write(f"time_ranges: {self.view_model.time_ranges}")
-            st.write(f"effective_time_ranges: {self.view_model.effective_time_ranges}")
-        
-        # プログレスバーとステータステキスト
+        # プログレスバーとステータステキスト（一つのコンテナで管理）
         progress_bar = st.progress(0.0)
-        status_text = st.empty()
-        operation_text = st.empty()
-        result_container = st.empty()
+        status_container = st.empty()
 
         def progress_callback(progress: float, message: str) -> None:
             progress_bar.progress(min(progress, 1.0))
-            status_text.info(message)
+            # 現在の操作と進捗メッセージを一つのコンテナに表示
             if self.view_model.current_operation:
-                operation_text.caption(f"🔄 {self.view_model.current_operation}")
+                status_container.info(f"{message} - 🔄 {self.view_model.current_operation}")
+            else:
+                status_container.info(message)
 
         try:
             # エクスポート実行
             success = self.presenter.start_export(progress_callback)
             
-            # 処理完了後の表示
+            # 処理完了後の表示（同じコンテナを使用）
             if success:
-                result_container.success("✅ エクスポート完了！")
+                # プログレスバーを100%に設定
+                progress_bar.progress(1.0)
+                status_container.success("✅ エクスポート完了！")
                 st.balloons()
                 # フラグをリセット
                 st.session_state.export_should_run = False
+                # 完了フラグを設定
+                st.session_state.export_completed = True
             else:
-                result_container.error(f"❌ エクスポート失敗: {self.view_model.error_message}")
+                status_container.error(f"❌ エクスポート失敗: {self.view_model.error_message}")
                 # フラグをリセット
                 st.session_state.export_should_run = False
         except Exception as e:
-            result_container.error(f"❌ エクスポート中にエラーが発生しました: {str(e)}")
+            status_container.error(f"❌ エクスポート中にエラーが発生しました: {str(e)}")
             # フラグをリセット
             st.session_state.export_should_run = False
             # スタックトレースも表示
@@ -262,17 +225,16 @@ class ExportSettingsView:
 
     def _show_progress(self) -> None:
         """進捗表示"""
-        progress_bar = st.progress(self.view_model.progress)
-        st.info(self.view_model.status_message)
+        st.progress(self.view_model.progress)
+        # 現在の操作と進捗メッセージを一つのメッセージに統合
         if self.view_model.current_operation:
-            st.caption(f"🔄 {self.view_model.current_operation}")
+            st.info(f"{self.view_model.status_message} - 🔄 {self.view_model.current_operation}")
+        else:
+            st.info(self.view_model.status_message)
 
     def _render_results(self) -> None:
         """結果表示"""
         if self.view_model.export_results:
-            st.markdown("---")
-            st.success(f"✅ {len(self.view_model.export_results)}個のファイルを出力しました")
-
             # 出力ファイルリスト
             with st.expander("📁 出力ファイル", expanded=True):
                 for result in self.view_model.export_results:

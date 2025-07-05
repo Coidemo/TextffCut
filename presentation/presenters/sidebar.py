@@ -61,6 +61,12 @@ class SidebarPresenter(BasePresenter[SidebarViewModel]):
 
             # 設定を読み込み
             self._load_settings()
+            
+            # APIキーマネージャーから保存済みキーを読み込み
+            from utils.api_key_manager import api_key_manager
+            saved_key = api_key_manager.load_api_key()
+            if saved_key:
+                self.view_model.api_key = saved_key
 
             # プロセス状態を初期化
             self.view_model.update_process_status("ready", "準備完了")
@@ -333,11 +339,32 @@ class SidebarPresenter(BasePresenter[SidebarViewModel]):
         self.view_model.notify()
         self.save_settings()
 
-    def set_api_key(self, api_key: str) -> None:
+    def set_api_key(self, api_key: str) -> bool:
         """APIキーを設定"""
-        self.view_model.api_key = api_key
-        self.view_model.notify()
-        self.save_settings()
+        try:
+            # APIキーマネージャーを使用して保存
+            from utils.api_key_manager import api_key_manager
+            if api_key_manager.save_api_key(api_key):
+                self.view_model.api_key = api_key
+                self.view_model.notify()
+                return True
+            return False
+        except Exception as e:
+            self.handle_error(e, "APIキー保存")
+            return False
+            
+    def delete_api_key(self) -> bool:
+        """APIキーを削除"""
+        try:
+            from utils.api_key_manager import api_key_manager
+            if api_key_manager.delete_api_key():
+                self.view_model.api_key = None
+                self.view_model.notify()
+                return True
+            return False
+        except Exception as e:
+            self.handle_error(e, "APIキー削除")
+            return False
 
     def set_model_size(self, model_size: str) -> None:
         """モデルサイズを設定"""

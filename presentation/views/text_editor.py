@@ -13,7 +13,6 @@ from domain.entities import TranscriptionResult
 from presentation.presenters.text_editor import TextEditorPresenter
 from presentation.view_models.text_editor import TextEditorViewModel
 from ui.components import show_diff_viewer, show_edited_text_with_highlights, show_red_highlight_modal, show_text_editor
-from ui.timeline_editor_simple import render_timeline_editor_simple
 
 
 class TextEditorView:
@@ -110,10 +109,6 @@ class TextEditorView:
         # 時間範囲の計算結果表示
         if self.view_model.has_time_ranges:
             self._render_time_ranges_info()
-
-        # タイムラインエディタ
-        if self.view_model.show_timeline_editor:
-            self._render_timeline_editor(video_path)
 
         # エラー表示
         if self.view_model.error_message:
@@ -306,63 +301,9 @@ class TextEditorView:
 
     def _render_time_ranges_info(self) -> None:
         """時間範囲の計算結果を表示"""
-        with st.expander(f"⏱️ 時間範囲: {len(self.view_model.time_ranges)}個のクリップ", expanded=False):
-            st.info(f"合計時間: {self.view_model.duration_text}")
+        # 時間範囲が計算されたことを示すだけ（特に表示なし）
+        pass
 
-            # 各時間範囲の情報
-            for i, time_range in enumerate(self.view_model.time_ranges):
-                col1, col2, col3 = st.columns([2, 1, 3])
-                with col1:
-                    st.markdown(f"**クリップ {i + 1}:**")
-                with col2:
-                    # 時間を秒単位で表示
-                    st.text(f"{time_range.start:.1f}秒 - {time_range.end:.1f}秒")
-                with col3:
-                    st.text(f"長さ: {time_range.duration:.1f}秒")
-
-            # タイムライン編集ボタン
-            if not self.view_model.timeline_edited:
-                if st.button("📊 タイムライン編集", use_container_width=True):
-                    self.presenter.show_timeline_editor()
-            else:
-                st.success("✅ タイムライン編集済み")
-                if st.button("📊 タイムラインを再編集", use_container_width=True):
-                    self.presenter.show_timeline_editor()
-
-    def _render_timeline_editor(self, video_path: Path) -> None:
-        """タイムラインエディタを表示"""
-        with st.container(border=True):
-            # 時間範囲をタプル形式に変換
-            time_ranges = [(tr.start, tr.end) for tr in self.view_model.time_ranges]
-
-            # タイムラインエディタをレンダリング（ボタンも含まれている）
-            render_timeline_editor_simple(time_ranges, self.view_model.transcription_result, video_path)
-
-            # タイムライン編集完了をチェック
-            if st.session_state.get("timeline_editing_completed", False):
-                # 編集結果を取得してPresenterに渡す
-                if "adjusted_time_ranges" in st.session_state:
-                    # タプル形式から辞書形式に変換
-                    adjusted_ranges = []
-                    for start, end in st.session_state.adjusted_time_ranges:
-                        adjusted_ranges.append(
-                            {
-                                "start": start,
-                                "end": end,
-                                "duration": end - start,
-                                "text": "",  # テキストは後で埋められる
-                            }
-                        )
-                    self.presenter.apply_timeline_adjustments(adjusted_ranges)
-                    self.presenter.hide_timeline_editor()
-                    # フラグをリセット
-                    st.session_state.timeline_editing_completed = False
-
-            # キャンセルをチェック
-            if st.session_state.get("timeline_editing_cancelled", False):
-                self.presenter.hide_timeline_editor()
-                # フラグをリセット
-                st.session_state.timeline_editing_cancelled = False
 
     def _has_added_chars(self, differences) -> bool:
         """差分に追加された文字があるかチェック"""

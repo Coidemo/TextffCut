@@ -374,27 +374,26 @@ class ExportSettingsPresenter(BasePresenter[ExportSettingsViewModel]):
     
     def _get_or_create_session_number(self) -> int:
         """セッション連番を取得または生成"""
-        import streamlit as st
+        video_name = self.view_model.video_path.stem
+        video_dir = self.view_model.video_path.parent
         
-        # 編集されたテキストのハッシュを計算（同じテキストなら同じ連番）
-        text_hash = hash(self.view_model.edited_text) if self.view_model.edited_text else 0
+        # TextffCutフォルダ内の既存ファイルを確認
+        output_dir = video_dir / f"{video_name}_TextffCut"
         
-        # セッション状態に保存されている連番マップを取得
-        if "export_session_numbers" not in st.session_state:
-            st.session_state.export_session_numbers = {}
+        # 既存の最大番号を探す
+        max_number = 0
+        if output_dir.exists():
+            import re
+            pattern = re.compile(r"_TextffCut_(\d{4})_")
+            
+            for file in output_dir.iterdir():
+                match = pattern.search(file.name)
+                if match:
+                    number = int(match.group(1))
+                    max_number = max(max_number, number)
         
-        # このテキストハッシュに対応する連番があるか確認
-        if text_hash in st.session_state.export_session_numbers:
-            return st.session_state.export_session_numbers[text_hash]
-        
-        # 新しい連番を生成（既存の最大値+1）
-        existing_numbers = list(st.session_state.export_session_numbers.values())
-        next_number = max(existing_numbers) + 1 if existing_numbers else 1
-        
-        # 連番を保存
-        st.session_state.export_session_numbers[text_hash] = next_number
-        
-        return next_number
+        # 次の番号を返す
+        return max_number + 1
 
     def handle_error(self, error: Exception, context: str) -> None:
         """

@@ -51,14 +51,14 @@ class TextEditorPresenter(BasePresenter[TextEditorViewModel]):
             transcription_result: 文字起こし結果
         """
         try:
-            logger.info(f"TextEditorPresenter.initialize called with transcription_result: {transcription_result}")
-            logger.info(f"Type of transcription_result: {type(transcription_result)}")
+            logger.info("TextEditorPresenter.initialize called")
+            logger.debug(f"Type of transcription_result: {type(transcription_result)}")
             
             # TranscriptionResultAdapterの場合は、ドメインエンティティを取得
             from presentation.adapters.transcription_result_adapter import TranscriptionResultAdapter
             actual_result = transcription_result
             if isinstance(transcription_result, TranscriptionResultAdapter):
-                logger.info("TranscriptionResultAdapterが渡されました。ドメインエンティティを取得します。")
+                logger.debug("TranscriptionResultAdapterが渡されました。ドメインエンティティを取得します。")
                 actual_result = transcription_result.domain_result
                 if actual_result:
                     self.view_model.transcription_result = actual_result
@@ -74,8 +74,7 @@ class TextEditorPresenter(BasePresenter[TextEditorViewModel]):
             else:
                 # プロパティとしてアクセス
                 full_text = actual_result.text
-            logger.info(f"Full text length: {len(full_text) if full_text else 0}")
-            logger.info(f"Full text content: {full_text}")
+            logger.debug(f"Full text length: {len(full_text) if full_text else 0}")
             self.view_model.full_text = full_text
 
             # セッション状態から編集済みテキストを読み込む
@@ -343,42 +342,6 @@ class TextEditorPresenter(BasePresenter[TextEditorViewModel]):
 
         return section_with_markers if section_with_markers else section
 
-    def apply_timeline_adjustments(self, adjusted_ranges: list[dict[str, Any]]) -> None:
-        """
-        タイムライン調整を適用
-
-        Args:
-            adjusted_ranges: 調整済み時間範囲
-        """
-        try:
-            self.view_model.adjusted_time_ranges = adjusted_ranges
-            self.view_model.timeline_edited = True
-
-            # TimeRangeオブジェクトに変換
-            time_ranges = []
-            for adj_range in adjusted_ranges:
-                time_range = TimeRange(
-                    start=adj_range["start"],
-                    end=adj_range["end"],
-                    duration=adj_range["end"] - adj_range["start"],
-                    text=adj_range.get("text", ""),
-                )
-                time_ranges.append(time_range)
-
-            self.view_model.update_time_ranges(time_ranges)
-
-        except Exception as e:
-            self.handle_error(e, "タイムライン調整")
-
-    def show_timeline_editor(self) -> None:
-        """タイムラインエディタを表示"""
-        self.view_model.show_timeline_editor = True
-        self.view_model.notify()
-
-    def hide_timeline_editor(self) -> None:
-        """タイムラインエディタを非表示"""
-        self.view_model.show_timeline_editor = False
-        self.view_model.notify()
 
     def get_processed_data(self) -> dict[str, Any]:
         """
@@ -387,12 +350,8 @@ class TextEditorPresenter(BasePresenter[TextEditorViewModel]):
         Returns:
             処理結果の辞書
         """
-        # タイムライン編集が行われている場合は調整済みの値を使用
-        if self.view_model.timeline_edited and self.view_model.adjusted_time_ranges:
-            time_ranges = self.view_model.adjusted_time_ranges
-        else:
-            # 通常の時間範囲をタプル形式に変換（元の実装との互換性のため）
-            time_ranges = [(tr.start, tr.end) for tr in self.view_model.time_ranges]
+        # 時間範囲をタプル形式に変換（元の実装との互換性のため）
+        time_ranges = [(tr.start, tr.end) for tr in self.view_model.time_ranges]
 
         return {
             "edited_text": self.view_model.edited_text,
