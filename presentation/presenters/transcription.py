@@ -287,6 +287,7 @@ class TranscriptionPresenter(BasePresenter[TranscriptionViewModel]):
                 video_path=FilePath(str(self.view_model.video_path)),
                 model_size=self.view_model.model_size,
                 language="ja",
+                use_cache=False,  # 新規実行時はキャッシュを使用しない
                 progress_callback=wrapped_progress,
             )
 
