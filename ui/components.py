@@ -17,7 +17,6 @@ def show_api_key_manager() -> None:
     from utils.api_key_manager import api_key_manager
 
     st.markdown("#### 🔑 APIキー設定")
-    st.caption("DEBUG: Using ui/components.py")
 
     # 保存されたAPIキーを確認
     saved_key = api_key_manager.load_api_key()

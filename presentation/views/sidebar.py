@@ -136,7 +136,6 @@ class SidebarView(BaseView[SidebarViewModel]):
     def _render_api_settings(self) -> None:
         """API設定"""
         st.markdown("#### 🔑 APIキー設定")
-        st.caption("DEBUG: Using presentation/views/sidebar.py")
         
         # 保存されたAPIキーがあるかチェック
         if self.view_model.api_key:
@@ -147,14 +146,7 @@ class SidebarView(BaseView[SidebarViewModel]):
             
             # 削除ボタン
             if st.button("🗑️ 保存済みキーを削除", use_container_width=True):
-                st.write("DEBUG: 削除ボタンが押されました")
-                st.write(f"DEBUG: 削除前のview_model.api_key: {self.view_model.api_key[:10] if self.view_model.api_key else None}")
-                
-                result = self.presenter.delete_api_key()
-                st.write(f"DEBUG: delete_api_key()の結果: {result}")
-                st.write(f"DEBUG: 削除後のview_model.api_key: {self.view_model.api_key}")
-                
-                if result:
+                if self.presenter.delete_api_key():
                     st.success("保存されたAPIキーを削除しました")
                     st.rerun()
                 else:

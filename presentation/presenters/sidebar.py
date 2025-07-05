@@ -365,30 +365,21 @@ class SidebarPresenter(BasePresenter[SidebarViewModel]):
             from utils.api_key_manager import api_key_manager
             import streamlit as st
             
-            # 削除前の状態を記録
-            logger.info(f"DEBUG: delete_api_key()開始")
-            logger.info(f"DEBUG: 削除前のファイル存在: {api_key_manager.key_file.exists()}")
-            
             # 削除を実行
             result = api_key_manager.delete_api_key()
-            logger.info(f"DEBUG: delete_api_key()の結果: {result}")
-            logger.info(f"DEBUG: 削除後のファイル存在: {api_key_manager.key_file.exists()}")
             
             # 成功/失敗に関わらずViewModelをクリア
             # （ファイルが既に削除されている場合もクリアすべき）
             self.view_model.api_key = None
             self.view_model.use_api = False  # APIモードも無効化
             self.view_model.notify()
-            logger.info(f"DEBUG: ViewModelをクリアしました")
             
             # セッション状態もクリア
             if "api_key" in st.session_state:
-                logger.info(f"DEBUG: session_state.api_keyをクリア")
                 del st.session_state.api_key
                 
             # 設定を保存（APIキーがNoneの状態で）
             self.save_settings()
-            logger.info(f"DEBUG: 設定を保存しました")
                 
             return result
         except Exception as e:
