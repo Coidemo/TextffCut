@@ -14,6 +14,7 @@ from presentation.presenters.text_editor import TextEditorPresenter
 from presentation.presenters.transcription import TranscriptionPresenter
 from presentation.presenters.video_input import VideoInputPresenter
 from presentation.presenters.youtube_download import YouTubeDownloadPresenter
+from presentation.presenters.buzz_clip import BuzzClipPresenter
 from presentation.view_models.export_settings import ExportSettingsViewModel
 from presentation.view_models.main import MainViewModel
 from presentation.view_models.sidebar import SidebarViewModel
@@ -21,6 +22,7 @@ from presentation.view_models.text_editor import TextEditorViewModel
 from presentation.view_models.transcription import TranscriptionViewModel
 from presentation.view_models.video_input import VideoInputViewModel
 from presentation.view_models.youtube_download import YouTubeDownloadViewModel
+from presentation.view_models.buzz_clip import BuzzClipViewModel
 
 
 class PresentationContainer(containers.DeclarativeContainer):
@@ -51,6 +53,7 @@ class PresentationContainer(containers.DeclarativeContainer):
 
     sidebar_view_model = providers.Factory(SidebarViewModel)
     youtube_download_view_model = providers.Factory(YouTubeDownloadViewModel)
+    buzz_clip_view_model = providers.Factory(BuzzClipViewModel)
 
     # Presenters (ファクトリーパターン)
     video_input_presenter = providers.Factory(
@@ -109,6 +112,13 @@ class PresentationContainer(containers.DeclarativeContainer):
             gateways.youtube_download_gateway
         ),
         error_handler=services.error_handler,
+    )
+    
+    buzz_clip_presenter = providers.Factory(
+        BuzzClipPresenter,
+        view_model=buzz_clip_view_model,
+        generate_buzz_clips_use_case=providers.Arg('generate_buzz_clips_use_case'),
+        session_manager=session_manager,
     )
 
     main_presenter = providers.Factory(

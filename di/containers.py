@@ -39,6 +39,7 @@ from use_cases.transcription.load_cache import LoadTranscriptionCacheUseCase
 # ユースケースのインポート
 from use_cases.transcription.transcribe_video import TranscribeVideoUseCase
 from use_cases.video.detect_silence import DetectSilenceUseCase
+from use_cases.ai.generate_buzz_clips import GenerateBuzzClipsUseCase
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -82,6 +83,14 @@ class GatewayContainer(containers.DeclarativeContainer):
     youtube_download_gateway = providers.Singleton(
         YouTubeDownloadGateway,
         output_dir=Path("./videos")
+    )
+    
+    # AI ゲートウェイ（動的生成）
+    ai_gateway = providers.Factory(
+        providers.Callable(
+            lambda api_key: __import__('infrastructure.external.gateways.openai_gateway', fromlist=['OpenAIGateway']).OpenAIGateway(api_key),
+            providers.Arg('api_key')
+        )
     )
 
 
@@ -129,6 +138,12 @@ class UseCaseContainer(containers.DeclarativeContainer):
             lambda gw: __import__('use_cases.youtube', fromlist=['DownloadYouTubeVideo']).DownloadYouTubeVideo(gw),
             gateways.youtube_download_gateway
         )
+    )
+    
+    # AI バズクリップ生成ユースケース
+    generate_buzz_clips = providers.Factory(
+        GenerateBuzzClipsUseCase,
+        ai_gateway=providers.Arg('ai_gateway')
     )
 
 

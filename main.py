@@ -156,6 +156,67 @@ def render_text_edit_section(container):
     return False
 
 
+def render_buzz_clip_section(container):
+    """AIバズクリップ生成セクション"""
+    if not st.session_state.get("transcription_completed", False):
+        return False
+    
+    st.divider()
+    st.subheader("🤖 AIバズクリップ生成（オプション）")
+    
+    # 展開可能なセクションとして実装
+    with st.expander("AIが自動でバズる切り抜き候補を提案", expanded=False):
+        # APIキーの確認
+        presentation_container = container.presentation()
+        session_manager = presentation_container.session_manager()
+        api_key = session_manager.get("api_key")
+        
+        if not api_key:
+            st.warning("⚠️ この機能を使用するには、サイドバーでOpenAI APIキーを設定してください")
+            return False
+        
+        # AI Gatewayを作成
+        try:
+            ai_gateway = container.gateways.ai_gateway(api_key=api_key)
+        except Exception as e:
+            st.error(f"AI Gateway の初期化に失敗しました: {e}")
+            return False
+        
+        # GenerateBuzzClipsUseCaseを作成
+        generate_buzz_clips_use_case = container.use_cases.generate_buzz_clips(ai_gateway=ai_gateway)
+        
+        # BuzzClipPresenterを作成
+        buzz_clip_presenter = container.presentation.buzz_clip_presenter(
+            generate_buzz_clips_use_case=generate_buzz_clips_use_case
+        )
+        
+        # 文字起こし結果を取得
+        transcription_result = session_manager.get_transcription_result()
+        if transcription_result:
+            # TranscriptionResultAdapterの処理
+            from presentation.adapters.transcription_result_adapter import TranscriptionResultAdapter
+            if isinstance(transcription_result, TranscriptionResultAdapter):
+                actual_result = transcription_result.domain_result
+            else:
+                actual_result = transcription_result
+            
+            # セグメントを辞書形式に変換
+            segments = []
+            for seg in actual_result.segments:
+                segments.append({
+                    "text": seg.text,
+                    "start": seg.start,
+                    "end": seg.end
+                })
+            
+            # Viewを作成して表示
+            from presentation.views.buzz_clip import BuzzClipView
+            view = BuzzClipView(buzz_clip_presenter)
+            view.render(transcription_segments=segments)
+    
+    return True
+
+
 def render_export_section(container):
     """エクスポートセクション"""
     if not st.session_state.get("text_edit_completed", False):
@@ -289,6 +350,9 @@ def main():
                 
                 # 3. テキスト編集
                 text_edit_completed = render_text_edit_section(app_container)
+                
+                # 3.5. AIバズクリップ生成（オプション）
+                render_buzz_clip_section(app_container)
                 
                 # テキスト編集が完了した場合のみエクスポートセクションを表示
                 if text_edit_completed:
