@@ -77,6 +77,7 @@ class TranscriptionPresenter(BasePresenter[TranscriptionViewModel]):
         if saved_key:
             self.view_model.api_key = saved_key
             logger.info("初期化時: 保存されたAPIキーを読み込みました")
+            
 
     def initialize_with_video(self, video_path: Path) -> None:
         """

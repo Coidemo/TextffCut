@@ -121,16 +121,26 @@ class TranscriptionView:
                 ):
                     if self.presenter.load_selected_cache():
                         use_cache = True
+                        st.success("✅ キャッシュから文字起こし結果を読み込みました")
                         # SessionManagerが内部で状態を管理
                         st.rerun()
 
         # 既存の結果がある場合の処理
         if self.view_model.has_result:
-            # 読み込んだキャッシュの情報を表示
-            if self.view_model.selected_cache:
-                cache = self.view_model.selected_cache
-                mode_text = getattr(cache, 'mode', 'API' if cache.is_api else 'ローカル')
-                st.success(f"✅ 文字起こし結果が読み込まれています ({mode_text}モード - {cache.model_size})")
+            # 文字起こし結果からモード情報を判断
+            if self.view_model.transcription_result:
+                # TranscriptionResultAdapterの場合は内部のドメインオブジェクトを取得
+                result = self.view_model.transcription_result
+                if hasattr(result, 'domain_result'):
+                    result = result.domain_result
+                
+                # model_sizeからモードを判断
+                if hasattr(result, 'model_size'):
+                    model_size = result.model_size
+                    mode_text = "API" if model_size == "whisper-1" else "ローカル"
+                    st.success(f"✅ 文字起こし結果が読み込まれています ({mode_text}モード - {model_size})")
+                else:
+                    st.success("✅ 文字起こし結果が読み込まれています")
             else:
                 st.success("✅ 文字起こし結果が読み込まれています")
             st.divider()
