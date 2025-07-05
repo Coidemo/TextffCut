@@ -132,14 +132,24 @@ class TranscriptionGatewayAdapter(ITranscriptionGateway):
             logger.info(f"キャッシュパス: {cache_path}")
             logger.info(f"キャッシュパス存在確認: {cache_path.exists()}")
             
-            # キャッシュが存在しない場合、APIモードのキャッシュも確認
-            if not cache_path.exists() and not self.config.transcription.use_api:
-                # _apiサフィックス付きのパスを試す
-                api_cache_path = cache_path.parent / f"{model_size}_api.json"
-                logger.info(f"APIモードキャッシュを確認: {api_cache_path}")
-                if api_cache_path.exists():
-                    logger.info("APIモードのキャッシュが見つかりました。これを使用します。")
-                    cache_path = api_cache_path
+            # キャッシュが存在しない場合の処理
+            if not cache_path.exists():
+                # APIモードの場合、_apiサフィックスなしのファイルも確認
+                if self.config.transcription.use_api and model_size.endswith("_api"):
+                    # 例: whisper-1_api -> whisper-1
+                    base_model_size = model_size.replace("_api", "")
+                    alt_cache_path = cache_path.parent / f"{base_model_size}.json"
+                    logger.info(f"代替キャッシュパスを確認: {alt_cache_path}")
+                    if alt_cache_path.exists():
+                        logger.info("代替キャッシュが見つかりました。")
+                        cache_path = alt_cache_path
+                # ローカルモードの場合、_apiサフィックス付きのパスを試す
+                elif not self.config.transcription.use_api:
+                    api_cache_path = cache_path.parent / f"{model_size}_api.json"
+                    logger.info(f"APIモードキャッシュを確認: {api_cache_path}")
+                    if api_cache_path.exists():
+                        logger.info("APIモードのキャッシュが見つかりました。これを使用します。")
+                        cache_path = api_cache_path
 
             # キャッシュを読み込み
             legacy_result = self._legacy_transcriber.load_from_cache(cache_path)

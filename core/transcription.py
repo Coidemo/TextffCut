@@ -307,6 +307,7 @@ class Transcriber:
                         "mode": mode,
                         "is_api": is_api_mode,
                         "file_path": cache_file,
+                        "actual_filename": filename,  # 実際のファイル名（拡張子なし）を保持
                         "modified_time": modified_time,
                         "processing_time": data.get("processing_time", 0.0),
                         "segments_count": len(data.get("segments", [])),

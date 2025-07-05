@@ -126,6 +126,7 @@ class TranscriptionPresenter(BasePresenter[TranscriptionViewModel]):
                     model_size=cache["model_size"],
                     modified_time=cache["modified_time"],
                     is_api=cache["is_api"],
+                    actual_filename=cache.get("actual_filename"),
                 )
                 for cache in cache_list
             ]
@@ -212,10 +213,16 @@ class TranscriptionPresenter(BasePresenter[TranscriptionViewModel]):
             logger.info(f"キャッシュファイルから読み込み: {self.view_model.selected_cache.file_path}")
 
             # LoadCacheRequestを作成
-            # video_pathとmodel_sizeを使用
+            # actual_filenameがある場合はそれを使用、なければmodel_sizeを使用
+            cache_model_size = (
+                self.view_model.selected_cache.actual_filename 
+                if self.view_model.selected_cache.actual_filename 
+                else self.view_model.selected_cache.model_size
+            )
+            
             request = LoadCacheRequest(
                 video_path=FilePath(str(self.view_model.video_path)),
-                model_size=self.view_model.selected_cache.model_size
+                model_size=cache_model_size
             )
 
             # ユースケース経由でキャッシュを読み込む
