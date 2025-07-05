@@ -126,7 +126,13 @@ class TranscriptionView:
 
         # 既存の結果がある場合の処理
         if self.view_model.has_result:
-            st.success("✅ 文字起こし結果が読み込まれています")
+            # 読み込んだキャッシュの情報を表示
+            if self.view_model.selected_cache:
+                cache = self.view_model.selected_cache
+                mode_text = getattr(cache, 'mode', 'API' if cache.is_api else 'ローカル')
+                st.success(f"✅ 文字起こし結果が読み込まれています ({mode_text}モード - {cache.model_size})")
+            else:
+                st.success("✅ 文字起こし結果が読み込まれています")
             st.divider()
             st.markdown("#### 🔄 新規文字起こし")
             st.info("新規に文字起こしを実行すると、現在の結果は上書きされます")
