@@ -27,7 +27,7 @@
 | REQ-002 | ローカル版文字起こし | core.transcription.UnifiedTranscriber | TC-004〜TC-008 |
 | REQ-003 | API版文字起こし | core.transcription_api.APITranscriber | TC-009〜TC-012 |
 | REQ-004 | テキスト編集（diff表示） | services.text_editing_service | TC-013〜TC-015 |
-| REQ-005 | タイムライン編集（境界調整） | core.text_processor.BoundaryMarkerParser | TC-016〜TC-020 |
+| REQ-005 | 境界調整（削除予定） | - | - |
 | REQ-006 | 無音検出・削除 | core.video.VideoProcessor | TC-021〜TC-025 |
 | REQ-007 | 動画切り出し・結合 | core.video.VideoProcessor | TC-026〜TC-030 |
 | REQ-008 | FCPXMLエクスポート | core.export.FCPXMLExporter | TC-031〜TC-033 |
@@ -4034,6 +4034,8 @@ def show_boundary_adjusted_preview(
 ---
 
 **作成日**: 2025-06-22  
-**バージョン**: 3.7  
-**最終更新**: 2025-01-01  
-**次回更新**: Phase 10完了時  
+**バージョン**: 3.8  
+**最終更新**: 2025-07-05
+**更新内容**:
+- タイムライン編集機能を削除（REQ-005）
+- ワンページデザインの採用を反映  
