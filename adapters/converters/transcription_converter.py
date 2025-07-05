@@ -88,18 +88,28 @@ class TranscriptionConverter:
     def _convert_word(word_data: dict[str, Any] | Any) -> domain.Word:
         """Word情報の変換"""
         if isinstance(word_data, dict):
+            start = float(word_data.get("start") or 0)
+            end = float(word_data.get("end") or 0)
+            # start と end が同じ場合、微小な差を追加
+            if end <= start:
+                end = start + 0.001
             return domain.Word(
                 word=word_data.get("word", ""),
-                start=float(word_data.get("start") or 0),
-                end=float(word_data.get("end") or 0),
+                start=start,
+                end=end,
                 confidence=word_data.get("confidence") or word_data.get("score"),
             )
         elif hasattr(word_data, "word"):
             # オブジェクトの場合
+            start = float(word_data.start if word_data.start is not None else 0)
+            end = float(word_data.end if word_data.end is not None else 0)
+            # start と end が同じ場合、微小な差を追加
+            if end <= start:
+                end = start + 0.001
             return domain.Word(
                 word=word_data.word,
-                start=float(word_data.start if word_data.start is not None else 0),
-                end=float(word_data.end if word_data.end is not None else 0),
+                start=start,
+                end=end,
                 confidence=getattr(word_data, "confidence", None) or getattr(word_data, "score", None),
             )
         else:
@@ -109,18 +119,28 @@ class TranscriptionConverter:
     def _convert_char(char_data: dict[str, Any] | Any) -> domain.Char:
         """Char情報の変換"""
         if isinstance(char_data, dict):
+            start = float(char_data.get("start") or 0)
+            end = float(char_data.get("end") or 0)
+            # start と end が同じ場合、微小な差を追加
+            if end <= start:
+                end = start + 0.001
             return domain.Char(
                 char=char_data.get("char", ""),
-                start=float(char_data.get("start") or 0),
-                end=float(char_data.get("end") or 0),
+                start=start,
+                end=end,
                 confidence=char_data.get("confidence") or char_data.get("score"),
             )
         elif hasattr(char_data, "char"):
             # オブジェクトの場合
+            start = float(char_data.start if char_data.start is not None else 0)
+            end = float(char_data.end if char_data.end is not None else 0)
+            # start と end が同じ場合、微小な差を追加
+            if end <= start:
+                end = start + 0.001
             return domain.Char(
                 char=char_data.char,
-                start=float(char_data.start if char_data.start is not None else 0),
-                end=float(char_data.end if char_data.end is not None else 0),
+                start=start,
+                end=end,
                 confidence=getattr(char_data, "confidence", None) or getattr(char_data, "score", None),
             )
         else:
