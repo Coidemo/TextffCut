@@ -29,8 +29,8 @@ class OpenAIGateway(AIGatewayInterface):
             api_key: OpenAI APIキー
         """
         self.client = OpenAI(api_key=api_key)
-        self.model = "gpt-4-turbo-preview"  # または gpt-3.5-turbo
-        logger.info("OpenAI Gateway initialized")
+        self.model = "gpt-4o"  # GPT-4oを使用（高速・低コスト）
+        logger.info("OpenAI Gateway initialized with GPT-4o")
 
     def generate_buzz_clips(self, request: BuzzClipGenerationRequest) -> BuzzClipGenerationResult:
         """
@@ -115,13 +115,21 @@ class OpenAIGateway(AIGatewayInterface):
 - バズる可能性が高い部分を選定
 - 話の区切りがよく、完結性のある部分
 - タイトル案も提案
-- バズスコア（0-20）で評価
+- バズスコア（0-20）で評価"""
+
+        # 既存候補がある場合は重複を避けるよう指示
+        if request.existing_candidates:
+            prompt += "\n\n【既存の候補との重複回避】\n以下の時間範囲の候補は既に生成されているため、これらと重複しない新しい候補を選んでください：\n"
+            for candidate in request.existing_candidates:
+                prompt += f"- {candidate.start_time:.1f}s〜{candidate.end_time:.1f}s: {candidate.title}\n"
+
+        prompt += """
 
 【出力形式】
 JSON形式で以下の構造で出力してください：
-{{
+{
   "clips": [
-    {{
+    {
       "title": "タイトル案",
       "text": "切り抜き部分のテキスト",
       "start_time": 開始時間（秒）,
@@ -130,9 +138,9 @@ JSON形式で以下の構造で出力してください：
       "category": "カテゴリ（感動系/驚き系/お役立ち系/面白系/その他）",
       "reasoning": "選定理由",
       "keywords": ["キーワード1", "キーワード2"]
-    }}
+    }
   ]
-}}"""
+}"""
 
         if request.categories:
             prompt += f"\n\n優先カテゴリ: {', '.join(request.categories)}"

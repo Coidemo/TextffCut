@@ -174,6 +174,7 @@ else:
 
 #### サポートAPI
 1. **OpenAI Whisper API**: 公式API、$0.006/分（専用最適化）
+2. **OpenAI GPT-4o**: バズクリップ生成用、$5/1M入力トークン、$20/1M出力トークン（2025年1月時点）
 
 #### Streamlit Cloud用構成
 - 依存関係: `requirements_streamlit_cloud.txt`
@@ -465,6 +466,24 @@ make check  # フォーマット、Lint、テストを一括実行
 - `scripts/create_release_package.sh` - 古い形式（アンインストール機能など）
 - `scripts/create_docker_release.sh` - 別の形式
 - `scripts/create_release.sh` - 用途不明
+
+## 🎉 最近の改善（2025-07-07）
+
+### バズクリップ機能の大幅改善
+1. **GPT-4からGPT-4oへの移行**
+   - コスト77%削減（$0.45 → $0.095/リクエスト）
+   - 処理速度の向上
+   - より高品質な切り抜き候補の生成
+
+2. **キャッシュ構造の最適化**
+   - `buzz_clips/`専用ディレクトリで整理
+   - ファイル名を`{model}.json`に簡素化
+   - メンテナンスとデバッグが容易に
+
+3. **UXの向上**
+   - キャッシュ有無による動的ボタンテキスト
+   - 推定コストと実際のコストの表示
+   - API呼び出し状態の詳細な可視化
 
 ## 🎉 最近の改善（2025-07-06）
 

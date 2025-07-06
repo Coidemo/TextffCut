@@ -28,6 +28,7 @@ class GenerateBuzzClipsRequest:
     min_duration: int = 30
     max_duration: int = 40
     categories: list[str] | None = None
+    existing_candidates: list[BuzzClipCandidate] | None = None
 
 
 @dataclass
@@ -78,6 +79,7 @@ class GenerateBuzzClipsUseCase(UseCase[GenerateBuzzClipsRequest, GenerateBuzzCli
                 min_duration=request.min_duration,
                 max_duration=request.max_duration,
                 categories=request.categories,
+                existing_candidates=request.existing_candidates,
             )
 
             # AI Gatewayを使用して生成
