@@ -311,6 +311,12 @@ class TextEditorView:
             # キャッシュパスを構築
             video_path_obj = Path(video_path)
             textffcut_dir = video_path_obj.parent / f"{video_path_obj.stem}_TextffCut"
+            
+            # textffcut_dirが存在しない場合はFalse
+            if not textffcut_dir.exists():
+                logger.info(f"[_check_buzz_clip_cache] TextffCut directory does not exist: {textffcut_dir}")
+                return False
+            
             cache_dir = textffcut_dir / "buzz_clips"
             
             # キャッシュファイルパスを作成
