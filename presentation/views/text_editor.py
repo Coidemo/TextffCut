@@ -236,6 +236,10 @@ class TextEditorView:
                     del st.session_state.buzz_clip_current_index
                 st.session_state.text_editor_value = ""
                 st.rerun()
+                
+        # 追加取得ボタン
+        if st.button("🔄 新しい候補を追加取得", key="generate_more_buzz_clips", use_container_width=True):
+            self._generate_buzz_clips(force_new=True)
 
     def _switch_to_candidate(self, candidate) -> None:
         """指定された候補に切り替え"""
@@ -243,6 +247,100 @@ class TextEditorView:
         st.session_state.text_editor_value = candidate.text
         # ビューモデルも更新
         self.presenter.update_edited_text(candidate.text)
+    
+    def _generate_buzz_clips(self, force_new: bool = False) -> None:
+        """バズクリップを生成"""
+        # APIキーの確認
+        from infrastructure.ui.session_manager import SessionManager
+        session_manager = SessionManager()
+        api_key = session_manager.get("api_key")
+        
+        if not api_key:
+            st.error("⚠️ この機能を使用するには、サイドバーでOpenAI APIキーを設定してください")
+            return
+        
+        # 文字起こし結果を取得
+        transcription_result = session_manager.get_transcription_result()
+        video_path = session_manager.get_video_path()
+        
+        if not transcription_result or not video_path:
+            st.error("文字起こし結果が必要です")
+            return
+        
+        # AI GatewayとUseCaseを作成
+        try:
+            from infrastructure.external.gateways.openai_gateway import OpenAIGateway
+            from use_cases.ai.generate_buzz_clips import GenerateBuzzClipsUseCase
+            from presentation.presenters.buzz_clip import BuzzClipPresenter
+            from presentation.view_models.buzz_clip import BuzzClipViewModel
+            
+            ai_gateway = OpenAIGateway(api_key=api_key)
+            generate_buzz_clips_use_case = GenerateBuzzClipsUseCase(ai_gateway=ai_gateway)
+            
+            # BuzzClipPresenterを作成
+            buzz_clip_view_model = BuzzClipViewModel()
+            buzz_clip_presenter = BuzzClipPresenter(
+                view_model=buzz_clip_view_model,
+                generate_buzz_clips_use_case=generate_buzz_clips_use_case,
+                session_manager=session_manager,
+            )
+            
+            # Presenterを初期化
+            buzz_clip_presenter.initialize()
+            
+            # TranscriptionResultAdapterの処理
+            from presentation.adapters.transcription_result_adapter import TranscriptionResultAdapter
+            
+            if isinstance(transcription_result, TranscriptionResultAdapter):
+                actual_result = transcription_result.domain_result
+            else:
+                actual_result = transcription_result
+            
+            # 文字起こしモデル情報を取得
+            transcription_model = None
+            if hasattr(actual_result, "model_size"):
+                transcription_model = actual_result.model_size
+            
+            # キャッシュから読み込みを試行（force_newがFalseの場合のみ）
+            if not force_new and buzz_clip_presenter.load_from_cache(video_path, transcription_model):
+                # キャッシュから読み込み成功
+                candidates = buzz_clip_presenter.view_model.candidates
+                if candidates:
+                    st.session_state["buzz_clip_all_candidates"] = candidates
+                    st.session_state["buzz_clip_current_index"] = 0
+                    # 最初の候補を表示
+                    self._switch_to_candidate(candidates[0])
+                    st.success(f"✅ {len(candidates)}個のバズクリップ候補を読み込みました")
+                    st.rerun()
+            else:
+                # APIで新規生成
+                with st.spinner("🤖 AIで候補を生成中..."):
+                    # セグメントを辞書形式に変換
+                    segments = []
+                    for seg in actual_result.segments:
+                        segments.append({"text": seg.text, "start": seg.start, "end": seg.end})
+                    
+                    # 生成実行
+                    success = buzz_clip_presenter.generate_buzz_clips(
+                        transcription_segments=segments,
+                        video_path=video_path,
+                        transcription_model=transcription_model,
+                    )
+                    
+                    if success and buzz_clip_presenter.view_model.candidates:
+                        candidates = buzz_clip_presenter.view_model.candidates
+                        st.session_state["buzz_clip_all_candidates"] = candidates
+                        st.session_state["buzz_clip_current_index"] = 0
+                        # 最初の候補を表示
+                        self._switch_to_candidate(candidates[0])
+                        st.success(f"✅ {len(candidates)}個のバズクリップ候補を生成しました")
+                        st.rerun()
+                    else:
+                        st.error("バズクリップの生成に失敗しました")
+        
+        except Exception as e:
+            st.error(f"エラーが発生しました: {str(e)}")
+            logger.error(f"Buzz clip generation error: {e}", exc_info=True)
     
     def _render_buzz_clip_section(self) -> None:
         """バズクリップセクションを表示"""
@@ -254,9 +352,8 @@ class TextEditorView:
             # バズクリップ生成ボタンを表示
             st.markdown("")
             if st.button("🤖 AIでバズクリップ候補を生成", key="generate_buzz_clips", use_container_width=True):
-                # バズクリップ生成フラグを設定
-                st.session_state["request_buzz_clip_generation"] = True
-                st.rerun()
+                # 直接生成処理を実行
+                self._generate_buzz_clips()
 
     def _render_text_stats(self) -> None:
         """文字数と時間の統計を表示"""
