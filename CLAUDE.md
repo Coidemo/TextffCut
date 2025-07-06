@@ -484,6 +484,11 @@ make check  # フォーマット、Lint、テストを一括実行
    - 追加文字削除機能の動作確認
    - TranscriptionResultの時間不整合（start > end）を自動修正
 
+4. **UIコンポーネントの修正**
+   - `ui/components.py`でレガシーTextProcessorの直接使用を削除
+   - `SimpleTextProcessorGateway`を使用するよう修正
+   - DIコンテナは既に`SimpleTextProcessorGateway`を使用するよう設定済み
+
 ## 🎉 最近の改善（2025-06-26）
 
 ### ✅ タイムライン編集機能の実装完了！
