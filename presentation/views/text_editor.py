@@ -238,13 +238,9 @@ class TextEditorView:
                 st.rerun()
                 
         # 追加取得ボタン
-        col_btn1, col_btn2 = st.columns([3, 1])
-        with col_btn1:
-            if st.button("🔄 新しい候補を追加取得", key="generate_more_buzz_clips", use_container_width=True):
-                with st.spinner("🤖 AIが新しい候補を生成中..."):
-                    self._generate_buzz_clips(force_new=True)
-        with col_btn2:
-            st.caption("💡 APIを使用")
+        if st.button("🔄 新しい候補を追加取得 （API使用）", key="generate_more_buzz_clips", use_container_width=True):
+            with st.spinner("🤖 AIが新しい候補を生成中..."):
+                self._generate_buzz_clips(force_new=True)
 
     def _switch_to_candidate(self, candidate) -> None:
         """指定された候補に切り替え"""
@@ -337,13 +333,7 @@ class TextEditorView:
                         segments.append({"text": seg.text, "start": seg.start, "end": seg.end})
                     
                     # 生成パラメータを表示
-                    info_col1, info_col2, info_col3 = st.columns(3)
-                    with info_col1:
-                        st.metric("生成候補数", f"{buzz_clip_presenter.view_model.num_candidates}個")
-                    with info_col2:
-                        st.metric("時間範囲", f"{buzz_clip_presenter.view_model.min_duration}-{buzz_clip_presenter.view_model.max_duration}秒")
-                    with info_col3:
-                        st.metric("使用API", "OpenAI GPT-4")
+                    status_text.info(f"📈 生成設定: {buzz_clip_presenter.view_model.num_candidates}個の候補 / {buzz_clip_presenter.view_model.min_duration}-{buzz_clip_presenter.view_model.max_duration}秒 / OpenAI GPT-4")
                     
                     # 生成実行
                     success = buzz_clip_presenter.generate_buzz_clips(
