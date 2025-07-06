@@ -30,24 +30,38 @@ class TextConverter:
             ドメインの差分情報
         """
         try:
+            logger.info("[legacy_difference_to_domain] 変換開始")
+            logger.info(
+                f"common_positions数: {len(legacy_diff.common_positions) if legacy_diff.common_positions else 0}"
+            )
+            logger.info(f"added_chars数: {len(legacy_diff.added_chars) if legacy_diff.added_chars else 0}")
+            logger.info(f"added_positions数: {len(legacy_diff.added_positions) if legacy_diff.added_positions else 0}")
+
             differences = []
 
             # 共通部分（変更なし）を変換
             for pos in legacy_diff.common_positions:
                 differences.append((DifferenceType.UNCHANGED, pos.text, None))  # 時間範囲は後で計算される
+                logger.debug(f"UNCHANGED追加: {pos.text[:30]}...")
 
             # 追加部分を変換
             if legacy_diff.added_positions:
                 for pos in legacy_diff.added_positions:
                     differences.append((DifferenceType.ADDED, pos.text, None))
+                    logger.debug(f"ADDED追加(positions): {pos.text[:30]}...")
             elif legacy_diff.added_chars:
                 # added_positionsがない場合は、added_charsから単一の追加として扱う
                 added_text = "".join(legacy_diff.added_chars)
                 if added_text:
                     differences.append((DifferenceType.ADDED, added_text, None))
+                    logger.debug(f"ADDED追加(chars): {added_text[:30]}...")
 
             # 削除部分の検出（元のテキストにあって編集後にない部分）
             # 簡易実装：この変換では削除は検出しない（レガシー実装に依存）
+
+            logger.info(
+                f"[legacy_difference_to_domain] 変換完了: UNCHANGED={len([d for d in differences if d[0] == DifferenceType.UNCHANGED])}, ADDED={len([d for d in differences if d[0] == DifferenceType.ADDED])}"
+            )
 
             return domain.TextDifference(
                 id=str(uuid4()),

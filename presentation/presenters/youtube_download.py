@@ -5,8 +5,6 @@ YouTube動画のダウンロード処理を管理します。
 """
 
 import logging
-from pathlib import Path
-from typing import Callable, Optional
 
 from domain.interfaces.error_handler import IErrorHandler
 from infrastructure.ui.session_manager import SessionManager
@@ -25,7 +23,7 @@ logger = logging.getLogger(__name__)
 class YouTubeDownloadPresenter(BasePresenter[YouTubeDownloadViewModel]):
     """
     YouTube ダウンロードのPresenter
-    
+
     YouTube動画のダウンロード処理とUI更新を管理します。
     """
 
@@ -96,20 +94,20 @@ class YouTubeDownloadPresenter(BasePresenter[YouTubeDownloadViewModel]):
 
         try:
             self.view_model.set_loading("動画情報を取得中...")
-            
+
             input_data = GetVideoInfoInput(url=url)
             video_info = self.get_info_use_case.execute(input_data)
-            
+
             self.view_model.set_video_info(
                 title=video_info.title,
                 duration=video_info.duration,
                 uploader=video_info.uploader,
                 estimated_size=video_info.estimated_size,
             )
-            
+
             self.view_model.clear_loading()
             logger.info(f"動画情報を取得しました: {video_info.title}")
-            
+
         except Exception as e:
             self.handle_error(e, "動画情報取得")
 
@@ -130,7 +128,7 @@ class YouTubeDownloadPresenter(BasePresenter[YouTubeDownloadViewModel]):
         try:
             self.view_model.set_downloading(True)
             self.view_model.set_loading("ダウンロードを開始しています...")
-            
+
             # 進捗コールバック
             def progress_callback(progress):
                 self.view_model.update_progress(
@@ -144,26 +142,26 @@ class YouTubeDownloadPresenter(BasePresenter[YouTubeDownloadViewModel]):
                 if progress.percent % 10 < 1:  # 10%ごとにログ出力
                     logger.info(f"ダウンロード進捗: {progress.percent:.1f}%")
 
-            input_data = DownloadYouTubeVideoInput(
-                url=url,
-                progress_callback=progress_callback
-            )
-            
+            input_data = DownloadYouTubeVideoInput(url=url, progress_callback=progress_callback)
+
             result = self.download_use_case.execute(input_data)
-            
+
             # ダウンロード完了
             self.view_model.set_download_complete(str(result.file_path))
-            
+
             # セッションに保存
             self.session_manager.set("downloaded_video_path", str(result.file_path))
-            self.session_manager.set("video_info", {
-                "title": result.video_info.title,
-                "duration": result.video_info.duration,
-                "uploader": result.video_info.uploader,
-            })
-            
+            self.session_manager.set(
+                "video_info",
+                {
+                    "title": result.video_info.title,
+                    "duration": result.video_info.duration,
+                    "uploader": result.video_info.uploader,
+                },
+            )
+
             logger.info(f"ダウンロード完了: {result.file_path}")
-            
+
         except Exception as e:
             self.handle_error(e, "ダウンロード")
         finally:

@@ -5,8 +5,8 @@ YouTube動画のダウンロード機能を抽象化します。
 """
 
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable, Optional
 
 from domain.value_objects.file_path import FilePath
 
@@ -14,7 +14,7 @@ from domain.value_objects.file_path import FilePath
 @dataclass
 class VideoInfo:
     """動画情報"""
-    
+
     title: str
     duration: int  # 秒
     uploader: str
@@ -27,7 +27,7 @@ class VideoInfo:
 @dataclass
 class DownloadProgress:
     """ダウンロード進捗"""
-    
+
     status: str  # downloading, finished, error
     percent: float
     downloaded_bytes: int
@@ -73,7 +73,7 @@ class IYouTubeDownloadGateway(ABC):
     def download_video(
         self,
         url: str,
-        progress_callback: Optional[Callable[[DownloadProgress], None]] = None,
+        progress_callback: Callable[[DownloadProgress], None] | None = None,
     ) -> FilePath:
         """
         動画をダウンロード

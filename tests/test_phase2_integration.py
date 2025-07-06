@@ -15,14 +15,15 @@ from unittest.mock import Mock, patch
 # プロジェクトルートをパスに追加
 sys.path.insert(0, str(Path(__file__).parent))
 
-from config import Config
-from core.alignment_diagnostics import AlignmentDiagnostics
-from core.models import TranscriptionSegmentV2
-from core.video import VideoInfo
 from services.configuration_service import ConfigurationService
 from services.export_service import ExportService
 from services.text_editing_service import TextEditingService
 from services.video_processing_service import VideoProcessingService
+
+from config import Config
+from core.alignment_diagnostics import AlignmentDiagnostics
+from core.models import TranscriptionSegmentV2
+from core.video import VideoInfo
 
 
 def test_service_initialization():

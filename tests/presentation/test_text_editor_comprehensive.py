@@ -43,13 +43,14 @@ class TestTextEditorComprehensive:
         """モックのテキスト処理ゲートウェイ"""
         gateway = Mock()
 
-        # find_differencesのモック
-        gateway.find_differences.return_value = TextDifference(
+        # find_differencesのモック（デフォルトは追加文字なし）
+        default_diff = TextDifference(
             id=str(uuid4()),
             original_text="これはテストです",
             edited_text="これはテスト",
             differences=[(DifferenceType.UNCHANGED, "これは", None), (DifferenceType.UNCHANGED, "テスト", None)],
         )
+        gateway.find_differences.return_value = default_diff
 
         # get_time_rangesのモック - TimeRangeオブジェクトを返す
 
@@ -88,10 +89,20 @@ class TestTextEditorComprehensive:
         return TextEditorViewModel()
 
     @pytest.fixture
-    def presenter(self, view_model, mock_text_processor_gateway, mock_error_handler):
+    def mock_video_processor_gateway(self):
+        """モックのビデオ処理ゲートウェイ"""
+        gateway = Mock()
+        gateway.extract_and_combine_audio.return_value = None
+        return gateway
+
+    @pytest.fixture
+    def presenter(self, view_model, mock_text_processor_gateway, mock_video_processor_gateway, mock_error_handler):
         """Presenterのインスタンス"""
         return TextEditorPresenter(
-            view_model=view_model, text_processor_gateway=mock_text_processor_gateway, error_handler=mock_error_handler
+            view_model=view_model,
+            text_processor_gateway=mock_text_processor_gateway,
+            video_processor_gateway=mock_video_processor_gateway,
+            error_handler=mock_error_handler,
         )
 
     def test_presenter_initialization(self, presenter, mock_transcription_result):
@@ -256,3 +267,70 @@ class TestTextEditorComprehensive:
 
         # 結果が返されることを確認
         assert isinstance(result, dict)
+
+    def test_has_added_chars_with_added_chars(self, presenter, mock_transcription_result):
+        """追加文字がある場合のPresenter処理のテスト"""
+        presenter.initialize(mock_transcription_result)
+
+        # 追加文字がある差分オブジェクトを作成
+        diff_with_added = TextDifference(
+            id=str(uuid4()),
+            original_text="これはテストです",
+            edited_text="これはテストです。",
+            differences=[(DifferenceType.UNCHANGED, "これはテストです", None), (DifferenceType.ADDED, "。", None)],
+        )
+
+        # _check_added_charsメソッドを直接呼び出し
+        presenter._check_added_chars(diff_with_added)
+
+        # ViewModelに正しく状態が設定されていることを確認
+        assert presenter.view_model.has_added_chars is True
+        assert "。" in presenter.view_model.added_chars_info
+
+    def test_has_added_chars_without_added_chars(self, presenter, mock_transcription_result):
+        """追加文字がない場合のPresenter処理のテスト"""
+        presenter.initialize(mock_transcription_result)
+
+        # 追加文字がない差分オブジェクトを作成
+        diff_without_added = TextDifference(
+            id=str(uuid4()),
+            original_text="これはテストです",
+            edited_text="これはテスト",
+            differences=[(DifferenceType.UNCHANGED, "これはテスト", None)],
+        )
+
+        # _check_added_charsメソッドを直接呼び出し
+        presenter._check_added_chars(diff_without_added)
+
+        # ViewModelに正しく状態が設定されていることを確認
+        assert presenter.view_model.has_added_chars is False
+        assert len(presenter.view_model.added_chars_info) == 0
+
+    def test_buzz_clip_with_punctuation(self, presenter, mock_transcription_result):
+        """バズクリップに句読点が含まれる場合のテスト"""
+        presenter.initialize(mock_transcription_result)
+
+        # バズクリップのテキスト（句読点付き）
+        buzz_clip_text = "これはテストです。"
+
+        # find_differencesが追加文字を含む差分を返すように設定
+        diff_with_punctuation = TextDifference(
+            id=str(uuid4()),
+            original_text="これはテストです",
+            edited_text=buzz_clip_text,
+            differences=[(DifferenceType.UNCHANGED, "これはテストです", None), (DifferenceType.ADDED, "。", None)],
+        )
+        presenter.text_processor_gateway.find_differences.return_value = diff_with_punctuation
+
+        # テキストを更新
+        presenter.update_edited_text(buzz_clip_text)
+
+        # エラーメッセージは設定されないことを確認（モーダル表示のため）
+        assert presenter.view_model.error_message is None
+        # 差分情報は保存されている
+        assert presenter.view_model.differences is not None
+        # ViewModelに追加文字フラグが設定されている
+        assert presenter.view_model.has_added_chars is True
+        assert "。" in presenter.view_model.added_chars_info
+        # 時間範囲は計算されていない（get_time_rangesが呼ばれていない）
+        assert not presenter.text_processor_gateway.get_time_ranges.called

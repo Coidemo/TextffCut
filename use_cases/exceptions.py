@@ -2,7 +2,6 @@
 ユースケース層の例外定義
 """
 
-
 from .base import UseCaseError
 
 

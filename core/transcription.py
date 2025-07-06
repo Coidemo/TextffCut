@@ -5,7 +5,7 @@
 import json
 import time
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -217,7 +217,7 @@ class Transcriber:
 
         logger.info(f"Transcriber初期化開始 - use_api: {self.config.transcription.use_api}")
         logger.info(f"api_key: {'設定済み' if self.config.transcription.api_key else '未設定'}")
-        
+
         # APIモードかローカルモードかを判定
         if self.config.transcription.use_api:
             # API版を使用
@@ -282,6 +282,10 @@ class Transcriber:
                 # 新しい構造では: {モデル名}.json または {モデル名}_api.json
                 filename = cache_file.stem
 
+                # バズクリップのキャッシュファイルは除外
+                if "_buzz_" in filename:
+                    continue
+
                 # キャッシュファイルの情報を読み込み
                 with open(cache_file, encoding="utf-8") as f:
                     data = json.load(f)
@@ -334,9 +338,22 @@ class Transcriber:
         if not cache_path.exists():
             return None
 
+        # バズクリップのキャッシュファイルは読み込まない
+        if "_buzz_" in cache_path.stem:
+            logger.warning(
+                f"バズクリップのキャッシュファイルを文字起こしキャッシュとして読み込もうとしました: {cache_path}"
+            )
+            return None
+
         try:
             with open(cache_path, encoding="utf-8") as f:
                 data = json.load(f)
+
+            # バズクリップのデータ構造でないことを確認
+            if "transcription_model" in data or "candidates" in data.get("results", {}):
+                logger.warning(f"バズクリップのデータ構造が検出されました: {cache_path}")
+                return None
+
             return TranscriptionResult.from_dict(data)
         except json.JSONDecodeError as e:
             logger.error(f"キャッシュファイル形式エラー: {cache_path} - {e}")
@@ -383,13 +400,12 @@ class Transcriber:
         return segments
 
     def _align_segments(
-        self, segments: list[dict[str, Any]], chunk: dict[str, Any], 
-        align_model: Any, align_meta: Any, chunk_idx: int
+        self, segments: list[dict[str, Any]], chunk: dict[str, Any], align_model: Any, align_meta: Any, chunk_idx: int
     ) -> list[dict[str, Any]]:
         """セグメントのアライメント処理（順次実行専用）"""
         if align_model is None or align_meta is None or len(segments) == 0:
             return segments
-            
+
         try:
             # アライメント用に一時的にオフセットを削除（既に適用済みのため）
             segments_for_align = []
@@ -398,7 +414,7 @@ class Transcriber:
                 seg_copy["start"] -= chunk["start"]
                 seg_copy["end"] -= chunk["start"]
                 segments_for_align.append(seg_copy)
-            
+
             # チャンクの音声データでアライメント
             aligned_result = whisperx.align(
                 segments_for_align,
@@ -423,7 +439,9 @@ class Transcriber:
                         if "end" in word:
                             word["end"] += chunk["start"]
 
-            logger.debug(f"チャンク {chunk_idx}: アライメント成功 ({len(aligned_segments)}セグメント, words数: {sum(len(seg.get('words', [])) for seg in aligned_segments)})")
+            logger.debug(
+                f"チャンク {chunk_idx}: アライメント成功 ({len(aligned_segments)}セグメント, words数: {sum(len(seg.get('words', [])) for seg in aligned_segments)})"
+            )
             return aligned_segments
 
         except Exception as e:
@@ -500,7 +518,7 @@ class Transcriber:
         """
         logger.info(f"Transcriber.transcribe開始 - APIモード: {self.config.transcription.use_api}")
         logger.info(f"video_path: {video_path}, model_size: {model_size}")
-        
+
         # APIモードの場合はAPITranscriberに委譲
         if self.config.transcription.use_api:
             logger.info("APIモードで処理開始 (_transcribe_api)")
@@ -540,7 +558,7 @@ class Transcriber:
         if not self.api_transcriber:
             logger.error("api_transcriberが初期化されていません！")
             raise RuntimeError("APITranscriberが初期化されていません")
-            
+
         result = self.api_transcriber.transcribe(video_path, model_size, progress_callback)
 
         # キャッシュに保存
@@ -701,22 +719,20 @@ class Transcriber:
             for i, (chunk_idx, chunk, segments) in enumerate(transcribed_chunks):
                 try:
                     # アライメント処理を順次実行
-                    aligned_segments = self._align_segments(
-                        segments, chunk, align_model, align_meta, chunk_idx
-                    )
+                    aligned_segments = self._align_segments(segments, chunk, align_model, align_meta, chunk_idx)
                     segments_all.extend(aligned_segments)
                     aligned_chunks_count += 1
-                    
+
                     if progress_callback:
                         progress = 0.5 + (0.4 * aligned_chunks_count / len(transcribed_chunks))
                         status = f"アライメント処理中... ({aligned_chunks_count}/{len(transcribed_chunks)} チャンク)"
                         progress_callback(progress, status)
-                        
+
                 except Exception as e:
                     logger.warning(f"チャンク {chunk_idx} のアライメント失敗: {e}")
                     # アライメント失敗時は元のセグメントを使用
                     segments_all.extend(segments)
-                    
+
         else:
             # アライメントをスキップする場合は、文字起こし結果をそのまま使用
             for chunk_idx, chunk, segments in transcribed_chunks:
@@ -756,18 +772,20 @@ class Transcriber:
                 # words情報が欠落している場合は警告として扱う
                 logger.warning(f"文字起こし結果にwords情報が欠落しています: {errors}")
                 logger.warning("words情報なしで処理を続行します。タイムライン編集機能が制限される可能性があります。")
-                
+
                 # デバッグ情報：どのセグメントにwords情報がないか
                 segments_without_words = []
                 for i, seg in enumerate(result.segments):
                     if not seg.words or len(seg.words) == 0:
                         segments_without_words.append(i)
-                
+
                 if len(segments_without_words) > 10:
-                    logger.warning(f"words情報がないセグメント: {segments_without_words[:10]}... (他{len(segments_without_words)-10}個)")
+                    logger.warning(
+                        f"words情報がないセグメント: {segments_without_words[:10]}... (他{len(segments_without_words)-10}個)"
+                    )
                 else:
                     logger.warning(f"words情報がないセグメント: {segments_without_words}")
-                
+
                 # エラーを投げずに処理を続行
 
         # キャッシュに保存

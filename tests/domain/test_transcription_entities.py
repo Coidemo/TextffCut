@@ -2,7 +2,6 @@
 文字起こしエンティティのテスト
 """
 
-
 import pytest
 
 from domain.entities.transcription import TranscriptionResult, TranscriptionSegment, Word

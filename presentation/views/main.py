@@ -41,7 +41,7 @@ class MainView(BaseView[MainViewModel]):
 
         # カスタムCSS
         self._apply_custom_css()
-        
+
         # ダークモード対応スタイルを適用
         apply_dark_mode_styles()
 
@@ -250,7 +250,7 @@ class MainView(BaseView[MainViewModel]):
         """
 
         st.markdown(css, unsafe_allow_html=True)
-        
+
         # ダークテーマ用の追加スタイル
         dark_theme_css = """
         <style>
@@ -298,18 +298,20 @@ class MainView(BaseView[MainViewModel]):
             st.session_state.navigate_to_export = False
             self.presenter.view_model.complete_text_edit()
             st.rerun()
-        
+
         # 戻るボタンのナビゲーション要求を処理
         if st.session_state.get("request_navigation_to_transcription", False):
             import logging
+
             logger = logging.getLogger(__name__)
             logger.info("request_navigation_to_transcription detected")
             st.session_state.request_navigation_to_transcription = False
             self.presenter.view_model.set_current_step("transcription")
             st.rerun()
-        
+
         if st.session_state.get("request_navigation_to_video_input", False):
             import logging
+
             logger = logging.getLogger(__name__)
             logger.info("request_navigation_to_video_input detected")
             st.session_state.request_navigation_to_video_input = False
@@ -321,17 +323,17 @@ class MainView(BaseView[MainViewModel]):
             # タイトル（SVGロゴとスタイル付き）
             from ui.components_modules.header import show_app_title
             from utils.version_helpers import get_app_version
-            
+
             # SVGが表示されない場合は、以下のコメントを外してPNG版を使用
             # from ui.components_modules.header_alternative import show_app_title_with_image
             # show_app_title_with_image(version=get_app_version())
-            
+
             show_app_title(version=get_app_version())
 
             # エラー表示
             if self.view_model.has_error:
                 self._show_error()
-            
+
             # 現在のステップを初期化とコンテンツ表示
             self.presenter.initialize_step(self.view_model.current_step)
             self._render_step_content(self.view_model.current_step)
@@ -390,6 +392,7 @@ class MainView(BaseView[MainViewModel]):
                 if transcription_result and video_path:
                     # TranscriptionResultAdapterの場合、ドメインエンティティを取得
                     from presentation.adapters.transcription_result_adapter import TranscriptionResultAdapter
+
                     if isinstance(transcription_result, TranscriptionResultAdapter):
                         actual_result = transcription_result.domain_result
                         if not actual_result:
@@ -397,7 +400,7 @@ class MainView(BaseView[MainViewModel]):
                             return
                     else:
                         actual_result = transcription_result
-                    
+
                     view = TextEditorView(text_editor_presenter)
                     view.render(actual_result, Path(video_path))
                 else:

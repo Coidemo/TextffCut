@@ -3,13 +3,13 @@
 動作するテストのみを実行するスクリプト
 """
 
+import os
 import subprocess
 import sys
-import os
 
 # PYTHONPATHを設定
 env = os.environ.copy()
-env['PYTHONPATH'] = os.path.dirname(os.path.abspath(__file__))
+env["PYTHONPATH"] = os.path.dirname(os.path.abspath(__file__))
 
 # エラーが発生しているテストを除外
 exclude_patterns = [

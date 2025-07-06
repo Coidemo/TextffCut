@@ -63,7 +63,6 @@ class ExportSettingsView:
             # 結果表示
             self._render_results()
 
-
     def _render_export_format_selection(self) -> None:
         """エクスポート形式選択のレンダリング"""
         st.markdown("#### 📤 エクスポート形式")
@@ -90,16 +89,16 @@ class ExportSettingsView:
         if selected_format != "srt":
             # 無音削除とSRT字幕を横並び
             col1, col2 = st.columns(2)
-            
+
             with col1:
                 # 無音削除チェックボックス
                 remove_silence = st.checkbox(
-                    "無音部分を削除", 
-                    value=self.view_model.remove_silence, 
-                    help="無音部分を自動的に削除します。詳細設定はサイドバーで変更できます。"
+                    "無音部分を削除",
+                    value=self.view_model.remove_silence,
+                    help="無音部分を自動的に削除します。詳細設定はサイドバーで変更できます。",
                 )
                 self.presenter.set_remove_silence(remove_silence)
-            
+
             with col2:
                 # SRT字幕出力チェックボックス
                 include_srt = st.checkbox(
@@ -111,9 +110,9 @@ class ExportSettingsView:
         else:
             # SRT字幕のみの場合：無音削除のみ
             remove_silence = st.checkbox(
-                "無音部分を削除", 
-                value=self.view_model.remove_silence, 
-                help="無音部分を自動的に削除します。詳細設定はサイドバーで変更できます。"
+                "無音部分を削除",
+                value=self.view_model.remove_silence,
+                help="無音部分を自動的に削除します。詳細設定はサイドバーで変更できます。",
             )
             self.presenter.set_remove_silence(remove_silence)
 
@@ -169,7 +168,7 @@ class ExportSettingsView:
 
         # 処理状態の表示用コンテナ（処理中・完了後で同じ位置を使用）
         progress_container = st.container()
-        
+
         with progress_container:
             # 処理中の表示
             if st.session_state.get("export_should_run", False) and not self.view_model.is_processing:
@@ -199,7 +198,7 @@ class ExportSettingsView:
         try:
             # エクスポート実行
             success = self.presenter.start_export(progress_callback)
-            
+
             # 処理完了後の表示（同じコンテナを使用）
             if success:
                 # プログレスバーを100%に設定
@@ -220,6 +219,7 @@ class ExportSettingsView:
             st.session_state.export_should_run = False
             # スタックトレースも表示
             import traceback
+
             with st.expander("エラー詳細"):
                 st.code(traceback.format_exc())
 

@@ -4,7 +4,6 @@ DIブートストラップ
 アプリケーションの起動時にDIコンテナを初期化するためのユーティリティ。
 """
 
-
 from di.config import DIConfig
 from di.containers import ApplicationContainer, create_container
 from utils.logging import get_logger
@@ -12,9 +11,7 @@ from utils.logging import get_logger
 logger = get_logger(__name__)
 
 
-def bootstrap_di(
-    modules_to_wire: list[str] | None = None, config: DIConfig | None = None
-) -> ApplicationContainer:
+def bootstrap_di(modules_to_wire: list[str] | None = None, config: DIConfig | None = None) -> ApplicationContainer:
     """
     DIコンテナをブートストラップ
 

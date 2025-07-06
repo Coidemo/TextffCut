@@ -415,20 +415,16 @@ class VideoProcessorGatewayAdapter(IVideoProcessorGateway):
         try:
             # 一時ディレクトリを作成
             import tempfile
+
             with tempfile.TemporaryDirectory() as temp_dir:
                 # 各時間範囲の音声を抽出
                 audio_segments = []
                 for i, (start, end) in enumerate(time_ranges):
                     segment_path = os.path.join(temp_dir, f"segment_{i}.wav")
                     # extract_audio_segmentメソッドを使用
-                    self._legacy_processor.extract_audio_segment(
-                        str(video_path), 
-                        start, 
-                        end, 
-                        segment_path
-                    )
+                    self._legacy_processor.extract_audio_segment(str(video_path), start, end, segment_path)
                     audio_segments.append(segment_path)
-                
+
                 if audio_segments:
                     # 音声セグメントを結合（音声のみなのでcombine_videosをそのまま使用）
                     success = self._legacy_processor.combine_videos(audio_segments, output_path)

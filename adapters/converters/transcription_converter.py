@@ -92,24 +92,26 @@ class TranscriptionConverter:
                 # 値を安全に取得
                 start_val = word_data.get("start")
                 end_val = word_data.get("end")
-                
+
                 # デバッグ情報（より詳細に）
                 logger.debug(f"Converting word: {word_data}")
                 if start_val is not None and end_val is not None:
-                    logger.debug(f"Word data: start={start_val} (type={type(start_val)}), end={end_val} (type={type(end_val)})")
-                
+                    logger.debug(
+                        f"Word data: start={start_val} (type={type(start_val)}), end={end_val} (type={type(end_val)})"
+                    )
+
                 # float変換
                 start = float(start_val if start_val is not None else 0)
                 end = float(end_val if end_val is not None else 0)
-                
+
                 # start と end が同じ場合、微小な差を追加
                 if end <= start:
                     logger.debug(f"Adjusting end time: start={start}, end={end} -> end={start + 0.001}")
                     end = start + 0.001
-                
+
                 # 最終値をログ出力
                 logger.debug(f"Final values: start={start}, end={end}")
-                    
+
                 return domain.Word(
                     word=word_data.get("word", ""),
                     start=start,
@@ -189,7 +191,7 @@ class TranscriptionConverter:
                     logger.debug(f"First segment is dict with keys: {list(first_seg.keys())}")
                 else:
                     logger.debug(f"First segment is object: {first_seg.__class__.__name__}")
-                    
+
             segments = []
             for i, segment in enumerate(domain_result.segments):
                 # segmentが辞書の場合とTranscriptionSegmentオブジェクトの場合の両方に対応
@@ -197,7 +199,7 @@ class TranscriptionConverter:
                     seg_dict = {
                         "start": segment.get("start", 0),
                         "end": segment.get("end", 0),
-                        "text": segment.get("text", "")
+                        "text": segment.get("text", ""),
                     }
                     # words と chars も辞書から取得
                     if "words" in segment:

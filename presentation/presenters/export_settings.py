@@ -73,13 +73,14 @@ class ExportSettingsPresenter(BasePresenter[ExportSettingsViewModel]):
         )
         self.view_model.transcription_result = self.session_manager.get_transcription_result()
         self.view_model.edited_text = self.session_manager.get_edited_text()
-        
+
         # time_rangesを取得（タプル形式の可能性があるので変換）
         time_ranges = self.session_manager.get_time_ranges()
         if time_ranges:
             # タプル形式の場合はTimeRangeオブジェクトに変換
             if time_ranges and isinstance(time_ranges[0], tuple):
                 from domain.value_objects.time_range import TimeRange
+
                 self.view_model.time_ranges = [TimeRange(start=r[0], end=r[1]) for r in time_ranges]
             else:
                 self.view_model.time_ranges = time_ranges
@@ -92,6 +93,7 @@ class ExportSettingsPresenter(BasePresenter[ExportSettingsViewModel]):
             # タプル形式の場合はTimeRangeオブジェクトに変換
             if adjusted_ranges and isinstance(adjusted_ranges[0], tuple):
                 from domain.value_objects.time_range import TimeRange
+
                 self.view_model.adjusted_time_ranges = [TimeRange(start=r[0], end=r[1]) for r in adjusted_ranges]
             else:
                 self.view_model.adjusted_time_ranges = adjusted_ranges
@@ -261,7 +263,7 @@ class ExportSettingsPresenter(BasePresenter[ExportSettingsViewModel]):
         except Exception as e:
             logger.error(f"FCPXMLエクスポートエラー: {e}")
             raise
-    
+
     def _export_xmeml(self, progress_callback: Callable[[float, str, str], None]) -> list[str]:
         """XMEMLエクスポート（Premiere Pro用）"""
         try:
@@ -272,28 +274,28 @@ class ExportSettingsPresenter(BasePresenter[ExportSettingsViewModel]):
             legacy_ranges = [(r.start, r.end) for r in time_ranges]
 
             # XMEMLExporterを使用
-            from core.export import XMEMLExporter, ExportSegment
             from config import Config
-            
+            from core.export import ExportSegment, XMEMLExporter
+
             exporter = XMEMLExporter(Config())
-            
+
             # ExportSegmentのリストを作成
             segments = []
             timeline_start = 0.0
-            
+
             for r in time_ranges:
                 segment = ExportSegment(
                     source_path=str(self.view_model.video_path),
                     start_time=r.start,
                     end_time=r.end,
-                    timeline_start=timeline_start
+                    timeline_start=timeline_start,
                 )
                 segments.append(segment)
-                timeline_start += (r.end - r.start)
-            
+                timeline_start += r.end - r.start
+
             # XMEMLを生成
             success = exporter.export(segments, str(output_path))
-            
+
             if not success:
                 raise RuntimeError("XMEMLの生成に失敗しました")
 
@@ -303,7 +305,6 @@ class ExportSettingsPresenter(BasePresenter[ExportSettingsViewModel]):
         except Exception as e:
             logger.error(f"XMEMLエクスポートエラー: {e}")
             raise
-
 
     def _export_srt(self, progress_callback: Callable[[float, str, str], None]) -> list[str]:
         """SRT字幕エクスポート"""
@@ -353,7 +354,7 @@ class ExportSettingsPresenter(BasePresenter[ExportSettingsViewModel]):
         base_name = f"{video_name}_TextffCut{suffix}"
 
         return output_dir / f"{base_name}.{extension}"
-    
+
     def _generate_output_base(self) -> Path:
         """出力ベースパスを生成（拡張子なし）"""
         video_name = self.view_model.video_path.stem
@@ -365,33 +366,34 @@ class ExportSettingsPresenter(BasePresenter[ExportSettingsViewModel]):
 
         # セッション連番を取得または生成
         session_number = self._get_or_create_session_number()
-        
+
         # ファイル名を生成
         suffix = "_NoSilence" if self.view_model.remove_silence else "_Clip"
         base_name = f"{video_name}_TextffCut_{session_number:04d}{suffix}"
 
         return output_dir / base_name
-    
+
     def _get_or_create_session_number(self) -> int:
         """セッション連番を取得または生成"""
         video_name = self.view_model.video_path.stem
         video_dir = self.view_model.video_path.parent
-        
+
         # TextffCutフォルダ内の既存ファイルを確認
         output_dir = video_dir / f"{video_name}_TextffCut"
-        
+
         # 既存の最大番号を探す
         max_number = 0
         if output_dir.exists():
             import re
+
             pattern = re.compile(r"_TextffCut_(\d{4})_")
-            
+
             for file in output_dir.iterdir():
                 match = pattern.search(file.name)
                 if match:
                     number = int(match.group(1))
                     max_number = max(max_number, number)
-        
+
         # 次の番号を返す
         return max_number + 1
 

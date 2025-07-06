@@ -13,6 +13,9 @@ from domain.entities import TranscriptionResult
 from presentation.presenters.text_editor import TextEditorPresenter
 from presentation.view_models.text_editor import TextEditorViewModel
 from ui.components import show_diff_viewer, show_edited_text_with_highlights, show_red_highlight_modal, show_text_editor
+from utils.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class TextEditorView:
@@ -56,8 +59,47 @@ class TextEditorView:
         Returns:
             処理結果の辞書
         """
-        # 初期化
+        # バズクリップ候補を使用する場合は、先にセッション状態をクリアしてフラグを立てる
+        skip_initial_processing = False
+        if st.session_state.get("use_buzz_clips", False) and "buzz_clip_candidates" in st.session_state:
+            # 古いテキストや差分情報をクリア
+            if "edited_text" in st.session_state:
+                del st.session_state["edited_text"]
+            if "text_differences" in st.session_state:
+                del st.session_state["text_differences"]
+            # 初期処理をスキップするフラグ
+            skip_initial_processing = True
+
+        # 初期化（バズクリップ使用時は初期処理をスキップ）
+        if skip_initial_processing:
+            # 一時的に初期処理をスキップするフラグを設定
+            st.session_state["_skip_initial_text_processing"] = True
+
         self.presenter.initialize(transcription_result)
+
+        # フラグをクリア
+        if "_skip_initial_text_processing" in st.session_state:
+            del st.session_state["_skip_initial_text_processing"]
+
+        # バズクリップ候補を使用する場合
+        if st.session_state.get("use_buzz_clips", False) and "buzz_clip_candidates" in st.session_state:
+            candidates = st.session_state["buzz_clip_candidates"]
+            # 候補からテキストを生成
+            text_parts = []
+            for candidate in candidates:
+                text_parts.append(candidate.text)
+
+            # セパレータで結合
+            edited_text = "\n\n---\n\n".join(text_parts)
+
+            # テキストエディタに設定
+            st.session_state["text_editor_value"] = edited_text
+
+            # フラグをリセット
+            st.session_state["use_buzz_clips"] = False
+
+            # 使用した候補の情報を表示
+            st.info(f"🎬 {len(candidates)}個のバズクリップ候補をテキストエディタに設定しました")
 
         # モーダル表示（最優先）
         if st.session_state.get("show_modal", False):
@@ -202,13 +244,13 @@ class TextEditorView:
                     time_ranges_tuples = [(tr.start, tr.end) for tr in self.view_model.time_ranges]
                     st.session_state.time_ranges = time_ranges_tuples
                     st.session_state.has_boundary_adjustments = self.view_model.has_boundary_markers
-                    
+
                     # 時間範囲が計算されたらナビゲーションを有効にするためのフラグ
                     st.session_state.text_edit_has_time_ranges = True
                     # text_edit_completedは「エクスポートへ進む」ボタンを押した時のみ設定
 
                 # 差分に追加された文字がある場合はモーダル表示フラグを設定
-                if self.view_model.differences and self._has_added_chars(self.view_model.differences):
+                if self.view_model.has_added_chars:
                     st.session_state.show_modal = True
                     st.session_state.current_edited_text = self.view_model.edited_text
                     st.session_state.current_diff = self.view_model.differences
@@ -223,15 +265,18 @@ class TextEditorView:
                 try:
                     # セッション状態から動画パスを取得（SessionManagerが設定する複数のキーを確認）
                     video_path = (
-                        st.session_state.get("video_path") or 
-                        st.session_state.get("current_video_path") or
-                        st.session_state.get("selected_video")
+                        st.session_state.get("video_path")
+                        or st.session_state.get("current_video_path")
+                        or st.session_state.get("selected_video")
                     )
                     if not video_path:
                         # デバッグ情報を表示
                         import logging
+
                         logger = logging.getLogger(__name__)
-                        logger.error(f"動画パスが見つかりません。セッション状態: video_path={st.session_state.get('video_path')}, current_video_path={st.session_state.get('current_video_path')}, selected_video={st.session_state.get('selected_video')}")
+                        logger.error(
+                            f"動画パスが見つかりません。セッション状態: video_path={st.session_state.get('video_path')}, current_video_path={st.session_state.get('current_video_path')}, selected_video={st.session_state.get('selected_video')}"
+                        )
                         st.error("動画が選択されていません。動画を選択してから文字起こしを実行してください。")
                     else:
                         # Presenter経由で音声プレビューを生成
@@ -239,7 +284,9 @@ class TextEditorView:
                         time_ranges = [(tr.start, tr.end) for tr in self.view_model.time_ranges]
 
                         # Presenter経由で音声プレビューを生成
-                        audio_path = self.presenter.generate_audio_preview(str(video_path), time_ranges, max_duration=60.0)
+                        audio_path = self.presenter.generate_audio_preview(
+                            str(video_path), time_ranges, max_duration=60.0
+                        )
 
                         if audio_path:
                             # 音声プレイヤーを表示
@@ -249,10 +296,11 @@ class TextEditorView:
 
                             # 一時ファイルを削除
                             import os
+
                             os.unlink(audio_path)
 
                             # プレビュー情報を表示
-                            st.caption(f"音声プレビューを生成しました（最大60秒）")
+                            st.caption("音声プレビューを生成しました（最大60秒）")
                         else:
                             st.warning("音声プレビューの生成に失敗しました")
 
@@ -270,7 +318,6 @@ class TextEditorView:
             key="boundary_adjustment_checkbox",
         )
         st.session_state.boundary_adjustment_mode = boundary_mode
-        
 
     def _render_boundary_markers_info(self) -> None:
         """境界調整マーカー情報を表示"""
@@ -303,18 +350,6 @@ class TextEditorView:
         """時間範囲の計算結果を表示"""
         # 時間範囲が計算されたことを示すだけ（特に表示なし）
         pass
-
-
-    def _has_added_chars(self, differences) -> bool:
-        """差分に追加された文字があるかチェック"""
-        from domain.entities.text_difference import DifferenceType
-
-        if hasattr(differences, "differences"):
-            for diff_type, _, _ in differences.differences:
-                if diff_type == DifferenceType.ADDED:
-                    return True
-        return False
-
 
 
 def show_text_editor_section(

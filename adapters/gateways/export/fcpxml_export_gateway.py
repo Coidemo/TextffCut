@@ -5,7 +5,6 @@ FCPXMLエクスポートゲートウェイの実装
 """
 
 import logging
-from pathlib import Path
 
 from config import Config
 from core.export import FCPXMLExporter
@@ -55,23 +54,24 @@ class FCPXMLExportGatewayAdapter(IFCPXMLExportGateway):
 
             # ExportSegmentのリストを作成
             from core.export import ExportSegment
+
             segments = []
             timeline_start = 0.0
-            
+
             for start, end in time_ranges:
                 segment = ExportSegment(
                     source_path=str(video_path),
                     start_time=start,
                     end_time=end,
-                    timeline_start=timeline_start if with_gap_removal else start
+                    timeline_start=timeline_start if with_gap_removal else start,
                 )
                 segments.append(segment)
                 if with_gap_removal:
-                    timeline_start += (end - start)
+                    timeline_start += end - start
 
             # FCPXMLを生成（exportメソッドが直接ファイルに書き込む）
             success = exporter.export(segments, output_path)
-            
+
             if not success:
                 raise RuntimeError("FCPXMLの生成に失敗しました")
 

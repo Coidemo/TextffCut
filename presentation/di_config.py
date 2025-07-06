@@ -7,6 +7,7 @@ Presentation層のコンポーネントをDIコンテナに登録します。
 from dependency_injector import containers, providers
 
 from infrastructure.ui.session_manager import SessionManager
+from presentation.presenters.buzz_clip import BuzzClipPresenter
 from presentation.presenters.export_settings import ExportSettingsPresenter
 from presentation.presenters.main import MainPresenter
 from presentation.presenters.sidebar import SidebarPresenter
@@ -14,6 +15,7 @@ from presentation.presenters.text_editor import TextEditorPresenter
 from presentation.presenters.transcription import TranscriptionPresenter
 from presentation.presenters.video_input import VideoInputPresenter
 from presentation.presenters.youtube_download import YouTubeDownloadPresenter
+from presentation.view_models.buzz_clip import BuzzClipViewModel
 from presentation.view_models.export_settings import ExportSettingsViewModel
 from presentation.view_models.main import MainViewModel
 from presentation.view_models.sidebar import SidebarViewModel
@@ -51,6 +53,7 @@ class PresentationContainer(containers.DeclarativeContainer):
 
     sidebar_view_model = providers.Factory(SidebarViewModel)
     youtube_download_view_model = providers.Factory(YouTubeDownloadViewModel)
+    buzz_clip_view_model = providers.Factory(BuzzClipViewModel)
 
     # Presenters (ファクトリーパターン)
     video_input_presenter = providers.Factory(
@@ -98,17 +101,27 @@ class PresentationContainer(containers.DeclarativeContainer):
         file_gateway=gateways.file_gateway,
         error_handler=services.error_handler,
     )
-    
+
     youtube_download_presenter = providers.Factory(
         YouTubeDownloadPresenter,
         view_model=youtube_download_view_model,
         session_manager=session_manager,
         download_use_case=use_cases.download_youtube_video,
         get_info_use_case=providers.Factory(
-            lambda gw: __import__('use_cases.youtube.download_youtube_video', fromlist=['GetVideoInfo']).GetVideoInfo(gw),
-            gateways.youtube_download_gateway
+            lambda gw: __import__("use_cases.youtube.download_youtube_video", fromlist=["GetVideoInfo"]).GetVideoInfo(
+                gw
+            ),
+            gateways.youtube_download_gateway,
         ),
         error_handler=services.error_handler,
+    )
+
+    # 注: buzz_clip_presenterは実行時にgenerate_buzz_clips_use_caseを必要とするため、main.pyで直接作成する
+    buzz_clip_presenter = providers.Factory(
+        BuzzClipPresenter,
+        view_model=buzz_clip_view_model,
+        # generate_buzz_clips_use_case は実行時に提供される
+        session_manager=session_manager,
     )
 
     main_presenter = providers.Factory(

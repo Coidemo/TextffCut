@@ -5,7 +5,6 @@ main.pyと同じ1ページレイアウトを提供しながら、
 内部的には各セクションをモジュール化する。
 """
 
-
 import streamlit as st
 
 from ui import apply_dark_mode_styles

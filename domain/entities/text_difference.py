@@ -37,6 +37,15 @@ class TextDifference:
         return any(diff[0] != DifferenceType.UNCHANGED for diff in self.differences)
 
     @property
+    def added_chars(self) -> set[str]:
+        """追加された文字のセットを取得"""
+        chars = set()
+        for diff_type, text, _ in self.differences:
+            if diff_type == DifferenceType.ADDED:
+                chars.update(text)
+        return chars
+
+    @property
     def added_count(self) -> int:
         """追加された部分の数"""
         return sum(1 for diff in self.differences if diff[0] == DifferenceType.ADDED)

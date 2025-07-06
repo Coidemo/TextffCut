@@ -26,9 +26,6 @@ from .error_handling import (
 # 既存のエラークラス（後方互換性のため）
 try:
     from utils.exceptions import (
-        TextffCutError as OldTextffCutError,
-    )
-    from utils.exceptions import (
         ConfigurationError as OldConfigurationError,  # noqa: F401
     )
     from utils.exceptions import (
@@ -39,6 +36,9 @@ try:
     )
     from utils.exceptions import (
         MemoryError as OldMemoryError,  # noqa: F401
+    )
+    from utils.exceptions import (
+        TextffCutError as OldTextffCutError,
     )
     from utils.exceptions import (
         TranscriptionError as OldTranscriptionError,  # noqa: F401
