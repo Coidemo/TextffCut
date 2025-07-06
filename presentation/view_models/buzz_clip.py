@@ -35,7 +35,6 @@ class BuzzClipViewModel(BaseViewModel):
 
     # 結果
     candidates: list[BuzzClipCandidate] = field(default_factory=list)
-    selected_candidates: list[str] = field(default_factory=list)  # 選択された候補のID
 
     # 統計情報
     total_processing_time: float = 0.0
@@ -55,15 +54,6 @@ class BuzzClipViewModel(BaseViewModel):
         """候補があるかどうか"""
         return len(self.candidates) > 0
 
-    @property
-    def selected_count(self) -> int:
-        """選択された候補数"""
-        return len(self.selected_candidates)
-
-    @property
-    def can_export(self) -> bool:
-        """エクスポート可能かどうか"""
-        return self.selected_count > 0
 
     @property
     def duration_range_text(self) -> str:
@@ -84,23 +74,6 @@ class BuzzClipViewModel(BaseViewModel):
                 return candidate
         return None
 
-    def toggle_candidate_selection(self, candidate_id: str) -> None:
-        """候補の選択状態を切り替え"""
-        if candidate_id in self.selected_candidates:
-            self.selected_candidates.remove(candidate_id)
-        else:
-            self.selected_candidates.append(candidate_id)
-        self.notify()
-
-    def select_all_candidates(self) -> None:
-        """すべての候補を選択"""
-        self.selected_candidates = [c.id for c in self.candidates]
-        self.notify()
-
-    def deselect_all_candidates(self) -> None:
-        """すべての候補の選択を解除"""
-        self.selected_candidates = []
-        self.notify()
 
     def start_generation(self) -> None:
         """生成を開始"""
@@ -109,7 +82,6 @@ class BuzzClipViewModel(BaseViewModel):
         self.generation_status = "AI分析を開始しています..."
         self.error_message = None
         self.candidates = []
-        self.selected_candidates = []
         self.notify()
 
     def update_generation_progress(self, progress: float, status: str) -> None:
@@ -141,7 +113,6 @@ class BuzzClipViewModel(BaseViewModel):
     def reset(self) -> None:
         """状態をリセット"""
         self.candidates = []
-        self.selected_candidates = []
         self.is_generating = False
         self.generation_progress = 0.0
         self.generation_status = ""
@@ -162,7 +133,6 @@ class BuzzClipViewModel(BaseViewModel):
             "generation_progress": self.generation_progress,
             "generation_status": self.generation_status,
             "candidates": [c.to_dict() for c in self.candidates],
-            "selected_candidates": self.selected_candidates,
             "total_processing_time": self.total_processing_time,
             "model_used": self.model_used,
             "token_usage": self.token_usage,

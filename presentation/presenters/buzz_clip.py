@@ -171,48 +171,6 @@ class BuzzClipPresenter(BasePresenter[BuzzClipViewModel]):
             self.view_model.set_error(str(e))
             return False
 
-    def toggle_candidate_selection(self, candidate_id: str) -> None:
-        """
-        候補の選択状態を切り替え
-
-        Args:
-            candidate_id: 候補ID
-        """
-        self.view_model.toggle_candidate_selection(candidate_id)
-
-        # セッションに保存
-        if self.session_manager:
-            self._save_state()
-
-    def select_all_candidates(self) -> None:
-        """すべての候補を選択"""
-        self.view_model.select_all_candidates()
-
-        # セッションに保存
-        if self.session_manager:
-            self._save_state()
-
-    def deselect_all_candidates(self) -> None:
-        """すべての候補の選択を解除"""
-        self.view_model.deselect_all_candidates()
-
-        # セッションに保存
-        if self.session_manager:
-            self._save_state()
-
-    def get_selected_candidates(self) -> list[BuzzClipCandidate]:
-        """
-        選択された候補を取得
-
-        Returns:
-            選択された候補のリスト
-        """
-        selected = []
-        for candidate_id in self.view_model.selected_candidates:
-            candidate = self.view_model.get_candidate_by_id(candidate_id)
-            if candidate:
-                selected.append(candidate)
-        return selected
 
     def reset(self) -> None:
         """状態をリセット"""
@@ -233,7 +191,6 @@ class BuzzClipPresenter(BasePresenter[BuzzClipViewModel]):
             "max_duration": self.view_model.max_duration,
             "selected_categories": self.view_model.selected_categories,
             "candidates": [c.to_dict() for c in self.view_model.candidates],
-            "selected_candidates": self.view_model.selected_candidates,
             "total_processing_time": self.view_model.total_processing_time,
             "model_used": self.view_model.model_used,
             "token_usage": self.view_model.token_usage,
@@ -247,7 +204,6 @@ class BuzzClipPresenter(BasePresenter[BuzzClipViewModel]):
         self.view_model.min_duration = state.get("min_duration", 30)
         self.view_model.max_duration = state.get("max_duration", 40)
         self.view_model.selected_categories = state.get("selected_categories", [])
-        self.view_model.selected_candidates = state.get("selected_candidates", [])
         self.view_model.total_processing_time = state.get("total_processing_time", 0.0)
         self.view_model.model_used = state.get("model_used", "")
         self.view_model.token_usage = state.get("token_usage", {})
