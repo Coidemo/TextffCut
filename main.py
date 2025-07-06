@@ -183,113 +183,109 @@ def render_text_edit_section(container):
     return False
 
 
-def render_buzz_clip_section(container):
-    """AIバズクリップ生成セクション"""
-    if not st.session_state.get("transcription_completed", False):
-        return False
+@st.dialog("🤖 AIバズクリップ生成")
+def render_buzz_clip_generation_modal(container):
+    """バズクリップ生成モーダル"""
+    # APIキーの確認
+    presentation_container = container.presentation()
+    session_manager = presentation_container.session_manager()
+    api_key = session_manager.get("api_key")
 
-    st.divider()
-    st.subheader("🤖 AIバズクリップ生成（オプション）")
+    if not api_key:
+        st.warning("⚠️ この機能を使用するには、サイドバーでOpenAI APIキーを設定してください")
+        if st.button("閉じる", type="primary"):
+            st.rerun()
+        return
 
-    # 展開可能なセクションとして実装（キャッシュがある場合は自動展開）
-    expand_state = st.session_state.get("expand_buzz_clip", False)
-    with st.expander("AIが自動でバズる切り抜き候補を提案", expanded=expand_state):
-        # APIキーの確認
-        presentation_container = container.presentation()
-        session_manager = presentation_container.session_manager()
-        api_key = session_manager.get("api_key")
+    # AI Gatewayを直接作成（DIコンテナの制限のため）
+    try:
+        from infrastructure.external.gateways.openai_gateway import OpenAIGateway
 
-        if not api_key:
-            st.warning("⚠️ この機能を使用するには、サイドバーでOpenAI APIキーを設定してください")
-            return False
+        ai_gateway = OpenAIGateway(api_key=api_key)
+    except Exception as e:
+        st.error(f"AI Gateway の初期化に失敗しました: {e}")
+        if st.button("閉じる", type="primary"):
+            st.rerun()
+        return
 
-        # AI Gatewayを直接作成（DIコンテナの制限のため）
-        try:
-            from infrastructure.external.gateways.openai_gateway import OpenAIGateway
+    # GenerateBuzzClipsUseCaseを直接作成
+    from use_cases.ai.generate_buzz_clips import GenerateBuzzClipsUseCase
 
-            ai_gateway = OpenAIGateway(api_key=api_key)
-        except Exception as e:
-            st.error(f"AI Gateway の初期化に失敗しました: {e}")
-            return False
+    generate_buzz_clips_use_case = GenerateBuzzClipsUseCase(ai_gateway=ai_gateway)
 
-        # GenerateBuzzClipsUseCaseを直接作成
-        from use_cases.ai.generate_buzz_clips import GenerateBuzzClipsUseCase
+    # BuzzClipPresenterを作成（ViewModelとSessionManagerはDIコンテナから取得）
+    from presentation.presenters.buzz_clip import BuzzClipPresenter
+    from presentation.view_models.buzz_clip import BuzzClipViewModel
 
-        generate_buzz_clips_use_case = GenerateBuzzClipsUseCase(ai_gateway=ai_gateway)
+    buzz_clip_view_model = BuzzClipViewModel()
+    buzz_clip_presenter = BuzzClipPresenter(
+        view_model=buzz_clip_view_model,
+        generate_buzz_clips_use_case=generate_buzz_clips_use_case,
+        session_manager=session_manager,
+    )
 
-        # BuzzClipPresenterを作成（ViewModelとSessionManagerはDIコンテナから取得）
-        from presentation.presenters.buzz_clip import BuzzClipPresenter
-        from presentation.view_models.buzz_clip import BuzzClipViewModel
+    # Presenterを初期化（セッションから状態を復元）
+    buzz_clip_presenter.initialize()
 
-        buzz_clip_view_model = BuzzClipViewModel()
-        buzz_clip_presenter = BuzzClipPresenter(
-            view_model=buzz_clip_view_model,
-            generate_buzz_clips_use_case=generate_buzz_clips_use_case,
-            session_manager=session_manager,
+    # 文字起こし結果を取得
+    transcription_result = session_manager.get_transcription_result()
+    video_path = session_manager.get_video_path()
+
+    # 文字起こし結果がある場合、対応する切り抜き候補を自動読み込み
+    if transcription_result and video_path:
+        logger.info(
+            f"Checking for buzz clip cache. has_candidates: {buzz_clip_presenter.view_model.has_candidates}"
         )
 
-        # Presenterを初期化（セッションから状態を復元）
-        buzz_clip_presenter.initialize()
+        # TranscriptionResultAdapterの処理
+        from presentation.adapters.transcription_result_adapter import TranscriptionResultAdapter
 
-        # 文字起こし結果を取得
-        transcription_result = session_manager.get_transcription_result()
+        if isinstance(transcription_result, TranscriptionResultAdapter):
+            actual_result = transcription_result.domain_result
+        else:
+            actual_result = transcription_result
+
+        # 文字起こしモデル情報を取得
+        transcription_model = None
+        if hasattr(actual_result, "model_size"):
+            transcription_model = actual_result.model_size
+            logger.info(f"Transcription model: {transcription_model}")
+
+        # キャッシュから読み込みを試行
+        if buzz_clip_presenter.load_from_cache(video_path, transcription_model):
+            logger.info(f"Auto-loaded buzz clips for transcription model: {transcription_model}")
+            logger.info(f"Loaded {len(buzz_clip_presenter.view_model.candidates)} candidates")
+
+    if transcription_result:
+        # TranscriptionResultAdapterの処理
+        from presentation.adapters.transcription_result_adapter import TranscriptionResultAdapter
+
+        if isinstance(transcription_result, TranscriptionResultAdapter):
+            actual_result = transcription_result.domain_result
+        else:
+            actual_result = transcription_result
+
+        # セグメントを辞書形式に変換
+        segments = []
+        for seg in actual_result.segments:
+            segments.append({"text": seg.text, "start": seg.start, "end": seg.end})
+
+        # Viewを作成して表示
+        from presentation.views.buzz_clip import BuzzClipView
+
+        view = BuzzClipView(buzz_clip_presenter)
         video_path = session_manager.get_video_path()
 
-        # 文字起こし結果がある場合、対応する切り抜き候補を自動読み込み
-        if transcription_result and video_path:
-            logger.info(
-                f"Checking for buzz clip cache. has_candidates: {buzz_clip_presenter.view_model.has_candidates}"
-            )
+        # 文字起こしモデル情報を取得
+        transcription_model = None
+        if hasattr(actual_result, "model_size"):
+            transcription_model = actual_result.model_size
 
-            # TranscriptionResultAdapterの処理
-            from presentation.adapters.transcription_result_adapter import TranscriptionResultAdapter
-
-            if isinstance(transcription_result, TranscriptionResultAdapter):
-                actual_result = transcription_result.domain_result
-            else:
-                actual_result = transcription_result
-
-            # 文字起こしモデル情報を取得
-            transcription_model = None
-            if hasattr(actual_result, "model_size"):
-                transcription_model = actual_result.model_size
-                logger.info(f"Transcription model: {transcription_model}")
-
-            # キャッシュから読み込みを試行（既に候補がある場合もスキップしない）
-            if buzz_clip_presenter.load_from_cache(video_path, transcription_model):
-                logger.info(f"Auto-loaded buzz clips for transcription model: {transcription_model}")
-                logger.info(f"Loaded {len(buzz_clip_presenter.view_model.candidates)} candidates")
-                # 展開状態を自動的に設定
-                st.session_state["expand_buzz_clip"] = True
-
-        if transcription_result:
-            # TranscriptionResultAdapterの処理
-            from presentation.adapters.transcription_result_adapter import TranscriptionResultAdapter
-
-            if isinstance(transcription_result, TranscriptionResultAdapter):
-                actual_result = transcription_result.domain_result
-            else:
-                actual_result = transcription_result
-
-            # セグメントを辞書形式に変換
-            segments = []
-            for seg in actual_result.segments:
-                segments.append({"text": seg.text, "start": seg.start, "end": seg.end})
-
-            # Viewを作成して表示
-            from presentation.views.buzz_clip import BuzzClipView
-
-            view = BuzzClipView(buzz_clip_presenter)
-            video_path = session_manager.get_video_path()
-
-            # 文字起こしモデル情報を取得
-            transcription_model = None
-            if hasattr(actual_result, "model_size"):
-                transcription_model = actual_result.model_size
-
-            view.render(transcription_segments=segments, video_path=video_path, transcription_model=transcription_model)
-
-    return True
+        view.render(transcription_segments=segments, video_path=video_path, transcription_model=transcription_model)
+    else:
+        st.error("文字起こし結果が見つかりません")
+        if st.button("閉じる", type="primary"):
+            st.rerun()
 
 
 def render_export_section(container):
@@ -434,8 +430,10 @@ def main():
                 # 3. テキスト編集
                 text_edit_completed = render_text_edit_section(app_container)
 
-                # 3.5. AIバズクリップ生成（オプション）
-                render_buzz_clip_section(app_container)
+                # 3.5. AIバズクリップ生成（リクエストがある場合）
+                if st.session_state.get("request_buzz_clip_generation", False):
+                    render_buzz_clip_generation_modal(app_container)
+                    del st.session_state["request_buzz_clip_generation"]
 
                 # テキスト編集が完了した場合のみエクスポートセクションを表示
                 if text_edit_completed:

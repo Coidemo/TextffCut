@@ -125,9 +125,8 @@ class TextEditorView:
             # 文字起こし結果を表示
             self._render_transcription_result()
             
-            # バズクリップ候補がある場合はナビゲーションUIを表示
-            if "buzz_clip_all_candidates" in st.session_state and st.session_state.buzz_clip_all_candidates:
-                self._render_buzz_clip_navigation()
+            # バズクリップ機能を表示
+            self._render_buzz_clip_section()
 
         # 右カラム: テキスト編集
         with col2:
@@ -202,12 +201,6 @@ class TextEditorView:
         """バズクリップ候補のナビゲーションUIを表示"""
         candidates = st.session_state.buzz_clip_all_candidates
         current_index = st.session_state.get("buzz_clip_current_index", 0)
-
-        # 区切り線
-        st.divider()
-        
-        # バズクリップナビゲーションラベル
-        st.markdown("#### 🎬 バズクリップ候補")
         
         # ナビゲーションコントロール
         nav_col1, nav_col2, nav_col3, nav_col4 = st.columns([1, 6, 1, 1])
@@ -250,6 +243,20 @@ class TextEditorView:
         st.session_state.text_editor_value = candidate.text
         # ビューモデルも更新
         self.presenter.update_edited_text(candidate.text)
+    
+    def _render_buzz_clip_section(self) -> None:
+        """バズクリップセクションを表示"""
+        # バズクリップ候補がある場合はナビゲーションを表示
+        if "buzz_clip_all_candidates" in st.session_state and st.session_state.buzz_clip_all_candidates:
+            st.markdown("")
+            self._render_buzz_clip_navigation()
+        else:
+            # バズクリップ生成ボタンを表示
+            st.markdown("")
+            if st.button("🤖 AIでバズクリップ候補を生成", key="generate_buzz_clips", use_container_width=True):
+                # バズクリップ生成フラグを設定
+                st.session_state["request_buzz_clip_generation"] = True
+                st.rerun()
 
     def _render_text_stats(self) -> None:
         """文字数と時間の統計を表示"""
