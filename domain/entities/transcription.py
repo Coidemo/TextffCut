@@ -227,6 +227,9 @@ class TranscriptionResult:
     @property
     def text(self) -> str:
         """全セグメントのテキストを結合"""
+        # セグメント間にスペースを入れずに結合
+        # 日本語のテキストでは通常スペースは不要で、
+        # ユーザーが編集する際もスペースなしで連続したテキストとして扱うため
         return "".join(seg.text for seg in self.segments)
 
     @property

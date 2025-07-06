@@ -46,6 +46,15 @@ class TextDifferenceDetector:
         """
         logger.info(f"差分検出開始: 元{len(original_text)}文字 vs 編集{len(edited_text)}文字")
         
+        # デバッグ：編集テキストが元のテキストに含まれているか確認
+        if edited_text in original_text:
+            logger.info("✅ 編集テキストは元のテキストに完全に含まれています")
+        else:
+            logger.warning("⚠️ 編集テキストが元のテキストに完全には含まれていません")
+            # 最初の50文字を確認
+            logger.debug(f"元のテキスト冒頭: {repr(original_text[:100])}")
+            logger.debug(f"編集テキスト冒頭: {repr(edited_text[:100])}")
+        
         # 文字単位で差分を検出（difffのようなアルゴリズム）
         differences = self._detect_character_differences(original_text, edited_text)
         
@@ -85,94 +94,62 @@ class TextDifferenceDetector:
             differences.append((DifferenceType.UNCHANGED, edited_text, None))
             return differences
         
-        # 文字単位で比較（LCSアルゴリズムの簡易版）
-        # 編集テキストの各部分が元のテキストのどこかに存在するか確認
-        current_pos = 0
-        current_unchanged = ""
-        current_added = ""
+        # 最長共通部分文字列アプローチで差分を検出
+        # 編集テキストの各部分が元のテキストに連続して存在するか確認
+        current_pos = 0  # edited_text内の現在位置
         
-        for char in edited_text:
-            # この文字が元のテキストに存在するか
-            if char in original_text:
-                # 存在する場合
-                if current_added:
-                    # それまでの追加文字をADDEDとして記録
-                    differences.append((DifferenceType.ADDED, current_added, None))
-                    current_added = ""
-                current_unchanged += char
+        while current_pos < len(edited_text):
+            # 現在位置から始まる最長の一致部分を探す
+            best_match_len = 0
+            best_match_text = ""
+            
+            # 様々な長さの部分文字列を試す
+            for length in range(len(edited_text) - current_pos, 0, -1):
+                substr = edited_text[current_pos:current_pos + length]
+                if substr in original_text:
+                    best_match_len = length
+                    best_match_text = substr
+                    break
+            
+            if best_match_len > 0:
+                # 一致する部分が見つかった
+                differences.append((DifferenceType.UNCHANGED, best_match_text, None))
+                current_pos += best_match_len
             else:
-                # 存在しない場合
-                if current_unchanged:
-                    # それまでの一致文字をUNCHANGEDとして記録
-                    differences.append((DifferenceType.UNCHANGED, current_unchanged, None))
-                    current_unchanged = ""
-                current_added += char
+                # 一致しない文字（追加文字）
+                # 次に一致する部分まで、または最後まで追加文字として扱う
+                added_text = ""
+                while current_pos < len(edited_text):
+                    # 次の文字から始まる部分が元のテキストに存在するか確認
+                    found_match = False
+                    for length in range(len(edited_text) - current_pos, 0, -1):
+                        if current_pos + 1 < len(edited_text):
+                            substr = edited_text[current_pos + 1:current_pos + 1 + length]
+                            if substr in original_text and len(substr) > 3:  # 3文字以上の一致を探す
+                                found_match = True
+                                break
+                    
+                    if found_match:
+                        # 次の位置から一致が見つかったので、現在の文字は追加文字
+                        added_text += edited_text[current_pos]
+                        differences.append((DifferenceType.ADDED, added_text, None))
+                        current_pos += 1
+                        break
+                    else:
+                        # 追加文字を継続
+                        added_text += edited_text[current_pos]
+                        current_pos += 1
+                
+                # 最後まで一致しなかった場合
+                if added_text and not any(d[1] == added_text for d in differences if d[0] == DifferenceType.ADDED):
+                    differences.append((DifferenceType.ADDED, added_text, None))
         
-        # 最後の部分を記録
-        if current_unchanged:
-            differences.append((DifferenceType.UNCHANGED, current_unchanged, None))
-        if current_added:
-            differences.append((DifferenceType.ADDED, current_added, None))
+        logger.info(f"差分検出結果: {len(differences)}個の差分")
+        for diff_type, text, _ in differences:
+            logger.debug(f"  {diff_type.value}: {repr(text[:50])}...")
         
-        # より精密な差分検出（連続する文字列として存在するか確認）
-        return self._refine_differences(original_text, edited_text, differences)
+        return differences
     
-    def _refine_differences(
-        self, original_text: str, edited_text: str,
-        initial_differences: list[tuple[DifferenceType, str, tuple[float, float] | None]]
-    ) -> list[tuple[DifferenceType, str, tuple[float, float] | None]]:
-        """
-        初期の差分検出結果を改善
-        連続する文字列として元のテキストに存在するか確認
-        """
-        refined_differences = []
-        
-        # UNCHANGEDとされた部分が本当に連続して存在するか確認
-        for diff_type, text, time_range in initial_differences:
-            if diff_type == DifferenceType.UNCHANGED:
-                # この文字列が元のテキストに連続して存在するか
-                if text in original_text:
-                    refined_differences.append((diff_type, text, time_range))
-                else:
-                    # 連続して存在しない場合は、文字単位で再検査
-                    for char in text:
-                        if char in original_text:
-                            refined_differences.append((DifferenceType.UNCHANGED, char, None))
-                        else:
-                            refined_differences.append((DifferenceType.ADDED, char, None))
-            else:
-                refined_differences.append((diff_type, text, time_range))
-        
-        # 連続する同じ種類の差分をマージ
-        return self._merge_consecutive_differences(refined_differences)
-    
-    def _merge_consecutive_differences(
-        self, differences: list[tuple[DifferenceType, str, tuple[float, float] | None]]
-    ) -> list[tuple[DifferenceType, str, tuple[float, float] | None]]:
-        """連続する同じ種類の差分をマージ"""
-        if not differences:
-            return differences
-        
-        merged = []
-        current_type = differences[0][0]
-        current_text = differences[0][1]
-        current_time = differences[0][2]
-        
-        for diff_type, text, time_range in differences[1:]:
-            if diff_type == current_type:
-                # 同じ種類なのでマージ
-                current_text += text
-            else:
-                # 種類が変わったので、これまでの分を記録
-                merged.append((current_type, current_text, current_time))
-                current_type = diff_type
-                current_text = text
-                current_time = time_range
-        
-        # 最後の部分を記録
-        merged.append((current_type, current_text, current_time))
-        
-        return merged
 
 
     def _add_time_information(

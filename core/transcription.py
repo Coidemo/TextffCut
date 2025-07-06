@@ -82,7 +82,7 @@ class TranscriptionResult:
 
     def get_full_text(self) -> str:
         """全セグメントのテキストを結合（wordsベース必須）"""
-        full_text = ""
+        segment_texts = []
         for seg in self.segments:
             # words が必須 - ない場合はエラー
             if not seg.words or len(seg.words) == 0:
@@ -101,8 +101,10 @@ class TranscriptionResult:
                     text = "".join(word["word"] for word in seg.words)
             else:
                 text = ""
-            full_text += text
-        return full_text.strip()
+            segment_texts.append(text)
+        # セグメント間にスペースを入れずに結合
+        # 日本語のテキストでは通常スペースは不要
+        return "".join(segment_texts)
 
     def validate_has_words(self) -> tuple[bool, list[str]]:
         """
