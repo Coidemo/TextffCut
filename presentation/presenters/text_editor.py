@@ -102,7 +102,7 @@ class TextEditorPresenter(BasePresenter[TextEditorViewModel]):
             except Exception as e:
                 # get_full_text()がエラーを投げた場合（words情報がない場合など）
                 logger.warning(f"get_full_text() failed: {e}. Falling back to segment text concatenation.")
-                # セグメントのテキストを結合
+                # セグメントのテキストを結合（スペースなしで）
                 if hasattr(actual_result, "segments"):
                     full_text = "".join(seg.text for seg in actual_result.segments)
                 else:

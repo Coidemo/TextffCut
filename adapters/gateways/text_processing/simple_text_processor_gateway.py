@@ -35,14 +35,34 @@ class SimpleTextProcessorGateway(ITextProcessorGateway):
         Args:
             original_text: 元のテキスト
             edited_text: 編集後のテキスト
-            skip_normalization: 正規化をスキップするか（現在は未使用）
+            skip_normalization: 正規化をスキップするか
 
         Returns:
             差分情報
         """
         logger.info(f"差分検出開始: 元{len(original_text)}文字, 編集{len(edited_text)}文字")
 
-        return self._detector.detect_differences(original_text, edited_text)
+        # 正規化処理
+        if not skip_normalization:
+            # 改行を統一
+            normalized_original = original_text.replace('\r\n', '\n').replace('\r', '\n')
+            normalized_edited = edited_text.replace('\r\n', '\n').replace('\r', '\n')
+            
+            # 連続する改行を1つに
+            import re
+            normalized_original = re.sub(r'\n+', '\n', normalized_original)
+            normalized_edited = re.sub(r'\n+', '\n', normalized_edited)
+            
+            # 前後の空白を削除
+            normalized_original = normalized_original.strip()
+            normalized_edited = normalized_edited.strip()
+            
+            logger.info(f"正規化後: 元{len(normalized_original)}文字, 編集{len(normalized_edited)}文字")
+        else:
+            normalized_original = original_text
+            normalized_edited = edited_text
+
+        return self._detector.detect_differences(normalized_original, normalized_edited)
 
     def get_time_ranges_from_differences(
         self, differences: TextDifference, transcription: TranscriptionResult
@@ -157,11 +177,17 @@ class SimpleTextProcessorGateway(ITextProcessorGateway):
         Returns:
             差分情報
         """
-        # セパレータで分割して各セクションの差分を検出
+        # セパレータで分割
         sections = self.split_text_by_separator(target_text, separator)
-
-        # 現在は単純に全体の差分を検出
-        return self._detector.detect_differences(source_text, target_text, transcription_result)
+        
+        # 各セクションを結合（セパレータなしで）
+        combined_text = "".join(sections)
+        
+        logger.info(f"セパレータで{len(sections)}個のセクションに分割")
+        logger.info(f"結合後のテキスト長: {len(combined_text)}文字")
+        
+        # セパレータを除外したテキストで差分検出
+        return self.find_differences(source_text, combined_text, skip_normalization)
 
     def split_text_by_separator(self, text: str, separator: str) -> list[str]:
         """

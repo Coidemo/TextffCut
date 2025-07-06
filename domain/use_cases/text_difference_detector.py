@@ -37,123 +37,120 @@ class TextDifferenceDetector:
         テキストの差分を検出
 
         Args:
-            original_text: 元のテキスト
-            edited_text: 編集後のテキスト
+            original_text: 元のテキスト（文字起こし結果）
+            edited_text: 編集後のテキスト（切り抜き指定）
             transcription_result: 文字起こし結果（時間情報用）
 
         Returns:
             差分情報
         """
-        # 編集テキストが元のテキストの抜粋である場合を検出
-        if len(edited_text) < len(original_text) * 0.8:
-            return self._detect_excerpt_differences(original_text, edited_text, transcription_result)
-
-        # 通常の差分検出
-        return self._detect_full_differences(original_text, edited_text, transcription_result)
-
-    def _detect_excerpt_differences(
-        self, original_text: str, edited_text: str, transcription_result: TranscriptionResult | None
-    ) -> TextDifference:
-        """抜粋テキストの差分を検出"""
-        logger.info(f"抜粋として処理: 編集{len(edited_text)}文字 vs 元{len(original_text)}文字")
-
-        # 句読点を除去して位置を特定
-        edited_no_punct = self._remove_punctuation(edited_text)
-        position = original_text.find(edited_no_punct)
-
-        if position == -1:
-            # スペースの違いを考慮して再検索
-            original_no_space = original_text.replace(" ", "")
-            edited_no_space = edited_no_punct.replace(" ", "")
-            position_no_space = original_no_space.find(edited_no_space)
-
-            if position_no_space != -1:
-                # スペースなしで見つかった場合、元のテキストでの位置を推定
-                position = self._map_position_with_spaces(original_text, original_no_space, position_no_space)
-                logger.info(f"スペースを除去して抜粋を発見: 位置={position}")
-
-        if position == -1:
-            logger.warning("抜粋が元のテキスト内に見つかりません")
-            # 全体を追加として扱う
-            return self._create_all_added_difference(original_text, edited_text)
-
-        # 抜粋範囲内での差分を検出
-        excerpt_end = position + len(edited_no_punct)
-        original_excerpt = original_text[position:excerpt_end]
-
-        # 差分を検出
-        differences = self._compare_texts(original_excerpt, edited_text, position)
-
-        # 時間情報を付与
-        if transcription_result:
-            differences = self._add_time_information(differences, transcription_result, position)
-
-        return TextDifference(
-            id=self._generate_id(), original_text=original_text, edited_text=edited_text, differences=differences
-        )
-
-    def _detect_full_differences(
-        self, original_text: str, edited_text: str, transcription_result: TranscriptionResult | None
-    ) -> TextDifference:
-        """全体テキストの差分を検出"""
-        differences = self._compare_texts(original_text, edited_text, 0)
-
-        # 時間情報を付与
+        logger.info(f"差分検出開始: 元{len(original_text)}文字 vs 編集{len(edited_text)}文字")
+        
+        # デバッグ：編集テキストが元のテキストに含まれているか確認
+        if edited_text in original_text:
+            logger.info("✅ 編集テキストは元のテキストに完全に含まれています")
+        else:
+            logger.warning("⚠️ 編集テキストが元のテキストに完全には含まれていません")
+            # 最初の50文字を確認
+            logger.debug(f"元のテキスト冒頭: {repr(original_text[:100])}")
+            logger.debug(f"編集テキスト冒頭: {repr(edited_text[:100])}")
+        
+        # 文字単位で差分を検出（difffのようなアルゴリズム）
+        differences = self._detect_character_differences(original_text, edited_text)
+        
+        # 時間情報を付与（必要な場合）
         if transcription_result:
             differences = self._add_time_information(differences, transcription_result, 0)
-
+        
         return TextDifference(
-            id=self._generate_id(), original_text=original_text, edited_text=edited_text, differences=differences
+            id=self._generate_id(),
+            original_text=original_text,
+            edited_text=edited_text,
+            differences=differences
         )
 
-    def _compare_texts(
-        self, original: str, edited: str, offset: int
+    def _detect_character_differences(
+        self, original_text: str, edited_text: str
     ) -> list[tuple[DifferenceType, str, tuple[float, float] | None]]:
         """
-        2つのテキストを比較して差分を検出
-
-        シンプルな実装：句読点の追加のみを検出
+        文字単位で差分を検出（difffのようなアルゴリズム）
+        
+        Args:
+            original_text: 元のテキスト（文字起こし結果）
+            edited_text: 編集テキスト（切り抜き指定）
+            
+        Returns:
+            差分リスト（種別, テキスト, 時間範囲）
         """
         differences = []
-
-        # 句読点を除去
-        original_no_punct = self._remove_punctuation(original)
-        edited_no_punct = self._remove_punctuation(edited)
-
-        if original_no_punct == edited_no_punct:
-            # 句読点以外は同じ
-            # 共通部分と追加された句読点を検出
-            i = 0  # original index
-            j = 0  # edited index
-            current_text = ""
-
-            while j < len(edited):
-                if i < len(original) and original[i] == edited[j]:
-                    # 同じ文字
-                    current_text += edited[j]
-                    i += 1
-                    j += 1
-                elif edited[j] in "。、":
-                    # 句読点が追加された
-                    if current_text:
-                        differences.append((DifferenceType.UNCHANGED, current_text, None))
-                        current_text = ""
-                    differences.append((DifferenceType.ADDED, edited[j], None))
-                    j += 1
-                else:
-                    # 予期しない差分
-                    current_text += edited[j]
-                    j += 1
-
-            # 残りのテキスト
-            if current_text:
-                differences.append((DifferenceType.UNCHANGED, current_text, None))
-        else:
-            # より複雑な差分がある場合
-            # 簡易実装：全体を追加として扱う
-            differences.append((DifferenceType.ADDED, edited, None))
-
+        
+        if not edited_text:
+            # 編集テキストが空の場合
+            return differences
+        
+        # 編集テキストが元のテキストにそのまま含まれている場合（最も一般的）
+        if edited_text in original_text:
+            logger.info("編集テキストが元のテキストに完全に含まれています")
+            differences.append((DifferenceType.UNCHANGED, edited_text, None))
+            return differences
+        
+        # 最長共通部分文字列アプローチで差分を検出
+        # 編集テキストの各部分が元のテキストに連続して存在するか確認
+        current_pos = 0  # edited_text内の現在位置
+        
+        while current_pos < len(edited_text):
+            # 現在位置から始まる最長の一致部分を探す
+            best_match_len = 0
+            best_match_text = ""
+            
+            # 様々な長さの部分文字列を試す
+            for length in range(len(edited_text) - current_pos, 0, -1):
+                substr = edited_text[current_pos:current_pos + length]
+                if substr in original_text:
+                    best_match_len = length
+                    best_match_text = substr
+                    break
+            
+            if best_match_len > 0:
+                # 一致する部分が見つかった
+                differences.append((DifferenceType.UNCHANGED, best_match_text, None))
+                current_pos += best_match_len
+            else:
+                # 一致しない文字（追加文字）
+                # 次に一致する部分まで、または最後まで追加文字として扱う
+                added_text = ""
+                while current_pos < len(edited_text):
+                    # 次の文字から始まる部分が元のテキストに存在するか確認
+                    found_match = False
+                    for length in range(len(edited_text) - current_pos, 0, -1):
+                        if current_pos + 1 < len(edited_text):
+                            substr = edited_text[current_pos + 1:current_pos + 1 + length]
+                            if substr in original_text and len(substr) > 3:  # 3文字以上の一致を探す
+                                found_match = True
+                                break
+                    
+                    if found_match:
+                        # 次の位置から一致が見つかったので、現在の文字は追加文字
+                        added_text += edited_text[current_pos]
+                        differences.append((DifferenceType.ADDED, added_text, None))
+                        current_pos += 1
+                        break
+                    else:
+                        # 追加文字を継続
+                        added_text += edited_text[current_pos]
+                        current_pos += 1
+                
+                # 最後まで一致しなかった場合
+                if added_text and not any(d[1] == added_text for d in differences if d[0] == DifferenceType.ADDED):
+                    differences.append((DifferenceType.ADDED, added_text, None))
+        
+        logger.info(f"差分検出結果: {len(differences)}個の差分")
+        for diff_type, text, _ in differences:
+            logger.debug(f"  {diff_type.value}: {repr(text[:50])}...")
+        
         return differences
+    
+
 
     def _add_time_information(
         self,
@@ -166,29 +163,7 @@ class TextDifferenceDetector:
         # 現在は時間情報なしで返す
         return differences
 
-    def _remove_punctuation(self, text: str) -> str:
-        """句読点を除去"""
-        return text.replace("。", "").replace("、", "")
-
-    def _map_position_with_spaces(self, text_with_spaces: str, text_no_spaces: str, position_no_spaces: int) -> int:
-        """スペースなしの位置をスペースありの位置にマッピング"""
-        char_count = 0
-        for i, char in enumerate(text_with_spaces):
-            if char != " ":
-                if char_count == position_no_spaces:
-                    return i
-                char_count += 1
-        return -1
-
-    def _create_all_added_difference(self, original_text: str, edited_text: str) -> TextDifference:
-        """全体を追加として扱う差分を作成"""
-        return TextDifference(
-            id=self._generate_id(),
-            original_text=original_text,
-            edited_text=edited_text,
-            differences=[(DifferenceType.ADDED, edited_text, None)],
-        )
-
+    
     def _generate_id(self) -> str:
         """ID生成"""
         from uuid import uuid4

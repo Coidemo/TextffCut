@@ -479,7 +479,8 @@ def show_edited_text_with_separators_highlights(edited_text: str, separator: str
     # 元のテキストを取得
     full_text = ""
     if "transcription_result" in st.session_state:
-        full_text = st.session_state.transcription_result.get_full_text()
+        # textプロパティを使用（get_full_text()は削除された）
+        full_text = st.session_state.transcription_result.text
 
     # 編集テキストベースで赤ハイライトを生成
     html_content = (
@@ -510,21 +511,24 @@ def show_edited_text_with_separators_highlights(edited_text: str, separator: str
         covered_positions = set()
 
         # 共通部分でカバーされている位置をマーク（cleaned_sectionベース）
-        for common_pos in section_diff.common_positions:
-            common_text = common_pos.text
-            search_start = 0
+        from domain.entities.text_difference import DifferenceType
+        
+        for diff_type, text, _ in section_diff.differences:
+            if diff_type == DifferenceType.UNCHANGED:
+                common_text = text
+                search_start = 0
 
-            while True:
-                found_pos = cleaned_section.find(common_text, search_start)
-                if found_pos == -1:
-                    break
+                while True:
+                    found_pos = cleaned_section.find(common_text, search_start)
+                    if found_pos == -1:
+                        break
 
-                if not any(pos in covered_positions for pos in range(found_pos, found_pos + len(common_text))):
-                    for j in range(found_pos, found_pos + len(common_text)):
-                        covered_positions.add(j)
-                    break
+                    if not any(pos in covered_positions for pos in range(found_pos, found_pos + len(common_text))):
+                        for j in range(found_pos, found_pos + len(common_text)):
+                            covered_positions.add(j)
+                        break
 
-                search_start = found_pos + 1
+                    search_start = found_pos + 1
 
         # セクションのHTMLを生成
         # マーカーを除外した位置での対応付けが必要
