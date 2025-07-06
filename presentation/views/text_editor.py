@@ -238,8 +238,13 @@ class TextEditorView:
                 st.rerun()
                 
         # 追加取得ボタン
-        if st.button("🔄 新しい候補を追加取得", key="generate_more_buzz_clips", use_container_width=True):
-            self._generate_buzz_clips(force_new=True)
+        col_btn1, col_btn2 = st.columns([3, 1])
+        with col_btn1:
+            if st.button("🔄 新しい候補を追加取得", key="generate_more_buzz_clips", use_container_width=True):
+                with st.spinner("🤖 AIが新しい候補を生成中..."):
+                    self._generate_buzz_clips(force_new=True)
+        with col_btn2:
+            st.caption("💡 APIを使用")
 
     def _switch_to_candidate(self, candidate) -> None:
         """指定された候補に切り替え"""
@@ -314,17 +319,38 @@ class TextEditorView:
                     st.rerun()
             else:
                 # APIで新規生成
-                with st.spinner("🤖 AIで候補を生成中..."):
+                progress_bar = st.progress(0, text="🔍 AIが文字起こし結果を分析中...")
+                status_text = st.empty()
+                
+                try:
+                    # 進捗コールバック
+                    def progress_callback(progress: float, status: str):
+                        progress_bar.progress(progress, text=status)
+                        if progress >= 1.0:
+                            status_text.success("✅ 生成完了")
+                        else:
+                            status_text.info(f"🤖 {status}")
+                    
                     # セグメントを辞書形式に変換
                     segments = []
                     for seg in actual_result.segments:
                         segments.append({"text": seg.text, "start": seg.start, "end": seg.end})
+                    
+                    # 生成パラメータを表示
+                    info_col1, info_col2, info_col3 = st.columns(3)
+                    with info_col1:
+                        st.metric("生成候補数", f"{buzz_clip_presenter.view_model.num_candidates}個")
+                    with info_col2:
+                        st.metric("時間範囲", f"{buzz_clip_presenter.view_model.min_duration}-{buzz_clip_presenter.view_model.max_duration}秒")
+                    with info_col3:
+                        st.metric("使用API", "OpenAI GPT-4")
                     
                     # 生成実行
                     success = buzz_clip_presenter.generate_buzz_clips(
                         transcription_segments=segments,
                         video_path=video_path,
                         transcription_model=transcription_model,
+                        progress_callback=progress_callback,
                     )
                     
                     if success and buzz_clip_presenter.view_model.candidates:
@@ -333,10 +359,20 @@ class TextEditorView:
                         st.session_state["buzz_clip_current_index"] = 0
                         # 最初の候補を表示
                         self._switch_to_candidate(candidates[0])
-                        st.success(f"✅ {len(candidates)}個のバズクリップ候補を生成しました")
+                        progress_bar.empty()
+                        status_text.empty()
+                        st.success(f"✅ {len(candidates)}個のバズクリップ候補を生成しました（API使用）")
                         st.rerun()
                     else:
+                        progress_bar.empty()
+                        status_text.empty()
                         st.error("バズクリップの生成に失敗しました")
+                finally:
+                    # 進捗バーをクリア
+                    if 'progress_bar' in locals():
+                        progress_bar.empty()
+                    if 'status_text' in locals():
+                        status_text.empty()
         
         except Exception as e:
             st.error(f"エラーが発生しました: {str(e)}")
