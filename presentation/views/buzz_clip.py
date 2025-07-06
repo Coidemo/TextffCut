@@ -175,15 +175,6 @@ class BuzzClipView:
 
     def _render_results(self) -> None:
         """結果を表示"""
-        # 統計情報
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("生成された候補", f"{len(self.view_model.candidates)}個")
-        with col2:
-            st.metric("処理時間", f"{self.view_model.total_processing_time:.1f}秒")
-        with col3:
-            st.metric("使用モデル", self.view_model.model_used)
-
         # 新しく生成し直すボタン
         if st.button("🔄 新しく生成し直す", type="secondary", use_container_width=True):
             self.presenter.reset()
@@ -197,19 +188,8 @@ class BuzzClipView:
     def _render_candidate(self, candidate: BuzzClipCandidate) -> None:
         """候補を表示"""
         with st.container():
-            # タイトルとスコア
-            col1, col2 = st.columns([10, 2])
-            with col1:
-                st.markdown(f"### {candidate.title}")
-            with col2:
-                # スコアをバッジ風に表示
-                score_color = self._get_score_color(candidate.score)
-                st.markdown(
-                    f'<span style="background-color: {score_color}; color: white; '
-                    f'padding: 4px 8px; border-radius: 4px; font-weight: bold;">'
-                    f"スコア: {candidate.score}/20</span>",
-                    unsafe_allow_html=True,
-                )
+            # タイトル
+            st.markdown(f"### {candidate.title}")
 
             # メタ情報
             col_meta1, col_meta2, col_meta3 = st.columns(3)
@@ -252,17 +232,6 @@ class BuzzClipView:
                         st.markdown("**キーワード:** " + ", ".join(candidate.keywords))
 
             st.divider()
-
-    def _get_score_color(self, score: int) -> str:
-        """スコアに応じた色を取得"""
-        if score >= 16:
-            return "#28a745"  # 緑
-        elif score >= 12:
-            return "#ffc107"  # 黄
-        elif score >= 8:
-            return "#fd7e14"  # オレンジ
-        else:
-            return "#dc3545"  # 赤
 
 
 def show_buzz_clip_generation(container: Any, transcription_segments: list[dict[str, Any]] | None = None) -> None:
