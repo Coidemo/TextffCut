@@ -24,9 +24,13 @@ class Word:
         if self.start < 0:
             raise ValueError("Start time cannot be negative")
         if self.end < self.start:
-            raise ValueError(
-                f"End time must be greater than or equal to start time. Got start={self.start}, end={self.end}"
+            # データの不整合を修正（WhisperAPIの出力が不正確な場合がある）
+            from utils.logging import get_logger
+            logger = get_logger(__name__)
+            logger.warning(
+                f"End time < start time detected. Swapping values. start={self.start}, end={self.end}"
             )
+            self.start, self.end = self.end, self.start
         if self.confidence is not None and not 0 <= self.confidence <= 1:
             raise ValueError("Confidence must be between 0 and 1")
 
@@ -67,9 +71,13 @@ class Char:
         if self.start < 0:
             raise ValueError("Start time cannot be negative")
         if self.end < self.start:
-            raise ValueError(
-                f"End time must be greater than or equal to start time. Got start={self.start}, end={self.end}"
+            # データの不整合を修正（WhisperAPIの出力が不正確な場合がある）
+            from utils.logging import get_logger
+            logger = get_logger(__name__)
+            logger.warning(
+                f"End time < start time detected. Swapping values. start={self.start}, end={self.end}"
             )
+            self.start, self.end = self.end, self.start
         if self.confidence is not None and not 0 <= self.confidence <= 1:
             raise ValueError("Confidence must be between 0 and 1")
 
