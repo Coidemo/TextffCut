@@ -319,13 +319,26 @@ class TextEditorView:
                 status_text = st.empty()
                 
                 try:
+                    import time
+                    start_time = time.time()
+                    
                     # 進捗コールバック
                     def progress_callback(progress: float, status: str):
-                        progress_bar.progress(progress, text=status)
+                        elapsed_time = time.time() - start_time
+                        # APIレスポンス待ちの場合は経過時間を表示
+                        if "API" in status or "分析" in status:
+                            progress_bar.progress(progress, text=f"{status} （{elapsed_time:.1f}秒経過）")
+                        else:
+                            progress_bar.progress(progress, text=status)
+                        
                         if progress >= 1.0:
                             status_text.success("✅ 生成完了")
                         else:
-                            status_text.info(f"🤖 {status}")
+                            # API待ちの場合は詳細を表示
+                            if elapsed_time > 5:
+                                status_text.warning(f"⏳ APIレスポンス待ち... {elapsed_time:.0f}秒経過")
+                            else:
+                                status_text.info(f"🤖 {status}")
                     
                     # セグメントを辞書形式に変換
                     segments = []
@@ -336,6 +349,7 @@ class TextEditorView:
                     status_text.info(f"📈 生成設定: {buzz_clip_presenter.view_model.num_candidates}個の候補 / {buzz_clip_presenter.view_model.min_duration}-{buzz_clip_presenter.view_model.max_duration}秒 / OpenAI GPT-4")
                     
                     # 生成実行
+                    progress_callback(0.1, "APIへ接続中...")
                     success = buzz_clip_presenter.generate_buzz_clips(
                         transcription_segments=segments,
                         video_path=video_path,
@@ -357,6 +371,24 @@ class TextEditorView:
                         progress_bar.empty()
                         status_text.empty()
                         st.error("バズクリップの生成に失敗しました")
+                        # エラーの詳細を表示
+                        if buzz_clip_presenter.view_model.error_message:
+                            st.error(f"エラー詳細: {buzz_clip_presenter.view_model.error_message}")
+                except TimeoutError:
+                    progress_bar.empty()
+                    status_text.empty()
+                    st.error("⚠️ APIレスポンスがタイムアウトしました。しばらくしてから再度お試しください。")
+                except Exception as api_error:
+                    progress_bar.empty()
+                    status_text.empty()
+                    error_type = type(api_error).__name__
+                    if "RateLimitError" in error_type:
+                        st.error("🚫 APIのレート制限に達しました。少し待ってから再度お試しください。")
+                    elif "AuthenticationError" in error_type:
+                        st.error("🔒 APIキーが無効です。サイドバーで正しいAPIキーを設定してください。")
+                    else:
+                        st.error(f"❌ エラーが発生しました: {str(api_error)}")
+                    logger.error(f"API call error: {api_error}", exc_info=True)
                 finally:
                     # 進捗バーをクリア
                     if 'progress_bar' in locals():
@@ -365,7 +397,11 @@ class TextEditorView:
                         status_text.empty()
         
         except Exception as e:
-            st.error(f"エラーが発生しました: {str(e)}")
+            error_type = type(e).__name__
+            if "APIError" in str(e) or "openai" in str(e).lower():
+                st.error("📡 APIとの通信に問題が発生しました。ネットワーク接続を確認してください。")
+            else:
+                st.error(f"エラーが発生しました: {str(e)}")
             logger.error(f"Buzz clip generation error: {e}", exc_info=True)
     
     def _render_buzz_clip_section(self) -> None:
