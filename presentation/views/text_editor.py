@@ -124,15 +124,15 @@ class TextEditorView:
             st.caption("切り抜き箇所に指定した箇所が緑色でハイライトされます")
             # 文字起こし結果を表示
             self._render_transcription_result()
+            
+            # バズクリップ候補がある場合はナビゲーションUIを表示
+            if "buzz_clip_all_candidates" in st.session_state and st.session_state.buzz_clip_all_candidates:
+                self._render_buzz_clip_navigation()
 
         # 右カラム: テキスト編集
         with col2:
             st.markdown("#### 切り抜き箇所")
             st.caption("文字起こし結果から切り抜く箇所を入力してください")
-
-            # バズクリップ候補がある場合はナビゲーションUIを表示
-            if "buzz_clip_all_candidates" in st.session_state and st.session_state.buzz_clip_all_candidates:
-                self._render_buzz_clip_navigation()
 
             # テキストエディタ
             edited_text = self._render_text_editor()
@@ -203,6 +203,12 @@ class TextEditorView:
         candidates = st.session_state.buzz_clip_all_candidates
         current_index = st.session_state.get("buzz_clip_current_index", 0)
 
+        # 区切り線
+        st.divider()
+        
+        # バズクリップナビゲーションラベル
+        st.markdown("#### 🎬 バズクリップ候補")
+        
         # ナビゲーションコントロール
         nav_col1, nav_col2, nav_col3, nav_col4 = st.columns([1, 6, 1, 1])
 
@@ -218,7 +224,7 @@ class TextEditorView:
         with nav_col2:
             # 現在の候補情報
             candidate = candidates[current_index]
-            st.info(f"🎬 候補 {current_index + 1}/{len(candidates)}: {candidate.title}")
+            st.info(f"候補 {current_index + 1}/{len(candidates)}: {candidate.title}")
 
         with nav_col3:
             # 次の候補ボタン
