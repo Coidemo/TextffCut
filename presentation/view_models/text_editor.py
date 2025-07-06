@@ -58,6 +58,10 @@ class TextEditorViewModel(BaseViewModel):
     # 差分情報（ハイライト表示用）
     differences: Any | None = None
 
+    # 追加文字の情報
+    has_added_chars: bool = False
+    added_chars_info: list[str] = field(default_factory=list)
+
     # エラー状態
     error_message: str | None = None
 
@@ -149,6 +153,8 @@ class TextEditorViewModel(BaseViewModel):
         self.section_count = 0
         self.duration_text = ""
         self.differences = None
+        self.has_added_chars = False
+        self.added_chars_info = []
         self.error_message = None
         self.notify()
 
@@ -197,7 +203,7 @@ class TextEditorViewModel(BaseViewModel):
     def has_time_ranges(self) -> bool:
         """時間範囲が計算されているかどうか"""
         return len(self.time_ranges) > 0
-    
+
     @property
     def has_edited_text(self) -> bool:
         """編集されたテキストが存在するかどうか"""

@@ -2,7 +2,6 @@
 BuzzClipエンティティのテスト
 """
 
-import pytest
 from datetime import datetime
 
 from domain.entities.buzz_clip import (
@@ -14,7 +13,7 @@ from domain.entities.buzz_clip import (
 
 class TestBuzzClipCandidate:
     """BuzzClipCandidateのテスト"""
-    
+
     def test_create_factory_method(self):
         """ファクトリメソッドでの作成テスト"""
         candidate = BuzzClipCandidate.create(
@@ -25,9 +24,9 @@ class TestBuzzClipCandidate:
             score=18,
             category="驚き系",
             reasoning="視聴者の興味を引く内容",
-            keywords=["驚き", "衝撃"]
+            keywords=["驚き", "衝撃"],
         )
-        
+
         assert candidate.title == "驚きの瞬間"
         assert candidate.text == "これは本当に驚きました"
         assert candidate.start_time == 10.5
@@ -39,7 +38,7 @@ class TestBuzzClipCandidate:
         assert candidate.keywords == ["驚き", "衝撃"]
         assert candidate.id is not None
         assert isinstance(candidate.created_at, datetime)
-    
+
     def test_duration_calculation(self):
         """duration計算のテスト"""
         candidate = BuzzClipCandidate.create(
@@ -50,11 +49,11 @@ class TestBuzzClipCandidate:
             score=10,
             category="その他",
             reasoning="テスト",
-            keywords=[]
+            keywords=[],
         )
-        
+
         assert candidate.duration == 30.0
-    
+
     def test_to_dict(self):
         """辞書変換のテスト"""
         candidate = BuzzClipCandidate.create(
@@ -65,11 +64,11 @@ class TestBuzzClipCandidate:
             score=15,
             category="お役立ち系",
             reasoning="理由",
-            keywords=["キーワード1", "キーワード2"]
+            keywords=["キーワード1", "キーワード2"],
         )
-        
+
         result = candidate.to_dict()
-        
+
         assert result["title"] == "テストタイトル"
         assert result["text"] == "テストテキスト"
         assert result["start_time"] == 0.0
@@ -81,7 +80,7 @@ class TestBuzzClipCandidate:
         assert result["keywords"] == ["キーワード1", "キーワード2"]
         assert "id" in result
         assert "created_at" in result
-    
+
     def test_invalid_time_range(self):
         """無効な時間範囲のテスト"""
         # end_timeがstart_timeより小さい場合でも、エンティティ自体は作成される
@@ -94,28 +93,25 @@ class TestBuzzClipCandidate:
             score=10,
             category="その他",
             reasoning="テスト",
-            keywords=[]
+            keywords=[],
         )
-        
+
         assert candidate.duration == -20.0  # 負の値になる
 
 
 class TestBuzzClipGenerationRequest:
     """BuzzClipGenerationRequestのテスト"""
-    
+
     def test_default_values(self):
         """デフォルト値のテスト"""
         segments = [{"text": "テスト", "start": 0, "end": 10}]
-        request = BuzzClipGenerationRequest(
-            transcription_text="テスト",
-            transcription_segments=segments
-        )
-        
+        request = BuzzClipGenerationRequest(transcription_text="テスト", transcription_segments=segments)
+
         assert request.num_candidates == 5
         assert request.min_duration == 30
         assert request.max_duration == 40
         assert request.categories is None
-    
+
     def test_custom_values(self):
         """カスタム値のテスト"""
         segments = [{"text": "テスト", "start": 0, "end": 10}]
@@ -125,9 +121,9 @@ class TestBuzzClipGenerationRequest:
             num_candidates=3,
             min_duration=20,
             max_duration=50,
-            categories=["感動系", "驚き系"]
+            categories=["感動系", "驚き系"],
         )
-        
+
         assert request.num_candidates == 3
         assert request.min_duration == 20
         assert request.max_duration == 50
@@ -136,7 +132,7 @@ class TestBuzzClipGenerationRequest:
 
 class TestBuzzClipGenerationResult:
     """BuzzClipGenerationResultのテスト"""
-    
+
     def test_creation(self):
         """作成テスト"""
         candidates = [
@@ -148,24 +144,17 @@ class TestBuzzClipGenerationResult:
                 score=15 - i,
                 category="テスト",
                 reasoning=f"理由{i}",
-                keywords=[f"キーワード{i}"]
+                keywords=[f"キーワード{i}"],
             )
             for i in range(3)
         ]
-        
-        usage = {
-            "prompt_tokens": 1000,
-            "completion_tokens": 500,
-            "total_tokens": 1500
-        }
-        
+
+        usage = {"prompt_tokens": 1000, "completion_tokens": 500, "total_tokens": 1500}
+
         result = BuzzClipGenerationResult(
-            candidates=candidates,
-            total_processing_time=3.5,
-            model_used="gpt-4-turbo-preview",
-            usage=usage
+            candidates=candidates, total_processing_time=3.5, model_used="gpt-4-turbo-preview", usage=usage
         )
-        
+
         assert len(result.candidates) == 3
         assert result.total_processing_time == 3.5
         assert result.model_used == "gpt-4-turbo-preview"

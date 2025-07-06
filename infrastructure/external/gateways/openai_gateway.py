@@ -4,7 +4,7 @@ OpenAI APIとの通信ゲートウェイ
 
 import json
 import logging
-from typing import List, Dict, Any, Optional
+from typing import Any
 
 from openai import OpenAI
 
@@ -32,9 +32,7 @@ class OpenAIGateway(AIGatewayInterface):
         self.model = "gpt-4-turbo-preview"  # または gpt-3.5-turbo
         logger.info("OpenAI Gateway initialized")
 
-    def generate_buzz_clips(
-        self, request: BuzzClipGenerationRequest
-    ) -> BuzzClipGenerationResult:
+    def generate_buzz_clips(self, request: BuzzClipGenerationRequest) -> BuzzClipGenerationResult:
         """
         バズる切り抜き候補を生成
 
@@ -45,37 +43,32 @@ class OpenAIGateway(AIGatewayInterface):
             生成結果
         """
         import time
+
         start_time = time.time()
 
         try:
             # プロンプトを作成
             prompt = self._create_prompt(request)
-            
+
             # OpenAI APIを呼び出し
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
-                    {
-                        "role": "system",
-                        "content": self._get_system_prompt()
-                    },
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
+                    {"role": "system", "content": self._get_system_prompt()},
+                    {"role": "user", "content": prompt},
                 ],
                 temperature=0.7,
                 max_tokens=4000,
-                response_format={"type": "json_object"}
+                response_format={"type": "json_object"},
             )
 
             # レスポンスを解析
             content = response.choices[0].message.content
             logger.debug(f"OpenAI response: {content[:500]}...")
-            
+
             # JSON形式で返ってくるレスポンスをパース
             result_data = json.loads(content)
-            
+
             # BuzzClipCandidateのリストを作成
             candidates = []
             for clip_data in result_data.get("clips", []):
@@ -87,26 +80,23 @@ class OpenAIGateway(AIGatewayInterface):
                     score=clip_data["score"],
                     category=clip_data["category"],
                     reasoning=clip_data["reasoning"],
-                    keywords=clip_data.get("keywords", [])
+                    keywords=clip_data.get("keywords", []),
                 )
                 candidates.append(candidate)
-            
+
             # 使用量情報を取得
             usage = {
                 "prompt_tokens": response.usage.prompt_tokens,
                 "completion_tokens": response.usage.completion_tokens,
                 "total_tokens": response.usage.total_tokens,
             }
-            
+
             processing_time = time.time() - start_time
-            
+
             return BuzzClipGenerationResult(
-                candidates=candidates,
-                total_processing_time=processing_time,
-                model_used=self.model,
-                usage=usage
+                candidates=candidates, total_processing_time=processing_time, model_used=self.model, usage=usage
             )
-            
+
         except Exception as e:
             logger.error(f"OpenAI API error: {e}")
             raise
@@ -114,7 +104,7 @@ class OpenAIGateway(AIGatewayInterface):
     def _create_prompt(self, request: BuzzClipGenerationRequest) -> str:
         """プロンプトを作成"""
         segments_text = self._format_segments(request.transcription_segments)
-        
+
         prompt = f"""以下の動画の文字起こし結果から、{request.min_duration}〜{request.max_duration}秒のバズる切り抜きショート動画の候補を{request.num_candidates}個選んでください。
 
 【文字起こし結果】
@@ -146,10 +136,10 @@ JSON形式で以下の構造で出力してください：
 
         if request.categories:
             prompt += f"\n\n優先カテゴリ: {', '.join(request.categories)}"
-            
+
         return prompt
 
-    def _format_segments(self, segments: List[Dict[str, Any]]) -> str:
+    def _format_segments(self, segments: list[dict[str, Any]]) -> str:
         """セグメントをフォーマット"""
         formatted_lines = []
         for seg in segments:
@@ -171,9 +161,7 @@ JSON形式で以下の構造で出力してください：
 
 各候補に0-20のスコアを付けて、スコアの高い順に返してください。"""
 
-    def analyze_text_for_highlights(
-        self, text: str, num_highlights: int = 5
-    ) -> List[Dict[str, Any]]:
+    def analyze_text_for_highlights(self, text: str, num_highlights: int = 5) -> list[dict[str, Any]]:
         """
         テキストからハイライトを抽出（オプショナル機能）
 

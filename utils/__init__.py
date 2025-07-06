@@ -6,10 +6,10 @@ from .api_key_manager import api_key_manager
 from .cleanup import ProcessingContext, TempFileManager, cleanup_intermediate_files, cleanup_old_projects
 from .environment import DEFAULT_HOST_PATH, LOGS_DIR, OUTPUT_DIR, TEMP_DIR, VIDEOS_DIR
 from .exceptions import (
-    TextffCutError,
     ConfigurationError,
     FFmpegError,
     MemoryError,
+    TextffCutError,
     TranscriptionError,
     VideoProcessingError,
     WhisperError,

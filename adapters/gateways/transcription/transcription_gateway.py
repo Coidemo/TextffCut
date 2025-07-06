@@ -70,15 +70,16 @@ class TranscriptionGatewayAdapter(ITranscriptionGateway):
             current_use_api = self.config.transcription.use_api
             logger.info(f"TranscriptionGatewayAdapter.transcribe - APIモード: {current_use_api}")
             logger.info(f"model_size: {model_size}, video_path: {legacy_path}")
-            
+
             # 現在の設定に基づいてTranscriberを再作成（設定が変更されている可能性があるため）
-            if current_use_api != getattr(self._legacy_transcriber, '_last_use_api', None):
-                logger.info(f"APIモード設定が変更されました。Transcriberを再作成します。")
+            if current_use_api != getattr(self._legacy_transcriber, "_last_use_api", None):
+                logger.info("APIモード設定が変更されました。Transcriberを再作成します。")
                 from core.transcription import Transcriber as LegacyTranscriber
+
                 self._legacy_transcriber = LegacyTranscriber(self.config)
                 # 最後の設定を記録
                 self._legacy_transcriber._last_use_api = current_use_api
-            
+
             # レガシーメソッドを呼び出し
             legacy_result = self._legacy_transcriber.transcribe(
                 video_path=legacy_path,
@@ -131,7 +132,7 @@ class TranscriptionGatewayAdapter(ITranscriptionGateway):
             cache_path = self._legacy_transcriber.get_cache_path(str(video_path), model_size)
             logger.info(f"キャッシュパス: {cache_path}")
             logger.info(f"キャッシュパス存在確認: {cache_path.exists()}")
-            
+
             # キャッシュが存在しない場合の処理
             if not cache_path.exists():
                 # APIモードの場合、_apiサフィックスなしのファイルも確認
@@ -171,6 +172,7 @@ class TranscriptionGatewayAdapter(ITranscriptionGateway):
             logger.error(f"エラーの型: {type(e).__name__}")
             logger.error(f"エラーの詳細: {str(e)}")
             import traceback
+
             logger.error(f"スタックトレース:\n{traceback.format_exc()}")
             return None
 
@@ -307,7 +309,7 @@ class TranscriptionGatewayAdapter(ITranscriptionGateway):
     ) -> TranscriptionResult:
         """
         動画を並列で文字起こし
-        
+
         現在は通常のtranscribeメソッドを呼び出します。
         将来的に並列処理を実装予定。
         """

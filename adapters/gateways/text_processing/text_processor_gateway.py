@@ -4,6 +4,7 @@
 既存のTextProcessorクラスをラップし、クリーンアーキテクチャのインターフェースを提供します。
 """
 
+from uuid import uuid4
 
 from adapters.converters.text_converter import TextConverter
 from adapters.converters.transcription_converter import TranscriptionConverter
@@ -33,13 +34,16 @@ class TextProcessorGatewayAdapter(ITextProcessorGateway):
         self._text_converter = TextConverter()
         self._transcription_converter = TranscriptionConverter()
 
-    def find_differences(self, original_text: str, edited_text: str) -> TextDifference:
+    def find_differences(
+        self, original_text: str, edited_text: str, skip_normalization: bool = False
+    ) -> TextDifference:
         """
         テキストの差分を検出
 
         Args:
             original_text: 元のテキスト
             edited_text: 編集後のテキスト
+            skip_normalization: 正規化をスキップするか
 
         Returns:
             差分情報
@@ -49,7 +53,9 @@ class TextProcessorGatewayAdapter(ITextProcessorGateway):
         """
         try:
             # レガシーメソッドを呼び出し
-            legacy_diff = self._legacy_processor.find_differences(original=original_text, edited=edited_text)
+            legacy_diff = self._legacy_processor.find_differences(
+                original=original_text, edited=edited_text, skip_normalization=skip_normalization
+            )
 
             # ドメインエンティティに変換
             domain_diff = self._text_converter.legacy_difference_to_domain(legacy_diff)
@@ -280,7 +286,7 @@ class TextProcessorGatewayAdapter(ITextProcessorGateway):
         skip_normalization: bool = False,
     ) -> TextDifference:
         """
-        区切り文字を考慮して差分を検出
+        区切り文字と文脈指定を考慮して差分を検出
 
         Args:
             source_text: 元のテキスト
@@ -292,8 +298,37 @@ class TextProcessorGatewayAdapter(ITextProcessorGateway):
         Returns:
             差分情報
         """
-        # 通常の差分検出を使用（区切り文字の特別な処理は今のところ不要）
-        return self.find_differences(source_text, target_text)
+        try:
+            # レガシーの文字起こし結果に変換
+            legacy_transcription = self._convert_to_legacy_transcription(transcription_result)
+
+            # レガシーメソッドを呼び出して時間範囲を取得
+            time_ranges_tuples = self._legacy_processor.find_differences_with_separator(
+                source_text, target_text, legacy_transcription, separator, skip_normalization
+            )
+
+            # 結果からTextDifferenceを構築
+            # ここでは時間範囲から逆算して差分情報を作成
+            differences = []
+            for start_time, end_time in time_ranges_tuples:
+                # 時間範囲に対応するテキストを推定（簡易実装）
+                differences.append(
+                    (
+                        DifferenceType.UNCHANGED,
+                        "",  # テキストは空にする（時間範囲のみ重要）
+                        TimeRange(start=start_time, end=end_time),
+                    )
+                )
+
+            return TextDifference(
+                id=str(uuid4()), original_text=source_text, edited_text=target_text, differences=differences
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to find differences with separator: {e}")
+            from use_cases.exceptions import TextProcessingError
+
+            raise TextProcessingError(f"Failed to find differences with separator: {str(e)}", cause=e)
 
     def get_time_ranges(
         self, diff_result: TextDifference, transcription_result: TranscriptionResult
@@ -325,7 +360,7 @@ class TextProcessorGatewayAdapter(ITextProcessorGateway):
             # LegacyTranscriptionSegmentは辞書形式のwords/charsを期待している
             words = seg_dict.get("words")
             chars = seg_dict.get("chars")
-            
+
             segment = LegacyTranscriptionSegment(
                 start=seg_dict["start"],
                 end=seg_dict["end"],

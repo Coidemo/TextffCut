@@ -15,7 +15,6 @@ class ITextProcessorGateway(Protocol):
         self,
         original_text: str,
         edited_text: str,
-        transcription_result: TranscriptionResult,
         skip_normalization: bool = False,
     ) -> TextDifference:
         """
@@ -24,7 +23,6 @@ class ITextProcessorGateway(Protocol):
         Args:
             original_text: 元のテキスト
             edited_text: 編集後のテキスト
-            transcription_result: 文字起こし結果（タイムスタンプ用）
             skip_normalization: 正規化をスキップするか
 
         Returns:

@@ -5,6 +5,7 @@ Durationクラスの単体テスト
 """
 
 import pytest
+
 from domain.value_objects.duration import Duration
 
 
@@ -152,7 +153,7 @@ class TestDuration:
         test_cases = [
             ("00:00:00:00", 0),
             ("00:00:01:15", 1.5),  # 1秒 + 15フレーム(30fps) = 1.5秒
-            ("00:01:01:07", 61 + 7/30.0),  # 61秒 + 7フレーム
+            ("00:01:01:07", 61 + 7 / 30.0),  # 61秒 + 7フレーム
             ("01:01:01:15", 3661.5),  # 1時間1分1秒15フレーム
         ]
         for timecode, expected_seconds in test_cases:

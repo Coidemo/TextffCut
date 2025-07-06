@@ -2,7 +2,6 @@
 UIスタイルのユニットテスト
 """
 
-
 from ui.styles import get_custom_css, get_font_sizes, get_image_optimization_css
 
 

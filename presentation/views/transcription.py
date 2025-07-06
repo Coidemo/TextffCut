@@ -58,7 +58,6 @@ class TranscriptionView:
 
         # 動画情報で初期化
         self.presenter.initialize_with_video(video_path)
-        
 
         # 処理フラグ
         use_cache = False
@@ -88,24 +87,26 @@ class TranscriptionView:
                     modified_date = datetime.fromtimestamp(cache.modified_time).strftime("%Y-%m-%d %H:%M")
 
                     # デバッグ: cacheオブジェクトの内容を確認
-                    logger.info(f"Cache object: mode={getattr(cache, 'mode', 'NONE')}, model_size={cache.model_size}, is_api={cache.is_api}")
-                    
+                    logger.info(
+                        f"Cache object: mode={getattr(cache, 'mode', 'NONE')}, model_size={cache.model_size}, is_api={cache.is_api}"
+                    )
+
                     # modeフィールドが存在しない場合のフォールバック
-                    cache_mode = getattr(cache, 'mode', None)
+                    cache_mode = getattr(cache, "mode", None)
                     if cache_mode is None:
                         cache_mode = "API" if cache.is_api else "ローカル"
                         logger.warning(f"modeフィールドが見つかりません。is_apiから推測: {cache_mode}")
-                    
+
                     option_text = f"{cache_mode}モード - {cache.model_size} | {modified_date}"
                     cache_options.append(option_text)
                     cache_map[option_text] = cache
 
                 selected_option = st.selectbox(
-                    "保存済みの文字起こし結果", 
-                    cache_options, 
+                    "保存済みの文字起こし結果",
+                    cache_options,
                     index=None,  # デフォルトで何も選択しない
                     placeholder="キャッシュを選択してください",
-                    help="使用する文字起こし結果を選択してください"
+                    help="使用する文字起こし結果を選択してください",
                 )
 
                 if selected_option:
@@ -114,10 +115,10 @@ class TranscriptionView:
 
                 # キャッシュ使用ボタン
                 if st.button(
-                    "💾 選択した結果を使用", 
-                    type="primary", 
+                    "💾 選択した結果を使用",
+                    type="primary",
                     use_container_width=True,
-                    disabled=selected_option is None  # 選択されていない場合は無効
+                    disabled=selected_option is None,  # 選択されていない場合は無効
                 ):
                     if self.presenter.load_selected_cache():
                         use_cache = True
@@ -131,11 +132,11 @@ class TranscriptionView:
             if self.view_model.transcription_result:
                 # TranscriptionResultAdapterの場合は内部のドメインオブジェクトを取得
                 result = self.view_model.transcription_result
-                if hasattr(result, 'domain_result'):
+                if hasattr(result, "domain_result"):
                     result = result.domain_result
-                
+
                 # model_sizeからモードを判断
-                if hasattr(result, 'model_size'):
+                if hasattr(result, "model_size"):
                     model_size = result.model_size
                     mode_text = "API" if model_size == "whisper-1" else "ローカル"
                     st.success(f"✅ 文字起こし結果が読み込まれています ({mode_text}モード - {model_size})")
@@ -146,7 +147,7 @@ class TranscriptionView:
             st.divider()
             st.markdown("#### 🔄 新規文字起こし")
             st.info("新規に文字起こしを実行すると、現在の結果は上書きされます")
-        
+
         # 新規実行UI（結果の有無に関わらず表示）
         if not use_cache:
             # 処理モード・モデル選択・動画時間・料金を4カラムで横並び表示
@@ -202,7 +203,7 @@ class TranscriptionView:
             logger.info(f"実行ボタン表示 - text: {button_text}, has_result: {self.view_model.has_result}")
             if st.button(button_text, type=button_type, use_container_width=True):
                 logger.info(f"文字起こしボタンクリック - APIモード: {self.view_model.use_api}")
-                
+
                 # APIモードでAPIキーチェック
                 if self.view_model.use_api and not self.view_model.api_key:
                     logger.warning("APIキーが設定されていません")
@@ -210,12 +211,12 @@ class TranscriptionView:
                     return
 
                 logger.info("実行フラグを設定")
-                
+
                 # 既存の結果をクリア
                 if self.view_model.has_result:
                     logger.info("既存の結果をクリア")
                     self.presenter.clear_result()
-                
+
                 # 実行フラグを設定（SessionManagerに保存）
                 self.presenter.session_manager.set("transcription_should_run", True)
                 run_new = True
@@ -224,7 +225,9 @@ class TranscriptionView:
                 st.rerun()
 
         # 処理中の表示
-        logger.info(f"処理中の表示チェック - should_run: {self.view_model.should_run}, has_result: {self.view_model.has_result}")
+        logger.info(
+            f"処理中の表示チェック - should_run: {self.view_model.should_run}, has_result: {self.view_model.has_result}"
+        )
         if self.view_model.should_run and not self.view_model.has_result:
             logger.info("処理中UIを表示")
             self._show_processing_ui()

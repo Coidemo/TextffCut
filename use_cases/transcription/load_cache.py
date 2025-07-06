@@ -77,14 +77,14 @@ class LoadTranscriptionCacheUseCase(UseCase[LoadCacheRequest, TranscriptionResul
         try:
             # actual_filenameがある場合はそれを使用、なければmodel_sizeを使用
             cache_model_size = selected_cache.get("actual_filename", selected_cache["model_size"])
-            
+
             # キャッシュの読み込み
-            result = self.gateway.load_from_cache(
-                video_path=request.video_path, model_size=cache_model_size
-            )
+            result = self.gateway.load_from_cache(video_path=request.video_path, model_size=cache_model_size)
 
             if not result:
-                self.logger.warning(f"Gateway returned None for cache: {request.video_path}, model: {selected_cache['model_size']}")
+                self.logger.warning(
+                    f"Gateway returned None for cache: {request.video_path}, model: {selected_cache['model_size']}"
+                )
                 raise CacheNotFoundError("Cache file exists but could not be loaded")
 
             # 検証
@@ -103,9 +103,7 @@ class LoadTranscriptionCacheUseCase(UseCase[LoadCacheRequest, TranscriptionResul
             self.logger.error(f"Failed to load cache: {str(e)}")
             raise TranscriptionError(f"Failed to load cache: {str(e)}", cause=e)
 
-    def _select_cache(
-        self, available_caches: list[dict[str, Any]], model_size: str | None
-    ) -> dict[str, Any] | None:
+    def _select_cache(self, available_caches: list[dict[str, Any]], model_size: str | None) -> dict[str, Any] | None:
         """キャッシュを選択"""
         if model_size:
             # 指定されたモデルのキャッシュを探す

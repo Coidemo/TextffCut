@@ -894,10 +894,10 @@ class VideoProcessor:
             # 時間パラメータを数値に変換
             start_time = float(start_time)
             end_time = float(end_time)
-            
+
             # 継続時間を計算
             duration = end_time - start_time
-            
+
             cmd = [
                 "ffmpeg",
                 "-y",
@@ -923,7 +923,7 @@ class VideoProcessor:
 
             if result.returncode != 0:
                 from utils.exceptions import FFmpegError
-                
+
                 logger.error(f"FFmpeg command failed: {' '.join(cmd)}")
                 logger.error(f"FFmpeg stderr: {result.stderr}")
                 raise FFmpegError(" ".join(cmd), result.stderr)

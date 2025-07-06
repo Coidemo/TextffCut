@@ -3,7 +3,7 @@ AI処理ゲートウェイのインターフェース
 """
 
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any
+from typing import Any
 
 from domain.entities.buzz_clip import (
     BuzzClipGenerationRequest,
@@ -15,9 +15,7 @@ class AIGatewayInterface(ABC):
     """AI処理ゲートウェイのインターフェース"""
 
     @abstractmethod
-    def generate_buzz_clips(
-        self, request: BuzzClipGenerationRequest
-    ) -> BuzzClipGenerationResult:
+    def generate_buzz_clips(self, request: BuzzClipGenerationRequest) -> BuzzClipGenerationResult:
         """
         バズる切り抜き候補を生成
 
@@ -30,9 +28,7 @@ class AIGatewayInterface(ABC):
         pass
 
     @abstractmethod
-    def analyze_text_for_highlights(
-        self, text: str, num_highlights: int = 5
-    ) -> List[Dict[str, Any]]:
+    def analyze_text_for_highlights(self, text: str, num_highlights: int = 5) -> list[dict[str, Any]]:
         """
         テキストからハイライトを抽出
 

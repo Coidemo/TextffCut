@@ -44,7 +44,7 @@ def show_app_title(version: str = "v1.0.0") -> None:
             f'<span style="font-size: 3rem; font-weight: bold;">{title_text}</span>',
             unsafe_allow_html=True,
         )
-    
+
     # サブタイトル
     st.markdown(
         f'<p style="margin-top: -10px; margin-bottom: 20px; color: #666; font-size: 1.1rem;">{subtitle_text}</p>',

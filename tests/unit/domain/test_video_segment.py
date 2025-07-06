@@ -5,6 +5,7 @@ VideoSegmentクラスの単体テスト
 """
 
 import pytest
+
 from domain.entities.video_segment import VideoSegment
 
 
@@ -13,13 +14,7 @@ class TestVideoSegment:
 
     def test_init_with_valid_values(self):
         """有効な値で初期化できることを確認"""
-        segment = VideoSegment(
-            id="seg1",
-            start=10.0,
-            end=20.0,
-            is_silence=False,
-            metadata={"source": "test"}
-        )
+        segment = VideoSegment(id="seg1", start=10.0, end=20.0, is_silence=False, metadata={"source": "test"})
         assert segment.id == "seg1"
         assert segment.start == 10.0
         assert segment.end == 20.0
@@ -69,11 +64,11 @@ class TestVideoSegment:
         segment1 = VideoSegment(id="seg1", start=10.0, end=20.0)
         segment2 = VideoSegment(id="seg2", start=15.0, end=25.0)
         segment3 = VideoSegment(id="seg3", start=25.0, end=30.0)
-        
+
         # 重なる
         assert segment1.overlaps_with(segment2) is True
         assert segment2.overlaps_with(segment1) is True
-        
+
         # 重ならない
         assert segment1.overlaps_with(segment3) is False
         assert segment3.overlaps_with(segment1) is False
@@ -81,7 +76,7 @@ class TestVideoSegment:
     def test_contains_time(self):
         """containsメソッドが時刻を正しく判定することを確認"""
         segment = VideoSegment(id="seg1", start=10.0, end=20.0)
-        
+
         # 範囲内
         assert segment.contains(15.0) is True
         # 境界値
@@ -95,7 +90,7 @@ class TestVideoSegment:
         """merge_withメソッドが隣接するセグメントを正しくマージすることを確認"""
         segment1 = VideoSegment(id="seg1", start=10.0, end=20.0, is_silence=False)
         segment2 = VideoSegment(id="seg2", start=20.0, end=30.0, is_silence=False)
-        
+
         merged = segment1.merge_with(segment2)
         assert merged.start == 10.0
         assert merged.end == 30.0
@@ -105,7 +100,7 @@ class TestVideoSegment:
         """merge_withメソッドが重なるセグメントを正しくマージすることを確認"""
         segment1 = VideoSegment(id="seg1", start=10.0, end=20.0, is_silence=True)
         segment2 = VideoSegment(id="seg2", start=15.0, end=25.0, is_silence=True)
-        
+
         merged = segment1.merge_with(segment2)
         assert merged.start == 10.0
         assert merged.end == 25.0
@@ -115,20 +110,20 @@ class TestVideoSegment:
         """merge_withメソッドが離れたセグメントでエラーになることを確認"""
         segment1 = VideoSegment(id="seg1", start=10.0, end=20.0)
         segment2 = VideoSegment(id="seg2", start=30.0, end=40.0)
-        
+
         with pytest.raises(ValueError, match="Segments must be adjacent or overlapping to merge"):
             segment1.merge_with(segment2)
 
     def test_split_at(self):
         """split_atメソッドが正しくセグメントを分割することを確認"""
         segment = VideoSegment(id="seg1", start=10.0, end=30.0, is_silence=True)
-        
+
         first, second = segment.split_at(20.0)
-        
+
         assert first.start == 10.0
         assert first.end == 20.0
         assert first.is_silence is True
-        
+
         assert second.start == 20.0
         assert second.end == 30.0
         assert second.is_silence is True
@@ -136,27 +131,27 @@ class TestVideoSegment:
     def test_split_at_boundary(self):
         """split_atメソッドが境界値でエラーになることを確認"""
         segment = VideoSegment(id="seg1", start=10.0, end=20.0)
-        
+
         with pytest.raises(ValueError, match="Cannot split at segment boundaries"):
             segment.split_at(10.0)
-        
+
         with pytest.raises(ValueError, match="Cannot split at segment boundaries"):
             segment.split_at(20.0)
 
     def test_split_at_invalid_point_raises_error(self):
         """split_atメソッドが無効な分割点でエラーになることを確認"""
         segment = VideoSegment(id="seg1", start=10.0, end=20.0)
-        
+
         with pytest.raises(ValueError, match="Split time .* is outside segment range"):
             segment.split_at(5.0)
-        
+
         with pytest.raises(ValueError, match="Split time .* is outside segment range"):
             segment.split_at(25.0)
 
     def test_with_padding(self):
         """with_paddingメソッドが正しくパディングを追加することを確認"""
         segment = VideoSegment(id="seg1", start=10.0, end=20.0)
-        
+
         padded = segment.with_padding(2.0, 3.0)
         assert padded.start == 8.0
         assert padded.end == 23.0
@@ -168,7 +163,7 @@ class TestVideoSegment:
     def test_with_padding_clamps_to_zero(self):
         """with_paddingメソッドが開始時間を0未満にしないことを確認"""
         segment = VideoSegment(id="seg1", start=1.0, end=5.0)
-        
+
         padded = segment.with_padding(5.0, 2.0)
         assert padded.start == 0.0  # 負にならない
         assert padded.end == 7.0
@@ -176,7 +171,7 @@ class TestVideoSegment:
     def test_from_time_range(self):
         """from_time_rangeクラスメソッドが正しく動作することを確認"""
         segment = VideoSegment.from_time_range((10.0, 20.0), is_silence=True)
-        
+
         assert segment.start == 10.0
         assert segment.end == 20.0
         assert segment.is_silence is True
@@ -185,7 +180,7 @@ class TestVideoSegment:
     def test_from_time_range_with_defaults(self):
         """from_time_rangeクラスメソッドのデフォルト値を確認"""
         segment = VideoSegment.from_time_range((10.0, 20.0))
-        
+
         assert segment.start == 10.0
         assert segment.end == 20.0
         assert segment.is_silence is False  # デフォルト
@@ -198,9 +193,9 @@ class TestVideoSegment:
             VideoSegment(id="seg3", start=20.0, end=30.0),  # 離れている
             VideoSegment(id="seg4", start=29.9, end=40.0),  # ほぼ隣接
         ]
-        
+
         merged = VideoSegment.merge_segments(segments, gap_threshold=0.1)
-        
+
         assert len(merged) == 2
         assert merged[0].start == 0.0
         assert merged[0].end == 15.0

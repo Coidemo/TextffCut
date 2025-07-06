@@ -24,7 +24,9 @@ class Word:
         if self.start < 0:
             raise ValueError("Start time cannot be negative")
         if self.end < self.start:
-            raise ValueError(f"End time must be greater than or equal to start time. Got start={self.start}, end={self.end}")
+            raise ValueError(
+                f"End time must be greater than or equal to start time. Got start={self.start}, end={self.end}"
+            )
         if self.confidence is not None and not 0 <= self.confidence <= 1:
             raise ValueError("Confidence must be between 0 and 1")
 
@@ -65,7 +67,9 @@ class Char:
         if self.start < 0:
             raise ValueError("Start time cannot be negative")
         if self.end < self.start:
-            raise ValueError(f"End time must be greater than or equal to start time. Got start={self.start}, end={self.end}")
+            raise ValueError(
+                f"End time must be greater than or equal to start time. Got start={self.start}, end={self.end}"
+            )
         if self.confidence is not None and not 0 <= self.confidence <= 1:
             raise ValueError("Confidence must be between 0 and 1")
 
@@ -196,7 +200,7 @@ class TranscriptionResult:
             raise ValueError("Transcription result must have at least one segment")
         if self.processing_time < 0:
             raise ValueError("Processing time cannot be negative")
-        
+
         # segmentsが辞書のリストの場合、TranscriptionSegmentオブジェクトに変換
         normalized_segments = []
         for seg in self.segments:
@@ -217,7 +221,7 @@ class TranscriptionResult:
     @property
     def text(self) -> str:
         """全セグメントのテキストを結合"""
-        return " ".join(seg.text for seg in self.segments)
+        return "".join(seg.text for seg in self.segments)
 
     @property
     def has_word_level_timestamps(self) -> bool:

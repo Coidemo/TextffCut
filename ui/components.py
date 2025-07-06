@@ -408,102 +408,57 @@ def show_text_editor(initial_text: str = "", height: int = 400) -> str:
 
 def show_edited_text_with_highlights(edited_text: str, diff: TextDifference | None = None, height: int = 400) -> None:
     """
-    編集テキストに赤ハイライト表示
+    編集テキストに赤ハイライト表示（シンプル版）
 
-    Args:
-        edited_text: 編集されたテキスト
-        diff: 差分情報
-        height: ビューアの高さ
+    追加文字（ADDED）だけを赤くハイライトする簡易実装
     """
     if not edited_text or diff is None:
         return
 
-    from core.text_processor import TextProcessor
-
-    text_processor = TextProcessor()
-
-    # マーカーの位置を記録
-    import re
-
-    marker_pattern = re.compile(r"\[(\d+(?:\.\d+)?)[<>]\]|\[[<>](\d+(?:\.\d+)?)\]")
-    marker_positions = set()
-    for match in marker_pattern.finditer(edited_text):
-        for pos in range(match.start(), match.end()):
-            marker_positions.add(pos)
-
-    # マーカーを除去したテキスト
-    cleaned_text = text_processor.remove_boundary_markers(edited_text)
-
-    # 編集テキストベースで赤ハイライトを生成
     html_content = (
         f'<div class="edited-text-viewer" style="height: {height}px; overflow-y: auto; '
         f'padding: 10px; border: 1px solid #ddd; border-radius: 5px; background-color: #f9f9f9;">'
     )
 
-    # シンプルな文字列検索ベースの方法
-    # 既存の共通部分の情報を使用
-    covered_positions = set()
-
-    # ドメインエンティティ形式とレガシー形式の両方に対応
-    if hasattr(diff, 'differences'):
-        # ドメインエンティティ形式
+    # 追加文字を取得
+    added_chars = set()
+    if hasattr(diff, "differences"):
+        # ドメインエンティティの場合
         from domain.entities.text_difference import DifferenceType
-        
-        # 共通部分（UNCHANGED）のテキストを抽出
+
         for diff_type, text, _ in diff.differences:
-            if diff_type == DifferenceType.UNCHANGED:
-                # 編集テキスト内でこの共通テキストを検索
-                search_start = 0
-                while True:
-                    found_pos = cleaned_text.find(text, search_start)
-                    if found_pos == -1:
-                        break
+            if diff_type == DifferenceType.ADDED:
+                # 各文字を追加文字セットに追加
+                for char in text:
+                    added_chars.add(char)
+    elif hasattr(diff, "added_chars"):
+        # レガシー形式の場合
+        added_chars = diff.added_chars if diff.added_chars else set()
 
-                    # この位置がまだカバーされていない場合のみマーク
-                    if not any(pos in covered_positions for pos in range(found_pos, found_pos + len(text))):
-                        for i in range(found_pos, found_pos + len(text)):
-                            covered_positions.add(i)
-                        break
+    # デバッグ情報をログ出力
+    import logging
 
-                    search_start = found_pos + 1
-    else:
-        # レガシー形式
-        for common_pos in diff.common_positions:
-            # 編集テキスト内でこの共通テキストを検索
-            common_text = common_pos.text
-            search_start = 0
-
-            while True:
-                found_pos = cleaned_text.find(common_text, search_start)
-                if found_pos == -1:
-                    break
-
-                # この位置がまだカバーされていない場合のみマーク
-                if not any(pos in covered_positions for pos in range(found_pos, found_pos + len(common_text))):
-                    for i in range(found_pos, found_pos + len(common_text)):
-                        covered_positions.add(i)
-                    break
-
-                search_start = found_pos + 1
+    logger = logging.getLogger(__name__)
+    logger.info(f"[show_edited_text_with_highlights] diffの型: {type(diff)}")
+    logger.info(f"[show_edited_text_with_highlights] hasattr(differences): {hasattr(diff, 'differences')}")
+    logger.info(f"[show_edited_text_with_highlights] hasattr(added_chars): {hasattr(diff, 'added_chars')}")
+    logger.info(f"[show_edited_text_with_highlights] 追加文字数: {len(added_chars)}")
+    logger.info(f"[show_edited_text_with_highlights] 追加文字: {added_chars}")
 
     # HTMLを生成
-    cleaned_pos = 0  # cleaned_text内での位置
-    for i, char in enumerate(edited_text):
-        if i in marker_positions:
-            # マーカー文字はそのまま表示（ハイライトなし）
-            html_content += char
+    highlighted_count = 0
+    for char in edited_text:
+        if char in added_chars:
+            html_content += (
+                f'<span class="highlight-addition" style="background-color: #ffe6e6; ' f'color: #d00;">{char}</span>'
+            )
+            highlighted_count += 1
         else:
-            # 非マーカー文字の処理
-            if cleaned_pos in covered_positions:
-                html_content += char  # 元テキストに存在
-            else:
-                html_content += (
-                    f'<span class="highlight-addition" style="background-color: #ffe6e6; '
-                    f'color: #d00;">{char}</span>'
-                )  # 追加文字
-            cleaned_pos += 1
+            html_content += char
 
     html_content += "</div>"
+
+    logger.info(f"[show_edited_text_with_highlights] ハイライトされた文字数: {highlighted_count}/{len(edited_text)}")
 
     st.markdown(html_content, unsafe_allow_html=True)
 
@@ -608,6 +563,29 @@ def show_red_highlight_modal(edited_text: str, diff: TextDifference | None = Non
     """
     st.markdown("赤色の部分を削除してください。")
 
+    # デバッグ情報を表示
+    with st.expander("🔍 デバッグ情報", expanded=False):
+        st.write(f"差分オブジェクトの型: {type(diff)}")
+        st.write(f"hasattr(diff, 'differences'): {hasattr(diff, 'differences') if diff else 'None'}")
+        if diff and hasattr(diff, "differences"):
+            st.write(f"differences数: {len(diff.differences) if diff.differences else 0}")
+            if diff.differences:
+                from domain.entities.text_difference import DifferenceType
+
+                unchanged_count = sum(1 for d in diff.differences if d[0] == DifferenceType.UNCHANGED)
+                added_count = sum(1 for d in diff.differences if d[0] == DifferenceType.ADDED)
+                st.write(f"UNCHANGED: {unchanged_count}個, ADDED: {added_count}個")
+
+                # UNCHANGEDの合計長さを計算
+                unchanged_total = sum(len(d[1]) for d in diff.differences if d[0] == DifferenceType.UNCHANGED)
+                st.write(f"UNCHANGEDの合計長さ: {unchanged_total}")
+
+                # 全ての差分を表示
+                for i, (diff_type, text, _) in enumerate(diff.differences):
+                    st.write(f"差分{i+1}: {diff_type.value}, 長さ={len(text)}, 内容='{repr(text[:30])}...'")
+        st.write(f"edited_text長さ: {len(edited_text)}")
+        st.write(f"edited_text内容: {repr(edited_text[:50])}...")
+
     # 元のテキスト（区切り文字付き）を取得
     original_edited_text = st.session_state.get("original_edited_text", edited_text)
 
@@ -627,6 +605,9 @@ def show_red_highlight_modal(edited_text: str, diff: TextDifference | None = Non
         show_edited_text_with_highlights(edited_text, diff, height=300)
 
     if st.button("削除", type="primary", use_container_width=True, key="delete_highlights_modal"):
+        # 既に渡されたdiffオブジェクトを使用
+        # これにより、ゲートウェイ経由で処理されたドメイン形式の差分が使われる
+
         # 区切り文字がある場合の処理
         original_edited_text = st.session_state.get("original_edited_text", edited_text)
 
@@ -639,48 +620,24 @@ def show_red_highlight_modal(edited_text: str, diff: TextDifference | None = Non
                 break
 
         if found_separator:
-            # 区切り文字がある場合：各セクションから個別に赤ハイライト削除
-            from core.text_processor import TextProcessor
-
-            text_processor = TextProcessor()
-            sections = text_processor.split_text_by_separator(original_edited_text, found_separator)
-
-            # 元のテキストを取得（モーダル呼び出し元から）
-            full_text = ""
-            if "transcription_result" in st.session_state:
-                full_text = st.session_state.transcription_result.get_full_text()
-
-            cleaned_sections = []
-            for section in sections:
-                section_diff = text_processor.find_differences(full_text, section)
-                # ドメインエンティティとレガシー形式の両方に対応
-                if hasattr(section_diff, 'differences'):
-                    # ドメインエンティティ形式
-                    from domain.entities.text_difference import DifferenceType
-                    cleaned_section = "".join(
-                        text for diff_type, text, _ in section_diff.differences 
-                        if diff_type == DifferenceType.UNCHANGED
-                    )
-                else:
-                    # レガシー形式
-                    cleaned_section = "".join(pos.text for pos in section_diff.common_positions)
-                if cleaned_section.strip():
-                    cleaned_sections.append(cleaned_section)
-
-            cleaned_text = f"\n{found_separator}\n".join(cleaned_sections)
+            # 区切り文字がある場合：各セクションの処理
+            # TODO: 区切り文字ありの場合の処理を実装
+            cleaned_text = edited_text  # 一旦元のテキストを返す
         else:
-            # 区切り文字がない場合：通常の処理
-            # ドメインエンティティとレガシー形式の両方に対応
-            if hasattr(diff, 'differences'):
+            # 区切り文字がない場合：単純に共通部分を結合
+            if diff and hasattr(diff, "differences"):
                 # ドメインエンティティ形式
                 from domain.entities.text_difference import DifferenceType
+
                 cleaned_text = "".join(
-                    text for diff_type, text, _ in diff.differences 
-                    if diff_type == DifferenceType.UNCHANGED
+                    text for diff_type, text, _ in diff.differences if diff_type == DifferenceType.UNCHANGED
                 )
-            else:
+            elif diff and hasattr(diff, "common_positions"):
                 # レガシー形式
                 cleaned_text = "".join(pos.text for pos in diff.common_positions)
+            else:
+                # diffがない場合は元のテキストを返す
+                cleaned_text = edited_text
 
         st.session_state.edited_text = cleaned_text
         st.session_state.show_modal = False
@@ -712,10 +669,10 @@ def show_diff_viewer(original_text: str, diff: TextDifference | None = None, hei
         )
 
         # ドメインエンティティ形式の場合
-        if hasattr(diff, 'differences'):
+        if hasattr(diff, "differences"):
             # DifferenceTypeのインポート
             from domain.entities.text_difference import DifferenceType
-            
+
             # 元のテキスト全体を表示しつつ、共通部分（UNCHANGED）をハイライト
             # 共通部分の位置を特定
             highlight_positions = []
@@ -725,7 +682,7 @@ def show_diff_viewer(original_text: str, diff: TextDifference | None = None, hei
                     start_pos = diff.original_text.find(text)
                     if start_pos != -1:
                         highlight_positions.append((start_pos, start_pos + len(text), text))
-            
+
             # 元のテキストを表示しながらハイライト
             current_pos = 0
             for start, end, text in sorted(highlight_positions):
@@ -735,13 +692,13 @@ def show_diff_viewer(original_text: str, diff: TextDifference | None = None, hei
                 # ハイライト部分（緑）
                 html_content += f'<span class="highlight-match" style="background-color: #e6ffe6;">{text}</span>'
                 current_pos = end
-            
+
             # 残りの部分
             if current_pos < len(original_text):
                 html_content += original_text[current_pos:]
-        
+
         # レガシー形式の場合
-        elif hasattr(diff, 'common_positions'):
+        elif hasattr(diff, "common_positions"):
             current_pos = 0
             for pos in diff.common_positions:
                 # 共通部分の前のテキスト（削除された部分）

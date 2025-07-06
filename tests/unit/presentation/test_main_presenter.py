@@ -4,13 +4,13 @@ MainPresenterの単体テスト
 アプリケーション全体のワークフローを管理するPresenterのテストです。
 """
 
-import pytest
-from unittest.mock import Mock, MagicMock, patch
-from datetime import datetime
+from unittest.mock import Mock
 
+import pytest
+
+from domain.interfaces.error_handler import ErrorHandler
 from presentation.presenters.main import MainPresenter, WorkflowStep
 from presentation.view_models.main import MainViewModel
-from domain.interfaces.error_handler import ErrorHandler
 
 
 class TestMainPresenter:
@@ -92,9 +92,16 @@ class TestMainPresenter:
         return handler
 
     @pytest.fixture
-    def presenter(self, mock_view_model, mock_video_input_presenter, mock_transcription_presenter,
-                  mock_text_editor_presenter, mock_export_settings_presenter,
-                  mock_session_manager, mock_error_handler):
+    def presenter(
+        self,
+        mock_view_model,
+        mock_video_input_presenter,
+        mock_transcription_presenter,
+        mock_text_editor_presenter,
+        mock_export_settings_presenter,
+        mock_session_manager,
+        mock_error_handler,
+    ):
         """テスト用のPresenterインスタンスを作成"""
         return MainPresenter(
             view_model=mock_view_model,
@@ -103,21 +110,21 @@ class TestMainPresenter:
             text_editor_presenter=mock_text_editor_presenter,
             export_settings_presenter=mock_export_settings_presenter,
             session_manager=mock_session_manager,
-            error_handler=mock_error_handler
+            error_handler=mock_error_handler,
         )
 
     def test_initialization(self, presenter, mock_view_model):
         """初期化時の動作を確認"""
         # ViewModelのsubscribeが各プレゼンターに対して呼ばれたことを確認
         assert mock_view_model.subscribe.call_count >= 1
-        
+
         # 初期状態の確認
         assert presenter.view_model.current_step == WorkflowStep.VIDEO_INPUT
 
     def test_navigate_to_step_video_input(self, presenter, mock_view_model):
         """VIDEO_INPUTステップへのナビゲーションを確認"""
         presenter.navigate_to_step(WorkflowStep.VIDEO_INPUT)
-        
+
         mock_view_model.current_step = WorkflowStep.VIDEO_INPUT
         mock_view_model.notify.assert_called()
 
@@ -125,9 +132,9 @@ class TestMainPresenter:
         """TRANSCRIPTIONステップへのナビゲーションを確認"""
         # 前提条件を満たす
         mock_video_input_presenter.view_model.has_video = True
-        
+
         presenter.navigate_to_step(WorkflowStep.TRANSCRIPTION)
-        
+
         mock_view_model.current_step = WorkflowStep.TRANSCRIPTION
         mock_view_model.notify.assert_called()
 
@@ -135,9 +142,9 @@ class TestMainPresenter:
         """前提条件を満たさない場合のナビゲーションを確認"""
         # 動画がない状態でTRANSCRIPTIONに遷移しようとする
         mock_video_input_presenter.view_model.has_video = False
-        
+
         presenter.navigate_to_step(WorkflowStep.TRANSCRIPTION)
-        
+
         # エラーメッセージが設定されることを確認
         mock_view_model.error_message = "動画を選択してください"
 
@@ -145,9 +152,9 @@ class TestMainPresenter:
         """ワークフローのリセットを確認"""
         # いくつかのステップを完了した状態にする
         mock_view_model.completed_steps = {WorkflowStep.VIDEO_INPUT, WorkflowStep.TRANSCRIPTION}
-        
+
         presenter.reset_workflow()
-        
+
         # リセット後の確認
         mock_view_model.current_step = WorkflowStep.VIDEO_INPUT
         mock_view_model.completed_steps = set()
@@ -158,83 +165,89 @@ class TestMainPresenter:
     def test_handle_help_toggle(self, presenter, mock_view_model):
         """ヘルプトグルの処理を確認"""
         mock_view_model.is_help_open = False
-        
+
         presenter.handle_help_toggle()
-        
+
         mock_view_model.is_help_open = True
         mock_view_model.notify.assert_called()
 
     def test_handle_settings_toggle(self, presenter, mock_view_model):
         """設定トグルの処理を確認"""
         mock_view_model.is_settings_open = False
-        
+
         presenter.handle_settings_toggle()
-        
+
         mock_view_model.is_settings_open = True
         mock_view_model.notify.assert_called()
 
     def test_handle_dark_mode_toggle(self, presenter, mock_view_model):
         """ダークモードトグルの処理を確認"""
         mock_view_model.is_dark_mode = False
-        
+
         presenter.handle_dark_mode_toggle()
-        
+
         mock_view_model.is_dark_mode = True
         mock_view_model.notify.assert_called()
 
-    def test_get_current_presenter(self, presenter, mock_video_input_presenter,
-                                  mock_transcription_presenter, mock_text_editor_presenter,
-                                  mock_export_settings_presenter):
+    def test_get_current_presenter(
+        self,
+        presenter,
+        mock_video_input_presenter,
+        mock_transcription_presenter,
+        mock_text_editor_presenter,
+        mock_export_settings_presenter,
+    ):
         """現在のステップに対応するプレゼンターを取得することを確認"""
         # 各ステップでの確認
         presenter.view_model.current_step = WorkflowStep.VIDEO_INPUT
         assert presenter.get_current_presenter() == mock_video_input_presenter
-        
+
         presenter.view_model.current_step = WorkflowStep.TRANSCRIPTION
         assert presenter.get_current_presenter() == mock_transcription_presenter
-        
+
         presenter.view_model.current_step = WorkflowStep.TEXT_EDITING
         assert presenter.get_current_presenter() == mock_text_editor_presenter
-        
+
         presenter.view_model.current_step = WorkflowStep.EXPORT
         assert presenter.get_current_presenter() == mock_export_settings_presenter
 
-    def test_validate_workflow_state(self, presenter, mock_video_input_presenter,
-                                   mock_transcription_presenter, mock_text_editor_presenter):
+    def test_validate_workflow_state(
+        self, presenter, mock_video_input_presenter, mock_transcription_presenter, mock_text_editor_presenter
+    ):
         """ワークフロー状態の検証を確認"""
         # 全ての前提条件を満たさない
         mock_video_input_presenter.view_model.has_video = False
-        
+
         is_valid, message = presenter.validate_workflow_state(WorkflowStep.EXPORT)
-        
+
         assert is_valid is False
         assert "動画を選択してください" in message
-        
+
         # 全ての前提条件を満たす
         mock_video_input_presenter.view_model.has_video = True
         mock_transcription_presenter.view_model.has_transcription = True
         mock_text_editor_presenter.view_model.has_edited_text = True
-        
+
         is_valid, message = presenter.validate_workflow_state(WorkflowStep.EXPORT)
-        
+
         assert is_valid is True
         assert message == ""
 
-    def test_initialize_step(self, presenter, mock_video_input_presenter,
-                           mock_transcription_presenter):
+    def test_initialize_step(self, presenter, mock_video_input_presenter, mock_transcription_presenter):
         """ステップの初期化を確認"""
         # TRANSCRIPTIONステップの初期化
         presenter.view_model.current_step = WorkflowStep.TRANSCRIPTION
         video_path = "/path/to/video.mp4"
         mock_video_input_presenter.view_model.video_path = video_path
-        
+
         presenter.initialize_step(WorkflowStep.TRANSCRIPTION)
-        
+
         # 初期化メソッドが呼ばれたことを確認
         mock_transcription_presenter.initialize.assert_called_once_with(video_path)
 
-    def test_get_workflow_summary(self, presenter, mock_video_input_presenter,
-                                mock_transcription_presenter, mock_text_editor_presenter):
+    def test_get_workflow_summary(
+        self, presenter, mock_video_input_presenter, mock_transcription_presenter, mock_text_editor_presenter
+    ):
         """ワークフローサマリーの取得を確認"""
         # 各ステップの状態を設定
         mock_video_input_presenter.view_model.has_video = True
@@ -242,15 +255,15 @@ class TestMainPresenter:
         mock_transcription_presenter.view_model.has_transcription = True
         mock_text_editor_presenter.view_model.has_edited_text = True
         mock_text_editor_presenter.view_model.time_ranges = [Mock(), Mock()]  # 2つの範囲
-        
+
         presenter.view_model.completed_steps = {
             WorkflowStep.VIDEO_INPUT,
             WorkflowStep.TRANSCRIPTION,
-            WorkflowStep.TEXT_EDITING
+            WorkflowStep.TEXT_EDITING,
         }
-        
+
         summary = presenter.get_workflow_summary()
-        
+
         assert summary["video_selected"] is True
         assert summary["video_path"] == "/path/to/video.mp4"
         assert summary["transcription_completed"] is True
@@ -262,12 +275,12 @@ class TestMainPresenter:
         """動画入力変更時のハンドラーを確認"""
         # 動画が選択された
         mock_video_input_presenter.view_model.has_video = True
-        
+
         presenter._on_video_input_changed()
-        
+
         # 完了ステップに追加されることを確認
         assert WorkflowStep.VIDEO_INPUT in presenter.view_model.completed_steps
-        
+
         # 自動的に次のステップに進むことを確認
         mock_view_model.current_step = WorkflowStep.TRANSCRIPTION
 
@@ -275,12 +288,12 @@ class TestMainPresenter:
         """文字起こし変更時のハンドラーを確認"""
         # 文字起こしが完了
         mock_transcription_presenter.view_model.has_transcription = True
-        
+
         presenter._on_transcription_changed()
-        
+
         # 完了ステップに追加されることを確認
         assert WorkflowStep.TRANSCRIPTION in presenter.view_model.completed_steps
-        
+
         # 自動的に次のステップに進むことを確認
         mock_view_model.current_step = WorkflowStep.TEXT_EDITING
 
@@ -288,12 +301,12 @@ class TestMainPresenter:
         """テキスト編集変更時のハンドラーを確認"""
         # テキスト編集が完了
         mock_text_editor_presenter.view_model.has_edited_text = True
-        
+
         presenter._on_text_editor_changed()
-        
+
         # 完了ステップに追加されることを確認
         assert WorkflowStep.TEXT_EDITING in presenter.view_model.completed_steps
-        
+
         # 自動的に次のステップに進むことを確認
         mock_view_model.current_step = WorkflowStep.EXPORT
 
@@ -301,9 +314,9 @@ class TestMainPresenter:
         """エクスポート設定変更時のハンドラーを確認"""
         # エクスポートが完了
         mock_export_settings_presenter.view_model.export_completed = True
-        
+
         presenter._on_export_settings_changed()
-        
+
         # 完了ステップに追加されることを確認
         assert WorkflowStep.EXPORT in presenter.view_model.completed_steps
 
@@ -311,12 +324,12 @@ class TestMainPresenter:
         """エラーハンドリングを確認"""
         error = Exception("Test error")
         context = "テスト処理中"
-        
+
         presenter._handle_error(error, context)
-        
+
         # エラーハンドラーが呼ばれたことを確認
         mock_error_handler.handle_error.assert_called_once_with(error, context)
-        
+
         # エラーメッセージが設定されることを確認
         assert mock_view_model.error_message is not None
         mock_view_model.notify.assert_called()
@@ -327,28 +340,28 @@ class TestMainPresenter:
         mock_view_model.completed_steps = set()
         presenter._update_workflow_progress()
         assert mock_view_model.workflow_progress == 0.0
-        
+
         mock_view_model.completed_steps = {WorkflowStep.VIDEO_INPUT}
         presenter._update_workflow_progress()
         assert mock_view_model.workflow_progress == 25.0
-        
+
         mock_view_model.completed_steps = {WorkflowStep.VIDEO_INPUT, WorkflowStep.TRANSCRIPTION}
         presenter._update_workflow_progress()
         assert mock_view_model.workflow_progress == 50.0
-        
-        mock_view_model.completed_steps = {
-            WorkflowStep.VIDEO_INPUT,
-            WorkflowStep.TRANSCRIPTION,
-            WorkflowStep.TEXT_EDITING
-        }
-        presenter._update_workflow_progress()
-        assert mock_view_model.workflow_progress == 75.0
-        
+
         mock_view_model.completed_steps = {
             WorkflowStep.VIDEO_INPUT,
             WorkflowStep.TRANSCRIPTION,
             WorkflowStep.TEXT_EDITING,
-            WorkflowStep.EXPORT
+        }
+        presenter._update_workflow_progress()
+        assert mock_view_model.workflow_progress == 75.0
+
+        mock_view_model.completed_steps = {
+            WorkflowStep.VIDEO_INPUT,
+            WorkflowStep.TRANSCRIPTION,
+            WorkflowStep.TEXT_EDITING,
+            WorkflowStep.EXPORT,
         }
         presenter._update_workflow_progress()
         assert mock_view_model.workflow_progress == 100.0
@@ -360,7 +373,7 @@ class TestMainPresenter:
         assert presenter._get_previous_step(WorkflowStep.TEXT_EDITING) == WorkflowStep.TRANSCRIPTION
         assert presenter._get_previous_step(WorkflowStep.EXPORT) == WorkflowStep.TEXT_EDITING
         assert presenter._get_previous_step(WorkflowStep.VIDEO_INPUT) is None
-        
+
         # 次のステップを取得
         assert presenter._get_next_step(WorkflowStep.VIDEO_INPUT) == WorkflowStep.TRANSCRIPTION
         assert presenter._get_next_step(WorkflowStep.TRANSCRIPTION) == WorkflowStep.TEXT_EDITING

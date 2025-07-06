@@ -5,7 +5,6 @@ UIルーター - 画面セクションの表示を管理
 内部的にモジュール化を進める。
 """
 
-
 import streamlit as st
 
 from ui import apply_dark_mode_styles

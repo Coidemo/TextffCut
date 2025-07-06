@@ -61,10 +61,11 @@ class SidebarPresenter(BasePresenter[SidebarViewModel]):
 
             # 設定を読み込み
             self._load_settings()
-            
+
             # APIキーマネージャーから保存済みキーを読み込み
             # 注意: settings.jsonではなく、暗号化されたファイルを優先
             from utils.api_key_manager import api_key_manager
+
             saved_key = api_key_manager.load_api_key()
             if saved_key:
                 self.view_model.api_key = saved_key
@@ -350,6 +351,7 @@ class SidebarPresenter(BasePresenter[SidebarViewModel]):
         try:
             # APIキーマネージャーを使用して保存
             from utils.api_key_manager import api_key_manager
+
             if api_key_manager.save_api_key(api_key):
                 self.view_model.api_key = api_key
                 self.view_model.notify()
@@ -358,29 +360,30 @@ class SidebarPresenter(BasePresenter[SidebarViewModel]):
         except Exception as e:
             self.handle_error(e, "APIキー保存")
             return False
-            
+
     def delete_api_key(self) -> bool:
         """APIキーを削除"""
         try:
-            from utils.api_key_manager import api_key_manager
             import streamlit as st
-            
+
+            from utils.api_key_manager import api_key_manager
+
             # 削除を実行
             result = api_key_manager.delete_api_key()
-            
+
             # 成功/失敗に関わらずViewModelをクリア
             # （ファイルが既に削除されている場合もクリアすべき）
             self.view_model.api_key = None
             self.view_model.use_api = False  # APIモードも無効化
             self.view_model.notify()
-            
+
             # セッション状態もクリア
             if "api_key" in st.session_state:
                 del st.session_state.api_key
-                
+
             # 設定を保存（APIキーがNoneの状態で）
             self.save_settings()
-                
+
             return result
         except Exception as e:
             self.handle_error(e, "APIキー削除")

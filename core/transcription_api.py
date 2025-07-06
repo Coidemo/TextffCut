@@ -61,8 +61,10 @@ class APITranscriber:
             TranscriptionResult: 文字起こし結果
         """
         logger.info(f"APITranscriber.transcribe開始 - audio_path: {audio_path}")
-        logger.info(f"api_provider: {self.api_config.api_provider}, api_key: {'設定済み' if self.api_config.api_key else '未設定'}")
-        
+        logger.info(
+            f"api_provider: {self.api_config.api_provider}, api_key: {'設定済み' if self.api_config.api_key else '未設定'}"
+        )
+
         if progress_callback:
             progress_callback(0.1, "APIに接続中...")
 
@@ -382,7 +384,7 @@ class APITranscriber:
 
                 # futureとチャンク情報のマッピング
                 future_to_chunk = {futures[i]: (chunk_files[i], i) for i in range(len(futures))}
-                
+
                 # API処理結果を一時保存（アライメント前）
                 api_results = {}
 
@@ -417,8 +419,8 @@ class APITranscriber:
                         api_results[idx] = (chunk_info, [])
                         completed_chunks += 1
 
-                logger.info(f"すべてのAPIチャンク処理完了")
-                
+                logger.info("すべてのAPIチャンク処理完了")
+
                 # アライメント処理（順次実行）
                 if align_model is not None and align_meta is not None:
                     logger.info("アライメント処理を開始（順次実行）")
@@ -427,24 +429,25 @@ class APITranscriber:
                     for idx in sorted(api_results.keys()):
                         chunk_info, segments = api_results[idx]
                         chunk_file, start_offset, chunk_idx = chunk_info
-                        
+
                         if segments and len(segments) > 0:
                             try:
                                 # チャンクの音声を読み込み
                                 chunk_audio, sr = self._load_audio_chunk(chunk_file)
-                                
+
                                 # アライメント実行
                                 aligned_segments = self._align_chunk(
-                                    segments, chunk_audio, align_model, align_meta, 
-                                    start_offset, chunk_idx
+                                    segments, chunk_audio, align_model, align_meta, start_offset, chunk_idx
                                 )
                                 all_segments.extend(aligned_segments)
                                 aligned_chunks += 1
-                                
+
                                 if progress_callback:
                                     progress = 0.6 + (0.3 * aligned_chunks / len(api_results))
-                                    progress_callback(progress, f"アライメント {aligned_chunks}/{len(api_results)} 完了")
-                                    
+                                    progress_callback(
+                                        progress, f"アライメント {aligned_chunks}/{len(api_results)} 完了"
+                                    )
+
                             except Exception as e:
                                 logger.warning(f"チャンク {chunk_idx} のアライメント失敗: {e}")
                                 # アライメント失敗時は元のセグメントを使用
@@ -456,7 +459,7 @@ class APITranscriber:
                     for idx in sorted(api_results.keys()):
                         _, segments = api_results[idx]
                         all_segments.extend(segments)
-                
+
                 logger.info(f"統合処理完了: 合計{len(all_segments)}セグメント")
 
             if progress_callback:
@@ -1407,20 +1410,20 @@ class APITranscriber:
             current_time += word_duration
 
         return estimated_words
-    
+
     def _load_audio_chunk(self, chunk_file: str) -> tuple[np.ndarray, int]:
         """チャンクファイルから音声データを読み込む"""
         from pydub import AudioSegment
-        
+
         audio = AudioSegment.from_file(chunk_file)
         samples = np.array(audio.get_array_of_samples())
         if audio.channels == 2:
             samples = samples.reshape((-1, 2))
             samples = samples.mean(axis=1)
         samples = samples.astype(np.float32) / 32768.0
-        
+
         return samples, audio.frame_rate
-    
+
     def _align_chunk(
         self,
         segments: list[TranscriptionSegment],
@@ -1428,11 +1431,11 @@ class APITranscriber:
         align_model,
         align_meta,
         start_offset: float,
-        chunk_idx: int
+        chunk_idx: int,
     ) -> list[TranscriptionSegment]:
         """チャンクのアライメント処理（順次実行用）"""
         import whisperx
-        
+
         try:
             # TranscriptionSegmentをWhisperX形式に変換
             whisperx_segments = []
@@ -1443,7 +1446,7 @@ class APITranscriber:
                     "text": seg.text,
                 }
                 whisperx_segments.append(whisperx_seg)
-            
+
             # アライメント実行
             aligned_result = whisperx.align(
                 whisperx_segments,
@@ -1453,7 +1456,7 @@ class APITranscriber:
                 "cpu",
                 return_char_alignments=True,
             )
-            
+
             # 結果を元の形式に戻す
             aligned_segments = []
             for seg in aligned_result["segments"]:
@@ -1473,10 +1476,10 @@ class APITranscriber:
                             if "end" in word and word["end"] is not None:
                                 word["end"] += start_offset
                 aligned_segments.append(aligned_seg)
-            
+
             logger.info(f"チャンク {chunk_idx} アライメント完了: {len(aligned_segments)}セグメント")
             return aligned_segments
-            
+
         except Exception as e:
             logger.error(f"チャンク {chunk_idx} のアライメント中にエラー: {e}")
             raise

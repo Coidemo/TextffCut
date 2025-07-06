@@ -70,14 +70,14 @@ class TranscriptionPresenter(BasePresenter[TranscriptionViewModel]):
             logger.info("should_runをTrueに設定")
             # フラグをクリア（一度だけ実行）
             self.session_manager.set("transcription_should_run", False)
-            
+
         # 保存されたAPIキーを読み込む
         from utils.api_key_manager import api_key_manager
+
         saved_key = api_key_manager.load_api_key()
         if saved_key:
             self.view_model.api_key = saved_key
             logger.info("初期化時: 保存されたAPIキーを読み込みました")
-            
 
     def initialize_with_video(self, video_path: Path) -> None:
         """
@@ -147,15 +147,16 @@ class TranscriptionPresenter(BasePresenter[TranscriptionViewModel]):
             use_api: APIモードを使用するか
         """
         logger.info(f"set_processing_mode呼び出し - use_api: {use_api}")
-        
+
         self.view_model.use_api = use_api
 
         # モデルサイズをモードに応じて設定
         if use_api:
             self.view_model.model_size = "whisper-1"
-            
+
             # APIモードの場合、保存されたAPIキーを読み込む
             from utils.api_key_manager import api_key_manager
+
             saved_key = api_key_manager.load_api_key()
             if saved_key:
                 self.view_model.api_key = saved_key
@@ -165,12 +166,12 @@ class TranscriptionPresenter(BasePresenter[TranscriptionViewModel]):
                 logger.warning("保存されたAPIキーが見つかりません")
         else:
             self.view_model.model_size = "medium"
-            
+
         # SessionManagerに保存（DIコンテナが参照できるように）
         self.session_manager.set("use_api", use_api)
         self.session_manager.set("api_key", self.view_model.api_key)
         self.session_manager.set("model_size", self.view_model.model_size)
-        
+
         logger.info(f"SessionManagerに設定を保存 - use_api: {use_api}")
 
         # 料金を更新
@@ -216,14 +217,13 @@ class TranscriptionPresenter(BasePresenter[TranscriptionViewModel]):
             # LoadCacheRequestを作成
             # actual_filenameがある場合はそれを使用、なければmodel_sizeを使用
             cache_model_size = (
-                self.view_model.selected_cache.actual_filename 
-                if self.view_model.selected_cache.actual_filename 
+                self.view_model.selected_cache.actual_filename
+                if self.view_model.selected_cache.actual_filename
                 else self.view_model.selected_cache.model_size
             )
-            
+
             request = LoadCacheRequest(
-                video_path=FilePath(str(self.view_model.video_path)),
-                model_size=cache_model_size
+                video_path=FilePath(str(self.view_model.video_path)), model_size=cache_model_size
             )
 
             # ユースケース経由でキャッシュを読み込む
@@ -260,8 +260,10 @@ class TranscriptionPresenter(BasePresenter[TranscriptionViewModel]):
             成功したかどうか
         """
         logger.info(f"start_transcription開始 - is_ready_to_run: {self.view_model.is_ready_to_run}")
-        logger.info(f"APIモード: {self.view_model.use_api}, APIキー: {'設定済み' if self.view_model.api_key else '未設定'}")
-        
+        logger.info(
+            f"APIモード: {self.view_model.use_api}, APIキー: {'設定済み' if self.view_model.api_key else '未設定'}"
+        )
+
         if not self.view_model.is_ready_to_run:
             self.view_model.set_error("実行に必要な情報が不足しています")
             return False
@@ -290,7 +292,9 @@ class TranscriptionPresenter(BasePresenter[TranscriptionViewModel]):
                     progress_callback(progress, status)
 
             # 文字起こしユースケースを実行
-            logger.info(f"TranscribeVideoRequest作成 - video_path: {self.view_model.video_path}, model_size: {self.view_model.model_size}")
+            logger.info(
+                f"TranscribeVideoRequest作成 - video_path: {self.view_model.video_path}, model_size: {self.view_model.model_size}"
+            )
             request = TranscribeVideoRequest(
                 video_path=FilePath(str(self.view_model.video_path)),
                 model_size=self.view_model.model_size,
@@ -394,16 +398,16 @@ class TranscriptionPresenter(BasePresenter[TranscriptionViewModel]):
 
         # ViewModelから取得
         return self.view_model.video_path
-    
+
     def clear_result(self) -> None:
         """文字起こし結果をクリア"""
         logger.info("文字起こし結果をクリア")
-        
+
         # ViewModelをクリア
         self.view_model.transcription_result = None
-        
+
         # SessionManagerからもクリア
         self.session_manager.set_transcription_result(None)
-        
+
         # 通知
         self.view_model.notify()

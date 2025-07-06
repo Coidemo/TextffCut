@@ -9,7 +9,7 @@ from typing import Any
 from domain.entities import TranscriptionResult
 from domain.interfaces.error_handler import IErrorHandler
 from presentation.presenters.base import BasePresenter
-from presentation.view_models.text_editor import TextEditorViewModel, TimeRange
+from presentation.view_models.text_editor import TextEditorViewModel
 from use_cases.interfaces import ITextProcessorGateway, IVideoProcessorGateway
 from utils.logging import get_logger
 
@@ -53,9 +53,21 @@ class TextEditorPresenter(BasePresenter[TextEditorViewModel]):
         try:
             logger.info("TextEditorPresenter.initialize called")
             logger.debug(f"Type of transcription_result: {type(transcription_result)}")
-            
+
+            # セッション状態のデバッグ情報
+            import streamlit as st
+
+            if hasattr(st, "session_state"):
+                logger.debug(f"use_buzz_clips: {st.session_state.get('use_buzz_clips', False)}")
+                logger.debug(
+                    f"_skip_initial_text_processing: {st.session_state.get('_skip_initial_text_processing', False)}"
+                )
+                logger.debug(f"edited_text in session: {'edited_text' in st.session_state}")
+
             # TranscriptionResultAdapterの場合は、ドメインエンティティを取得
+            from domain.entities.transcription import TranscriptionResult
             from presentation.adapters.transcription_result_adapter import TranscriptionResultAdapter
+
             actual_result = transcription_result
             if isinstance(transcription_result, TranscriptionResultAdapter):
                 logger.debug("TranscriptionResultAdapterが渡されました。ドメインエンティティを取得します。")
@@ -65,32 +77,59 @@ class TextEditorPresenter(BasePresenter[TextEditorViewModel]):
                 else:
                     logger.error("TranscriptionResultAdapterにドメインエンティティがありません")
                     raise ValueError("TranscriptionResultAdapter has no domain entity")
-            else:
+            elif isinstance(transcription_result, TranscriptionResult):
+                logger.debug("ドメインエンティティのTranscriptionResultが直接渡されました。")
                 self.view_model.transcription_result = transcription_result
-            
-            # actual_resultから full_text を取得
-            if hasattr(actual_result, "get_full_text"):
-                full_text = actual_result.get_full_text()
+                actual_result = transcription_result
             else:
-                # プロパティとしてアクセス
-                full_text = actual_result.text
-            logger.debug(f"Full text length: {len(full_text) if full_text else 0}")
+                # その他の形式の場合（後方互換性）
+                logger.warning(f"未知の形式のtranscription_resultが渡されました: {type(transcription_result)}")
+                self.view_model.transcription_result = transcription_result
+                actual_result = transcription_result
+
+            # actual_resultから full_text を取得
+            try:
+                # デバッグ情報を追加
+                logger.debug(f"actual_result type: {type(actual_result)}")
+                logger.debug(f"actual_result has get_full_text: {hasattr(actual_result, 'get_full_text')}")
+                logger.debug(f"actual_result has text: {hasattr(actual_result, 'text')}")
+
+                if hasattr(actual_result, "get_full_text"):
+                    full_text = actual_result.get_full_text()
+                else:
+                    # プロパティとしてアクセス
+                    full_text = actual_result.text
+            except Exception as e:
+                # get_full_text()がエラーを投げた場合（words情報がない場合など）
+                logger.warning(f"get_full_text() failed: {e}. Falling back to segment text concatenation.")
+                # セグメントのテキストを結合
+                if hasattr(actual_result, "segments"):
+                    full_text = "".join(seg.text for seg in actual_result.segments)
+                else:
+                    logger.error("No segments found in transcription result")
+                    full_text = ""
+
+            logger.info(f"[TextEditorPresenter.initialize] Full text length: {len(full_text) if full_text else 0}")
+            if not full_text:
+                logger.error("[TextEditorPresenter.initialize] full_textが空です！")
             self.view_model.full_text = full_text
 
             # セッション状態から編集済みテキストを読み込む
             import streamlit as st
 
             if hasattr(st, "session_state") and st.session_state is not None:
-                if "edited_text" in st.session_state and st.session_state.edited_text:
-                    self.view_model.edited_text = st.session_state.edited_text
-                    # 保存された差分があれば復元
-                    if "text_differences" in st.session_state:
-                        self.view_model.differences = st.session_state.text_differences
-                    # 編集済みテキストがある場合は処理を実行して差分を計算
-                    self._process_edited_text()
+                # 初期処理をスキップするフラグがある場合は処理しない
+                if not st.session_state.get("_skip_initial_text_processing", False):
+                    if "edited_text" in st.session_state and st.session_state.edited_text:
+                        self.view_model.edited_text = st.session_state.edited_text
+                        # 保存された差分があれば復元
+                        if "text_differences" in st.session_state:
+                            self.view_model.differences = st.session_state.text_differences
+                        # 編集済みテキストがある場合は処理を実行して差分を計算
+                        self._process_edited_text()
 
-            # 初期テキストがあれば設定
-            if self.view_model.edited_text:
+            # 初期テキストがあれば設定（初期処理スキップフラグがない場合のみ）
+            if self.view_model.edited_text and not st.session_state.get("_skip_initial_text_processing", False):
                 self._process_edited_text()
 
             self.view_model.notify()
@@ -127,9 +166,16 @@ class TextEditorPresenter(BasePresenter[TextEditorViewModel]):
     def _process_edited_text(self) -> None:
         """編集テキストを処理"""
         if not self.view_model.transcription_result:
+            logger.warning("transcription_result is not set, skipping text processing")
             return
 
         edited_text = self.view_model.edited_text
+
+        if not edited_text:
+            logger.info("No edited text to process")
+            return
+
+        logger.info(f"Processing edited text with length: {len(edited_text)}")
 
         # 境界調整マーカーの存在をチェック
         has_markers = any(marker in edited_text for marker in ["[<", "[>", "<]", ">]"])
@@ -166,11 +212,14 @@ class TextEditorPresenter(BasePresenter[TextEditorViewModel]):
     def _process_with_separator(self, text: str, separator: str) -> None:
         """区切り文字でセクション分割して処理"""
         try:
+            logger.info(f"Processing with separator: '{separator}'")
             # セクションに分割
             sections = self.text_processor_gateway.split_text_by_separator(text, separator)
+            logger.info(f"Split into {len(sections)} sections")
             self.view_model.update_sections(sections, separator)
 
             # 差分検出（セパレータ付き）
+            logger.info("Finding differences with separator...")
             result = self.text_processor_gateway.find_differences_with_separator(
                 source_text=self.view_model.full_text,
                 target_text=text,
@@ -180,24 +229,66 @@ class TextEditorPresenter(BasePresenter[TextEditorViewModel]):
             )
 
             if result:
-                self._update_time_ranges_from_diff(result)
+                # 差分情報を保存
                 self.view_model.differences = result
 
+                # 追加文字のチェック（differencesリストから検出）
+                self._check_added_chars(result)
+
+                if not self.view_model.has_added_chars:
+                    # 追加文字がない場合は通常処理
+                    logger.info("追加文字なし、時間範囲の計算を実行")
+                    self._update_time_ranges_from_diff(result)
+            else:
+                logger.warning("No differences found")
+
         except Exception as e:
-            logger.error(f"セクション分割処理エラー: {e}")
-            self.view_model.set_error("セクション分割処理でエラーが発生しました")
+            logger.error(f"セクション分割処理エラー: {e}", exc_info=True)
+            # エラーメッセージをより詳細に
+            error_msg = str(e)
+            if "追加された文字があります" in error_msg or "added characters" in error_msg.lower():
+                self.view_model.set_error(
+                    "切り抜き箇所のテキストが元の文字起こし結果と一致しません。AIが生成したテキストに誤りがある可能性があります。"
+                )
+            else:
+                # エラーの詳細情報を含める
+                import traceback
+
+                detailed_error = f"テキスト処理でエラーが発生しました: {error_msg}\n\n詳細: {traceback.format_exc()}"
+                logger.error(detailed_error)
+                self.view_model.set_error(f"テキスト処理でエラーが発生しました: {error_msg}")
 
     def _process_single_section(self, text: str) -> None:
         """単一セクションとして処理"""
         try:
+            # full_textが空または未設定の場合のチェック
+            if not self.view_model.full_text:
+                logger.error("full_textが空または未設定です")
+                self.view_model.set_error("文字起こし結果が正しく読み込まれていません。")
+                return
+
+            logger.info(
+                f"[_process_single_section] full_text長さ: {len(self.view_model.full_text)}, edited_text長さ: {len(text)}"
+            )
+
             # 差分検出（境界調整マーカーがある場合は正規化をスキップ）
             result = self.text_processor_gateway.find_differences(
-                original_text=self.view_model.full_text, edited_text=text
+                original_text=self.view_model.full_text,
+                edited_text=text,
+                skip_normalization=self.view_model.has_boundary_markers,
             )
 
             if result:
-                self._update_time_ranges_from_diff(result)
+                # 差分情報を保存
                 self.view_model.differences = result
+
+                # 追加文字のチェック（differencesリストから検出）
+                self._check_added_chars(result)
+
+                if not self.view_model.has_added_chars:
+                    # 追加文字がない場合は通常処理
+                    logger.info("追加文字なし、時間範囲の計算を実行")
+                    self._update_time_ranges_from_diff(result)
 
                 # 差分をセッション状態に保存（rerun後も保持するため）
                 import streamlit as st
@@ -209,8 +300,43 @@ class TextEditorPresenter(BasePresenter[TextEditorViewModel]):
                 self.view_model.update_sections([text], None)
 
         except Exception as e:
-            logger.error(f"単一セクション処理エラー: {e}")
-            self.view_model.set_error("テキスト処理でエラーが発生しました")
+            logger.error(f"単一セクション処理エラー: {e}", exc_info=True)
+            # エラーメッセージをより詳細に
+            error_msg = str(e)
+            if "追加された文字があります" in error_msg or "added characters" in error_msg.lower():
+                self.view_model.set_error(
+                    "切り抜き箇所のテキストが元の文字起こし結果と一致しません。AIが生成したテキストに誤りがある可能性があります。"
+                )
+            else:
+                self.view_model.set_error(f"テキスト処理でエラーが発生しました: {error_msg}")
+
+    def _check_added_chars(self, diff_result: Any) -> None:
+        """差分結果から追加文字をチェック"""
+        added_texts = []
+
+        logger.info(f"[_check_added_chars] 差分結果の型: {type(diff_result)}")
+
+        if hasattr(diff_result, "differences"):
+            from domain.entities.text_difference import DifferenceType
+
+            logger.info(
+                f"[_check_added_chars] differences数: {len(diff_result.differences) if diff_result.differences else 0}"
+            )
+
+            for diff_type, text, _ in diff_result.differences:
+                logger.debug(f"[_check_added_chars] 差分タイプ: {diff_type}, テキスト長: {len(text)}")
+                if diff_type == DifferenceType.ADDED:
+                    added_texts.append(text)
+                    logger.info(f"追加されたテキスト検出: '{text}'")
+
+        # ViewModelに状態を設定
+        self.view_model.has_added_chars = len(added_texts) > 0
+        self.view_model.added_chars_info = added_texts
+
+        if added_texts:
+            logger.info(f"追加文字検出のため時間範囲計算をスキップ: {added_texts}")
+        else:
+            logger.info("[_check_added_chars] 追加文字なし")
 
     def _update_time_ranges_from_diff(self, diff_result: Any) -> None:
         """差分結果から時間範囲を更新"""
@@ -341,7 +467,6 @@ class TextEditorPresenter(BasePresenter[TextEditorViewModel]):
             section_with_markers += f"[<{start_val}]{text}[{end_val}>]"
 
         return section_with_markers if section_with_markers else section
-
 
     def get_processed_data(self) -> dict[str, Any]:
         """

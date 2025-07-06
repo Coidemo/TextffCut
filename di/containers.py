@@ -39,7 +39,6 @@ from use_cases.transcription.load_cache import LoadTranscriptionCacheUseCase
 # ユースケースのインポート
 from use_cases.transcription.transcribe_video import TranscribeVideoUseCase
 from use_cases.video.detect_silence import DetectSilenceUseCase
-from use_cases.ai.generate_buzz_clips import GenerateBuzzClipsUseCase
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -78,20 +77,11 @@ class GatewayContainer(containers.DeclarativeContainer):
 
     # 動画エクスポートゲートウェイ
     video_export_gateway = providers.Singleton(VideoExportGatewayAdapter, config=config.legacy_config)
-    
+
     # YouTubeダウンロードゲートウェイ
-    youtube_download_gateway = providers.Singleton(
-        YouTubeDownloadGateway,
-        output_dir=Path("./videos")
-    )
-    
-    # AI ゲートウェイ（動的生成）
-    ai_gateway = providers.Factory(
-        providers.Callable(
-            lambda api_key: __import__('infrastructure.external.gateways.openai_gateway', fromlist=['OpenAIGateway']).OpenAIGateway(api_key),
-            providers.Arg('api_key')
-        )
-    )
+    youtube_download_gateway = providers.Singleton(YouTubeDownloadGateway, output_dir=Path("./videos"))
+
+    # 注: AI ゲートウェイは実行時にAPIキーを必要とするため、main.pyで直接作成する
 
 
 class UseCaseContainer(containers.DeclarativeContainer):
@@ -131,20 +121,16 @@ class UseCaseContainer(containers.DeclarativeContainer):
     export_srt = providers.Factory(
         ExportSRTUseCase, srt_gateway=gateways.srt_export_gateway, file_gateway=gateways.file_gateway
     )
-    
+
     # YouTubeダウンロードユースケース
     download_youtube_video = providers.Factory(
         providers.Callable(
-            lambda gw: __import__('use_cases.youtube', fromlist=['DownloadYouTubeVideo']).DownloadYouTubeVideo(gw),
-            gateways.youtube_download_gateway
+            lambda gw: __import__("use_cases.youtube", fromlist=["DownloadYouTubeVideo"]).DownloadYouTubeVideo(gw),
+            gateways.youtube_download_gateway,
         )
     )
-    
-    # AI バズクリップ生成ユースケース
-    generate_buzz_clips = providers.Factory(
-        GenerateBuzzClipsUseCase,
-        ai_gateway=providers.Arg('ai_gateway')
-    )
+
+    # 注: AI バズクリップ生成ユースケースは実行時にAI gatewayを必要とするため、main.pyで直接作成する
 
 
 class ServiceContainer(containers.DeclarativeContainer):
@@ -206,9 +192,7 @@ class ApplicationContainer(containers.DeclarativeContainer):
     )
 
 
-def create_container(
-    config: DIConfig | None = None, override_providers: dict | None = None
-) -> ApplicationContainer:
+def create_container(config: DIConfig | None = None, override_providers: dict | None = None) -> ApplicationContainer:
     """
     DIコンテナを作成
 

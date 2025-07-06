@@ -9,9 +9,9 @@
     python run_all_tests.py --coverage   # カバレッジレポートを開く
 """
 
-import sys
-import subprocess
 import argparse
+import subprocess
+import sys
 import webbrowser
 from pathlib import Path
 
@@ -19,15 +19,15 @@ from pathlib import Path
 def run_tests(test_type=None, verbose=False):
     """テストを実行"""
     cmd = ["pytest"]
-    
+
     if test_type == "unit":
         cmd.extend(["-m", "unit"])
     elif test_type == "integration":
         cmd.extend(["-m", "integration"])
-    
+
     if verbose:
         cmd.append("-vv")
-    
+
     print(f"実行コマンド: {' '.join(cmd)}")
     result = subprocess.run(cmd)
     return result.returncode
@@ -49,19 +49,19 @@ def main():
     parser.add_argument("--integration", action="store_true", help="統合テストのみ実行")
     parser.add_argument("--coverage", action="store_true", help="カバレッジレポートを開く")
     parser.add_argument("-v", "--verbose", action="store_true", help="詳細な出力")
-    
+
     args = parser.parse_args()
-    
+
     if args.coverage:
         open_coverage_report()
         return 0
-    
+
     test_type = None
     if args.unit:
         test_type = "unit"
     elif args.integration:
         test_type = "integration"
-    
+
     return run_tests(test_type, args.verbose)
 
 

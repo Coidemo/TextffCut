@@ -27,6 +27,19 @@ class TextPosition:
 
 
 @dataclass
+class ContextPattern:
+    """文脈指定パターン"""
+
+    target_text: str  # 検索対象のテキスト
+    before_context: str | None = None  # 前文脈
+    after_context: str | None = None  # 後文脈
+
+    def has_context(self) -> bool:
+        """文脈指定があるかどうか"""
+        return self.before_context is not None or self.after_context is not None
+
+
+@dataclass
 class TextDifference:
     """テキストの差分情報"""
 
@@ -472,6 +485,121 @@ class TextProcessor:
 
         return text.strip()
 
+    def parse_context_pattern(self, text: str) -> ContextPattern:
+        """
+        文脈指定パターンを解析
+
+        Args:
+            text: 解析するテキスト (例: "{前文脈}ターゲット{後文脈}")
+
+        Returns:
+            ContextPattern: 文脈パターン情報
+        """
+        # 空文字列チェック
+        if not text or not text.strip():
+            return ContextPattern(target_text=text)
+
+        text = text.strip()
+
+        # パターン: {前文脈}ターゲット{後文脈}
+        # 正規表現ではなく、シンプルな文字列操作で解析
+        before_context = None
+        after_context = None
+        target_text = text
+
+        # 前文脈の抽出
+        if text.startswith("{"):
+            closing_brace = text.find("}")
+            if closing_brace > 0:
+                before_context = text[1:closing_brace]
+                target_text = text[closing_brace + 1 :]
+
+        # 後文脈の抽出
+        if target_text and "{" in target_text:
+            last_opening_brace = target_text.rfind("{")
+            if last_opening_brace >= 0 and target_text.endswith("}"):
+                after_context = target_text[last_opening_brace + 1 : -1]
+                target_text = target_text[:last_opening_brace]
+
+        return ContextPattern(
+            target_text=target_text,
+            before_context=before_context if before_context else None,
+            after_context=after_context if after_context else None,
+        )
+
+    def find_with_context(self, text: str, pattern: ContextPattern) -> list[int]:
+        """
+        文脈を考慮してテキストを検索
+
+        Args:
+            text: 検索対象のテキスト
+            pattern: 文脈パターン
+
+        Returns:
+            マッチした位置のリスト（開始位置）
+        """
+        if not pattern.target_text:
+            return []
+
+        candidates = []
+
+        # ターゲットテキストの全出現位置を検索
+        pos = 0
+        while True:
+            idx = text.find(pattern.target_text, pos)
+            if idx == -1:
+                break
+
+            # 文脈チェック
+            if self._check_context(text, idx, pattern):
+                candidates.append(idx)
+
+            pos = idx + 1
+
+        return candidates
+
+    def _check_context(self, text: str, position: int, pattern: ContextPattern) -> bool:
+        """
+        指定位置が文脈条件を満たすかチェック
+
+        Args:
+            text: 全体テキスト
+            position: ターゲットテキストの位置
+            pattern: 文脈パターン
+
+        Returns:
+            文脈条件を満たすかどうか
+        """
+        target_len = len(pattern.target_text)
+
+        # 前文脈のチェック
+        if pattern.before_context:
+            before_len = len(pattern.before_context)
+            before_start = position - before_len
+
+            # テキストの範囲外
+            if before_start < 0:
+                return False
+
+            # 前文脈が一致しない
+            if text[before_start:position] != pattern.before_context:
+                return False
+
+        # 後文脈のチェック
+        if pattern.after_context:
+            after_start = position + target_len
+            after_end = after_start + len(pattern.after_context)
+
+            # テキストの範囲外
+            if after_end > len(text):
+                return False
+
+            # 後文脈が一致しない
+            if text[after_start:after_end] != pattern.after_context:
+                return False
+
+        return True
+
     def find_differences(self, original: str, edited: str, skip_normalization: bool = False) -> TextDifference:
         """
         元のテキストと編集後のテキストの差分を検出
@@ -495,6 +623,11 @@ class TextProcessor:
             if not skip_normalization:
                 original = self.normalize_text(original)
                 edited = self.normalize_text(edited)
+
+            # 編集テキストが元のテキストより短い場合、抜粋として扱う
+            if len(edited) < len(original) * 0.5:  # 元のテキストの半分未満の場合
+                logger.info(f"編集テキストが短い（{len(edited)}文字 vs {len(original)}文字）ため、抜粋として処理")
+                return self._find_differences_for_excerpt(original, edited, skip_normalization)
 
             # 空白を除去したテキストで差分を計算
             original_no_spaces = self.remove_spaces(original)
@@ -586,6 +719,239 @@ class TextProcessor:
             length += 1
 
         return length
+
+    def _find_differences_for_excerpt(
+        self, original: str, excerpt: str, skip_normalization: bool = False
+    ) -> TextDifference:
+        """
+        抜粋テキストの差分を検出（元のテキストから抜粋部分を探す）
+
+        Args:
+            original: 元のテキスト（全文）
+            excerpt: 抜粋テキスト
+            skip_normalization: 正規化をスキップするかどうか
+
+        Returns:
+            TextDifference: 差分情報
+        """
+        # 抜粋から句読点と改行を除去したバージョンを作成
+        # ユーザーが追加した句読点や改行を追跡するため
+        excerpt_no_punct = (
+            excerpt.replace("。", "")
+            .replace("！", "")
+            .replace("？", "")
+            .replace(".", "")
+            .replace("!", "")
+            .replace("?", "")
+            .replace("\n", "")
+            .replace("\r", "")
+        )
+
+        # 元のテキストから抜粋部分を探す
+        position = original.find(excerpt_no_punct)
+
+        if position == -1:
+            # スペースの違いがある可能性があるので、スペースも除去して再検索
+            excerpt_no_space = excerpt_no_punct.replace(" ", "")
+            original_no_space = original.replace(" ", "")
+            position_no_space = original_no_space.find(excerpt_no_space)
+
+            if position_no_space != -1:
+                # スペースなしで見つかった場合、元のテキストでの位置を推定
+                # （これは概算になるが、後の処理で正確な位置を特定する）
+                char_count = 0
+                for i, char in enumerate(original):
+                    if char != " ":
+                        if char_count == position_no_space:
+                            position = i
+                            break
+                        char_count += 1
+                logger.info(f"スペースを除去して抜粋を発見: 位置={position}")
+                # スペースなしで見つかった場合は、以降の処理でスペースを考慮する必要がある
+                # フラグを設定
+                space_mismatch = True
+            else:
+                space_mismatch = False
+        else:
+            space_mismatch = False
+
+        if position == -1:
+            # 見つからない場合は、正規化してから再検索
+            if not skip_normalization:
+                normalized_original = self.normalize_text(original)
+                normalized_search = self.normalize_text(excerpt_no_punct)
+                position = normalized_original.find(normalized_search)
+
+                if position != -1:
+                    # 正規化前の位置に変換（概算）
+                    position = self._estimate_original_position(original, normalized_original, position)
+
+        if position == -1:
+            # それでも見つからない場合は、全体を追加文字として扱う
+            logger.warning(f"抜粋テキストが元のテキストに見つかりません（抜粋: {len(excerpt)}文字）")
+            return TextDifference(
+                original_text=original,
+                edited_text=excerpt,
+                common_positions=[],
+                added_chars=set(c for c in excerpt if not c.isspace()),
+                added_positions=[TextPosition(start=0, end=len(excerpt), text=excerpt)],
+            )
+
+        # 見つかった場合
+        if space_mismatch:
+            # スペースの不一致がある場合、元のテキストから実際の終了位置を計算
+            char_count = 0
+            end_position = position
+            for i in range(position, len(original)):
+                if original[i] != " ":
+                    char_count += 1
+                if char_count >= len(excerpt_no_space):
+                    end_position = i + 1
+                    break
+            found_text = original[position:end_position]
+        else:
+            found_text = original[position : position + len(excerpt_no_punct)]
+
+        # 抜粋と元のテキストを比較して、追加された文字（主に句読点）を検出
+        added_chars = set()
+        added_positions = []
+
+        # 抜粋と元のテキストを文字ごとに比較
+        # 句読点が追加された位置を追跡
+        if space_mismatch:
+            # スペースの不一致がある場合の特別な処理
+            original_idx = 0
+            excerpt_idx = 0
+            common_parts = []
+            current_common_start = None
+            current_common_text = ""
+
+            while excerpt_idx < len(excerpt) and original_idx < len(found_text):
+                # スペースをスキップする比較
+                while (
+                    original_idx < len(found_text) and found_text[original_idx] == " " and excerpt[excerpt_idx] != " "
+                ):
+                    original_idx += 1
+
+                if original_idx >= len(found_text):
+                    break
+
+                if excerpt[excerpt_idx] == found_text[original_idx]:
+                    # 一致する文字
+                    if current_common_start is None:
+                        current_common_start = position + original_idx
+                    current_common_text += excerpt[excerpt_idx]
+                    original_idx += 1
+                    excerpt_idx += 1
+                elif excerpt[excerpt_idx] in "。！？.,!?\n\r":
+                    # 追加された句読点または改行
+                    added_chars.add(excerpt[excerpt_idx])
+                    if current_common_start is not None:
+                        # 現在の共通部分を保存
+                        common_parts.append(
+                            TextPosition(
+                                start=current_common_start, end=position + original_idx, text=current_common_text
+                            )
+                        )
+                        current_common_start = None
+                        current_common_text = ""
+                    # 追加位置を記録
+                    added_positions.append(
+                        TextPosition(
+                            start=position + original_idx, end=position + original_idx, text=excerpt[excerpt_idx]
+                        )
+                    )
+                    excerpt_idx += 1
+                else:
+                    # 一致しない
+                    logger.warning(
+                        f"スペース不一致での比較エラー: 位置{excerpt_idx}, 抜粋='{excerpt[excerpt_idx]}', 元='{found_text[original_idx]}'"
+                    )
+                    excerpt_idx += 1
+                    original_idx += 1
+        else:
+            # 通常の処理
+            original_idx = 0
+            excerpt_idx = 0
+            common_parts = []
+            current_common_start = None
+            current_common_text = ""
+
+            while excerpt_idx < len(excerpt) and original_idx < len(found_text):
+                if excerpt[excerpt_idx] == found_text[original_idx]:
+                    # 一致する文字
+                    if current_common_start is None:
+                        current_common_start = position + original_idx
+                    current_common_text += excerpt[excerpt_idx]
+                    original_idx += 1
+                    excerpt_idx += 1
+                elif excerpt[excerpt_idx] in "。！？.,!?\n\r":
+                    # 追加された句読点または改行
+                    added_chars.add(excerpt[excerpt_idx])
+                    if current_common_start is not None:
+                        # 現在の共通部分を保存
+                        common_parts.append(
+                            TextPosition(
+                                start=current_common_start, end=position + original_idx, text=current_common_text
+                            )
+                        )
+                        current_common_start = None
+                        current_common_text = ""
+                    # 追加位置を記録
+                    added_positions.append(
+                        TextPosition(
+                            start=position + original_idx, end=position + original_idx, text=excerpt[excerpt_idx]
+                        )
+                    )
+                    excerpt_idx += 1
+                else:
+                    # 一致しない（あり得ないはずだが念のため）
+                    logger.warning(
+                        f"予期しない不一致: 位置{excerpt_idx}, 抜粋='{excerpt[excerpt_idx]}', 元='{found_text[original_idx]}'"
+                    )
+                    excerpt_idx += 1
+                    original_idx += 1
+
+        # 最後の共通部分を保存
+        if current_common_start is not None:
+            common_parts.append(
+                TextPosition(start=current_common_start, end=position + original_idx, text=current_common_text)
+            )
+
+        # 抜粋の残りの部分（もしあれば）
+        if excerpt_idx < len(excerpt):
+            remaining = excerpt[excerpt_idx:]
+            added_chars.update(c for c in remaining if not c.isspace())
+            if remaining.strip():
+                added_positions.append(
+                    TextPosition(start=position + len(found_text), end=position + len(found_text), text=remaining)
+                )
+
+        # 共通部分がない場合は、元のテキスト全体を共通部分とする
+        if not common_parts:
+            common_parts = [TextPosition(start=position, end=position + len(found_text), text=found_text)]
+
+        return TextDifference(
+            original_text=original,
+            edited_text=excerpt,
+            common_positions=common_parts,
+            added_chars=added_chars,
+            added_positions=added_positions,
+        )
+
+    def _estimate_original_position(self, original: str, normalized: str, normalized_pos: int) -> int:
+        """
+        正規化後の位置から元のテキストでの位置を推定
+        """
+        if normalized_pos == 0:
+            return 0
+
+        # 簡易的な推定：文字数の比率で計算
+        if len(normalized) > 0:
+            ratio = len(original) / len(normalized)
+            return int(normalized_pos * ratio)
+
+        return 0
 
     def split_text_into_lines(self, text: str, chars_per_line: int, max_lines: int) -> list[str]:
         """
@@ -693,11 +1059,11 @@ class TextProcessor:
         self, original: str, edited: str, transcription, separator: str = None, skip_normalization: bool = False
     ) -> list[tuple[float, float]]:
         """
-        区切り文字に対応した差分検索
+        区切り文字と文脈指定に対応した差分検索
 
         Args:
             original: 元のテキスト（文字起こし結果）
-            edited: 編集後のテキスト（区切り文字を含む可能性）
+            edited: 編集後のテキスト（区切り文字や文脈指定を含む可能性）
             transcription: 文字起こし結果
             separator: 区切り文字（デフォルト: ---）
             skip_normalization: 正規化をスキップするかどうか
@@ -710,23 +1076,21 @@ class TextProcessor:
 
         # 区切り文字が含まれているかチェック
         if separator not in edited:
-            # 区切り文字がない場合は通常の処理
-            diff = self.find_differences(original, edited, skip_normalization=skip_normalization)
-            return diff.get_time_ranges(transcription)
+            # 区切り文字がない場合も文脈指定を考慮
+            return self._find_differences_with_context(original, edited, transcription, skip_normalization)
 
         # 区切り文字で分割
         sections = self.split_text_by_separator(edited, separator)
 
         all_time_ranges = []
 
-        # 各セクションについて個別に差分検索
-        for _, section in enumerate(sections):
+        # 各セクションについて独立して検索
+        for section in sections:
             if not section.strip():
                 continue
 
-            # 各セクションで差分検索
-            diff = self.find_differences(original, section, skip_normalization=skip_normalization)
-            section_ranges = diff.get_time_ranges(transcription)
+            # 各セクションで文脈指定を考慮した差分検索
+            section_ranges = self._find_differences_with_context(original, section, transcription, skip_normalization)
 
             # 結果をマージ
             all_time_ranges.extend(section_ranges)
@@ -735,6 +1099,55 @@ class TextProcessor:
         merged_ranges = self.merge_time_ranges(all_time_ranges)
 
         return merged_ranges
+
+    def _find_differences_with_context(
+        self, original: str, edited: str, transcription, skip_normalization: bool = False
+    ) -> list[tuple[float, float]]:
+        """
+        文脈指定を考慮した差分検索
+
+        Args:
+            original: 元のテキスト
+            edited: 編集後のテキスト（文脈指定を含む可能性）
+            transcription: 文字起こし結果
+            skip_normalization: 正規化をスキップするかどうか
+
+        Returns:
+            時間範囲のリスト
+        """
+        # 文脈パターンを解析
+        pattern = self.parse_context_pattern(edited)
+
+        # 文脈指定がある場合
+        if pattern.has_context():
+            # 文脈を考慮して検索
+            candidates = self.find_with_context(original, pattern)
+
+            if not candidates:
+                # 見つからない場合は空のリストを返す
+                logger.warning(f"文脈指定されたテキストが見つかりません: {pattern.target_text}")
+                return []
+
+            # 最初の候補を使用（将来的にはより高度な選択ロジックを実装）
+            position = candidates[0]
+            target_len = len(pattern.target_text)
+
+            # 位置情報を作成
+            common_positions = [TextPosition(start=position, end=position + target_len, text=pattern.target_text)]
+
+            # TextDifferenceを作成
+            diff = TextDifference(
+                original_text=original,
+                edited_text=pattern.target_text,
+                common_positions=common_positions,
+                added_chars=set(),
+            )
+
+            return diff.get_time_ranges(transcription)
+
+        # 文脈指定がない場合は通常の処理
+        diff = self.find_differences(original, edited, skip_normalization=skip_normalization)
+        return diff.get_time_ranges(transcription)
 
     def merge_time_ranges(
         self, time_ranges: list[tuple[float, float]], gap_threshold: float = 1.0
