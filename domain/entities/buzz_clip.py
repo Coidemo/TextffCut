@@ -83,6 +83,7 @@ class BuzzClipGenerationRequest:
     min_duration: int = 30
     max_duration: int = 40
     categories: list[str] | None = None  # 指定カテゴリ
+    existing_candidates: list[BuzzClipCandidate] | None = None  # 既存の候補（重複回避用）
 
 
 @dataclass

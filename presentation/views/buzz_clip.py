@@ -68,6 +68,16 @@ class BuzzClipView:
             st.warning("⚠️ まず文字起こしを実行してください")
             return
 
+        # 追加生成モードの処理
+        if st.session_state.get("buzz_clip_add_more", False) and self.view_model.has_candidates:
+            st.session_state["buzz_clip_add_more"] = False
+            self._render_add_more_settings()
+            if st.button("🤖 追加の候補を生成", type="primary", use_container_width=True):
+                self._start_generation(transcription_segments, video_path, transcription_model, append_to_existing=True)
+            if st.button("❌ キャンセル", type="secondary"):
+                st.rerun()
+            return
+
         # 生成パラメータ設定
         if not self.view_model.is_generating and not self.view_model.has_candidates:
             self._render_generation_settings()
@@ -140,15 +150,38 @@ class BuzzClipView:
                 categories=selected_categories,
             )
 
+    def _render_add_more_settings(self) -> None:
+        """追加生成の設定UIを表示"""
+        st.info(f"💡 現在{len(self.view_model.candidates)}件の候補があります。さらに候補を追加生成します。")
+        
+        # 追加数の設定
+        num_additional = st.number_input(
+            "追加する候補数",
+            min_value=1,
+            max_value=10,
+            value=3,
+            help="既存の候補と重複しない新しい候補を生成します",
+        )
+        
+        # パラメータを更新（追加数のみ変更）
+        self.presenter.set_generation_params(
+            num_candidates=num_additional,
+            min_duration=self.view_model.min_duration,
+            max_duration=self.view_model.max_duration,
+            categories=self.view_model.selected_categories,
+        )
+
     def _start_generation(
         self,
         transcription_segments: list[dict[str, Any]],
         video_path: str | None = None,
         transcription_model: str | None = None,
+        append_to_existing: bool = False,
     ) -> None:
         """生成を開始"""
         logger.info("Starting buzz clip generation from view")
         logger.info(f"Transcription model: {transcription_model}")
+        logger.info(f"Append to existing: {append_to_existing}")
 
         def progress_callback(progress: float, status: str) -> None:
             self.view_model.update_generation_progress(progress, status)
@@ -159,6 +192,7 @@ class BuzzClipView:
             video_path=video_path,
             transcription_model=transcription_model,
             progress_callback=progress_callback,
+            append_to_existing=append_to_existing,
         )
 
         logger.info(f"Generation completed. Success={success}, has_candidates={self.view_model.has_candidates}")
@@ -175,13 +209,21 @@ class BuzzClipView:
 
     def _render_results(self) -> None:
         """結果を表示"""
-        # 新しく生成し直すボタン
-        if st.button("🔄 新しく生成し直す", type="secondary", use_container_width=True):
-            self.presenter.reset()
-            st.rerun()
+        # アクションボタン
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("🔄 新しく生成し直す", type="secondary", use_container_width=True):
+                self.presenter.reset()
+                st.rerun()
+        
+        with col2:
+            if st.button("➕ さらに候補を追加", type="primary", use_container_width=True):
+                st.session_state["buzz_clip_add_more"] = True
+                st.rerun()
 
         # 候補リスト
         st.divider()
+        st.markdown(f"### 🎯 生成された候補（{len(self.view_model.candidates)}件）")
         for candidate in self.view_model.candidates:
             self._render_candidate(candidate)
 

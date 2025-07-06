@@ -83,6 +83,7 @@ class BuzzClipPresenter(BasePresenter[BuzzClipViewModel]):
         transcription_model: str | None = None,
         progress_callback: Callable[[float, str], None] | None = None,
         save_cache: bool = True,
+        append_to_existing: bool = False,
     ) -> bool:
         """
         バズクリップを生成
@@ -93,15 +94,23 @@ class BuzzClipPresenter(BasePresenter[BuzzClipViewModel]):
             transcription_model: 文字起こしモデル名（キャッシュ紐付け用）
             progress_callback: 進捗コールバック
             save_cache: キャッシュに保存するか
+            append_to_existing: 既存の候補に追加するか
 
         Returns:
             成功したかどうか
         """
         logger.info(f"Starting buzz clip generation with {len(transcription_segments)} segments")
         logger.info(f"Transcription model: {transcription_model}")
+        logger.info(f"Append to existing: {append_to_existing}")
 
-        # キャッシュから読み込みを試行
-        if video_path and self.load_from_cache(video_path, transcription_model):
+        # 既存の候補を保持（追加モードの場合）
+        existing_candidates = []
+        if append_to_existing and self.view_model.candidates:
+            existing_candidates = list(self.view_model.candidates)
+            logger.info(f"Keeping {len(existing_candidates)} existing candidates")
+
+        # キャッシュから読み込みを試行（追加モードでない場合のみ）
+        if not append_to_existing and video_path and self.load_from_cache(video_path, transcription_model):
             logger.info("Loaded buzz clips from cache")
             # セッションに保存
             if self.session_manager:
@@ -118,7 +127,7 @@ class BuzzClipPresenter(BasePresenter[BuzzClipViewModel]):
             # 全テキストを結合
             full_text = "\n".join([seg["text"] for seg in transcription_segments])
 
-            # リクエストを作成
+            # リクエストを作成（既存候補を含める）
             request = GenerateBuzzClipsRequest(
                 transcription_text=full_text,
                 transcription_segments=transcription_segments,
@@ -126,13 +135,16 @@ class BuzzClipPresenter(BasePresenter[BuzzClipViewModel]):
                 min_duration=self.view_model.min_duration,
                 max_duration=self.view_model.max_duration,
                 categories=self.view_model.selected_categories or None,
+                existing_candidates=existing_candidates if append_to_existing else None,
             )
 
             if progress_callback:
                 progress_callback(0.2, "AIによる分析を実行中...")
 
             # ユースケースを実行
+            logger.info("Calling use case execute method")
             response = self.generate_buzz_clips_use_case.execute(request)
+            logger.info(f"Use case response: success={response.success}, candidates={len(response.candidates) if response.candidates else 0}")
 
             if not response.success:
                 logger.error(f"Buzz clip generation failed: {response.error_message}")
@@ -142,13 +154,21 @@ class BuzzClipPresenter(BasePresenter[BuzzClipViewModel]):
             if progress_callback:
                 progress_callback(0.9, "結果を処理中...")
 
-            # 結果を設定
+            # 結果を設定（追加モードの場合は既存と結合）
+            if append_to_existing and existing_candidates:
+                all_candidates = existing_candidates + response.candidates
+                logger.info(f"Merging {len(existing_candidates)} existing + {len(response.candidates)} new = {len(all_candidates)} total candidates")
+            else:
+                all_candidates = response.candidates
+                
+            logger.info(f"Setting {len(all_candidates)} candidates to view model")
             self.view_model.complete_generation(
-                candidates=response.candidates,
+                candidates=all_candidates,
                 processing_time=response.processing_time,
                 model_used=response.model_used,
                 token_usage=response.usage,
             )
+            logger.info(f"View model now has {len(self.view_model.candidates)} candidates")
 
             # セッションに保存
             if self.session_manager:
@@ -246,17 +266,17 @@ class BuzzClipPresenter(BasePresenter[BuzzClipViewModel]):
         video_parent = Path(video_path).parent
         safe_name = get_safe_filename(video_name)
 
-        # TextffCutフォルダ内のtranscriptions/サブフォルダ（文字起こしと同じ場所）
+        # TextffCutフォルダ内のbuzz_clips/サブフォルダ
         textffcut_dir = video_parent / f"{safe_name}_TextffCut"
-        cache_dir = textffcut_dir / "transcriptions"
+        cache_dir = textffcut_dir / "buzz_clips"
         cache_dir.mkdir(parents=True, exist_ok=True)
 
-        # 文字起こしモデルに紐づけたファイル名
+        # 文字起こしモデルに紐づけたファイル名（シンプルに）
         if transcription_model:
-            filename = f"{transcription_model}_buzz_{self.view_model.num_candidates}_{self.view_model.min_duration}_{self.view_model.max_duration}.json"
+            filename = f"{transcription_model}.json"
         else:
             # モデル名が不明な場合はデフォルト
-            filename = f"buzz_{self.view_model.num_candidates}_{self.view_model.min_duration}_{self.view_model.max_duration}.json"
+            filename = "default.json"
         return cache_dir / filename
 
     def save_to_cache(self, video_path: str | Path, transcription_model: str = None) -> None:
@@ -387,9 +407,9 @@ class BuzzClipPresenter(BasePresenter[BuzzClipViewModel]):
         video_parent = Path(video_path).parent
         safe_name = get_safe_filename(video_name)
 
-        # TextffCutフォルダ内のtranscriptions/サブフォルダ
+        # TextffCutフォルダ内のbuzz_clips/サブフォルダ
         textffcut_dir = video_parent / f"{safe_name}_TextffCut"
-        cache_dir = textffcut_dir / "transcriptions"
+        cache_dir = textffcut_dir / "buzz_clips"
 
         if not cache_dir.exists():
             return []
@@ -398,13 +418,13 @@ class BuzzClipPresenter(BasePresenter[BuzzClipViewModel]):
         cache_files = []
         if transcription_model:
             # 特定のモデルに紐づいたキャッシュを探す
-            pattern = f"{transcription_model}_buzz_*.json"
+            cache_file = cache_dir / f"{transcription_model}.json"
+            if cache_file.exists():
+                cache_files.append(cache_file)
         else:
             # すべてのバズクリップキャッシュを探す
-            pattern = "*_buzz_*.json"
-
-        for cache_file in cache_dir.glob(pattern):
-            cache_files.append(cache_file)
+            for cache_file in cache_dir.glob("*.json"):
+                cache_files.append(cache_file)
 
         # 更新時刻でソート（新しい順）
         cache_files.sort(key=lambda x: x.stat().st_mtime, reverse=True)
