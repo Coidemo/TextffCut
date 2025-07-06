@@ -130,6 +130,10 @@ class TextEditorView:
             st.markdown("#### 切り抜き箇所")
             st.caption("文字起こし結果から切り抜く箇所を入力してください")
 
+            # バズクリップ候補がある場合はナビゲーションUIを表示
+            if "buzz_clip_all_candidates" in st.session_state and st.session_state.buzz_clip_all_candidates:
+                self._render_buzz_clip_navigation()
+
             # テキストエディタ
             edited_text = self._render_text_editor()
 
@@ -193,6 +197,53 @@ class TextEditorView:
             self.presenter.update_edited_text(edited_text)
 
         return edited_text
+
+    def _render_buzz_clip_navigation(self) -> None:
+        """バズクリップ候補のナビゲーションUIを表示"""
+        candidates = st.session_state.buzz_clip_all_candidates
+        current_index = st.session_state.get("buzz_clip_current_index", 0)
+
+        # ナビゲーションコントロール
+        nav_col1, nav_col2, nav_col3, nav_col4 = st.columns([1, 6, 1, 1])
+
+        with nav_col1:
+            # 前の候補ボタン
+            if st.button("◀", key="buzz_prev", disabled=current_index == 0, use_container_width=True):
+                new_index = current_index - 1
+                st.session_state.buzz_clip_current_index = new_index
+                # 候補を切り替え
+                self._switch_to_candidate(candidates[new_index])
+                st.rerun()
+
+        with nav_col2:
+            # 現在の候補情報
+            candidate = candidates[current_index]
+            st.info(f"🎬 候補 {current_index + 1}/{len(candidates)}: {candidate.title}")
+
+        with nav_col3:
+            # 次の候補ボタン
+            if st.button("▶", key="buzz_next", disabled=current_index >= len(candidates) - 1, use_container_width=True):
+                new_index = current_index + 1
+                st.session_state.buzz_clip_current_index = new_index
+                # 候補を切り替え
+                self._switch_to_candidate(candidates[new_index])
+                st.rerun()
+
+        with nav_col4:
+            # クリアボタン
+            if st.button("❌", key="buzz_clear", use_container_width=True, help="バズクリップ候補をクリア"):
+                del st.session_state.buzz_clip_all_candidates
+                if "buzz_clip_current_index" in st.session_state:
+                    del st.session_state.buzz_clip_current_index
+                st.session_state.text_editor_value = ""
+                st.rerun()
+
+    def _switch_to_candidate(self, candidate) -> None:
+        """指定された候補に切り替え"""
+        # テキストエディタに候補のテキストを設定
+        st.session_state.text_editor_value = candidate.text
+        # ビューモデルも更新
+        self.presenter.update_edited_text(candidate.text)
 
     def _render_text_stats(self) -> None:
         """文字数と時間の統計を表示"""

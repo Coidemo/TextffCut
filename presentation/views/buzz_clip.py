@@ -204,7 +204,14 @@ class BuzzClipView:
             col_action1, col_action2, col_action3 = st.columns([2, 2, 6])
             with col_action1:
                 if st.button("✂️ 切り抜き箇所に入力", key=f"use_{candidate.id}", type="primary"):
-                    # この候補を切り抜き箇所として設定
+                    # すべての候補を保存（ナビゲーション用）
+                    st.session_state["buzz_clip_all_candidates"] = self.view_model.candidates
+                    # 現在の候補のインデックスを設定
+                    for i, c in enumerate(self.view_model.candidates):
+                        if c.id == candidate.id:
+                            st.session_state["buzz_clip_current_index"] = i
+                            break
+                    # この候補を初期表示用に設定
                     st.session_state["buzz_clip_candidates"] = [candidate]
                     st.session_state["use_buzz_clips"] = True
                     st.session_state["show_text_edit_after_buzz"] = True
