@@ -6,7 +6,8 @@ from typing import Any
 
 import streamlit as st
 
-from core.text_processor import TextDifference, TextProcessor
+from adapters.gateways.text_processing.simple_text_processor_gateway import SimpleTextProcessorGateway
+from core.text_processor import TextDifference
 
 
 def show_api_key_manager() -> None:
@@ -473,7 +474,7 @@ def show_edited_text_with_separators_highlights(edited_text: str, separator: str
         height: ビューアの高さ
     """
 
-    text_processor = TextProcessor()
+    text_processor = SimpleTextProcessorGateway()
 
     # 元のテキストを取得
     full_text = ""

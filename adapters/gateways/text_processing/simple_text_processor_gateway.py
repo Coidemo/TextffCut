@@ -70,16 +70,16 @@ class SimpleTextProcessorGateway(ITextProcessorGateway):
     ) -> list[TimeRange]:
         """
         差分から時間範囲を取得（インターフェース準拠）
-        
+
         Args:
             text_difference: テキスト差分
             transcription_result: 文字起こし結果
-            
+
         Returns:
             共通部分の時間範囲リスト
         """
         return self.get_time_ranges_from_differences(text_difference, transcription_result)
-    
+
     def get_time_ranges_tuples(
         self, differences: TextDifference, transcription: TranscriptionResult
     ) -> list[tuple[float, float]]:
@@ -247,60 +247,60 @@ class SimpleTextProcessorGateway(ITextProcessorGateway):
             adjusted.append((start, end))
 
         return adjusted
-    
+
     def apply_boundary_adjustments(self, text: str, time_ranges: list[TimeRange]) -> tuple[str, list[TimeRange]]:
         """
         境界調整マーカーを適用
-        
+
         Args:
             text: マーカーを含むテキスト
             time_ranges: 元の時間範囲
-            
+
         Returns:
             マーカーを除去したテキストと調整後の時間範囲
         """
         # マーカーを抽出
         markers = self.extract_existing_markers(text)
-        
+
         # マーカーを削除
         cleaned_text = self.remove_boundary_markers(text)
-        
+
         # 時間範囲を調整
         adjusted_ranges = []
         for i, time_range in enumerate(time_ranges):
             # TODO: マーカー情報に基づいて調整
             adjusted_ranges.append(time_range)
-        
+
         return cleaned_text, adjusted_ranges
-    
+
     def search_text(
         self, query: str, transcription_result: TranscriptionResult, case_sensitive: bool = False
     ) -> list[tuple[str, TimeRange]]:
         """
         文字起こし結果からテキストを検索
-        
+
         Args:
             query: 検索クエリ
             transcription_result: 文字起こし結果
             case_sensitive: 大文字小文字を区別するか
-            
+
         Returns:
             マッチしたテキストと時間範囲のリスト
         """
         results = []
         full_text = transcription_result.text
-        
+
         # 大文字小文字を考慮
         search_text = full_text if case_sensitive else full_text.lower()
         search_query = query if case_sensitive else query.lower()
-        
+
         # すべての出現位置を検索
         start = 0
         while True:
             pos = search_text.find(search_query, start)
             if pos == -1:
                 break
-            
+
             # 時間範囲を計算
             # TODO: より正確な実装が必要
             if transcription_result.segments:
@@ -308,16 +308,15 @@ class SimpleTextProcessorGateway(ITextProcessorGateway):
                 text_progress = pos / len(full_text)
                 total_duration = transcription_result.segments[-1].end
                 estimated_time = total_duration * text_progress
-                
+
                 # 前後0.5秒の範囲
                 time_range = TimeRange(
-                    start=max(0, estimated_time - 0.5),
-                    end=min(total_duration, estimated_time + 0.5)
+                    start=max(0, estimated_time - 0.5), end=min(total_duration, estimated_time + 0.5)
                 )
-                
-                matched_text = full_text[pos:pos + len(query)]
+
+                matched_text = full_text[pos : pos + len(query)]
                 results.append((matched_text, time_range))
-            
+
             start = pos + 1
-        
+
         return results

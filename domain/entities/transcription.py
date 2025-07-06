@@ -26,10 +26,9 @@ class Word:
         if self.end < self.start:
             # データの不整合を修正（WhisperAPIの出力が不正確な場合がある）
             from utils.logging import get_logger
+
             logger = get_logger(__name__)
-            logger.warning(
-                f"End time < start time detected. Swapping values. start={self.start}, end={self.end}"
-            )
+            logger.warning(f"End time < start time detected. Swapping values. start={self.start}, end={self.end}")
             self.start, self.end = self.end, self.start
         if self.confidence is not None and not 0 <= self.confidence <= 1:
             raise ValueError("Confidence must be between 0 and 1")
@@ -73,10 +72,9 @@ class Char:
         if self.end < self.start:
             # データの不整合を修正（WhisperAPIの出力が不正確な場合がある）
             from utils.logging import get_logger
+
             logger = get_logger(__name__)
-            logger.warning(
-                f"End time < start time detected. Swapping values. start={self.start}, end={self.end}"
-            )
+            logger.warning(f"End time < start time detected. Swapping values. start={self.start}, end={self.end}")
             self.start, self.end = self.end, self.start
         if self.confidence is not None and not 0 <= self.confidence <= 1:
             raise ValueError("Confidence must be between 0 and 1")

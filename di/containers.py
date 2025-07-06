@@ -17,7 +17,6 @@ from adapters.gateways.export.video_export_gateway import VideoExportGatewayAdap
 # アダプター層のインポート
 from adapters.gateways.file.file_gateway import FileGatewayAdapter
 from adapters.gateways.text_processing.simple_text_processor_gateway import SimpleTextProcessorGateway
-from adapters.gateways.text_processing.text_processor_gateway import TextProcessorGatewayAdapter
 from adapters.gateways.transcription.transcription_gateway import TranscriptionGatewayAdapter
 from adapters.gateways.video_processing.video_processor_gateway import VideoProcessorGatewayAdapter
 from adapters.gateways.youtube.youtube_download_gateway import YouTubeDownloadGateway
