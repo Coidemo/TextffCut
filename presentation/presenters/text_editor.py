@@ -354,6 +354,25 @@ class TextEditorPresenter(BasePresenter[TextEditorViewModel]):
         # TextDifferenceから時間範囲を取得
         time_ranges = self.text_processor_gateway.get_time_ranges(diff_result, self.view_model.transcription_result)
 
+        # デバッグ情報を出力
+        logger.info("=== 時間範囲デバッグ情報 ===")
+        logger.info(f"取得した時間範囲数: {len(time_ranges)}")
+        for i, tr in enumerate(time_ranges):
+            logger.info(f"範囲 {i+1}: {tr.start:.2f}秒 - {tr.end:.2f}秒 (長さ: {tr.duration:.2f}秒)")
+            
+            # 該当するテキストも表示（最初の50文字）
+            if hasattr(diff_result, 'differences'):
+                # 該当する部分のテキストを探す
+                from domain.entities.text_difference import DifferenceType
+                unchanged_texts = []
+                for diff_type, text, _ in diff_result.differences:
+                    if diff_type == DifferenceType.UNCHANGED:
+                        unchanged_texts.append(text)
+                if i < len(unchanged_texts):
+                    preview_text = unchanged_texts[i][:50] + "..." if len(unchanged_texts[i]) > 50 else unchanged_texts[i]
+                    logger.info(f"  対応テキスト: {preview_text}")
+        logger.info("=== デバッグ情報終了 ===")
+
         self.view_model.update_time_ranges(time_ranges)
         
         # SessionManagerも更新

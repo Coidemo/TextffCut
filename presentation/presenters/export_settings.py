@@ -189,6 +189,14 @@ class ExportSettingsPresenter(BasePresenter[ExportSettingsViewModel]):
 
             # 時間範囲を取得
             time_ranges = self.view_model.effective_time_ranges
+            
+            # デバッグ情報を出力
+            logger.info("=== エクスポート時の時間範囲デバッグ ===")
+            logger.info(f"エクスポートタイプ: 動画（MP4）")
+            logger.info(f"無音削除: {'有効' if self.view_model.remove_silence else '無効'}")
+            logger.info(f"時間範囲数: {len(time_ranges)}")
+            for i, tr in enumerate(time_ranges):
+                logger.info(f"  範囲 {i+1}: {tr.start:.2f}秒 - {tr.end:.2f}秒 (長さ: {tr.duration:.2f}秒)")
 
             if self.view_model.remove_silence:
                 # 無音削除処理
@@ -249,6 +257,13 @@ class ExportSettingsPresenter(BasePresenter[ExportSettingsViewModel]):
             time_ranges = self.view_model.effective_time_ranges
             legacy_ranges = [(r.start, r.end) for r in time_ranges]
             
+            # デバッグ情報を出力
+            logger.info("=== FCPXMLエクスポートデバッグ ===")
+            logger.info(f"無音削除設定: {self.view_model.remove_silence}")
+            logger.info(f"元の時間範囲数: {len(legacy_ranges)}")
+            for i, (start, end) in enumerate(legacy_ranges):
+                logger.info(f"  元の範囲 {i+1}: {start:.2f}秒 - {end:.2f}秒 (長さ: {end-start:.2f}秒)")
+            
             # 無音削除が有効な場合は、無音削除処理を実行
             if self.view_model.remove_silence:
                 progress_callback(0.1, "無音を検出中...", "silence_detection")
@@ -272,6 +287,11 @@ class ExportSettingsPresenter(BasePresenter[ExportSettingsViewModel]):
                 # 無音削除後の範囲を使用
                 legacy_ranges = keep_ranges
                 progress_callback(0.9, "FCPXML生成中...", "fcpxml_generation")
+                
+                # デバッグ情報
+                logger.info(f"無音削除後の時間範囲数: {len(keep_ranges)}")
+                for i, (start, end) in enumerate(keep_ranges):
+                    logger.info(f"  削除後の範囲 {i+1}: {start:.2f}秒 - {end:.2f}秒 (長さ: {end-start:.2f}秒)")
 
             # FCPXMLを生成（隙間を詰めて配置）
             self.fcpxml_export_gateway.export(
