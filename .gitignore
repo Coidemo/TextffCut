@@ -224,3 +224,4 @@ models/
 *.onnx
 *.safetensors
 test_output/
+text_processing_comparison.md

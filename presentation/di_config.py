@@ -80,6 +80,7 @@ class PresentationContainer(containers.DeclarativeContainer):
         text_processor_gateway=gateways.text_processor_gateway,
         video_processor_gateway=gateways.video_processor_gateway,
         error_handler=services.error_handler,
+        session_manager=session_manager,
     )
 
     export_settings_presenter = providers.Factory(

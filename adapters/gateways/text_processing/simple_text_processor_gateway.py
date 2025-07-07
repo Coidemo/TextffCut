@@ -44,14 +44,19 @@ class SimpleTextProcessorGateway(ITextProcessorGateway):
 
         # 正規化処理
         if not skip_normalization:
-            # 改行を統一
-            normalized_original = original_text.replace('\r\n', '\n').replace('\r', '\n')
-            normalized_edited = edited_text.replace('\r\n', '\n').replace('\r', '\n')
-            
-            # 連続する改行を1つに
             import re
-            normalized_original = re.sub(r'\n+', '\n', normalized_original)
-            normalized_edited = re.sub(r'\n+', '\n', normalized_edited)
+            
+            # 全角スペースを半角に変換
+            normalized_original = original_text.replace('　', ' ')
+            normalized_edited = edited_text.replace('　', ' ')
+            
+            # 改行を統一
+            normalized_original = normalized_original.replace('\r\n', '\n').replace('\r', '\n')
+            normalized_edited = normalized_edited.replace('\r\n', '\n').replace('\r', '\n')
+            
+            # 連続する空白（スペース、タブ、改行）を1つに
+            normalized_original = re.sub(r'\s+', ' ', normalized_original)
+            normalized_edited = re.sub(r'\s+', ' ', normalized_edited)
             
             # 前後の空白を削除
             normalized_original = normalized_original.strip()
