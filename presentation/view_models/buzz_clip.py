@@ -18,14 +18,14 @@ class BuzzClipViewModel(BaseViewModel):
     """
 
     # 生成設定
-    num_candidates: int = 5
+    num_candidates: int = 10
     min_duration: int = 30
     max_duration: int = 40
     selected_categories: list[str] = field(default_factory=list)
 
     # 利用可能なカテゴリ
     available_categories: list[str] = field(
-        default_factory=lambda: ["感動系", "驚き系", "お役立ち系", "面白系", "その他"]
+        default_factory=lambda: ["仕事術", "人間関係", "ライフハック", "日常の疑問", "新しい視点", "その他"]
     )
 
     # 処理状態

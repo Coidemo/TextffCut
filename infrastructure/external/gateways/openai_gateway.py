@@ -119,7 +119,7 @@ class OpenAIGateway(AIGatewayInterface):
 6. 語尾：重複語尾は1回に圧縮しつつ原文を保持
 
 【選定基準】  
-- 各候補は{request.min_duration}〜{request.max_duration}秒の長さ（約300-500文字目安）
+- 各候補は{request.min_duration}〜{request.max_duration}秒の長さ（約150-250文字目安）
 - 「これは保存したい！」「誰かに教えたい！」と思える内容
 - 断定的で分かりやすい主張
 - 読後に「行動」か「気づき」が残る形で締める
