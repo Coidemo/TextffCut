@@ -67,6 +67,19 @@ class ExportSettingsPresenter(BasePresenter[ExportSettingsViewModel]):
 
     def initialize(self) -> None:
         """初期化処理"""
+        # 設定マネージャーから保存された設定を読み込み
+        from utils import settings_manager
+        
+        # 保存された設定を読み込み
+        saved_remove_silence = settings_manager.get("remove_silence", True)  # デフォルトは無音削除付き
+        saved_export_format = settings_manager.get("export_format", "fcpxml")  # デフォルトはFCPXML
+        saved_include_srt = settings_manager.get("include_srt", True)  # デフォルトはSRT同時出力
+        
+        # ViewModelに反映
+        self.view_model.remove_silence = saved_remove_silence
+        self.view_model.export_format = saved_export_format
+        self.view_model.include_srt = saved_include_srt
+        
         # SessionManagerから必要なデータを取得
         self.view_model.video_path = (
             Path(self.session_manager.get_video_path()) if self.session_manager.get_video_path() else None
@@ -101,6 +114,9 @@ class ExportSettingsPresenter(BasePresenter[ExportSettingsViewModel]):
     def set_remove_silence(self, enabled: bool) -> None:
         """無音削除の有効/無効を設定"""
         self.view_model.remove_silence = enabled
+        # 設定を永続化
+        from utils import settings_manager
+        settings_manager.set("remove_silence", enabled)
         self.view_model.notify()
 
     def set_silence_threshold(self, threshold: float) -> None:
@@ -122,11 +138,17 @@ class ExportSettingsPresenter(BasePresenter[ExportSettingsViewModel]):
     def set_export_format(self, format: str) -> None:
         """エクスポート形式を設定"""
         self.view_model.export_format = format
+        # 設定を永続化
+        from utils import settings_manager
+        settings_manager.set("export_format", format)
         self.view_model.notify()
 
     def set_include_srt(self, enabled: bool) -> None:
         """SRT字幕の同時出力を設定"""
         self.view_model.include_srt = enabled
+        # 設定を永続化
+        from utils import settings_manager
+        settings_manager.set("include_srt", enabled)
         self.view_model.notify()
 
     def set_srt_settings(self, max_line_length: int, max_lines: int) -> None:

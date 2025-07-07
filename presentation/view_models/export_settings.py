@@ -28,15 +28,15 @@ class ExportSettingsViewModel(BaseViewModel):
     adjusted_time_ranges: list[TimeRange] | None = None
 
     # 無音削除設定
-    remove_silence: bool = False
+    remove_silence: bool = True  # デフォルトは無音削除付き
     silence_threshold: float = -35.0
     min_silence_duration: float = 0.3
     silence_pad_start: float = 0.1
     silence_pad_end: float = 0.1
 
     # エクスポート形式
-    export_format: str = "video"  # video, fcpxml, edl, srt
-    include_srt: bool = False
+    export_format: str = "fcpxml"  # video, fcpxml, edl, srt
+    include_srt: bool = True  # デフォルトはSRT同時出力
     srt_max_line_length: int = 40
     srt_max_lines: int = 2
 
