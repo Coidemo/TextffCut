@@ -341,7 +341,7 @@ class ExportSettingsPresenter(BasePresenter[ExportSettingsViewModel]):
         pass
 
     def _generate_output_path(self, extension: str) -> Path:
-        """出力パスを生成"""
+        """出力パスを生成（連番付き）"""
         video_name = self.view_model.video_path.stem
         video_dir = self.view_model.video_path.parent
 
@@ -349,9 +349,12 @@ class ExportSettingsPresenter(BasePresenter[ExportSettingsViewModel]):
         output_dir = video_dir / f"{video_name}_TextffCut"
         output_dir.mkdir(exist_ok=True)
 
+        # ファイルタイプごとの連番を取得
+        session_number = self._get_or_create_session_number(extension)
+
         # ファイル名を生成
         suffix = "_NoSilence" if self.view_model.remove_silence else "_Clip"
-        base_name = f"{video_name}_TextffCut{suffix}"
+        base_name = f"{video_name}_TextffCut_{session_number:03d}{suffix}"
 
         return output_dir / f"{base_name}.{extension}"
 
@@ -364,17 +367,17 @@ class ExportSettingsPresenter(BasePresenter[ExportSettingsViewModel]):
         output_dir = video_dir / f"{video_name}_TextffCut"
         output_dir.mkdir(exist_ok=True)
 
-        # セッション連番を取得または生成
-        session_number = self._get_or_create_session_number()
+        # 動画ファイル用の連番を取得
+        session_number = self._get_or_create_session_number("mp4")
 
         # ファイル名を生成
         suffix = "_NoSilence" if self.view_model.remove_silence else "_Clip"
-        base_name = f"{video_name}_TextffCut_{session_number:04d}{suffix}"
+        base_name = f"{video_name}_TextffCut_{session_number:03d}{suffix}"
 
         return output_dir / base_name
 
-    def _get_or_create_session_number(self) -> int:
-        """セッション連番を取得または生成"""
+    def _get_or_create_session_number(self, extension: str) -> int:
+        """ファイルタイプごとの連番を取得または生成"""
         video_name = self.view_model.video_path.stem
         video_dir = self.view_model.video_path.parent
 
@@ -386,13 +389,15 @@ class ExportSettingsPresenter(BasePresenter[ExportSettingsViewModel]):
         if output_dir.exists():
             import re
 
-            pattern = re.compile(r"_TextffCut_(\d{4})_")
+            # ファイルタイプごとのパターン（例: _TextffCut_001_NoSilence.fcpxml）
+            pattern = re.compile(rf"_TextffCut_(\d{{3}})_.*\.{extension}$")
 
             for file in output_dir.iterdir():
-                match = pattern.search(file.name)
-                if match:
-                    number = int(match.group(1))
-                    max_number = max(max_number, number)
+                if file.is_file():
+                    match = pattern.search(file.name)
+                    if match:
+                        number = int(match.group(1))
+                        max_number = max(max_number, number)
 
         # 次の番号を返す
         return max_number + 1

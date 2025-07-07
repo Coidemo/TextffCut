@@ -29,6 +29,7 @@ class TextEditorPresenter(BasePresenter[TextEditorViewModel]):
         text_processor_gateway: ITextProcessorGateway,
         video_processor_gateway: IVideoProcessorGateway,
         error_handler: IErrorHandler,
+        session_manager: Any = None,  # SessionManagerの型
     ):
         """
         初期化
@@ -36,12 +37,15 @@ class TextEditorPresenter(BasePresenter[TextEditorViewModel]):
         Args:
             view_model: ViewModel
             text_processor_gateway: テキスト処理ゲートウェイ
+            video_processor_gateway: 動画処理ゲートウェイ
             error_handler: エラーハンドラー
+            session_manager: セッション管理（オプション）
         """
         super().__init__(view_model)
         self.text_processor_gateway = text_processor_gateway
         self.video_processor_gateway = video_processor_gateway
         self.error_handler = error_handler
+        self.session_manager = session_manager
 
     def initialize(self, transcription_result: TranscriptionResult) -> None:
         """
@@ -147,6 +151,10 @@ class TextEditorPresenter(BasePresenter[TextEditorViewModel]):
         try:
             # ViewModelを更新
             self.view_model.update_edited_text(text)
+            
+            # SessionManagerも更新
+            if self.session_manager:
+                self.session_manager.set_edited_text(text)
 
             # テキストが空でなければ処理
             if text.strip():
@@ -347,6 +355,10 @@ class TextEditorPresenter(BasePresenter[TextEditorViewModel]):
         time_ranges = self.text_processor_gateway.get_time_ranges(diff_result, self.view_model.transcription_result)
 
         self.view_model.update_time_ranges(time_ranges)
+        
+        # SessionManagerも更新
+        if self.session_manager and time_ranges:
+            self.session_manager.set_time_ranges(time_ranges)
 
     def remove_boundary_markers(self, text: str) -> str:
         """
