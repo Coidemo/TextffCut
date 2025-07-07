@@ -4,7 +4,7 @@
 テキスト編集のビジネスロジックを処理します。
 """
 
-from typing import Any
+from typing import Any, Protocol
 
 from domain.entities import TranscriptionResult
 from domain.interfaces.error_handler import IErrorHandler
@@ -29,7 +29,7 @@ class TextEditorPresenter(BasePresenter[TextEditorViewModel]):
         text_processor_gateway: ITextProcessorGateway,
         video_processor_gateway: IVideoProcessorGateway,
         error_handler: IErrorHandler,
-        session_manager: Any = None,  # SessionManagerの型
+        session_manager: Any = None,  # TODO: SessionManagerProtocolに置き換え
     ):
         """
         初期化

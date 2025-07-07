@@ -513,8 +513,11 @@ class ExportSettingsPresenter(BasePresenter[ExportSettingsViewModel]):
                         number = int(match.group(1))
                         max_number = max(max_number, number)
 
-        # 次の番号を返す
-        return max_number + 1
+        # 次の番号を返す（999以上の場合は警告）
+        next_number = max_number + 1
+        if next_number > 999:
+            logger.warning(f"連番が上限（999）を超えました: {next_number}")
+        return next_number
 
     def handle_error(self, error: Exception, context: str) -> None:
         """

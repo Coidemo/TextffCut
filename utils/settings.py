@@ -61,6 +61,9 @@ class SettingsManager:
             key: 設定キー
             value: 設定値
         """
+        # 浮動小数点の精度問題を回避
+        if isinstance(value, float):
+            value = round(value, 4)
         self._settings[key] = value
         self._save_settings()
 
