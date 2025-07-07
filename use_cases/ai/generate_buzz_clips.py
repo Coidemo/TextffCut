@@ -24,7 +24,7 @@ class GenerateBuzzClipsRequest:
 
     transcription_text: str
     transcription_segments: list[dict[str, Any]]
-    num_candidates: int = 5
+    num_candidates: int = 10
     min_duration: int = 30
     max_duration: int = 40
     categories: list[str] | None = None
