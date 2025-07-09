@@ -183,8 +183,6 @@ def render_text_edit_section(container):
     return False
 
 
-
-
 def render_export_section(container):
     """エクスポートセクション"""
     if not st.session_state.get("text_edit_completed", False):
@@ -326,7 +324,6 @@ def main():
 
                 # 3. テキスト編集
                 text_edit_completed = render_text_edit_section(app_container)
-
 
                 # テキスト編集が完了した場合のみエクスポートセクションを表示
                 if text_edit_completed:

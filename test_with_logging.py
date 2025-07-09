@@ -9,7 +9,7 @@ from domain.use_cases.text_difference_detector import TextDifferenceDetector
 from domain.entities.text_difference import DifferenceType
 
 # ログ設定
-logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
 # 実際のシナリオ：元のテキストは長い文字起こし結果
 original_text = """おはようございます。今日は良い天気ですね。

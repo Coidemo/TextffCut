@@ -153,7 +153,7 @@ class BuzzClipView:
     def _render_add_more_settings(self) -> None:
         """追加生成の設定UIを表示"""
         st.info(f"💡 現在{len(self.view_model.candidates)}件の候補があります。さらに候補を追加生成します。")
-        
+
         # 追加数の設定
         num_additional = st.number_input(
             "追加する候補数",
@@ -162,7 +162,7 @@ class BuzzClipView:
             value=3,
             help="既存の候補と重複しない新しい候補を生成します",
         )
-        
+
         # パラメータを更新（追加数のみ変更）
         self.presenter.set_generation_params(
             num_candidates=num_additional,
@@ -215,7 +215,7 @@ class BuzzClipView:
             if st.button("🔄 新しく生成し直す", type="secondary", use_container_width=True):
                 self.presenter.reset()
                 st.rerun()
-        
+
         with col2:
             if st.button("➕ さらに候補を追加", type="primary", use_container_width=True):
                 st.session_state["buzz_clip_add_more"] = True

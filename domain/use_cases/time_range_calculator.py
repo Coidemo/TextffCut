@@ -108,18 +108,22 @@ class TimeRangeCalculator:
                 # セグメント内での相対位置から時間を推定
                 relative_pos = (target_start - segment_start) / segment_len
                 start_time = segment.start + (segment.end - segment.start) * relative_pos
-                logger.info(f"  開始位置検出: セグメント{segment.id if hasattr(segment, 'id') else '?'} "
-                           f"({segment.start:.2f}-{segment.end:.2f}秒), "
-                           f"相対位置: {relative_pos:.2f}, 計算開始時間: {start_time:.2f}秒")
+                logger.info(
+                    f"  開始位置検出: セグメント{segment.id if hasattr(segment, 'id') else '?'} "
+                    f"({segment.start:.2f}-{segment.end:.2f}秒), "
+                    f"相対位置: {relative_pos:.2f}, 計算開始時間: {start_time:.2f}秒"
+                )
 
             # 終了位置がこのセグメント内にある
             if target_end > segment_start and target_end <= segment_end:
                 # セグメント内での相対位置から時間を推定
                 relative_pos = (target_end - segment_start) / segment_len
                 end_time = segment.start + (segment.end - segment.start) * relative_pos
-                logger.info(f"  終了位置検出: セグメント{segment.id if hasattr(segment, 'id') else '?'} "
-                           f"({segment.start:.2f}-{segment.end:.2f}秒), "
-                           f"相対位置: {relative_pos:.2f}, 計算終了時間: {end_time:.2f}秒")
+                logger.info(
+                    f"  終了位置検出: セグメント{segment.id if hasattr(segment, 'id') else '?'} "
+                    f"({segment.start:.2f}-{segment.end:.2f}秒), "
+                    f"相対位置: {relative_pos:.2f}, 計算終了時間: {end_time:.2f}秒"
+                )
 
                 # 範囲が確定したら追加
                 if start_time is not None:

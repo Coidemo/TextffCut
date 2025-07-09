@@ -23,23 +23,14 @@ print(f"元のテキストに編集テキストが含まれているか: {edited
 print("")
 
 # TranscriptionResultを作成（ダミー）
-segments = [
-    TranscriptionSegment(
-        id="1",
-        text=original_text,
-        start=0.0,
-        end=100.0,
-        words=[],
-        chars=[]
-    )
-]
+segments = [TranscriptionSegment(id="1", text=original_text, start=0.0, end=100.0, words=[], chars=[])]
 transcription_result = TranscriptionResult(
     id="test-1",
     segments=segments,
     language="ja",
     original_audio_path="/dummy/path.wav",
     model_size="medium",
-    processing_time=1.0
+    processing_time=1.0,
 )
 
 # TextDifferenceDetectorを使用

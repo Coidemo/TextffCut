@@ -159,7 +159,7 @@ JSON形式で以下の構造で出力してください：
 
         if request.categories:
             prompt += f"\n\n優先カテゴリ: {', '.join(request.categories)}"
-        
+
         prompt += """
 
 【セルフ検品フェーズ】（全案に必ず実行）
@@ -168,7 +168,11 @@ JSON形式で以下の構造で出力してください：
 ③ フィラー残存…「えー」「あの」等を取り除いたか
 ④ 余談残り…挨拶や無関係な例示が残っていないか
 ⑤ 構成…A〜Cいずれかに適合しているか
-→ 1つでもNG項目があれば該当案を再生成せよ。""".replace("{request.min_duration}", str(request.min_duration)).replace("{request.max_duration}", str(request.max_duration))
+→ 1つでもNG項目があれば該当案を再生成せよ。""".replace(
+            "{request.min_duration}", str(request.min_duration)
+        ).replace(
+            "{request.max_duration}", str(request.max_duration)
+        )
 
         return prompt
 

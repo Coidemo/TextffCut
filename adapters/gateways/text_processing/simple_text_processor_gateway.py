@@ -45,23 +45,23 @@ class SimpleTextProcessorGateway(ITextProcessorGateway):
         # 正規化処理
         if not skip_normalization:
             import re
-            
+
             # 全角スペースを半角に変換
-            normalized_original = original_text.replace('　', ' ')
-            normalized_edited = edited_text.replace('　', ' ')
-            
+            normalized_original = original_text.replace("　", " ")
+            normalized_edited = edited_text.replace("　", " ")
+
             # 改行を統一
-            normalized_original = normalized_original.replace('\r\n', '\n').replace('\r', '\n')
-            normalized_edited = normalized_edited.replace('\r\n', '\n').replace('\r', '\n')
-            
+            normalized_original = normalized_original.replace("\r\n", "\n").replace("\r", "\n")
+            normalized_edited = normalized_edited.replace("\r\n", "\n").replace("\r", "\n")
+
             # 連続する空白（スペース、タブ、改行）を1つに
-            normalized_original = re.sub(r'\s+', ' ', normalized_original)
-            normalized_edited = re.sub(r'\s+', ' ', normalized_edited)
-            
+            normalized_original = re.sub(r"\s+", " ", normalized_original)
+            normalized_edited = re.sub(r"\s+", " ", normalized_edited)
+
             # 前後の空白を削除
             normalized_original = normalized_original.strip()
             normalized_edited = normalized_edited.strip()
-            
+
             logger.info(f"正規化後: 元{len(normalized_original)}文字, 編集{len(normalized_edited)}文字")
         else:
             normalized_original = original_text
@@ -184,13 +184,13 @@ class SimpleTextProcessorGateway(ITextProcessorGateway):
         """
         # セパレータで分割
         sections = self.split_text_by_separator(target_text, separator)
-        
+
         # 各セクションを結合（セパレータなしで）
         combined_text = "".join(sections)
-        
+
         logger.info(f"セパレータで{len(sections)}個のセクションに分割")
         logger.info(f"結合後のテキスト長: {len(combined_text)}文字")
-        
+
         # セパレータを除外したテキストで差分検出
         return self.find_differences(source_text, combined_text, skip_normalization)
 

@@ -36,7 +36,7 @@ if position != -1:
     print(f"編集テキストの長さ: {len(edited_text)}")
     print(f"一致するか: {original_excerpt == edited_text}")
     print("")
-    
+
     # _compare_textsを直接呼び出し
     print("=== _compare_texts の直接呼び出し ===")
     compare_result = detector._compare_texts(original_excerpt, edited_text, position)

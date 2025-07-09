@@ -512,7 +512,7 @@ def show_edited_text_with_separators_highlights(edited_text: str, separator: str
 
         # 共通部分でカバーされている位置をマーク（cleaned_sectionベース）
         from domain.entities.text_difference import DifferenceType
-        
+
         for diff_type, text, _ in section_diff.differences:
             if diff_type == DifferenceType.UNCHANGED:
                 common_text = text

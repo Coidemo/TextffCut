@@ -44,7 +44,7 @@ if position != -1:
     print(f"\n抽出された部分: '{original_excerpt}'")
     print(f"編集テキスト: '{edited_text}'")
     print(f"一致するか: {original_excerpt == edited_text}")
-    
+
 print("\n=== 修正案 ===")
 print("問題: 句読点を除去したテキストで検索しているが、")
 print("      句読点を除去した長さで切り出している")

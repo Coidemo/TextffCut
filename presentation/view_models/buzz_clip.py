@@ -54,7 +54,6 @@ class BuzzClipViewModel(BaseViewModel):
         """候補があるかどうか"""
         return len(self.candidates) > 0
 
-
     @property
     def duration_range_text(self) -> str:
         """時間範囲のテキスト表現"""
@@ -73,7 +72,6 @@ class BuzzClipViewModel(BaseViewModel):
             if candidate.id == candidate_id:
                 return candidate
         return None
-
 
     def start_generation(self) -> None:
         """生成を開始"""
