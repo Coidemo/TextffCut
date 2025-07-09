@@ -12,6 +12,7 @@ from domain.entities.transcription import TranscriptionResult
 from domain.entities.character_timestamp import CharacterWithTimestamp
 from domain.value_objects.lcs_match import LCSMatch, DifferenceBlock
 from domain.use_cases.character_array_builder import CharacterArrayBuilder
+from domain.use_cases.difference_grouper import DifferenceGrouper
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -27,6 +28,7 @@ class TextDifferenceDetectorLCS:
 
     def __init__(self):
         self.character_builder = CharacterArrayBuilder()
+        self.difference_grouper = DifferenceGrouper()
 
     def detect_differences(
         self, original_text: str, edited_text: str, transcription_result: Optional[TranscriptionResult] = None
@@ -61,9 +63,22 @@ class TextDifferenceDetectorLCS:
             lcs_matches = self._create_lcs_matches(match_positions, char_array, edited_text)
 
         # 差分ブロックを構築
-        difference_blocks = self._create_difference_blocks(
-            original_text, edited_text, match_positions, char_array, lcs_matches
-        )
+        if match_positions:
+            # マッチがある場合
+            if char_array and lcs_matches:
+                # TranscriptionResultがある場合：詳細な時間情報付き
+                groups = self.difference_grouper.group_lcs_matches(lcs_matches)
+                difference_blocks = self.difference_grouper.create_difference_blocks(
+                    groups, char_array, original_text, edited_text
+                )
+            else:
+                # TranscriptionResultがない場合：時間情報なしで処理
+                difference_blocks = self._create_difference_blocks_without_timestamps(
+                    original_text, edited_text, match_positions
+                )
+        else:
+            # マッチがない場合の処理
+            difference_blocks = self._create_difference_blocks_no_match(original_text, edited_text, char_array)
 
         # レガシー形式の差分リストに変換
         differences = self._convert_to_legacy_differences(difference_blocks)
@@ -110,9 +125,22 @@ class TextDifferenceDetectorLCS:
             lcs_matches = self._create_lcs_matches(match_positions, char_array, edited_text)
 
         # 差分ブロックを構築
-        difference_blocks = self._create_difference_blocks(
-            original_text, edited_text, match_positions, char_array, lcs_matches
-        )
+        if match_positions:
+            # マッチがある場合
+            if char_array and lcs_matches:
+                # TranscriptionResultがある場合：詳細な時間情報付き
+                groups = self.difference_grouper.group_lcs_matches(lcs_matches)
+                difference_blocks = self.difference_grouper.create_difference_blocks(
+                    groups, char_array, original_text, edited_text
+                )
+            else:
+                # TranscriptionResultがない場合：時間情報なしで処理
+                difference_blocks = self._create_difference_blocks_without_timestamps(
+                    original_text, edited_text, match_positions
+                )
+        else:
+            # マッチがない場合の処理
+            difference_blocks = self._create_difference_blocks_no_match(original_text, edited_text, char_array)
 
         return text_diff, difference_blocks
 
@@ -197,6 +225,139 @@ class TextDifferenceDetectorLCS:
                 lcs_matches.append(match)
 
         return lcs_matches
+
+    def _create_difference_blocks_no_match(
+        self, original_text: str, edited_text: str, char_array: Optional[List[CharacterWithTimestamp]] = None
+    ) -> List[DifferenceBlock]:
+        """マッチがない場合の差分ブロック作成"""
+        blocks = []
+
+        # 編集テキストがある場合は追加
+        if edited_text:
+            blocks.append(
+                DifferenceBlock(
+                    type=DifferenceType.ADDED, text=edited_text, start_time=None, end_time=None, char_positions=[]
+                )
+            )
+
+        # 元テキストがある場合は削除
+        if original_text and char_array:
+            blocks.append(
+                DifferenceBlock(
+                    type=DifferenceType.DELETED,
+                    text=original_text,
+                    start_time=char_array[0].start if char_array else None,
+                    end_time=char_array[-1].end if char_array else None,
+                    char_positions=char_array.copy() if char_array else [],
+                )
+            )
+
+        return blocks
+
+    def _create_difference_blocks_without_timestamps(
+        self, original_text: str, edited_text: str, match_positions: List[Tuple[int, int]]
+    ) -> List[DifferenceBlock]:
+        """タイムスタンプなしで差分ブロックを作成（TranscriptionResultがない場合）"""
+        blocks = []
+
+        # 連続したマッチをグループ化
+        groups = self._group_continuous_matches(match_positions)
+
+        # UNCHANGEDブロックの作成
+        for group in groups:
+            start_o, start_e = group[0]
+            end_o, end_e = group[-1]
+
+            matched_text = original_text[start_o : end_o + 1]
+
+            blocks.append(
+                DifferenceBlock(
+                    type=DifferenceType.UNCHANGED,
+                    text=matched_text,
+                    start_time=None,
+                    end_time=None,
+                    char_positions=[],
+                    original_start_pos=start_o,
+                    original_end_pos=end_o,
+                )
+            )
+
+        # 削除ブロックの特定
+        matched_indices = {pos[0] for pos in match_positions}
+        current_deletion_start = None
+        current_deletion_text = []
+
+        for i in range(len(original_text)):
+            if i not in matched_indices:
+                if current_deletion_start is None:
+                    current_deletion_start = i
+                current_deletion_text.append(original_text[i])
+            else:
+                if current_deletion_text:
+                    blocks.append(
+                        DifferenceBlock(
+                            type=DifferenceType.DELETED,
+                            text="".join(current_deletion_text),
+                            start_time=None,
+                            end_time=None,
+                            char_positions=[],
+                            original_start_pos=current_deletion_start,
+                            original_end_pos=current_deletion_start + len(current_deletion_text) - 1,
+                        )
+                    )
+                    current_deletion_start = None
+                    current_deletion_text = []
+
+        # 最後の削除ブロック
+        if current_deletion_text:
+            blocks.append(
+                DifferenceBlock(
+                    type=DifferenceType.DELETED,
+                    text="".join(current_deletion_text),
+                    start_time=None,
+                    end_time=None,
+                    char_positions=[],
+                    original_start_pos=current_deletion_start,
+                    original_end_pos=current_deletion_start + len(current_deletion_text) - 1,
+                )
+            )
+
+        # 追加ブロックの特定
+        matched_edited_indices = {pos[1] for pos in match_positions}
+        current_addition_text = []
+
+        for i in range(len(edited_text)):
+            if i not in matched_edited_indices:
+                current_addition_text.append(edited_text[i])
+            else:
+                if current_addition_text:
+                    blocks.append(
+                        DifferenceBlock(
+                            type=DifferenceType.ADDED,
+                            text="".join(current_addition_text),
+                            start_time=None,
+                            end_time=None,
+                            char_positions=[],
+                        )
+                    )
+                    current_addition_text = []
+
+        # 最後の追加ブロック
+        if current_addition_text:
+            blocks.append(
+                DifferenceBlock(
+                    type=DifferenceType.ADDED,
+                    text="".join(current_addition_text),
+                    start_time=None,
+                    end_time=None,
+                    char_positions=[],
+                )
+            )
+
+        # 位置でソート
+        blocks.sort(key=lambda b: (b.original_start_pos or float("inf"), b.original_end_pos or float("inf")))
+
+        return blocks
 
     def _create_difference_blocks(
         self,
