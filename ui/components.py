@@ -7,7 +7,7 @@ from typing import Any
 import streamlit as st
 
 from adapters.gateways.text_processing.simple_text_processor_gateway import SimpleTextProcessorGateway
-from core.text_processor import TextDifference
+from domain.entities.text_difference import TextDifference
 
 
 def show_api_key_manager() -> None:
@@ -409,9 +409,9 @@ def show_text_editor(initial_text: str = "", height: int = 400) -> str:
 
 def show_edited_text_with_highlights(edited_text: str, diff: TextDifference | None = None, height: int = 400) -> None:
     """
-    編集テキストに赤ハイライト表示（シンプル版）
+    編集テキストに赤ハイライト表示（削除される部分のみ）
 
-    追加文字（ADDED）だけを赤くハイライトする簡易実装
+    削除ボタンで実際に削除される文字だけを赤くハイライトする
     """
     if not edited_text or diff is None:
         return
@@ -421,52 +421,51 @@ def show_edited_text_with_highlights(edited_text: str, diff: TextDifference | No
         f'padding: 10px; border: 1px solid #ddd; border-radius: 5px; background-color: #f9f9f9;">'
     )
 
-    # 追加文字を取得
-    added_chars = set()
+    # 削除ボタンを押した後のテキストを計算
+    remaining_text = ""
     if hasattr(diff, "differences"):
         # ドメインエンティティの場合
         from domain.entities.text_difference import DifferenceType
-
-        for diff_type, text, _ in diff.differences:
-            if diff_type == DifferenceType.ADDED:
-                # 各文字を追加文字セットに追加
-                for char in text:
-                    added_chars.add(char)
-    elif hasattr(diff, "added_chars"):
-        # レガシー形式の場合
-        added_chars = diff.added_chars if diff.added_chars else set()
-
+        
+        # UNCHANGEDの部分のみを結合（削除後に残る部分）
+        remaining_text = "".join(
+            text for diff_type, text, _ in diff.differences if diff_type == DifferenceType.UNCHANGED
+        )
+    
     # デバッグ情報をログ出力
     import logging
-
     logger = logging.getLogger(__name__)
-    logger.info(f"[show_edited_text_with_highlights] diffの型: {type(diff)}")
-    logger.info(f"[show_edited_text_with_highlights] hasattr(differences): {hasattr(diff, 'differences')}")
-    logger.info(f"[show_edited_text_with_highlights] hasattr(added_chars): {hasattr(diff, 'added_chars')}")
-    logger.info(f"[show_edited_text_with_highlights] 追加文字数: {len(added_chars)}")
-    logger.info(f"[show_edited_text_with_highlights] 追加文字: {added_chars}")
-
-    # HTMLを生成
-    highlighted_count = 0
+    logger.info(f"[show_edited_text_with_highlights] 元のテキスト長: {len(edited_text)}")
+    logger.info(f"[show_edited_text_with_highlights] 削除後のテキスト長: {len(remaining_text)}")
+    
+    # 削除される文字を特定（元のテキストと削除後のテキストの差分）
+    # シンプルなアプローチ：各文字が残るかどうかをチェック
+    remaining_chars = list(remaining_text)
+    remaining_index = 0
+    
     for char in edited_text:
-        if char in added_chars:
-            html_content += (
-                f'<span class="highlight-addition" style="background-color: #ffe6e6; ' f'color: #d00;">{char}</span>'
-            )
-            highlighted_count += 1
-        else:
+        # この文字が削除後のテキストに存在するかチェック
+        if remaining_index < len(remaining_chars) and char == remaining_chars[remaining_index]:
+            # この文字は残る（ハイライトしない）
             html_content += char
+            remaining_index += 1
+        else:
+            # この文字は削除される（赤くハイライト）
+            html_content += (
+                f'<span class="highlight-deletion" style="background-color: #ffe6e6; '
+                f'color: #d00; text-decoration: line-through;">{char}</span>'
+            )
+    
+    logger.info(f"[show_edited_text_with_highlights] ハイライトされた文字数: {len(edited_text) - remaining_index}")
 
     html_content += "</div>"
-
-    logger.info(f"[show_edited_text_with_highlights] ハイライトされた文字数: {highlighted_count}/{len(edited_text)}")
 
     st.markdown(html_content, unsafe_allow_html=True)
 
 
 def show_edited_text_with_separators_highlights(edited_text: str, separator: str, height: int = 400) -> None:
     """
-    区切り文字を含むテキストの赤ハイライト表示
+    区切り文字を含むテキストの赤ハイライト表示（削除される部分のみ）
 
     Args:
         edited_text: 編集されたテキスト（区切り文字付き）
@@ -508,45 +507,34 @@ def show_edited_text_with_separators_highlights(edited_text: str, separator: str
             for pos in range(match.start(), match.end()):
                 marker_positions.add(pos)
 
-        covered_positions = set()
-
-        # 共通部分でカバーされている位置をマーク（cleaned_sectionベース）
+        # 削除後に残るテキストを計算
+        remaining_text = ""
         from domain.entities.text_difference import DifferenceType
-        
-        for diff_type, text, _ in section_diff.differences:
-            if diff_type == DifferenceType.UNCHANGED:
-                common_text = text
-                search_start = 0
-
-                while True:
-                    found_pos = cleaned_section.find(common_text, search_start)
-                    if found_pos == -1:
-                        break
-
-                    if not any(pos in covered_positions for pos in range(found_pos, found_pos + len(common_text))):
-                        for j in range(found_pos, found_pos + len(common_text)):
-                            covered_positions.add(j)
-                        break
-
-                    search_start = found_pos + 1
+        if section_diff and hasattr(section_diff, "differences"):
+            remaining_text = "".join(
+                text for diff_type, text, _ in section_diff.differences if diff_type == DifferenceType.UNCHANGED
+            )
 
         # セクションのHTMLを生成
-        # マーカーを除外した位置での対応付けが必要
-        cleaned_pos = 0  # cleaned_section内での位置
+        remaining_chars = list(remaining_text)
+        remaining_index = 0
+        
         for j, char in enumerate(section):
             if j in marker_positions:
                 # マーカー文字はそのまま表示（ハイライトなし）
                 html_content += char
             else:
-                # 非マーカー文字の処理
-                if cleaned_pos in covered_positions:
-                    html_content += char  # 元テキストに存在
+                # この文字が削除後のテキストに存在するかチェック
+                if remaining_index < len(remaining_chars) and char == remaining_chars[remaining_index]:
+                    # この文字は残る（ハイライトしない）
+                    html_content += char
+                    remaining_index += 1
                 else:
+                    # この文字は削除される（赤くハイライト）
                     html_content += (
-                        f'<span class="highlight-addition" style="background-color: #ffe6e6; '
-                        f'color: #d00;">{char}</span>'
-                    )  # 追加文字
-                cleaned_pos += 1
+                        f'<span class="highlight-deletion" style="background-color: #ffe6e6; '
+                        f'color: #d00; text-decoration: line-through;">{char}</span>'
+                    )
 
         # 区切り文字を追加（最後のセクション以外）
         if i < len(sections) - 1:
@@ -645,6 +633,7 @@ def show_red_highlight_modal(edited_text: str, diff: TextDifference | None = Non
                 cleaned_text = edited_text
 
         st.session_state.edited_text = cleaned_text
+        st.session_state.text_editor_value = cleaned_text  # テキストエディタの値も更新
         st.session_state.show_modal = False
         st.session_state.show_error_and_delete = False  # エラー状態もクリア
         st.rerun()
@@ -679,14 +668,19 @@ def show_diff_viewer(original_text: str, diff: TextDifference | None = None, hei
             from domain.entities.text_difference import DifferenceType
 
             # 元のテキスト全体を表示しつつ、共通部分（UNCHANGED）をハイライト
-            # 共通部分の位置を特定
+            # diff.differencesには位置情報が含まれているはずなので、それを使用
             highlight_positions = []
-            for diff_type, text, _ in diff.differences:
-                if diff_type == DifferenceType.UNCHANGED:
-                    # 元のテキストから該当箇所を探す
-                    start_pos = diff.original_text.find(text)
-                    if start_pos != -1:
-                        highlight_positions.append((start_pos, start_pos + len(text), text))
+            
+            # 複数のUNCHANGEDブロックから位置情報を取得
+            for diff_type, text, positions in diff.differences:
+                if diff_type == DifferenceType.UNCHANGED and positions:
+                    # positionsは[(start, end), ...]の形式
+                    for pos in positions:
+                        if isinstance(pos, tuple) and len(pos) >= 2:
+                            start_pos, end_pos = pos[0], pos[1]
+                            # 元のテキストの該当部分を取得
+                            actual_text = original_text[start_pos:end_pos] if start_pos < len(original_text) else text
+                            highlight_positions.append((start_pos, end_pos, actual_text))
 
             # 元のテキストを表示しながらハイライト
             current_pos = 0

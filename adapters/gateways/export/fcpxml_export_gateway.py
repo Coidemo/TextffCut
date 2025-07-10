@@ -54,7 +54,7 @@ class FCPXMLExportGatewayAdapter(IFCPXMLExportGateway):
         logger.info(f"with_gap_removal: {with_gap_removal}")
         for i, (start, end) in enumerate(time_ranges):
             logger.info(f"  範囲 {i+1}: {start:.2f}秒 - {end:.2f}秒")
-        
+
         try:
             # FCPXMLExporterのインスタンスを作成
             exporter = FCPXMLExporter(self.config)

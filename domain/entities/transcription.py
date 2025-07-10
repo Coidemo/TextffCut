@@ -193,11 +193,13 @@ class TranscriptionResult:
     """文字起こし結果エンティティ"""
 
     id: str
+    video_id: str  # 動画を識別するID
     language: str
     segments: list[TranscriptionSegment]
-    original_audio_path: str
-    model_size: str
-    processing_time: float
+    duration: float  # 動画全体の長さ（秒）
+    original_audio_path: str = ""
+    model_size: str = "medium"
+    processing_time: float = 0.0
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self):
@@ -206,6 +208,8 @@ class TranscriptionResult:
             raise ValueError("Transcription result must have at least one segment")
         if self.processing_time < 0:
             raise ValueError("Processing time cannot be negative")
+        if self.duration < 0:
+            raise ValueError("Duration cannot be negative")
 
         # segmentsが辞書のリストの場合、TranscriptionSegmentオブジェクトに変換
         normalized_segments = []
@@ -218,8 +222,8 @@ class TranscriptionResult:
         self.segments = normalized_segments
 
     @property
-    def duration(self) -> float:
-        """全体の継続時間"""
+    def computed_duration(self) -> float:
+        """セグメントから計算された継続時間"""
         if not self.segments:
             return 0.0
         return max(seg.end for seg in self.segments)

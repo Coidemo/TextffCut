@@ -4,8 +4,10 @@
 レガシーの文字起こしデータ型とドメインエンティティ間の変換を行います。
 """
 
-from typing import Any
+from typing import Any, Optional, Dict
 from uuid import uuid4
+import json
+from pathlib import Path
 
 import domain.entities as domain
 from core.transcription import TranscriptionResult as LegacyResult
@@ -16,11 +18,30 @@ logger = get_logger(__name__)
 
 
 class TranscriptionConverter:
-    """文字起こしデータの変換ユーティリティ"""
+    """文字起こしデータの変換ユーティリティ
+    
+    レガシー形式とドメインエンティティ間の相互変換を提供し、
+    移行期間中の互換性を保証します。
+    """
+    
+    # キャッシュバージョン管理
+    CURRENT_CACHE_VERSION = "2.0"
+    LEGACY_CACHE_VERSION = "1.0"
 
     @staticmethod
+    def from_legacy(
+        legacy_result: LegacyResult, 
+        video_id: Optional[str] = None,
+        processing_time: Optional[float] = None
+    ) -> domain.TranscriptionResult:
+        """レガシー形式からドメインエンティティへ変換（legacy_to_domainのエイリアス）"""
+        return TranscriptionConverter.legacy_to_domain(legacy_result, video_id, processing_time)
+    
+    @staticmethod
     def legacy_to_domain(
-        legacy_result: LegacyResult, processing_time: float | None = None
+        legacy_result: LegacyResult, 
+        video_id: Optional[str] = None,
+        processing_time: Optional[float] = None
     ) -> domain.TranscriptionResult:
         """
         レガシー形式からドメインエンティティへ変換
@@ -33,19 +54,30 @@ class TranscriptionConverter:
             ドメインの文字起こし結果
         """
         try:
+            # video_idの決定
+            if video_id is None:
+                video_id = getattr(legacy_result, 'video_id', 'unknown')
+            
+            # durationの計算
+            duration = 0.0
+            if legacy_result.segments:
+                duration = legacy_result.segments[-1].end
+            
             # セグメントの変換
             segments = []
             for i, legacy_seg in enumerate(legacy_result.segments):
-                segment = TranscriptionConverter._convert_segment(legacy_seg, segment_id=f"seg_{i}")
+                segment = TranscriptionConverter._convert_segment(legacy_seg, segment_id=str(i))
                 segments.append(segment)
 
             # TranscriptionResultの作成
             return domain.TranscriptionResult(
                 id=str(uuid4()),
-                language=legacy_result.language,
+                video_id=video_id,
                 segments=segments,
-                original_audio_path=str(legacy_result.original_audio_path),
-                model_size=legacy_result.model_size,
+                language=legacy_result.language,
+                duration=duration,
+                original_audio_path=str(getattr(legacy_result, 'original_audio_path', '')),
+                model_size=getattr(legacy_result, 'model_size', 'medium'),
                 processing_time=processing_time or getattr(legacy_result, "processing_time", 0.0),
                 metadata={"legacy_format": True, "converter_version": "1.0"},
             )
@@ -112,8 +144,11 @@ class TranscriptionConverter:
                 # 最終値をログ出力
                 logger.debug(f"Final values: start={start}, end={end}")
 
+                # wordフィールドの取得（textフィールドもサポート）
+                word_text = word_data.get('word') or word_data.get('text', '')
+                
                 return domain.Word(
-                    word=word_data.get("word", ""),
+                    word=word_text,
                     start=start,
                     end=end,
                     confidence=word_data.get("confidence") or word_data.get("score"),
@@ -277,3 +312,195 @@ class TranscriptionConverter:
         except Exception as e:
             logger.error(f"Validation failed: {e}")
             return False
+    
+    @staticmethod
+    def to_legacy(domain_result: domain.TranscriptionResult) -> LegacyResult:
+        """
+        ドメインエンティティからレガシー形式へ逆変換
+        
+        移行期間中の互換性のために提供されます。
+        
+        Args:
+            domain_result: ドメインの文字起こし結果
+            
+        Returns:
+            レガシー形式の文字起こし結果
+        """
+        try:
+            # レガシーセグメントの作成
+            legacy_segments = []
+            for segment in domain_result.segments:
+                legacy_seg = LegacySegment(
+                    start=segment.start,
+                    end=segment.end,
+                    text=segment.text,
+                    words=[],
+                    chars=[]
+                )
+                
+                # Wordsの変換
+                if segment.words:
+                    legacy_seg.words = [
+                        {
+                            'word': w.word,
+                            'start': w.start,
+                            'end': w.end,
+                            'confidence': w.confidence
+                        }
+                        for w in segment.words
+                    ]
+                
+                # Charsの変換
+                if segment.chars:
+                    legacy_seg.chars = [
+                        {
+                            'char': c.char,
+                            'start': c.start,
+                            'end': c.end,
+                            'confidence': c.confidence
+                        }
+                        for c in segment.chars
+                    ]
+                
+                legacy_segments.append(legacy_seg)
+            
+            # レガシー形式の作成
+            legacy_result = LegacyResult(
+                language=domain_result.language,
+                segments=legacy_segments,
+                original_audio_path=Path(domain_result.original_audio_path) if domain_result.original_audio_path else Path(""),
+                model_size=domain_result.model_size,
+                processing_time=domain_result.processing_time
+            )
+            
+            return legacy_result
+            
+        except Exception as e:
+            logger.error(f"Failed to convert domain result to legacy: {e}")
+            raise ValueError(f"Conversion to legacy failed: {e}")
+    
+    @staticmethod
+    def save_to_cache(result: domain.TranscriptionResult, cache_path: Path) -> None:
+        """
+        ドメインエンティティをキャッシュファイルに保存
+        
+        新しいバージョン形式で保存します。
+        
+        Args:
+            result: 保存する文字起こし結果
+            cache_path: 保存先のパス
+        """
+        try:
+            # キャッシュデータの作成
+            cache_data = {
+                'version': TranscriptionConverter.CURRENT_CACHE_VERSION,
+                'result': TranscriptionConverter.domain_to_legacy_dict(result),
+                'metadata': {
+                    'saved_at': str(uuid4()),
+                    'domain_format': True
+                }
+            }
+            
+            # ディレクトリの作成
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            # JSONとして保存
+            with cache_path.open('w', encoding='utf-8') as f:
+                json.dump(cache_data, f, ensure_ascii=False, indent=2)
+            
+            logger.info(f"Saved transcription cache to {cache_path}")
+            
+        except Exception as e:
+            logger.error(f"Failed to save cache: {e}")
+            raise
+    
+    @staticmethod
+    def load_from_cache(cache_path: Path) -> domain.TranscriptionResult:
+        """
+        キャッシュファイルから文字起こし結果を読み込み
+        
+        バージョンに応じて適切な変換を行います。
+        
+        Args:
+            cache_path: キャッシュファイルのパス
+            
+        Returns:
+            ドメイン形式の文字起こし結果
+        """
+        try:
+            with cache_path.open('r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            # バージョンチェック
+            version = data.get('version', TranscriptionConverter.LEGACY_CACHE_VERSION)
+            
+            if version == TranscriptionConverter.CURRENT_CACHE_VERSION:
+                # 新形式のキャッシュ
+                result_data = data['result']
+                return TranscriptionConverter._dict_to_domain(result_data)
+            else:
+                # レガシー形式のキャッシュ
+                legacy_result = LegacyResult.from_dict(data)
+                return TranscriptionConverter.from_legacy(legacy_result)
+                
+        except Exception as e:
+            logger.error(f"Failed to load cache from {cache_path}: {e}")
+            raise
+    
+    @staticmethod
+    def _dict_to_domain(data: Dict[str, Any]) -> domain.TranscriptionResult:
+        """
+        辞書形式からドメインエンティティへ変換
+        
+        Args:
+            data: キャッシュデータの辞書
+            
+        Returns:
+            ドメイン形式の文字起こし結果
+        """
+        # セグメントの変換
+        segments = []
+        for seg_data in data['segments']:
+            words = []
+            if 'words' in seg_data:
+                for w in seg_data['words']:
+                    words.append(domain.Word(
+                        word=w['word'],
+                        start=w['start'],
+                        end=w['end'],
+                        confidence=w.get('confidence')
+                    ))
+            
+            chars = []
+            if 'chars' in seg_data:
+                for c in seg_data['chars']:
+                    chars.append(domain.Char(
+                        char=c['char'],
+                        start=c['start'],
+                        end=c['end'],
+                        confidence=c.get('confidence')
+                    ))
+            
+            segment = domain.TranscriptionSegment(
+                id=seg_data.get('id', str(len(segments))),
+                text=seg_data['text'],
+                start=seg_data['start'],
+                end=seg_data['end'],
+                words=words,
+                chars=chars
+            )
+            segments.append(segment)
+        
+        # durationの計算
+        duration = segments[-1].end if segments else 0.0
+        
+        return domain.TranscriptionResult(
+            id=str(uuid4()),
+            video_id=data.get('video_id', 'unknown'),
+            segments=segments,
+            language=data['language'],
+            duration=duration,
+            original_audio_path=data.get('original_audio_path', ''),
+            model_size=data.get('model_size', 'medium'),
+            processing_time=data.get('processing_time', 0.0)
+        )

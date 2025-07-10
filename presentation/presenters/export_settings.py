@@ -69,17 +69,17 @@ class ExportSettingsPresenter(BasePresenter[ExportSettingsViewModel]):
         """初期化処理"""
         # 設定マネージャーから保存された設定を読み込み
         from utils import settings_manager
-        
+
         # 保存された設定を読み込み
         saved_remove_silence = settings_manager.get("remove_silence", True)  # デフォルトは無音削除付き
         saved_export_format = settings_manager.get("export_format", "fcpxml")  # デフォルトはFCPXML
         saved_include_srt = settings_manager.get("include_srt", True)  # デフォルトはSRT同時出力
-        
+
         # ViewModelに反映
         self.view_model.remove_silence = saved_remove_silence
         self.view_model.export_format = saved_export_format
         self.view_model.include_srt = saved_include_srt
-        
+
         # SessionManagerから必要なデータを取得
         self.view_model.video_path = (
             Path(self.session_manager.get_video_path()) if self.session_manager.get_video_path() else None
@@ -116,6 +116,7 @@ class ExportSettingsPresenter(BasePresenter[ExportSettingsViewModel]):
         self.view_model.remove_silence = enabled
         # 設定を永続化
         from utils import settings_manager
+
         settings_manager.set("remove_silence", enabled)
         self.view_model.notify()
 
@@ -140,6 +141,7 @@ class ExportSettingsPresenter(BasePresenter[ExportSettingsViewModel]):
         self.view_model.export_format = format
         # 設定を永続化
         from utils import settings_manager
+
         settings_manager.set("export_format", format)
         self.view_model.notify()
 
@@ -148,6 +150,7 @@ class ExportSettingsPresenter(BasePresenter[ExportSettingsViewModel]):
         self.view_model.include_srt = enabled
         # 設定を永続化
         from utils import settings_manager
+
         settings_manager.set("include_srt", enabled)
         self.view_model.notify()
 
@@ -211,7 +214,7 @@ class ExportSettingsPresenter(BasePresenter[ExportSettingsViewModel]):
 
             # 時間範囲を取得
             time_ranges = self.view_model.effective_time_ranges
-            
+
             # デバッグ情報を出力
             logger.info("=== エクスポート時の時間範囲デバッグ ===")
             logger.info(f"エクスポートタイプ: 動画（MP4）")
@@ -278,18 +281,18 @@ class ExportSettingsPresenter(BasePresenter[ExportSettingsViewModel]):
             # 時間範囲を取得
             time_ranges = self.view_model.effective_time_ranges
             legacy_ranges = [(r.start, r.end) for r in time_ranges]
-            
+
             # デバッグ情報を出力
             logger.info("=== FCPXMLエクスポートデバッグ ===")
             logger.info(f"無音削除設定: {self.view_model.remove_silence}")
             logger.info(f"元の時間範囲数: {len(legacy_ranges)}")
             for i, (start, end) in enumerate(legacy_ranges):
                 logger.info(f"  元の範囲 {i+1}: {start:.2f}秒 - {end:.2f}秒 (長さ: {end-start:.2f}秒)")
-            
+
             # 無音削除が有効な場合は、無音削除処理を実行
             if self.view_model.remove_silence:
                 progress_callback(0.1, "無音を検出中...", "silence_detection")
-                
+
                 # 無音削除のパラメータ設定
                 silence_params = {
                     "threshold": self.view_model.silence_threshold,
@@ -297,7 +300,7 @@ class ExportSettingsPresenter(BasePresenter[ExportSettingsViewModel]):
                     "pad_start": self.view_model.silence_pad_start,
                     "pad_end": self.view_model.silence_pad_end,
                 }
-                
+
                 # 無音削除処理を実行
                 keep_ranges = self.video_processor_gateway.remove_silence(
                     FilePath(str(self.view_model.video_path)),
@@ -305,11 +308,11 @@ class ExportSettingsPresenter(BasePresenter[ExportSettingsViewModel]):
                     silence_params,
                     lambda p, m: progress_callback(0.1 + p * 0.8, m, "silence_processing"),
                 )
-                
+
                 # 無音削除後の範囲を使用
                 legacy_ranges = keep_ranges
                 progress_callback(0.9, "FCPXML生成中...", "fcpxml_generation")
-                
+
                 # デバッグ情報
                 logger.info(f"無音削除後の時間範囲数: {len(keep_ranges)}")
                 for i, (start, end) in enumerate(keep_ranges):
@@ -338,11 +341,11 @@ class ExportSettingsPresenter(BasePresenter[ExportSettingsViewModel]):
             # 時間範囲を取得
             time_ranges = self.view_model.effective_time_ranges
             legacy_ranges = [(r.start, r.end) for r in time_ranges]
-            
+
             # 無音削除が有効な場合は、無音削除処理を実行
             if self.view_model.remove_silence:
                 progress_callback(0.1, "無音を検出中...", "silence_detection")
-                
+
                 # 無音削除のパラメータ設定
                 silence_params = {
                     "threshold": self.view_model.silence_threshold,
@@ -350,7 +353,7 @@ class ExportSettingsPresenter(BasePresenter[ExportSettingsViewModel]):
                     "pad_start": self.view_model.silence_pad_start,
                     "pad_end": self.view_model.silence_pad_end,
                 }
-                
+
                 # 無音削除処理を実行
                 keep_ranges = self.video_processor_gateway.remove_silence(
                     FilePath(str(self.view_model.video_path)),
@@ -358,7 +361,7 @@ class ExportSettingsPresenter(BasePresenter[ExportSettingsViewModel]):
                     silence_params,
                     lambda p, m: progress_callback(0.1 + p * 0.8, m, "silence_processing"),
                 )
-                
+
                 # 無音削除後の範囲を使用
                 legacy_ranges = keep_ranges
                 progress_callback(0.9, "XMEML生成中...", "xmeml_generation")
@@ -410,11 +413,11 @@ class ExportSettingsPresenter(BasePresenter[ExportSettingsViewModel]):
             # 時間範囲を取得
             time_ranges = self.view_model.effective_time_ranges
             legacy_ranges = [(r.start, r.end) for r in time_ranges] if time_ranges else None
-            
+
             # 無音削除が有効な場合は、無音削除処理を実行
             if self.view_model.remove_silence and legacy_ranges:
                 progress_callback(0.1, "無音を検出中...", "silence_detection")
-                
+
                 # 無音削除のパラメータ設定
                 silence_params = {
                     "threshold": self.view_model.silence_threshold,
@@ -422,7 +425,7 @@ class ExportSettingsPresenter(BasePresenter[ExportSettingsViewModel]):
                     "pad_start": self.view_model.silence_pad_start,
                     "pad_end": self.view_model.silence_pad_end,
                 }
-                
+
                 # 無音削除処理を実行
                 keep_ranges = self.video_processor_gateway.remove_silence(
                     FilePath(str(self.view_model.video_path)),
@@ -430,7 +433,7 @@ class ExportSettingsPresenter(BasePresenter[ExportSettingsViewModel]):
                     silence_params,
                     lambda p, m: progress_callback(0.1 + p * 0.8, m, "silence_processing"),
                 )
-                
+
                 # 無音削除後の範囲を使用（SRTゲートウェイ内で時間マッピングされる）
                 legacy_ranges = keep_ranges
                 progress_callback(0.9, "SRT字幕生成中...", "srt_generation")

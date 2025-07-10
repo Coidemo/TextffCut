@@ -144,7 +144,9 @@ class BuzzClipPresenter(BasePresenter[BuzzClipViewModel]):
             # ユースケースを実行
             logger.info("Calling use case execute method")
             response = self.generate_buzz_clips_use_case.execute(request)
-            logger.info(f"Use case response: success={response.success}, candidates={len(response.candidates) if response.candidates else 0}")
+            logger.info(
+                f"Use case response: success={response.success}, candidates={len(response.candidates) if response.candidates else 0}"
+            )
 
             if not response.success:
                 logger.error(f"Buzz clip generation failed: {response.error_message}")
@@ -157,10 +159,12 @@ class BuzzClipPresenter(BasePresenter[BuzzClipViewModel]):
             # 結果を設定（追加モードの場合は既存と結合）
             if append_to_existing and existing_candidates:
                 all_candidates = existing_candidates + response.candidates
-                logger.info(f"Merging {len(existing_candidates)} existing + {len(response.candidates)} new = {len(all_candidates)} total candidates")
+                logger.info(
+                    f"Merging {len(existing_candidates)} existing + {len(response.candidates)} new = {len(all_candidates)} total candidates"
+                )
             else:
                 all_candidates = response.candidates
-                
+
             logger.info(f"Setting {len(all_candidates)} candidates to view model")
             self.view_model.complete_generation(
                 candidates=all_candidates,
@@ -190,7 +194,6 @@ class BuzzClipPresenter(BasePresenter[BuzzClipViewModel]):
             logger.error(f"Error generating buzz clips: {e}")
             self.view_model.set_error(str(e))
             return False
-
 
     def reset(self) -> None:
         """状態をリセット"""

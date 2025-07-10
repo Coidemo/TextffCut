@@ -227,13 +227,13 @@ class TranscriptionView:
                 run_new = True
                 self.view_model.should_run = True
                 logger.info(f"should_run設定完了: {self.view_model.should_run}")
-                
+
                 # バズクリップのキャッシュチェックをリセット
                 if "buzz_clip_cache_checked" in st.session_state:
                     del st.session_state["buzz_clip_cache_checked"]
                 if "buzz_clip_cache_exists" in st.session_state:
                     del st.session_state["buzz_clip_cache_exists"]
-                    
+
                 st.rerun()
 
         # 処理中の表示

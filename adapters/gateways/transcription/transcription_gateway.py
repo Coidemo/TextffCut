@@ -93,7 +93,9 @@ class TranscriptionGatewayAdapter(ITranscriptionGateway):
             processing_time = time.time() - start_time
 
             # レガシー結果をドメインエンティティに変換
-            domain_result = self._converter.legacy_to_domain(legacy_result, processing_time=processing_time)
+            # video_idを動画パスから生成
+            video_id = str(video_path).replace('/', '_').replace('\\', '_')
+            domain_result = self._converter.legacy_to_domain(legacy_result, video_id=video_id, processing_time=processing_time)
 
             # 変換の妥当性を検証（デバッグモードのみ）
             # TextffCutLoggerではisEnabledForが使えないため、環境変数でチェック
@@ -162,7 +164,9 @@ class TranscriptionGatewayAdapter(ITranscriptionGateway):
             logger.info(f"レガシー結果を読み込みました: {type(legacy_result)}")
 
             # ドメインエンティティに変換
-            domain_result = self._converter.legacy_to_domain(legacy_result)
+            # video_idを動画パスから生成
+            video_id = str(video_path).replace('/', '_').replace('\\', '_')
+            domain_result = self._converter.legacy_to_domain(legacy_result, video_id=video_id)
 
             logger.info(f"ドメインエンティティに変換しました: {cache_path}")
             return domain_result
@@ -189,16 +193,8 @@ class TranscriptionGatewayAdapter(ITranscriptionGateway):
             # キャッシュパスを取得
             cache_path = self._legacy_transcriber.get_cache_path(str(video_path), model_size)
 
-            # ドメインエンティティをレガシー辞書形式に変換
-            legacy_dict = self._converter.domain_to_legacy_dict(result)
-
-            # レガシーのTranscriptionResultオブジェクトを作成
-            from core.transcription import TranscriptionResult as LegacyResult
-
-            legacy_result = LegacyResult.from_dict(legacy_dict)
-
-            # キャッシュに保存
-            self._legacy_transcriber.save_to_cache(legacy_result, cache_path)
+            # 新しいキャッシュ保存メソッドを使用
+            self._converter.save_to_cache(result, cache_path)
 
             logger.info(f"Saved transcription to cache: {cache_path}")
 
