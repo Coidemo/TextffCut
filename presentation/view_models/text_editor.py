@@ -86,7 +86,7 @@ class TextEditorViewModel(BaseViewModel):
         # 境界調整マーカーのチェック
         self.has_boundary_markers = any(marker in text for marker in ["[<", "[>", "<]", ">]"])
 
-        # 文字数更新
+        # 文字数更新（マーカーを含む元のテキストの文字数）
         self.char_count = len(text)
 
         self.notify()

@@ -135,7 +135,8 @@ class TextEditorPresenter(BasePresenter[TextEditorViewModel]):
                 # 初期処理をスキップするフラグがある場合は処理しない
                 if not st.session_state.get("_skip_initial_text_processing", False):
                     if "edited_text" in st.session_state and st.session_state.edited_text:
-                        self.view_model.edited_text = st.session_state.edited_text
+                        # ViewModelのupdate_edited_textメソッドを使用して、char_countも更新
+                        self.view_model.update_edited_text(st.session_state.edited_text)
                         # 保存された差分があれば復元
                         if "text_differences" in st.session_state:
                             self.view_model.differences = st.session_state.text_differences

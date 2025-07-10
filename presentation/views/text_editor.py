@@ -625,7 +625,14 @@ class TextEditorView:
 
     def _render_text_stats(self) -> None:
         """文字数と時間の統計を表示"""
-        stats_parts = [f"文字数: {self.view_model.char_count}文字"]
+        # デバッグ: 文字数を確認
+        char_count = self.view_model.char_count
+        if char_count == 0 and self.view_model.edited_text:
+            # edited_textがあるのに文字数が0の場合は再計算
+            char_count = len(self.view_model.edited_text)
+            logger.warning(f"[_render_text_stats] char_count was 0 but edited_text exists. Recalculated: {char_count}")
+        
+        stats_parts = [f"文字数: {char_count}文字"]
 
         if self.view_model.total_duration > 0:
             stats_parts.append(f"時間: {self.view_model.duration_text}（無音削除前）")
