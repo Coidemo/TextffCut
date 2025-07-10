@@ -92,21 +92,30 @@ class TextEditorPresenter(BasePresenter[TextEditorViewModel]):
                 actual_result = transcription_result
 
             # actual_resultから full_text を取得
+            # 文字起こし結果の全文を取得
+            # 重要：words情報から再構築したテキストを使用する
+            # これにより、CharacterArrayBuilderと同じテキストになり、位置が一致する
             try:
-                # デバッグ情報を追加
-                logger.debug(f"actual_result type: {type(actual_result)}")
-                logger.debug(f"actual_result has get_full_text: {hasattr(actual_result, 'get_full_text')}")
-                logger.debug(f"actual_result has text: {hasattr(actual_result, 'text')}")
-
-                if hasattr(actual_result, "get_full_text"):
-                    full_text = actual_result.get_full_text()
+                from domain.use_cases.character_array_builder import CharacterArrayBuilder
+                from adapters.converters.transcription_converter import TranscriptionConverter
+                
+                # ドメイン形式に変換（必要な場合）
+                if hasattr(actual_result, 'segments') and not hasattr(actual_result, 'computed_duration'):
+                    # レガシー形式の場合は変換
+                    converter = TranscriptionConverter()
+                    domain_result = converter.from_legacy(actual_result)
                 else:
-                    # プロパティとしてアクセス
-                    full_text = actual_result.text
+                    domain_result = actual_result
+                
+                # CharacterArrayBuilderで再構築
+                builder = CharacterArrayBuilder()
+                char_array, reconstructed_text = builder.build_from_transcription(domain_result)
+                full_text = reconstructed_text
+                logger.info(f"[TextEditorPresenter.initialize] Words情報から再構築: {len(full_text)}文字")
+                
             except Exception as e:
-                # get_full_text()がエラーを投げた場合（words情報がない場合など）
-                logger.warning(f"get_full_text() failed: {e}. Falling back to segment text concatenation.")
-                # セグメントのテキストを結合（スペースなしで）
+                logger.warning(f"CharacterArrayBuilder failed: {e}. Falling back to segment text concatenation.")
+                # フォールバック：セグメントのテキストを結合
                 if hasattr(actual_result, "segments"):
                     full_text = "".join(seg.text for seg in actual_result.segments)
                 else:
@@ -116,6 +125,7 @@ class TextEditorPresenter(BasePresenter[TextEditorViewModel]):
             logger.info(f"[TextEditorPresenter.initialize] Full text length: {len(full_text) if full_text else 0}")
             if not full_text:
                 logger.error("[TextEditorPresenter.initialize] full_textが空です！")
+            
             self.view_model.full_text = full_text
 
             # セッション状態から編集済みテキストを読み込む
@@ -184,6 +194,10 @@ class TextEditorPresenter(BasePresenter[TextEditorViewModel]):
             return
 
         logger.info(f"Processing edited text with length: {len(edited_text)}")
+        
+        # SequenceMatcherTextProcessorGatewayの場合、TranscriptionResultを設定
+        if hasattr(self.text_processor_gateway, 'set_transcription_result'):
+            self.text_processor_gateway.set_transcription_result(self.view_model.transcription_result)
 
         # 境界調整マーカーの存在をチェック
         has_markers = any(marker in edited_text for marker in ["[<", "[>", "<]", ">]"])
@@ -201,11 +215,11 @@ class TextEditorPresenter(BasePresenter[TextEditorViewModel]):
         separator = self._detect_separator(cleaned_text)
 
         if separator:
-            # セクション分割モード
-            self._process_with_separator(cleaned_text, separator)
+            # セクション分割モード（元のテキストを渡す）
+            self._process_with_separator(edited_text, separator)
         else:
-            # 単一セクションモード
-            self._process_single_section(cleaned_text)
+            # 単一セクションモード（元のテキストを渡す）
+            self._process_single_section(edited_text)
 
     def _detect_separator(self, text: str) -> str | None:
         """区切り文字を検出"""
@@ -394,113 +408,7 @@ class TextEditorPresenter(BasePresenter[TextEditorViewModel]):
         """
         return self.text_processor_gateway.remove_boundary_markers(text)
 
-    def apply_boundary_adjustment_markers(self, text: str) -> None:
-        """
-        境界調整マーカーを適用
 
-        Args:
-            text: マーカーを適用するテキスト
-        """
-        try:
-            if not self.view_model.transcription_result:
-                return
-
-            # 既存のマーカー情報を抽出
-            existing_markers = self.text_processor_gateway.extract_existing_markers(text)
-
-            # マーカーを除去したテキストで処理
-            cleaned_text = self.text_processor_gateway.remove_boundary_markers(text)
-
-            # 区切り文字の確認
-            separator_patterns = ["---", "——", "－－－"]
-            found_separator = None
-            for pattern in separator_patterns:
-                if pattern in cleaned_text:
-                    found_separator = pattern
-                    break
-
-            if found_separator:
-                # 区切り文字がある場合：各セクションを処理
-                sections = self.text_processor_gateway.split_text_by_separator(cleaned_text, found_separator)
-                processed_sections = []
-
-                for section in sections:
-                    # 各セクションの差分を検出
-                    diff = self.text_processor_gateway.find_differences(
-                        original_text=self.view_model.full_text, edited_text=section
-                    )
-
-                    # 共通部分を抽出してマーカーを挿入
-                    section_with_markers = self._add_markers_to_section(diff, section, existing_markers)
-                    processed_sections.append(section_with_markers)
-
-                # セクションを区切り文字で結合
-                processed_text = f"\n{found_separator}\n".join(processed_sections)
-            else:
-                # 区切り文字がない場合：全体を処理
-                diff = self.text_processor_gateway.find_differences(
-                    original_text=self.view_model.full_text, edited_text=cleaned_text
-                )
-                processed_text = self._add_markers_to_section(diff, cleaned_text, existing_markers)
-
-            # 処理後のテキストを設定
-            self.view_model.edited_text = processed_text
-            self.view_model.has_boundary_markers = True
-            self.view_model.notify()
-
-            # 境界調整値をセッション状態に保存
-            import streamlit as st
-
-            if hasattr(st, "session_state") and st.session_state is not None:
-                if existing_markers:
-                    st.session_state.boundary_adjustments = existing_markers
-
-            # 再処理してtime_rangesなどを更新
-            self._process_edited_text()
-
-        except Exception as e:
-            logger.error(f"境界調整マーカー適用エラー: {e}")
-            self.view_model.set_error("境界調整マーカーの適用でエラーが発生しました")
-
-    def _add_markers_to_section(self, diff: Any, section: str, existing_markers: dict) -> str:
-        """
-        セクションにマーカーを追加
-
-        Args:
-            diff: 差分情報
-            section: セクションテキスト
-            existing_markers: 既存のマーカー情報
-
-        Returns:
-            マーカーを追加したテキスト
-        """
-        from domain.entities.text_difference import DifferenceType
-
-        section_with_markers = ""
-        common_parts = []
-
-        # ドメインエンティティから共通部分を抽出
-        if hasattr(diff, "differences"):
-            for diff_type, text, _ in diff.differences:
-                if diff_type == DifferenceType.UNCHANGED:
-                    common_parts.append(text)
-
-        # 共通部分にマーカーを追加
-        for i, text in enumerate(common_parts):
-            if i > 0:
-                section_with_markers += "\n"
-
-            # 既存マーカーがあればその値を使用、なければ初期値
-            if text in existing_markers:
-                start_val = existing_markers[text]["start"]
-                end_val = existing_markers[text]["end"]
-            else:
-                start_val = 0.0
-                end_val = 0.0
-
-            section_with_markers += f"[<{start_val}]{text}[{end_val}>]"
-
-        return section_with_markers if section_with_markers else section
 
     def get_processed_data(self) -> dict[str, Any]:
         """

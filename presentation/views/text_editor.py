@@ -146,7 +146,7 @@ class TextEditorView:
             edited_text = self._render_text_editor()
 
             # 文字数と時間の表示
-            if edited_text:
+            if self.view_model.edited_text:
                 self._render_text_stats()
 
             # アクションボタン
@@ -642,30 +642,16 @@ class TextEditorView:
         with button_col1:
             # 更新ボタン
             if st.button("更新", type="primary", use_container_width=True, key="update_button"):
-                # 境界調整モードかどうかをPresenterに伝える
-                boundary_mode = st.session_state.get("boundary_adjustment_mode", False)
+                # 編集されたテキストを取得（text_editorウィジェットの値）
+                current_text = st.session_state.get("text_editor", "")
 
-                # 編集されたテキストを取得（text_editorの最新値）
-                current_text = st.session_state.get("text_editor_value", self.view_model.edited_text)
-
-                if boundary_mode and current_text:
-                    # 境界調整モードの場合、マーカーを挿入
-                    self.presenter.apply_boundary_adjustment_markers(current_text)
-                    # 処理後のテキストをtext_editorに反映
-                    st.session_state.text_editor_value = self.view_model.edited_text
-                else:
-                    # 通常モードの場合、マーカーを削除してテキストを再処理
-                    if current_text:
-                        # マーカーが含まれている場合は削除
-                        if any(marker in current_text for marker in ["[<", "[>", "<]", ">]"]):
-                            cleaned_text = self.presenter.remove_boundary_markers(current_text)
-                            st.session_state.text_editor_value = cleaned_text
-                            self.presenter.update_edited_text(cleaned_text)
-                        else:
-                            self.presenter.update_edited_text(current_text)
+                if current_text:
+                    # テキストをそのまま処理（マーカーが含まれていても自動的に処理される）
+                    self.presenter.update_edited_text(current_text)
 
                 # セッション状態に保存（既存コードとの互換性）
-                st.session_state.edited_text = self.view_model.edited_text
+                st.session_state.edited_text = current_text
+                st.session_state.text_editor_value = current_text
                 st.session_state.preview_update_requested = True
 
                 # 時間範囲をセッション状態に保存
@@ -738,15 +724,6 @@ class TextEditorView:
 
                 # フラグをリセット
                 st.session_state.preview_update_requested = False
-
-        # 境界調整モード切り替え（2カラムの外に配置）
-        boundary_mode = st.checkbox(
-            "🎯 境界調整モード",
-            value=st.session_state.get("boundary_adjustment_mode", False),
-            help="マーカーを使用してクリップの境界を細かく調整できます",
-            key="boundary_adjustment_checkbox",
-        )
-        st.session_state.boundary_adjustment_mode = boundary_mode
 
     def _render_boundary_markers_info(self) -> None:
         """境界調整マーカー情報を表示"""

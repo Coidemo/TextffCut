@@ -29,6 +29,7 @@ class TextDifferenceDetectorLCS:
     def __init__(self):
         self.character_builder = CharacterArrayBuilder()
         self.difference_grouper = DifferenceGrouper()
+        self.min_match_length = 2  # 最小マッチ長
 
     def detect_differences(
         self, original_text: str, edited_text: str, transcription_result: Optional[TranscriptionResult] = None
@@ -50,9 +51,11 @@ class TextDifferenceDetectorLCS:
         char_array = None
         if transcription_result:
             char_array, reconstructed_text = self.character_builder.build_from_transcription(transcription_result)
-            # 再構築テキストを使用（正規化の影響を避ける）
-            if reconstructed_text:
-                original_text = reconstructed_text
+            # 重要: 必ず再構築テキストを使用する
+            # CharacterArrayBuilderは文字単位でテキストを再構築するため、
+            # その結果と一致するテキストを使わないと位置がズレる
+            original_text = reconstructed_text
+            logger.info(f"再構築テキストを使用: {len(reconstructed_text)}文字")
 
         # LCSを計算してマッチ位置を取得
         match_positions = self._compute_lcs_positions(original_text, edited_text)
@@ -454,10 +457,13 @@ class TextDifferenceDetectorLCS:
             if curr_o == prev_o + 1 and curr_e == prev_e + 1:
                 current_group.append(match_positions[i])
             else:
-                groups.append(current_group)
+                # グループが最小マッチ長以上の場合のみ追加
+                if len(current_group) >= self.min_match_length:
+                    groups.append(current_group)
                 current_group = [match_positions[i]]
 
-        if current_group:
+        # 最後のグループも最小マッチ長以上の場合のみ追加
+        if current_group and len(current_group) >= self.min_match_length:
             groups.append(current_group)
 
         return groups

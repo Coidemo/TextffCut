@@ -75,7 +75,7 @@ class CharacterArrayBuilder:
                 for word_idx, word in enumerate(segment["words"]):
                     # 日本語では通常1文字ずつ
                     char_info = CharacterWithTimestamp(
-                        char=word["text"],
+                        char=word["word"],
                         start=float(word["start"]),
                         end=float(word["end"]),
                         segment_id=segment_id,

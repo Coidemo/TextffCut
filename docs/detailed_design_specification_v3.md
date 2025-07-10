@@ -569,6 +569,380 @@ for block in unchanged_blocks:
 - ミリ秒単位の精度を実現
 - 直感的な差分表示（ハイライト）が可能
 
+##### 改良実装：検索ベースLCSハイブリッドアプローチ
+
+**問題点**:
+- 元テキスト（90分の文字起こし：約25,000文字）と編集テキスト（切り抜き部分：約200文字）の長さが大きく異なる場合、LCSが断片的な1文字マッチを大量に検出してしまう
+- 計算量がO(25,000 × 200) = 500万と非効率
+- UIで最初に見つかった位置をハイライトするため、期待しない位置が強調される
+
+**解決策：特徴語クラスタリングによる範囲特定**
+
+1️⃣ **特徴語の抽出とスコアリング**
+```python
+def extract_feature_words(text):
+    """
+    編集テキストから特徴語を抽出し、重要度でスコアリング
+    """
+    # 形態素解析（MeCabまたはjanome使用）
+    words = 形態素解析(text)
+    
+    # 特徴語の条件
+    feature_words = []
+    for word in words:
+        if word.品詞 in ['名詞', '動詞', '形容詞'] and len(word.表層形) >= 2:
+            # 固有名詞、サ変名詞、形容動詞語幹を優先
+            if word.品詞細分類 in ['固有名詞', 'サ変接続', '形容動詞語幹']:
+                score = 3.0
+            elif word.品詞 == '名詞':
+                score = 2.0
+            else:
+                score = 1.0
+            
+            feature_words.append({
+                'word': word.表層形,
+                'pos': word.品詞,
+                'score': score
+            })
+    
+    # 重複除去とソート
+    unique_words = {}
+    for fw in feature_words:
+        if fw['word'] not in unique_words or unique_words[fw['word']]['score'] < fw['score']:
+            unique_words[fw['word']] = fw
+    
+    return sorted(unique_words.values(), key=lambda x: x['score'], reverse=True)
+
+# 元テキストで各特徴語の出現位置を検索
+def find_feature_positions(full_text, feature_words):
+    positions = {}
+    for fw in feature_words:
+        word = fw['word']
+        positions[word] = []
+        start = 0
+        while True:
+            pos = full_text.find(word, start)
+            if pos == -1:
+                break
+            positions[word].append(pos)
+            start = pos + 1
+    return positions
+```
+
+2️⃣ **クラスタリングによる候補範囲の特定**
+```python
+def create_feature_clusters(feature_positions, window_size=500):
+    """
+    特徴語の出現位置からクラスタを作成
+    """
+    # すべての特徴語位置を収集
+    all_positions = []
+    for word, positions in feature_positions.items():
+        for pos in positions:
+            all_positions.append({
+                'word': word,
+                'position': pos,
+                'score': feature_words_dict[word]['score']
+            })
+    
+    # 位置でソート
+    all_positions.sort(key=lambda x: x['position'])
+    
+    # クラスタリング
+    clusters = []
+    for anchor in all_positions:
+        # このアンカーを中心としたウィンドウ内の特徴語を収集
+        cluster_words = []
+        cluster_start = anchor['position']
+        cluster_end = cluster_start
+        
+        for pos_info in all_positions:
+            if cluster_start <= pos_info['position'] <= cluster_start + window_size:
+                cluster_words.append(pos_info)
+                cluster_end = max(cluster_end, pos_info['position'])
+        
+        # クラスタのスコア計算
+        unique_word_count = len(set(w['word'] for w in cluster_words))
+        total_score = sum(w['score'] for w in cluster_words)
+        density = len(cluster_words) / max(1, cluster_end - cluster_start)
+        
+        cluster_score = total_score * unique_word_count * density
+        
+        clusters.append({
+            'start': cluster_start,
+            'end': cluster_end,
+            'words': cluster_words,
+            'score': cluster_score,
+            'unique_word_count': unique_word_count
+        })
+    
+    # 重複するクラスタをマージ
+    merged_clusters = []
+    for cluster in sorted(clusters, key=lambda x: x['score'], reverse=True):
+        # 既存のクラスタと重複チェック
+        overlaps = False
+        for existing in merged_clusters:
+            if not (cluster['end'] < existing['start'] or cluster['start'] > existing['end']):
+                overlaps = True
+                break
+        
+        if not overlaps:
+            merged_clusters.append(cluster)
+        
+        if len(merged_clusters) >= 3:  # 上位3つまで
+            break
+    
+    return merged_clusters
+```
+
+3️⃣ **複数クラスタでのLCS実行と最良選択**
+```python
+def search_based_lcs_matching(full_text, edited_text, clusters):
+    """
+    各クラスタでLCSを実行し、最良のマッチを選択
+    """
+    best_result = None
+    best_evaluation = 0
+    
+    for cluster in clusters:
+        # クラスタ範囲を前後に拡張（コンテキスト含む）
+        context_margin = 200
+        start = max(0, cluster['start'] - context_margin)
+        end = min(len(full_text), cluster['end'] + context_margin)
+        
+        partial_text = full_text[start:end]
+        
+        # この部分テキストでLCS実行
+        lcs_result = compute_lcs_with_positions(partial_text, edited_text)
+        
+        # 結果の評価
+        if lcs_result['matches']:
+            # 最長連続マッチを見つける
+            max_continuous = 0
+            current_continuous = 1
+            
+            sorted_matches = sorted(lcs_result['matches'])
+            for i in range(1, len(sorted_matches)):
+                if sorted_matches[i][0] == sorted_matches[i-1][0] + 1:
+                    current_continuous += 1
+                else:
+                    max_continuous = max(max_continuous, current_continuous)
+                    current_continuous = 1
+            max_continuous = max(max_continuous, current_continuous)
+            
+            # 評価スコア計算
+            lcs_length = len(lcs_result['matches'])
+            fragmentation = len(lcs_result['matches']) / max(1, max_continuous)
+            
+            evaluation = (
+                lcs_length * 0.4 +              # LCS長の重み
+                max_continuous * 0.4 +          # 連続性の重み  
+                (1 / fragmentation) * 0.2       # 断片化度の逆数の重み
+            )
+            
+            if evaluation > best_evaluation:
+                best_evaluation = evaluation
+                best_result = {
+                    'lcs_result': lcs_result,
+                    'cluster': cluster,
+                    'offset': start,  # 元テキストでのオフセット
+                    'evaluation': evaluation
+                }
+    
+    return best_result
+```
+
+4️⃣ **セパレータ（---）による分割処理**
+```python
+def process_with_separators(full_text, edited_text, separator='---'):
+    """
+    編集テキストを区切り文字で分割し、順次処理
+    """
+    # 区切り文字のバリエーションに対応
+    separator_patterns = ['---', '——', '－－－']
+    used_separator = None
+    
+    for pattern in separator_patterns:
+        if pattern in edited_text:
+            used_separator = pattern
+            break
+    
+    if not used_separator:
+        # 区切り文字なしの場合は通常処理
+        return process_single_block(full_text, edited_text)
+    
+    # テキストを分割
+    blocks = edited_text.split(used_separator)
+    results = []
+    last_end_position = 0
+    
+    for i, block in enumerate(blocks):
+        block = block.strip()
+        if not block:
+            continue
+        
+        # 前のブロックの終了位置以降から検索
+        search_text = full_text[last_end_position:]
+        
+        # このブロックの特徴語を抽出
+        feature_words = extract_feature_words(block)
+        feature_positions = find_feature_positions(search_text, feature_words)
+        
+        # クラスタリング
+        clusters = create_feature_clusters(feature_positions, window_size=500)
+        
+        if not clusters:
+            # 特徴語が見つからない場合は全文検索にフォールバック
+            clusters = [{'start': 0, 'end': len(search_text), 'score': 1.0}]
+        
+        # LCSマッチング
+        result = search_based_lcs_matching(search_text, block, clusters)
+        
+        if result:
+            # 元テキスト全体での位置に変換
+            result['offset'] += last_end_position
+            results.append(result)
+            
+            # 次の検索開始位置を更新
+            matched_end = result['offset'] + result['cluster']['end']
+            last_end_position = matched_end
+    
+    return results
+```
+
+5️⃣ **{}による前後文脈指定**
+```python
+def extract_context_hints(text):
+    """
+    {前後の単語}形式のヒントを抽出
+    """
+    import re
+    
+    # パターン: {単語}
+    pattern = r'\{([^}]+)\}'
+    hints = []
+    
+    for match in re.finditer(pattern, text):
+        hint_text = match.group(1)
+        position = match.start()
+        
+        # ヒントの前後を判定
+        before_text = text[:position].strip()
+        after_text = text[match.end():].strip()
+        
+        if before_text and before_text[-1] not in '。、':
+            # 前の文脈
+            target_start = max(0, position - 20)
+            target_word = text[target_start:position].strip().split()[-1]
+            hints.append({
+                'type': 'before',
+                'hint': hint_text,
+                'target': target_word,
+                'position': position
+            })
+        elif after_text and after_text[0] not in '。、':
+            # 後の文脈
+            target_end = min(len(text), match.end() + 20)
+            target_word = text[match.end():target_end].strip().split()[0]
+            hints.append({
+                'type': 'after',
+                'hint': hint_text,
+                'target': target_word,
+                'position': position
+            })
+    
+    # ヒントを削除したクリーンなテキストも返す
+    clean_text = re.sub(pattern, '', text)
+    
+    return hints, clean_text
+
+def apply_context_scoring(clusters, context_hints, full_text):
+    """
+    文脈ヒントに基づいてクラスタのスコアを調整
+    """
+    for cluster in clusters:
+        cluster_text = full_text[cluster['start']:cluster['end']]
+        
+        for hint in context_hints:
+            if hint['target'] in cluster_text:
+                # ターゲット単語の位置を探す
+                target_pos = cluster_text.find(hint['target'])
+                
+                if target_pos != -1:
+                    # ヒントとなる単語も探す
+                    if hint['type'] == 'before':
+                        # ターゲットの前を探索
+                        before_text = cluster_text[:target_pos]
+                        if hint['hint'] in before_text:
+                            # 距離に応じてボーナス
+                            distance = target_pos - before_text.rfind(hint['hint'])
+                            if distance < 50:  # 50文字以内
+                                cluster['score'] *= 3.0
+                            elif distance < 100:
+                                cluster['score'] *= 2.0
+                            else:
+                                cluster['score'] *= 1.5
+                        else:
+                            cluster['score'] *= 0.3  # ペナルティ
+                    
+                    else:  # after
+                        # ターゲットの後を探索
+                        after_text = cluster_text[target_pos:]
+                        if hint['hint'] in after_text:
+                            distance = after_text.find(hint['hint'])
+                            if distance < 50:
+                                cluster['score'] *= 3.0
+                            elif distance < 100:
+                                cluster['score'] *= 2.0
+                            else:
+                                cluster['score'] *= 1.5
+                        else:
+                            cluster['score'] *= 0.3
+    
+    # スコアで再ソート
+    return sorted(clusters, key=lambda x: x['score'], reverse=True)
+```
+
+**実装の統合例**:
+```python
+def find_differences_hybrid(full_text, edited_text):
+    """
+    ハイブリッド検索アプローチのメイン関数
+    """
+    # 文脈ヒントの抽出
+    context_hints, clean_edited_text = extract_context_hints(edited_text)
+    
+    # セパレータチェック
+    if any(sep in clean_edited_text for sep in ['---', '——', '－－－']):
+        # 複数ブロック処理
+        results = process_with_separators(full_text, clean_edited_text)
+    else:
+        # 単一ブロック処理
+        # 特徴語抽出
+        feature_words = extract_feature_words(clean_edited_text)
+        feature_positions = find_feature_positions(full_text, feature_words)
+        
+        # クラスタリング
+        clusters = create_feature_clusters(feature_positions)
+        
+        # 文脈ヒントでスコア調整
+        if context_hints:
+            clusters = apply_context_scoring(clusters, context_hints, full_text)
+        
+        # LCSマッチング
+        result = search_based_lcs_matching(full_text, clean_edited_text, clusters)
+        results = [result] if result else []
+    
+    return results
+```
+
+**効果**:
+- 計算量を500万から14万に削減（約35分の1）
+- 断片的なマッチを大幅に削減
+- 編集されたテキストでも柔軟に対応
+- 複数の切り抜き箇所を順序通りに処理可能
+- 文脈ヒントにより曖昧性を解消
+
 #### 4.2.2 音声レベル計算（RMS）
 
 **目的**: 音声データから無音区間を検出するため、時間窓ごとの音量レベルを計算する。
