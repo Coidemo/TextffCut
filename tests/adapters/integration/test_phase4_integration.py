@@ -13,7 +13,7 @@ import pytest
 from adapters.gateways.export.fcpxml_export_gateway import FCPXMLExportGatewayAdapter
 from adapters.gateways.export.srt_export_gateway import SRTExportGatewayAdapter
 from adapters.gateways.file.file_gateway import FileGatewayAdapter
-from adapters.gateways.text_processing.text_processor_gateway import TextProcessorGatewayAdapter
+from adapters.gateways.text_processing.sequence_matcher_gateway import SequenceMatcherTextProcessorGateway
 from adapters.gateways.transcription.transcription_gateway import TranscriptionGatewayAdapter
 from adapters.gateways.video_processing.video_processor_gateway import VideoProcessorGatewayAdapter
 from domain.entities import TranscriptionResult, TranscriptionSegment
@@ -109,7 +109,7 @@ class TestPhase4Integration:
             assert transcription_result.segments[0].text == "これはテストです"
 
             # テキスト処理ゲートウェイの設定
-            text_gateway = TextProcessorGatewayAdapter()
+            text_gateway = SequenceMatcherTextProcessorGateway()
             mock_text_instance = Mock()
             mock_text_processor.return_value = mock_text_instance
 
@@ -229,7 +229,7 @@ class TestPhase4Integration:
             # ゲートウェイのインスタンス化
             file_gateway = FileGatewayAdapter()
             transcription_gateway = TranscriptionGatewayAdapter()
-            text_gateway = TextProcessorGatewayAdapter()
+            text_gateway = SequenceMatcherTextProcessorGateway()
             video_gateway = VideoProcessorGatewayAdapter()
             fcpxml_gateway = FCPXMLExportGatewayAdapter()
 
