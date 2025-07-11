@@ -440,7 +440,8 @@ def show_edited_text_with_highlights(edited_text: str, diff: TextDifference | No
         
         # UNCHANGEDの部分のみを結合（削除後に残る部分）
         remaining_text = "".join(
-            text for diff_type, text, _ in diff.differences if diff_type == DifferenceType.UNCHANGED
+            diff_item[1] for diff_item in diff.differences 
+            if len(diff_item) >= 3 and diff_item[0] == DifferenceType.UNCHANGED
         )
     
     # デバッグ情報をログ出力
@@ -562,7 +563,9 @@ def show_edited_text_with_separators_highlights(edited_text: str, separator: str
         from domain.entities.text_difference import DifferenceType
         if section_diff and hasattr(section_diff, "differences"):
             remaining_text = "".join(
-                text for diff_type, text, _ in section_diff.differences if diff_type == DifferenceType.UNCHANGED
+                text for diff_item in section_diff.differences 
+                if (diff_item[0] == DifferenceType.UNCHANGED if len(diff_item) >= 3 else False)
+                for text in [diff_item[1]]
             )
 
         # セクションのHTMLを生成
@@ -624,8 +627,10 @@ def show_red_highlight_modal(edited_text: str, diff: TextDifference | None = Non
                 st.write(f"UNCHANGEDの合計長さ: {unchanged_total}")
 
                 # 全ての差分を表示
-                for i, (diff_type, text, _) in enumerate(diff.differences):
-                    st.write(f"差分{i+1}: {diff_type.value}, 長さ={len(text)}, 内容='{repr(text[:30])}...'")
+                for i, diff_item in enumerate(diff.differences):
+                    if len(diff_item) >= 3:
+                        diff_type, text = diff_item[0], diff_item[1]
+                        st.write(f"差分{i+1}: {diff_type.value}, 長さ={len(text)}, 内容='{repr(text[:30])}...'")
         st.write(f"edited_text長さ: {len(edited_text)}")
         st.write(f"edited_text内容: {repr(edited_text[:50])}...")
 
@@ -673,7 +678,8 @@ def show_red_highlight_modal(edited_text: str, diff: TextDifference | None = Non
                 from domain.entities.text_difference import DifferenceType
 
                 cleaned_text = "".join(
-                    text for diff_type, text, _ in diff.differences if diff_type == DifferenceType.UNCHANGED
+                    diff_item[1] for diff_item in diff.differences 
+                    if len(diff_item) >= 3 and diff_item[0] == DifferenceType.UNCHANGED
                 )
             elif diff and hasattr(diff, "common_positions"):
                 # レガシー形式
@@ -722,7 +728,13 @@ def show_diff_viewer(original_text: str, diff: TextDifference | None = None, hei
             highlight_positions = []
             
             # 複数のUNCHANGEDブロックから位置情報を取得
-            for diff_type, text, positions in diff.differences:
+            for diff_item in diff.differences:
+                # タプルの長さをチェック
+                if len(diff_item) >= 4:
+                    diff_type, text, positions, extra_attrs = diff_item
+                else:
+                    diff_type, text, positions = diff_item
+                    extra_attrs = None
                 if diff_type == DifferenceType.UNCHANGED and positions:
                     # positionsは[(start, end), ...]の形式
                     for pos in positions:
