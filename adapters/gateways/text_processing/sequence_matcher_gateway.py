@@ -81,8 +81,19 @@ class SequenceMatcherTextProcessorGateway(ITextProcessorGateway):
             # 文脈マーカーを抽出（位置情報の保持のため）
             context_markers = self.extract_context_markers(cleaned_edited)
             
-            # 正規化（文脈マーカーは含めたまま）
-            normalized_edited = self.normalize_for_comparison(cleaned_edited)
+            # 文脈マーカーを処理して比較用テキストを作成
+            # 文脈マーカー内のテキストはそのまま残すが、{}は削除
+            comparison_text = cleaned_edited
+            for marker in sorted(context_markers, key=lambda m: m['start'], reverse=True):
+                # {}を削除して中身だけ残す（位置の調整のため逆順で処理）
+                comparison_text = (
+                    comparison_text[:marker['start']] + 
+                    marker['content'] + 
+                    comparison_text[marker['end']:]
+                )
+            
+            # 正規化
+            normalized_edited = self.normalize_for_comparison(comparison_text)
             
             logger.info(f"原文: {len(original_text)}文字, 編集: {len(normalized_edited)}文字")
             
@@ -98,16 +109,57 @@ class SequenceMatcherTextProcessorGateway(ITextProcessorGateway):
             opcodes = list(matcher.get_opcodes())
             logger.debug(f"get_opcodes: {time.time() - start_time:.3f}秒")
             
+            # 文脈マーカーの位置を元テキストの位置にマッピング
+            context_marker_positions = []
+            if context_markers:
+                # 正規化前のテキストでの位置から、マッチング結果での位置を計算
+                current_offset = 0
+                for marker in context_markers:
+                    # マーカー開始位置までのテキストの長さ（正規化後）
+                    text_before = self.normalize_for_comparison(cleaned_edited[:marker['start']])
+                    marker_start_in_normalized = len(text_before)
+                    
+                    # マーカー内容の長さ（正規化後）
+                    marker_content_normalized = self.normalize_for_comparison(marker['content'])
+                    marker_length_in_normalized = len(marker_content_normalized)
+                    
+                    context_marker_positions.append({
+                        'start': marker_start_in_normalized,
+                        'end': marker_start_in_normalized + marker_length_in_normalized,
+                        'content': marker['content'],
+                        'original_marker': marker
+                    })
+            
             start_time = time.time()
             for tag, i1, i2, j1, j2 in opcodes:
                 if tag == 'equal':
                     # 共通部分：元のテキストの位置をそのまま使用
                     actual_text = original_text[i1:i2]
-                    differences.append((
-                        DifferenceType.UNCHANGED,
-                        actual_text,
-                        [(i1, i2)]
-                    ))
+                    
+                    # この範囲が文脈マーカーに対応するかチェック
+                    is_context_marker = False
+                    marker_info = None
+                    for marker_pos in context_marker_positions:
+                        if marker_pos['start'] == j1 and marker_pos['end'] == j2:
+                            is_context_marker = True
+                            marker_info = marker_pos
+                            break
+                    
+                    if is_context_marker and marker_info:
+                        # 文脈マーカーとして特別な属性を付与
+                        differences.append((
+                            DifferenceType.UNCHANGED,
+                            actual_text,
+                            [(i1, i2)],
+                            {'is_context_marker': True, 'marker_info': marker_info}
+                        ))
+                        logger.debug(f"文脈マーカー部分を検出: '{actual_text}' (位置: {i1}-{i2})")
+                    else:
+                        differences.append((
+                            DifferenceType.UNCHANGED,
+                            actual_text,
+                            [(i1, i2)]
+                        ))
                     
                 elif tag == 'delete':
                     # 削除された部分
@@ -146,6 +198,74 @@ class SequenceMatcherTextProcessorGateway(ITextProcessorGateway):
                     ))
             
             logger.debug(f"opcodes処理: {time.time() - start_time:.3f}秒")
+            
+            # 文脈マーカーの処理：UNCHANGEDブロックを分割
+            if context_markers:
+                new_differences = []
+                for diff_item in differences:
+                    if len(diff_item) == 3:
+                        diff_type, text, positions = diff_item
+                        extra_attrs = None
+                    else:
+                        diff_type, text, positions, extra_attrs = diff_item
+                    
+                    if diff_type == DifferenceType.UNCHANGED and positions:
+                        # このブロック内に文脈マーカーがあるかチェック
+                        start_pos, end_pos = positions[0]
+                        block_has_marker = False
+                        
+                        # 編集テキストでの位置を計算
+                        for marker_pos in context_marker_positions:
+                            # 元テキストの該当部分を特定
+                            marker_original_start = None
+                            marker_original_end = None
+                            
+                            # opcodeから対応を見つける
+                            for op_tag, i1, i2, j1, j2 in opcodes:
+                                if op_tag == 'equal' and j1 <= marker_pos['start'] < j2:
+                                    # マーカー開始位置に対応する元テキスト位置
+                                    offset_in_block = marker_pos['start'] - j1
+                                    marker_original_start = i1 + offset_in_block
+                                    marker_original_end = marker_original_start + marker_pos['end'] - marker_pos['start']
+                                    
+                                    # このブロックに含まれるかチェック
+                                    if start_pos <= marker_original_start < end_pos:
+                                        block_has_marker = True
+                                        
+                                        # ブロックを分割
+                                        # 1. マーカー前の部分
+                                        if marker_original_start > start_pos:
+                                            new_differences.append((
+                                                DifferenceType.UNCHANGED,
+                                                original_text[start_pos:marker_original_start],
+                                                [(start_pos, marker_original_start)]
+                                            ))
+                                        
+                                        # 2. マーカー部分（特別なフラグ付き）
+                                        new_differences.append((
+                                            DifferenceType.UNCHANGED,
+                                            original_text[marker_original_start:marker_original_end],
+                                            [(marker_original_start, marker_original_end)],
+                                            {'is_context_marker': True, 'marker_info': marker_pos}
+                                        ))
+                                        
+                                        # 3. マーカー後の部分
+                                        if marker_original_end < end_pos:
+                                            new_differences.append((
+                                                DifferenceType.UNCHANGED,
+                                                original_text[marker_original_end:end_pos],
+                                                [(marker_original_end, end_pos)]
+                                            ))
+                                        break
+                        
+                        if not block_has_marker:
+                            # マーカーがない場合はそのまま追加
+                            new_differences.append(diff_item)
+                    else:
+                        # UNCHANGED以外はそのまま追加
+                        new_differences.append(diff_item)
+                
+                differences = new_differences
             
             # ログ出力
             unchanged_count = sum(1 for d in differences if d[0] == DifferenceType.UNCHANGED)
@@ -325,7 +445,14 @@ class SequenceMatcherTextProcessorGateway(ITextProcessorGateway):
         # 文脈マーカーの位置と対応する元テキストの位置を記録
         context_marker_mappings = []
         
-        for i, (diff_type, text, positions) in enumerate(text_difference.differences):
+        for i, diff_item in enumerate(text_difference.differences):
+            # タプルの長さをチェックして、追加属性があるか確認
+            if len(diff_item) >= 4:
+                diff_type, text, positions, extra_attrs = diff_item
+            else:
+                diff_type, text, positions = diff_item
+                extra_attrs = None
+            
             if diff_type == DifferenceType.UNCHANGED and positions:
                 for start_pos, end_pos in positions:
                     # 文字配列から時間情報を取得
@@ -341,6 +468,12 @@ class SequenceMatcherTextProcessorGateway(ITextProcessorGateway):
                             end_time = end_char.end
                         
                         if start_char.start is not None and end_time is not None:
+                            # 文脈マーカーかチェック
+                            if extra_attrs and extra_attrs.get('is_context_marker'):
+                                # 文脈マーカーはスキップ
+                                logger.info(f"[文脈マーカー] スキップ: '{text[:20]}...' (位置: {start_pos}-{end_pos})")
+                                continue
+                            
                             # 境界調整マーカーのチェック
                             start_adjustment = 0
                             end_adjustment = 0
@@ -383,10 +516,8 @@ class SequenceMatcherTextProcessorGateway(ITextProcessorGateway):
         for idx, tr in enumerate(time_ranges):
             logger.debug(f"  範囲{idx+1}: {tr.start:.3f} - {tr.end:.3f}秒")
         
-        # 文脈マーカー部分を除外
-        if context_markers:
-            time_ranges = self._exclude_context_marker_ranges(time_ranges, context_markers, char_array, edited_text)
-            logger.info(f"文脈マーカー除外後: {len(time_ranges)}個の範囲")
+        # 文脈マーカー部分は既に除外済み（get_time_rangesで処理）
+        # _exclude_context_marker_rangesは不要になった
         
         # マージはしない（境界調整を正確に反映するため）
         logger.info(f"時間範囲を計算しました: {len(time_ranges)}個の範囲")
