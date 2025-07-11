@@ -412,6 +412,7 @@ def show_edited_text_with_highlights(edited_text: str, diff: TextDifference | No
     編集テキストに赤ハイライト表示（削除される部分のみ）
 
     削除ボタンで実際に削除される文字だけを赤くハイライトする
+    文脈マーカー {} 内のテキストは表示しない
     """
     if not edited_text or diff is None:
         return
@@ -420,6 +421,16 @@ def show_edited_text_with_highlights(edited_text: str, diff: TextDifference | No
         f'<div class="edited-text-viewer" style="height: {height}px; overflow-y: auto; '
         f'padding: 10px; border: 1px solid #ddd; border-radius: 5px; background-color: #f9f9f9;">'
     )
+    
+    # 文脈マーカーを検出
+    import re
+    context_markers = []
+    for match in re.finditer(r'\{([^}]+)\}', edited_text):
+        context_markers.append({
+            'start': match.start(),
+            'end': match.end(),
+            'content': match.group(1)
+        })
 
     # 削除ボタンを押した後のテキストを計算
     remaining_text = ""
@@ -443,7 +454,35 @@ def show_edited_text_with_highlights(edited_text: str, diff: TextDifference | No
     remaining_chars = list(remaining_text)
     remaining_index = 0
     
-    for char in edited_text:
+    # 文脈マーカー内かどうかを追跡
+    in_context_marker = False
+    skip_char = False
+    
+    for i, char in enumerate(edited_text):
+        skip_char = False
+        
+        # 文脈マーカーの開始/終了をチェック
+        for marker in context_markers:
+            if i == marker['start']:
+                in_context_marker = True
+                html_content += '<span style="color: #999;">{'
+                if char == '{':
+                    skip_char = True
+                break
+            elif i == marker['end'] - 1:
+                html_content += '}</span>'
+                in_context_marker = False
+                if char == '}':
+                    skip_char = True
+                break
+        
+        if skip_char:
+            continue
+        
+        # 文脈マーカー内の文字はスキップ
+        if in_context_marker:
+            continue
+        
         # この文字が削除後のテキストに存在するかチェック
         if remaining_index < len(remaining_chars) and char == remaining_chars[remaining_index]:
             # この文字は残る（ハイライトしない）
@@ -466,6 +505,7 @@ def show_edited_text_with_highlights(edited_text: str, diff: TextDifference | No
 def show_edited_text_with_separators_highlights(edited_text: str, separator: str, height: int = 400) -> None:
     """
     区切り文字を含むテキストの赤ハイライト表示（削除される部分のみ）
+    文脈マーカー {} 内のテキストは表示しない
 
     Args:
         edited_text: 編集されたテキスト（区切り文字付き）
@@ -474,6 +514,16 @@ def show_edited_text_with_separators_highlights(edited_text: str, separator: str
     """
 
     text_processor = SimpleTextProcessorGateway()
+    
+    # 文脈マーカーを検出
+    import re
+    context_markers = []
+    for match in re.finditer(r'\{([^}]+)\}', edited_text):
+        context_markers.append({
+            'start': match.start(),
+            'end': match.end(),
+            'content': match.group(1)
+        })
 
     # 元のテキストを取得
     full_text = ""

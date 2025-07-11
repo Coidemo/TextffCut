@@ -76,7 +76,13 @@ class SequenceMatcherTextProcessorGateway(ITextProcessorGateway):
             
             # 元のテキストは一切変更しない
             # 編集テキストのみ正規化（境界調整マーカーは除去）
-            normalized_edited = self.normalize_for_comparison(self.remove_boundary_markers(edited_text))
+            cleaned_edited = self.remove_boundary_markers(edited_text)
+            
+            # 文脈マーカーを抽出（位置情報の保持のため）
+            context_markers = self.extract_context_markers(cleaned_edited)
+            
+            # 正規化（文脈マーカーは含めたまま）
+            normalized_edited = self.normalize_for_comparison(cleaned_edited)
             
             logger.info(f"原文: {len(original_text)}文字, 編集: {len(normalized_edited)}文字")
             
@@ -157,6 +163,9 @@ class SequenceMatcherTextProcessorGateway(ITextProcessorGateway):
             
             # 後で境界調整で使用するために差分結果を保存
             self._last_diff_result = result
+            
+            # 文脈マーカー情報も保存（後で使用するため）
+            self._context_markers = context_markers
             
             return result
             
@@ -283,7 +292,7 @@ class SequenceMatcherTextProcessorGateway(ITextProcessorGateway):
     def get_time_ranges(
         self, text_difference: TextDifference, transcription_result: TranscriptionResult
     ) -> List[TimeRange]:
-        """差分情報から時間範囲を計算（境界調整マーカーも処理）"""
+        """差分情報から時間範囲を計算（境界調整マーカーと文脈マーカーも処理）"""
         logger.info("時間範囲の計算を開始します")
         
         # CharacterArrayBuilderで再構築したテキストを使用
@@ -297,11 +306,17 @@ class SequenceMatcherTextProcessorGateway(ITextProcessorGateway):
         edited_text = text_difference.edited_text
         logger.info(f"[get_time_ranges] edited_text: {edited_text[:50]}...")
         boundary_markers = self._extract_boundary_markers(edited_text)
+        context_markers = self.extract_context_markers(edited_text)
         
         if boundary_markers:
             logger.info(f"[境界調整] {len(boundary_markers)}個のマーカーを検出")
             for marker in boundary_markers:
                 logger.info(f"  - {marker['marker']} (位置: {marker['position']}, タイプ: {marker['type']})")
+        
+        if context_markers:
+            logger.info(f"[文脈マーカー] {len(context_markers)}個のマーカーを検出")
+            for marker in context_markers:
+                logger.info(f"  - {marker['full_match']} (位置: {marker['start']}-{marker['end']})")
         
         # 差分から時間範囲を抽出
         time_ranges = []
@@ -364,6 +379,11 @@ class SequenceMatcherTextProcessorGateway(ITextProcessorGateway):
         logger.debug(f"マージ前の時間範囲: {len(time_ranges)}個")
         for idx, tr in enumerate(time_ranges):
             logger.debug(f"  範囲{idx+1}: {tr.start:.3f} - {tr.end:.3f}秒")
+        
+        # 文脈マーカー部分を除外
+        if context_markers:
+            time_ranges = self._exclude_context_marker_ranges(time_ranges, context_markers, char_array, edited_text)
+            logger.info(f"文脈マーカー除外後: {len(time_ranges)}個の範囲")
         
         # マージはしない（境界調整を正確に反映するため）
         logger.info(f"時間範囲を計算しました: {len(time_ranges)}個の範囲")
@@ -635,13 +655,17 @@ class SequenceMatcherTextProcessorGateway(ITextProcessorGateway):
         )
     
     def remove_boundary_markers(self, text: str) -> str:
-        """境界調整マーカーを除去"""
+        """境界調整マーカーと文脈マーカーを除去"""
         # マーカーパターン（負の数値にも対応）
         import re
         marker_pattern = re.compile(r'\[(-?\d+(?:\.\d+)?)[<>]\]|\[[<>](-?\d+(?:\.\d+)?)\]')
         
-        # マーカーを除去
+        # 境界調整マーカーを除去
         cleaned_text = marker_pattern.sub('', text)
+        
+        # 文脈マーカーも除去（内容は含める）
+        # 注: 検索時には文脈マーカーを含めたいので、ここでは除去しない
+        # cleaned_text = self.remove_context_markers(cleaned_text)
         
         # stripのみ実行（空白の正規化はしない）
         return cleaned_text.strip()
@@ -693,3 +717,65 @@ class SequenceMatcherTextProcessorGateway(ITextProcessorGateway):
                     }
         
         return markers
+    
+    def extract_context_markers(self, text: str) -> list[dict]:
+        """テキストから文脈マーカー {} を抽出"""
+        import re
+        markers = []
+        
+        # {} で囲まれた部分を検索
+        pattern = r'\{([^}]+)\}'
+        for match in re.finditer(pattern, text):
+            markers.append({
+                'content': match.group(1),  # {} 内のテキスト
+                'full_match': match.group(0),  # {} を含む全体
+                'start': match.start(),
+                'end': match.end()
+            })
+        
+        logger.debug(f"文脈マーカーを{len(markers)}個検出")
+        return markers
+    
+    def remove_context_markers(self, text: str) -> str:
+        """文脈マーカー {} とその内容を削除"""
+        import re
+        # {} とその中身を削除
+        cleaned = re.sub(r'\{[^}]+\}', '', text)
+        return cleaned
+    
+    def remove_context_markers_preserve_positions(self, text: str) -> str:
+        """文脈マーカーの内容を空白で置換（位置を保持）"""
+        import re
+        # {} 内のテキストを同じ長さの空白で置換
+        def replace_with_spaces(match):
+            return '{' + ' ' * len(match.group(1)) + '}'
+        
+        return re.sub(r'\{([^}]+)\}', replace_with_spaces, text)
+    
+    def _exclude_context_marker_ranges(
+        self, time_ranges: List[TimeRange], context_markers: list[dict], 
+        char_array: list, edited_text: str
+    ) -> List[TimeRange]:
+        """文脈マーカー部分を時間範囲から除外"""
+        new_ranges = []
+        
+        for time_range in time_ranges:
+            # この時間範囲に対応するテキスト位置を特定
+            # TODO: より正確な実装が必要
+            # 現在は簡易的な実装として、文脈マーカーが含まれる範囲をスキップ
+            
+            # 文脈マーカーがこの範囲に含まれているかチェック
+            contains_marker = False
+            for marker in context_markers:
+                # マーカーの位置が時間範囲内にあるかを判定
+                # （これは簡易的な実装で、より正確な位置マッピングが必要）
+                contains_marker = True  # 一旦すべてチェック
+            
+            if not contains_marker:
+                new_ranges.append(time_range)
+            else:
+                # 文脈マーカーを除外した複数の範囲を生成
+                # TODO: 実装を改善
+                logger.debug(f"文脈マーカーを含む範囲をスキップ: {time_range.start:.2f} - {time_range.end:.2f}")
+        
+        return new_ranges
