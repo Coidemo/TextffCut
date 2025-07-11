@@ -322,6 +322,9 @@ class SequenceMatcherTextProcessorGateway(ITextProcessorGateway):
         time_ranges = []
         range_index = 0  # 実際の時間範囲のインデックス
         
+        # 文脈マーカーの位置と対応する元テキストの位置を記録
+        context_marker_mappings = []
+        
         for i, (diff_type, text, positions) in enumerate(text_difference.differences):
             if diff_type == DifferenceType.UNCHANGED and positions:
                 for start_pos, end_pos in positions:
@@ -756,26 +759,19 @@ class SequenceMatcherTextProcessorGateway(ITextProcessorGateway):
         self, time_ranges: List[TimeRange], context_markers: list[dict], 
         char_array: list, edited_text: str
     ) -> List[TimeRange]:
-        """文脈マーカー部分を時間範囲から除外"""
-        new_ranges = []
+        """文脈マーカー部分を時間範囲から除外
         
-        for time_range in time_ranges:
-            # この時間範囲に対応するテキスト位置を特定
-            # TODO: より正確な実装が必要
-            # 現在は簡易的な実装として、文脈マーカーが含まれる範囲をスキップ
-            
-            # 文脈マーカーがこの範囲に含まれているかチェック
-            contains_marker = False
-            for marker in context_markers:
-                # マーカーの位置が時間範囲内にあるかを判定
-                # （これは簡易的な実装で、より正確な位置マッピングが必要）
-                contains_marker = True  # 一旦すべてチェック
-            
-            if not contains_marker:
-                new_ranges.append(time_range)
-            else:
-                # 文脈マーカーを除外した複数の範囲を生成
-                # TODO: 実装を改善
-                logger.debug(f"文脈マーカーを含む範囲をスキップ: {time_range.start:.2f} - {time_range.end:.2f}")
+        注: 現在は簡易実装。文脈マーカーを含む場合は範囲全体をスキップ
+        """
+        if not context_markers:
+            return time_ranges
         
-        return new_ranges
+        # 簡易実装：文脈マーカーが検出された場合は警告を出力
+        logger.warning("文脈マーカーが検出されました。音声プレビューでの除外は未実装です。")
+        
+        # TODO: より正確な実装
+        # 1. 差分検出結果から文脈マーカーの正確な位置を特定
+        # 2. 各時間範囲を文脈マーカーの前後で分割
+        # 3. 文脈マーカー部分の時間を除外
+        
+        return time_ranges
