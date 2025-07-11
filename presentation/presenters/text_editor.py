@@ -342,11 +342,14 @@ class TextEditorPresenter(BasePresenter[TextEditorViewModel]):
                 f"[_check_added_chars] differences数: {len(diff_result.differences) if diff_result.differences else 0}"
             )
 
-            for diff_type, text, _ in diff_result.differences:
-                logger.debug(f"[_check_added_chars] 差分タイプ: {diff_type}, テキスト長: {len(text)}")
-                if diff_type == DifferenceType.ADDED:
-                    added_texts.append(text)
-                    logger.info(f"追加されたテキスト検出: '{text}'")
+            for diff_item in diff_result.differences:
+                # タプルの長さをチェック
+                if len(diff_item) >= 3:
+                    diff_type, text = diff_item[0], diff_item[1]
+                    logger.debug(f"[_check_added_chars] 差分タイプ: {diff_type}, テキスト長: {len(text)}")
+                    if diff_type == DifferenceType.ADDED:
+                        added_texts.append(text)
+                        logger.info(f"追加されたテキスト検出: '{text}'")
 
         # ViewModelに状態を設定
         self.view_model.has_added_chars = len(added_texts) > 0
@@ -377,9 +380,9 @@ class TextEditorPresenter(BasePresenter[TextEditorViewModel]):
                 from domain.entities.text_difference import DifferenceType
 
                 unchanged_texts = []
-                for diff_type, text, _ in diff_result.differences:
-                    if diff_type == DifferenceType.UNCHANGED:
-                        unchanged_texts.append(text)
+                for diff_item in diff_result.differences:
+                    if len(diff_item) >= 3 and diff_item[0] == DifferenceType.UNCHANGED:
+                        unchanged_texts.append(diff_item[1])
                 if i < len(unchanged_texts):
                     preview_text = (
                         unchanged_texts[i][:50] + "..." if len(unchanged_texts[i]) > 50 else unchanged_texts[i]

@@ -45,7 +45,12 @@ class TimeRangeCalculator:
         time_ranges = []
 
         # 変更されていない部分（UNCHANGED）の時間範囲を計算
-        for diff_type, text, _ in differences.differences:
+        for diff_item in differences.differences:
+            # タプルの長さをチェック
+            if len(diff_item) >= 3:
+                diff_type, text = diff_item[0], diff_item[1]
+            else:
+                continue
             if diff_type == DifferenceType.UNCHANGED and text.strip():
                 # このテキストがtranscription内のどこにあるか探す
                 ranges = self._find_text_time_ranges(text, transcription_result)
