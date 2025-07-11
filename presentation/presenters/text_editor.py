@@ -59,14 +59,12 @@ class TextEditorPresenter(BasePresenter[TextEditorViewModel]):
             logger.debug(f"Type of transcription_result: {type(transcription_result)}")
 
             # セッション状態のデバッグ情報
-            import streamlit as st
-
-            if hasattr(st, "session_state"):
-                logger.debug(f"use_buzz_clips: {st.session_state.get('use_buzz_clips', False)}")
+            if self.session_manager:
+                logger.debug(f"use_buzz_clips: {self.session_manager.get('use_buzz_clips', False)}")
                 logger.debug(
-                    f"_skip_initial_text_processing: {st.session_state.get('_skip_initial_text_processing', False)}"
+                    f"_skip_initial_text_processing: {self.session_manager.get('_skip_initial_text_processing', False)}"
                 )
-                logger.debug(f"edited_text in session: {'edited_text' in st.session_state}")
+                logger.debug(f"edited_text exists: {bool(self.session_manager.get('edited_text'))}")
 
             # TranscriptionResultAdapterの場合は、ドメインエンティティを取得
             from domain.entities.transcription import TranscriptionResult
@@ -129,22 +127,22 @@ class TextEditorPresenter(BasePresenter[TextEditorViewModel]):
             self.view_model.full_text = full_text
 
             # セッション状態から編集済みテキストを読み込む
-            import streamlit as st
-
-            if hasattr(st, "session_state") and st.session_state is not None:
+            if self.session_manager:
                 # 初期処理をスキップするフラグがある場合は処理しない
-                if not st.session_state.get("_skip_initial_text_processing", False):
-                    if "edited_text" in st.session_state and st.session_state.edited_text:
+                if not self.session_manager.get("_skip_initial_text_processing", False):
+                    edited_text = self.session_manager.get("edited_text")
+                    if edited_text:
                         # ViewModelのupdate_edited_textメソッドを使用して、char_countも更新
-                        self.view_model.update_edited_text(st.session_state.edited_text)
+                        self.view_model.update_edited_text(edited_text)
                         # 保存された差分があれば復元
-                        if "text_differences" in st.session_state:
-                            self.view_model.differences = st.session_state.text_differences
+                        text_differences = self.session_manager.get("text_differences")
+                        if text_differences:
+                            self.view_model.differences = text_differences
                         # 編集済みテキストがある場合は処理を実行して差分を計算
                         self._process_edited_text()
 
             # 初期テキストがあれば設定（初期処理スキップフラグがない場合のみ）
-            if self.view_model.edited_text and not st.session_state.get("_skip_initial_text_processing", False):
+            if self.view_model.edited_text and self.session_manager and not self.session_manager.get("_skip_initial_text_processing", False):
                 self._process_edited_text()
 
             self.view_model.notify()
@@ -314,10 +312,8 @@ class TextEditorPresenter(BasePresenter[TextEditorViewModel]):
                     self._update_time_ranges_from_diff(result)
 
                 # 差分をセッション状態に保存（rerun後も保持するため）
-                import streamlit as st
-
-                if hasattr(st, "session_state") and st.session_state is not None:
-                    st.session_state["text_differences"] = result
+                if self.session_manager:
+                    self.session_manager.set("text_differences", result)
 
                 # セクション情報を更新（単一）
                 self.view_model.update_sections([text], None)
