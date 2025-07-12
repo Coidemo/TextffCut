@@ -1,12 +1,11 @@
 """
-SequenceMatcherベースのテキスト処理ゲートウェイ
+SequenceMatcherベースのテキスト処理ゲートウェイ（修正版）
 
-v0.9.7で使用されていたdifflib.SequenceMatcherアルゴリズムを
-クリーンアーキテクチャに統合した実装。
+文脈マーカー処理の問題を修正した実装。
 """
 
 from difflib import SequenceMatcher
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Dict
 from uuid import uuid4
 import re
 
@@ -23,15 +22,14 @@ class SequenceMatcherTextProcessorGateway(ITextProcessorGateway):
     """
     difflib.SequenceMatcherを使用したテキスト処理ゲートウェイ
     
-    v0.9.7の実装をベースに、ブロック単位の自然なマッチングを提供。
-    LCSアルゴリズムと比較して、より連続的で人間の直感に近い結果を生成。
+    修正版：文脈マーカー処理を正しく実装
     """
     
     def __init__(self):
         logger.info("SequenceMatcherTextProcessorGatewayを初期化しました")
         self.DEFAULT_SEPARATOR = "---"
-        self._transcription_result = None  # TranscriptionResultをキャッシュ
-        self._char_array_text = None  # CharacterArrayBuilderで構築したテキストをキャッシュ
+        self._transcription_result = None
+        self._char_array_text = None
     
     def set_transcription_result(self, transcription_result: TranscriptionResult) -> None:
         """TranscriptionResultを設定し、CharacterArrayBuilderでテキストを構築"""
@@ -49,10 +47,51 @@ class SequenceMatcherTextProcessorGateway(ITextProcessorGateway):
         text = text.replace('\n', '').replace('\r', '')
         return text
     
-    def remove_spaces(self, text: str) -> str:
-        """テキストから空白を除去"""
-        return re.sub(r'\s+', '', text)
-    
+    def normalize_with_position_tracking(self, text: str, markers: List[dict] = None) -> Tuple[str, List[dict], List[int]]:
+        """
+        テキストを正規化しながら位置を追跡
+        
+        Args:
+            text: 正規化するテキスト
+            markers: 更新する位置情報を持つマーカーのリスト（オプション）
+            
+        Returns:
+            (正規化されたテキスト, 更新されたマーカー, 位置マッピング)
+        """
+        normalized = ""
+        pos_map = []  # 元の位置 → 正規化後の位置のマッピング
+        
+        for i, char in enumerate(text):
+            if char not in ' 　\n\r':  # スペース・改行以外
+                pos_map.append(len(normalized))
+                normalized += char
+            else:
+                pos_map.append(len(normalized))  # スペースは次の文字と同じ位置
+        
+        # 最後の位置を追加
+        pos_map.append(len(normalized))
+        
+        # マーカー位置を更新
+        updated_markers = []
+        if markers:
+            for marker in markers:
+                # 正規化後の位置を計算
+                new_start = pos_map[marker['start']] if marker['start'] < len(pos_map) else len(normalized)
+                new_end = pos_map[marker['end']] if marker['end'] < len(pos_map) else len(normalized)
+                
+                # 内容も正規化
+                normalized_content = self.normalize_for_comparison(marker['content'])
+                
+                updated_markers.append({
+                    'content': normalized_content,
+                    'full_match': marker.get('full_match', ''),
+                    'start': new_start,
+                    'end': new_end,
+                    'original_start': marker['start'],  # 元の位置も保持
+                    'original_end': marker['end']
+                })
+        
+        return normalized, updated_markers, pos_map
     
     def find_differences(
         self,
@@ -63,9 +102,14 @@ class SequenceMatcherTextProcessorGateway(ITextProcessorGateway):
         """
         元のテキストと編集後のテキストの差分を検出
         
-        SequenceMatcherを使用して、ブロック単位の自然なマッチングを行う。
+        修正版アプローチ：
+        1. 文脈マーカーの位置を記録
+        2. 正規化（スペース削除）しながら位置を追跡
+        3. 文脈マーカーを削除（{}だけを削除、中身は残す）
+        4. 差分検出
+        5. 差分検出結果を文脈マーカー位置で分割
         """
-        logger.info("SequenceMatcherベースの差分検出を開始します")
+        logger.info("SequenceMatcherベースの差分検出を開始します（修正版）")
         import time
         
         try:
@@ -74,32 +118,58 @@ class SequenceMatcherTextProcessorGateway(ITextProcessorGateway):
                 logger.info(f"CharacterArrayBuilderのテキストを使用: {len(self._char_array_text)}文字")
                 original_text = self._char_array_text
             
-            # 元のテキストは一切変更しない
-            # 編集テキストのみ正規化（境界調整マーカーは除去）
+            # 編集テキストの前処理
+            # 1. 境界調整マーカーを除去
             cleaned_edited = self.remove_boundary_markers(edited_text)
             
-            # 文脈マーカーを抽出（位置情報の保持のため）
-            context_markers = self.extract_context_markers(cleaned_edited)
+            # 2. 文脈マーカーを抽出（元の位置で）
+            context_markers_original = self.extract_context_markers(cleaned_edited)
+            logger.info(f"[find_differences] 文脈マーカー検出: {len(context_markers_original)}個")
             
-            # 文脈マーカーを処理して比較用テキストを作成
-            # 文脈マーカー内のテキストはそのまま残すが、{}は削除
-            comparison_text = cleaned_edited
-            for marker in sorted(context_markers, key=lambda m: m['start'], reverse=True):
-                # {}を削除して中身だけ残す（位置の調整のため逆順で処理）
+            # 3. 正規化しながら位置を追跡
+            normalized_edited, context_markers_normalized, pos_map = self.normalize_with_position_tracking(
+                cleaned_edited, context_markers_original
+            )
+            logger.info(f"正規化後: {len(normalized_edited)}文字")
+            
+            # 4. 文脈マーカーを削除（{}だけを削除、中身は残す）
+            comparison_text = normalized_edited
+            
+            # {}の位置を記録（削除前）
+            bracket_positions = []
+            for marker in context_markers_normalized:
+                # { の位置
+                bracket_positions.append(marker['start'])
+                # } の位置（内容の長さを考慮）
+                bracket_positions.append(marker['start'] + len(marker['content']) + 1)
+            
+            # {}を削除（逆順で処理）
+            for marker in sorted(context_markers_normalized, key=lambda m: m['start'], reverse=True):
+                # {} を削除（中身は残す）
                 comparison_text = (
                     comparison_text[:marker['start']] + 
-                    marker['content'] + 
+                    marker['content'] +
                     comparison_text[marker['end']:]
                 )
             
-            # 正規化
-            normalized_edited = self.normalize_for_comparison(comparison_text)
+            logger.info(f"文脈マーカー削除後: {len(comparison_text)}文字")
             
-            logger.info(f"原文: {len(original_text)}文字, 編集: {len(normalized_edited)}文字")
+            # 文脈マーカーの新しい位置を計算（{}削除後）
+            adjusted_markers = []
+            offset = 0
+            for marker in sorted(context_markers_normalized, key=lambda m: m['start']):
+                new_start = marker['start'] - offset
+                new_end = new_start + len(marker['content'])
+                adjusted_markers.append({
+                    'content': marker['content'],
+                    'start': new_start,
+                    'end': new_end
+                })
+                offset += 2  # {}の分
             
-            # SequenceMatcherで直接比較
+            # 5. SequenceMatcherで差分検出
             start_time = time.time()
-            matcher = SequenceMatcher(None, original_text, normalized_edited)
+            matcher = SequenceMatcher(None, original_text, comparison_text)
             logger.debug(f"SequenceMatcher作成: {time.time() - start_time:.3f}秒")
             
             # 差分を収集
@@ -109,57 +179,27 @@ class SequenceMatcherTextProcessorGateway(ITextProcessorGateway):
             opcodes = list(matcher.get_opcodes())
             logger.debug(f"get_opcodes: {time.time() - start_time:.3f}秒")
             
-            # 文脈マーカーの位置を元テキストの位置にマッピング
-            context_marker_positions = []
-            if context_markers:
-                # 正規化前のテキストでの位置から、マッチング結果での位置を計算
-                current_offset = 0
-                for marker in context_markers:
-                    # マーカー開始位置までのテキストの長さ（正規化後）
-                    text_before = self.normalize_for_comparison(cleaned_edited[:marker['start']])
-                    marker_start_in_normalized = len(text_before)
-                    
-                    # マーカー内容の長さ（正規化後）
-                    marker_content_normalized = self.normalize_for_comparison(marker['content'])
-                    marker_length_in_normalized = len(marker_content_normalized)
-                    
-                    context_marker_positions.append({
-                        'start': marker_start_in_normalized,
-                        'end': marker_start_in_normalized + marker_length_in_normalized,
-                        'content': marker['content'],
-                        'original_marker': marker
-                    })
-            
-            start_time = time.time()
             for tag, i1, i2, j1, j2 in opcodes:
                 if tag == 'equal':
-                    # 共通部分：元のテキストの位置をそのまま使用
+                    # 共通部分：文脈マーカーで分割
                     actual_text = original_text[i1:i2]
                     
-                    # この範囲が文脈マーカーに対応するかチェック
-                    is_context_marker = False
-                    marker_info = None
-                    for marker_pos in context_marker_positions:
-                        if marker_pos['start'] == j1 and marker_pos['end'] == j2:
-                            is_context_marker = True
-                            marker_info = marker_pos
-                            break
+                    # この範囲を文脈マーカー位置で分割
+                    # j1-j2は{}削除後のテキストでの位置
+                    ranges_to_keep = self._split_range_excluding_markers(
+                        i1, i2, j1, j2, adjusted_markers
+                    )
                     
-                    if is_context_marker and marker_info:
-                        # 文脈マーカーとして特別な属性を付与
-                        differences.append((
-                            DifferenceType.UNCHANGED,
-                            actual_text,
-                            [(i1, i2)],
-                            {'is_context_marker': True, 'marker_info': marker_info}
-                        ))
-                        logger.debug(f"文脈マーカー部分を検出: '{actual_text}' (位置: {i1}-{i2})")
-                    else:
-                        differences.append((
-                            DifferenceType.UNCHANGED,
-                            actual_text,
-                            [(i1, i2)]
-                        ))
+                    # 分割された範囲を差分として追加
+                    for orig_start, orig_end in ranges_to_keep:
+                        if orig_start < orig_end:  # 有効な範囲のみ
+                            actual_text = original_text[orig_start:orig_end]
+                            differences.append((
+                                DifferenceType.UNCHANGED,
+                                actual_text,
+                                [(orig_start, orig_end)]
+                            ))
+                            logger.debug(f"UNCHANGED範囲追加: {orig_start}-{orig_end} '{actual_text}'")
                     
                 elif tag == 'delete':
                     # 削除された部分
@@ -169,15 +209,17 @@ class SequenceMatcherTextProcessorGateway(ITextProcessorGateway):
                         actual_text,
                         [(i1, i2)]
                     ))
+                    logger.debug(f"DELETED範囲追加: {i1}-{i2} '{actual_text}'")
                     
                 elif tag == 'insert':
                     # 追加された部分
-                    added_text = normalized_edited[j1:j2]
+                    added_text = comparison_text[j1:j2]
                     differences.append((
                         DifferenceType.ADDED,
                         added_text,
                         None
                     ))
+                    logger.debug(f"ADDED範囲追加: '{added_text}'")
                     
                 elif tag == 'replace':
                     # 置換された部分（削除と追加に分解）
@@ -188,84 +230,18 @@ class SequenceMatcherTextProcessorGateway(ITextProcessorGateway):
                         actual_text,
                         [(i1, i2)]
                     ))
+                    logger.debug(f"DELETED（置換）範囲追加: {i1}-{i2} '{actual_text}'")
                     
                     # 追加部分
-                    added_text = normalized_edited[j1:j2]
+                    added_text = comparison_text[j1:j2]
                     differences.append((
                         DifferenceType.ADDED,
                         added_text,
                         None
                     ))
+                    logger.debug(f"ADDED（置換）範囲追加: '{added_text}'")
             
             logger.debug(f"opcodes処理: {time.time() - start_time:.3f}秒")
-            
-            # 文脈マーカーの処理：UNCHANGEDブロックを分割
-            if context_markers:
-                new_differences = []
-                for diff_item in differences:
-                    if len(diff_item) == 3:
-                        diff_type, text, positions = diff_item
-                        extra_attrs = None
-                    else:
-                        diff_type, text, positions, extra_attrs = diff_item
-                    
-                    if diff_type == DifferenceType.UNCHANGED and positions:
-                        # このブロック内に文脈マーカーがあるかチェック
-                        start_pos, end_pos = positions[0]
-                        block_has_marker = False
-                        
-                        # 編集テキストでの位置を計算
-                        for marker_pos in context_marker_positions:
-                            # 元テキストの該当部分を特定
-                            marker_original_start = None
-                            marker_original_end = None
-                            
-                            # opcodeから対応を見つける
-                            for op_tag, i1, i2, j1, j2 in opcodes:
-                                if op_tag == 'equal' and j1 <= marker_pos['start'] < j2:
-                                    # マーカー開始位置に対応する元テキスト位置
-                                    offset_in_block = marker_pos['start'] - j1
-                                    marker_original_start = i1 + offset_in_block
-                                    marker_original_end = marker_original_start + marker_pos['end'] - marker_pos['start']
-                                    
-                                    # このブロックに含まれるかチェック
-                                    if start_pos <= marker_original_start < end_pos:
-                                        block_has_marker = True
-                                        
-                                        # ブロックを分割
-                                        # 1. マーカー前の部分
-                                        if marker_original_start > start_pos:
-                                            new_differences.append((
-                                                DifferenceType.UNCHANGED,
-                                                original_text[start_pos:marker_original_start],
-                                                [(start_pos, marker_original_start)]
-                                            ))
-                                        
-                                        # 2. マーカー部分（特別なフラグ付き）
-                                        new_differences.append((
-                                            DifferenceType.UNCHANGED,
-                                            original_text[marker_original_start:marker_original_end],
-                                            [(marker_original_start, marker_original_end)],
-                                            {'is_context_marker': True, 'marker_info': marker_pos}
-                                        ))
-                                        
-                                        # 3. マーカー後の部分
-                                        if marker_original_end < end_pos:
-                                            new_differences.append((
-                                                DifferenceType.UNCHANGED,
-                                                original_text[marker_original_end:end_pos],
-                                                [(marker_original_end, end_pos)]
-                                            ))
-                                        break
-                        
-                        if not block_has_marker:
-                            # マーカーがない場合はそのまま追加
-                            new_differences.append(diff_item)
-                    else:
-                        # UNCHANGED以外はそのまま追加
-                        new_differences.append(diff_item)
-                
-                differences = new_differences
             
             # ログ出力
             unchanged_count = sum(1 for d in differences if d[0] == DifferenceType.UNCHANGED)
@@ -281,133 +257,119 @@ class SequenceMatcherTextProcessorGateway(ITextProcessorGateway):
                 differences=differences
             )
             
-            # 後で境界調整で使用するために差分結果を保存
-            self._last_diff_result = result
-            
-            # 文脈マーカー情報も保存（後で使用するため）
-            self._context_markers = context_markers
-            
             return result
             
         except Exception as e:
-            logger.error(f"差分検出エラー: {str(e)}", exc_info=True)
-            # エラー時は空の差分を返す
-            return TextDifference(
-                id=str(uuid4()),
-                original_text=original_text,
-                edited_text=edited_text,
-                differences=[]
-            )
+            logger.error(f"差分検出中にエラーが発生しました: {str(e)}", exc_info=True)
+            raise
     
-    def _find_differences_for_excerpt(
-        self, original: str, excerpt: str, skip_normalization: bool = False
+    def _split_range_excluding_markers(self, 
+                                     orig_start: int, 
+                                     orig_end: int,
+                                     edit_start: int,
+                                     edit_end: int,
+                                     markers: List[Dict]) -> List[Tuple[int, int]]:
+        """
+        範囲を文脈マーカー位置で分割し、マーカー部分を除外
+        
+        Args:
+            orig_start: 元テキストの開始位置
+            orig_end: 元テキストの終了位置
+            edit_start: 編集テキストの開始位置（{}削除後）
+            edit_end: 編集テキストの終了位置（{}削除後）
+            markers: 文脈マーカーのリスト（{}削除後の位置）
+            
+        Returns:
+            マーカー部分を除外した範囲のリスト [(start, end), ...]
+        """
+        # 初期範囲
+        ranges = [(orig_start, orig_end, edit_start, edit_end)]
+        
+        # 各マーカーで分割
+        for marker in markers:
+            new_ranges = []
+            
+            for o_start, o_end, e_start, e_end in ranges:
+                # マーカーがこの範囲と重なるかチェック
+                if marker['start'] >= e_end or marker['end'] <= e_start:
+                    # 重ならない
+                    new_ranges.append((o_start, o_end, e_start, e_end))
+                elif marker['start'] <= e_start and marker['end'] >= e_end:
+                    # 完全に含まれる（この範囲は除外）
+                    logger.debug(f"範囲 ({o_start}, {o_end}) は文脈マーカーに完全に含まれるため除外")
+                elif marker['start'] > e_start and marker['end'] < e_end:
+                    # 中間で分割
+                    # 前半（マーカーの前）
+                    len_before = marker['start'] - e_start
+                    if len_before > 0:
+                        new_ranges.append((o_start, o_start + len_before, e_start, marker['start']))
+                    
+                    # 後半（マーカーの後）
+                    len_after = e_end - marker['end']
+                    if len_after > 0:
+                        # 元テキストでの位置を計算
+                        # マーカーの長さ分スキップ
+                        o_start_after = o_start + (marker['end'] - e_start)
+                        new_ranges.append((o_start_after, o_end, marker['end'], e_end))
+                elif marker['start'] > e_start:
+                    # 後半が重なる
+                    len_before = marker['start'] - e_start
+                    if len_before > 0:
+                        new_ranges.append((o_start, o_start + len_before, e_start, marker['start']))
+                else:
+                    # 前半が重なる
+                    len_after = e_end - marker['end']
+                    if len_after > 0:
+                        o_start_after = o_start + (marker['end'] - e_start)
+                        new_ranges.append((o_start_after, o_end, marker['end'], e_end))
+            
+            ranges = new_ranges
+        
+        # 元テキストの範囲のみを返す
+        return [(o_start, o_end) for o_start, o_end, _, _ in ranges]
+    
+    def extract_context_markers(self, text: str) -> List[dict]:
+        """文脈マーカー {} を抽出して位置情報を返す"""
+        pattern = r'\{([^}]+)\}'
+        markers = []
+        
+        for match in re.finditer(pattern, text):
+            markers.append({
+                'content': match.group(1),
+                'full_match': match.group(0),
+                'start': match.start(),
+                'end': match.end()
+            })
+        
+        logger.debug(f"文脈マーカーを{len(markers)}個検出しました")
+        return markers
+    
+    def remove_boundary_markers(self, text: str) -> str:
+        """境界調整マーカーを除去"""
+        # 境界調整マーカーのパターン
+        patterns = [
+            r'\[<\d+(?:\.\d+)?\]',  # 前方調整: [<0.1]
+            r'\[\d+(?:\.\d+)?>\]',  # 後方調整: [0.1>]
+        ]
+        
+        cleaned = text
+        for pattern in patterns:
+            cleaned = re.sub(pattern, '', cleaned)
+        
+        return cleaned
+    
+    def remove_spaces(self, text: str) -> str:
+        """テキストから空白を除去"""
+        return re.sub(r'\s+', '', text)
+    
+    def find_differences_with_separator(
+        self,
+        original_text: str,
+        edited_text: str,
+        separator: str = None
     ) -> TextDifference:
-        """
-        抜粋テキストの差分を検出（元のテキストから抜粋部分を探す）
-        """
-        # まず正規化してから検索
-        normalized_original = self.normalize_for_comparison(original) if not skip_normalization else original
-        normalized_excerpt = self.normalize_for_comparison(excerpt) if not skip_normalization else excerpt
-        
-        # 正規化したテキストで位置を探す
-        position = normalized_original.find(normalized_excerpt)
-        
-        if position == -1:
-            # スペースも除去して再検索
-            excerpt_no_space = self.remove_spaces(normalized_excerpt)
-            original_no_space = self.remove_spaces(normalized_original)
-            position_no_space = original_no_space.find(excerpt_no_space)
-            
-            if position_no_space != -1:
-                # スペースなしで見つかった場合、元のテキストでの位置を推定
-                position = self._convert_position_with_spaces(normalized_original, original_no_space, position_no_space)
-                logger.info(f"スペースを除去して抜粋を発見: 位置={position}")
-        
-        if position == -1:
-            # 見つからない場合は空の差分を返す
-            logger.warning(f"抜粋テキストが元のテキストに見つかりません（抜粋: {len(excerpt)}文字）")
-            return TextDifference(
-                id=str(uuid4()),
-                original_text=original,
-                edited_text=excerpt,
-                differences=[(DifferenceType.ADDED, excerpt, None)]
-            )
-        
-        # 正規化したテキストでの位置から、元のテキストでの位置を計算
-        actual_position = self._find_position_in_original(original, normalized_original, position)
-        
-        # マッチしたテキストの長さを計算
-        matched_length = len(normalized_excerpt)
-        
-        # 元のテキストでの実際の長さを調整
-        actual_end = actual_position
-        normalized_count = 0
-        while normalized_count < matched_length and actual_end < len(original):
-            if self.normalize_for_comparison(original[actual_position:actual_end + 1]) == normalized_excerpt[:normalized_count + 1]:
-                normalized_count += 1
-            actual_end += 1
-        
-        found_text = original[actual_position:actual_end]
-        
-        differences = [(
-            DifferenceType.UNCHANGED,
-            found_text,
-            [(actual_position, actual_end)]
-        )]
-        
-        # 編集テキストに追加された文字を検出
-        if len(excerpt) > len(found_text):
-            # 正規化前の編集テキストと比較
-            added_text = ""
-            for char in excerpt:
-                if char not in found_text:
-                    added_text += char
-            
-            if added_text:
-                differences.append((
-                    DifferenceType.ADDED,
-                    added_text,
-                    None
-                ))
-        
-        return TextDifference(
-            id=str(uuid4()),
-            original_text=original,
-            edited_text=excerpt,
-            differences=differences
-        )
-    
-    def _convert_position_with_spaces(self, text_with_spaces: str, text_no_spaces: str, pos_no_spaces: int) -> int:
-        """空白を除去したテキストの位置を、元のテキストの位置に変換"""
-        original_pos = 0
-        no_spaces_pos = 0
-        
-        while no_spaces_pos < pos_no_spaces and original_pos < len(text_with_spaces):
-            if not text_with_spaces[original_pos].isspace():
-                no_spaces_pos += 1
-            original_pos += 1
-        
-        return original_pos
-    
-    def _calculate_length_with_spaces(self, text: str, start_pos: int, length_no_spaces: int) -> int:
-        """空白を除去した長さから、元のテキストでの長さを計算"""
-        length = 0
-        no_spaces_count = 0
-        
-        while no_spaces_count < length_no_spaces and start_pos + length < len(text):
-            if not text[start_pos + length].isspace():
-                no_spaces_count += 1
-            length += 1
-        
-        return length
-    
-    def _find_position_in_original(self, original: str, normalized: str, normalized_pos: int) -> int:
-        """正規化されたテキストの位置から、元のテキストでの位置を推定
-        
-        注：現在は使用されていない（高速化のため直接検索を使用）
-        """
-        # シンプルに同じ位置を返す（元のテキストを正規化していないため）
-        return min(normalized_pos, len(original) - 1)
+        """区切り文字を考慮した差分検出（未実装）"""
+        raise NotImplementedError("区切り文字を考慮した差分検出は未実装です")
     
     def get_time_ranges(
         self, text_difference: TextDifference, transcription_result: TranscriptionResult
@@ -440,11 +402,10 @@ class SequenceMatcherTextProcessorGateway(ITextProcessorGateway):
         
         # 差分から時間範囲を抽出
         time_ranges = []
+        position_ranges = []  # 文字位置の範囲を先に収集
         range_index = 0  # 実際の時間範囲のインデックス
         
-        # 文脈マーカーの位置と対応する元テキストの位置を記録
-        context_marker_mappings = []
-        
+        # まず、全てのUNCHANGED部分の位置範囲を収集
         for i, diff_item in enumerate(text_difference.differences):
             # タプルの長さをチェックして、追加属性があるか確認
             if len(diff_item) >= 4:
@@ -454,455 +415,67 @@ class SequenceMatcherTextProcessorGateway(ITextProcessorGateway):
                 extra_attrs = None
             
             if diff_type == DifferenceType.UNCHANGED and positions:
-                for start_pos, end_pos in positions:
-                    # 文字配列から時間情報を取得
-                    if 0 <= start_pos < len(char_array) and 0 <= end_pos <= len(char_array):
-                        start_char = char_array[start_pos]
-                        
-                        # 終了時間の計算：次の文字の開始時間を使用
-                        if end_pos < len(char_array):
-                            next_char = char_array[end_pos]
-                            end_time = next_char.start
-                        else:
-                            end_char = char_array[end_pos - 1]
-                            end_time = end_char.end
-                        
-                        if start_char.start is not None and end_time is not None:
-                            # 文脈マーカーかチェック
-                            if extra_attrs and extra_attrs.get('is_context_marker'):
-                                # 文脈マーカーはスキップ
-                                logger.info(f"[文脈マーカー] スキップ: '{text[:20]}...' (位置: {start_pos}-{end_pos})")
-                                continue
-                            
-                            # 境界調整マーカーのチェック
-                            start_adjustment = 0
-                            end_adjustment = 0
-                            
-                            # このセクションの直前にマーカーがあるかチェック
-                            section_text = text
-                            for marker_info in boundary_markers:
-                                marker = marker_info['marker']
-                                marker_type = marker_info['type']
-                                amount = marker_info['amount']
-                                marker_pos = marker_info['position']
-                                
-                                # マーカーの直後のテキストを取得
-                                text_after = edited_text[marker_pos + len(marker):marker_pos + len(marker) + 20].strip()
-                                
-                                logger.debug(f"[境界調整デバッグ] 差分{i}(範囲{range_index}): '{section_text[:20]}...', "
-                                           f"マーカー後テキスト: '{text_after}'")
-                                
-                                # このセクションの開始部分と比較
-                                if section_text.startswith(text_after) or text_after.startswith(section_text[:20]):
-                                    if marker_type == 'advance_next':  # [<数値]
-                                        start_adjustment = -amount
-                                        logger.info(f"[境界調整] 範囲 {range_index + 1} の開始を {amount}秒早めます: '{section_text[:20]}...'")
-                                    elif marker_type == 'delay_next':  # [>数値]
-                                        start_adjustment = amount
-                                        logger.info(f"[境界調整] 範囲 {range_index + 1} の開始を {amount}秒遅らせます: '{section_text[:20]}...'")
-                            
-                            # 調整を適用
-                            adjusted_start = max(0, start_char.start + start_adjustment)
-                            adjusted_end = max(adjusted_start, end_time + end_adjustment)
-                            
-                            time_ranges.append(TimeRange(
-                                start=adjusted_start,
-                                end=adjusted_end
-                            ))
-                            range_index += 1  # 実際の範囲を追加したのでインクリメント
+                # 文脈マーカー部分は既に除外されているはず
+                position_ranges.extend(positions)
+        
+        # 位置範囲から時間範囲に変換
+        for start_pos, end_pos in position_ranges:
+            # 文字配列から時間情報を取得
+            if 0 <= start_pos < len(char_array) and 0 <= end_pos <= len(char_array):
+                start_char = char_array[start_pos]
+                
+                # 終了時間の計算：次の文字の開始時間を使用
+                if end_pos < len(char_array):
+                    next_char = char_array[end_pos]
+                    end_time = next_char.start
+                else:
+                    end_char = char_array[end_pos - 1]
+                    end_time = end_char.end
+                
+                if start_char.start is not None and end_time is not None:
+                    # 境界調整マーカーのチェック（TODO: 境界調整の実装を改善する必要がある）
+                    start_adjustment = 0
+                    end_adjustment = 0
+                    
+                    # 調整を適用
+                    adjusted_start = max(0, start_char.start + start_adjustment)
+                    adjusted_end = max(adjusted_start, end_time + end_adjustment)
+                    
+                    time_ranges.append(TimeRange(
+                        start=adjusted_start,
+                        end=adjusted_end
+                    ))
+                    range_index += 1  # 実際の範囲を追加したのでインクリメント
         
         # マージ前の範囲をログ出力
         logger.debug(f"マージ前の時間範囲: {len(time_ranges)}個")
         for idx, tr in enumerate(time_ranges):
             logger.debug(f"  範囲{idx+1}: {tr.start:.3f} - {tr.end:.3f}秒")
         
-        # 文脈マーカー部分は既に除外済み（get_time_rangesで処理）
-        # _exclude_context_marker_rangesは不要になった
-        
         # マージはしない（境界調整を正確に反映するため）
         logger.info(f"時間範囲を計算しました: {len(time_ranges)}個の範囲")
         return time_ranges
     
-    def _merge_time_ranges(
-        self, time_ranges: List[TimeRange], gap_threshold: float = 1.0
-    ) -> List[TimeRange]:
-        """時間範囲をマージ（近い範囲を結合）"""
-        if not time_ranges:
-            return []
-        
-        # 開始時間でソート
-        sorted_ranges = sorted(time_ranges, key=lambda r: r.start)
-        merged = [sorted_ranges[0]]
-        
-        for current in sorted_ranges[1:]:
-            last = merged[-1]
-            
-            # 重複または近い範囲はマージ
-            if current.start <= last.end + gap_threshold:
-                merged[-1] = TimeRange(
-                    start=last.start,
-                    end=max(last.end, current.end)
-                )
-            else:
-                merged.append(current)
-        
-        return merged
-    
-    def apply_boundary_adjustments(self, text: str, time_ranges: list[TimeRange]) -> tuple[str, list[TimeRange]]:
-        """境界調整マーカーを適用"""
-        import re
-        
-        # マーカーを除去したテキスト
-        cleaned_text = self.remove_boundary_markers(text)
-        
-        # マーカーを抽出して解析
-        adjustments = []
-        
-        # マーカーパターン（負の数値にも対応）
-        marker_patterns = [
-            (r'\[(-?\d+(?:\.\d+)?)<\]', 'shrink_prev'),   # [1.0<] 前のクリップを縮める
-            (r'\[(-?\d+(?:\.\d+)?)>\]', 'extend_prev'),   # [1.0>] 前のクリップを延ばす
-            (r'\[<(-?\d+(?:\.\d+)?)\]', 'advance_next'),  # [<1.0] 次のクリップを早める
-            (r'\[>(-?\d+(?:\.\d+)?)\]', 'delay_next'),    # [>1.0] 次のクリップを遅らせる
-        ]
-        
-        # 各マーカーを探してその位置を特定
-        for pattern, adj_type in marker_patterns:
-            for match in re.finditer(pattern, text):
-                amount = float(match.group(1))
-                marker_pos = match.start()
-                
-                # マーカーの前のテキストで位置を特定
-                text_before_marker = text[:marker_pos]
-                # マーカーを除去したテキストでの位置を計算
-                cleaned_text_before = self.remove_boundary_markers(text_before_marker)
-                
-                # どのセグメントの境界かを特定
-                # マーカーの前後のテキストを取得
-                marker_end_pos = marker_pos + len(match.group(0))
-                text_after_marker = text[marker_end_pos:marker_end_pos + 20]  # マーカー直後の20文字
-                
-                # マーカー直後のテキストがどのセグメントに属するか確認
-                target_segment = 0
-                
-                if hasattr(self, '_last_diff_result') and self._last_diff_result:
-                    # 差分結果から各セグメントを確認
-                    for i, (diff_type, segment_text, positions) in enumerate(self._last_diff_result.differences):
-                        if diff_type == DifferenceType.UNCHANGED:
-                            # マーカー後のテキストがこのセグメントの開始部分と一致するか確認
-                            if segment_text.startswith(text_after_marker.strip()):
-                                # [<数値]の場合、このセグメントの開始に影響
-                                if adj_type == 'advance_next' or adj_type == 'delay_next':
-                                    target_segment = i
-                                else:
-                                    # [数値>]や[数値<]の場合、前のセグメントの終了に影響
-                                    target_segment = max(0, i - 1)
-                                break
-                            # 部分一致も確認（スペースや改行の違いを吸収）
-                            elif text_after_marker.strip() and text_after_marker.strip() in segment_text:
-                                if adj_type == 'advance_next' or adj_type == 'delay_next':
-                                    target_segment = i
-                                else:
-                                    target_segment = max(0, i - 1)
-                                break
-                else:
-                    # フォールバック：単純な比率計算
-                    if len(cleaned_text) > 0:
-                        marker_position_ratio = len(cleaned_text_before) / len(cleaned_text)
-                        estimated_segment = int(marker_position_ratio * len(time_ranges))
-                        target_segment = min(estimated_segment, len(time_ranges) - 1)
-                
-                adjustments.append({
-                    'type': adj_type,
-                    'amount': amount,
-                    'segment': target_segment,
-                    'position': marker_pos
-                })
-                
-                logger.debug(f"マーカー {match.group(0)} を検出: "
-                           f"位置={marker_pos}, "
-                           f"マーカー後のテキスト='{text_after_marker.strip()[:10]}...', "
-                           f"対象セグメント={target_segment}, "
-                           f"タイプ={adj_type}")
-        
-        # 時間範囲を調整
-        if adjustments and time_ranges:
-            adjusted_ranges = []
-            for i, tr in enumerate(time_ranges):
-                start = tr.start
-                end = tr.end
-                
-                # このセグメントに対する調整を適用
-                for adj in adjustments:
-                    # [<数値] は次のセグメントの開始に影響を与える
-                    if adj['type'] == 'advance_next' and adj['segment'] + 1 == i:
-                        # 次のクリップ（このクリップ）を早める
-                        start -= adj['amount']
-                        logger.debug(f"セグメント{i}の開始を{adj['amount']}秒早めました")
-                    elif adj['type'] == 'delay_next' and adj['segment'] + 1 == i:
-                        # 次のクリップ（このクリップ）を遅らせる
-                        start += adj['amount']
-                    elif adj['type'] == 'shrink_prev' and i > 0 and adj['segment'] == i:
-                        # 前のクリップの終了を早める（このクリップには影響なし）
-                        pass
-                    elif adj['type'] == 'extend_prev' and i > 0 and adj['segment'] == i:
-                        # 前のクリップの終了を延ばす（このクリップには影響なし）
-                        pass
-                
-                # 前のクリップに対する調整（次のセグメントの境界調整）
-                if i > 0:
-                    for adj in adjustments:
-                        if adj['type'] == 'shrink_prev' and adj['segment'] == i:
-                            # このセグメントの前のクリップを縮める
-                            if i - 1 < len(adjusted_ranges):
-                                prev_range = adjusted_ranges[i - 1]
-                                adjusted_ranges[i - 1] = TimeRange(
-                                    start=prev_range.start,
-                                    end=prev_range.end - adj['amount']
-                                )
-                        elif adj['type'] == 'extend_prev' and adj['segment'] == i:
-                            # このセグメントの前のクリップを延ばす
-                            if i - 1 < len(adjusted_ranges):
-                                prev_range = adjusted_ranges[i - 1]
-                                adjusted_ranges[i - 1] = TimeRange(
-                                    start=prev_range.start,
-                                    end=prev_range.end + adj['amount']
-                                )
-                
-                # 調整後の範囲を追加（時間が正の値であることを確認）
-                adjusted_ranges.append(TimeRange(
-                    start=max(0, start),
-                    end=max(start, end)
-                ))
-            
-            logger.info(f"境界調整を適用: {len(adjustments)}個のマーカー")
-            return cleaned_text, adjusted_ranges
-        
-        return cleaned_text, time_ranges
-    
-    def normalize_text(self, text: str) -> str:
-        """テキストを正規化"""
-        return self.normalize_for_comparison(text)
-    
-    def search_text(
-        self, query: str, transcription_result: TranscriptionResult, case_sensitive: bool = False
-    ) -> list[tuple[str, TimeRange]]:
-        """文字起こし結果からテキストを検索"""
-        # TranscriptionResultからテキストを取得
-        if hasattr(transcription_result, 'text'):
-            full_text = transcription_result.text
-        else:
-            # セグメントから結合
-            full_text = "".join(seg.text for seg in transcription_result.segments)
-        
-        normalized_text = self.normalize_for_comparison(full_text)
-        normalized_query = self.normalize_for_comparison(query)
-        
-        if not case_sensitive:
-            normalized_text = normalized_text.lower()
-            normalized_query = normalized_query.lower()
-        
-        results = []
-        start = 0
-        while True:
-            pos = normalized_text.find(normalized_query, start)
-            if pos == -1:
-                break
-            
-            # 簡易的な時間計算（文字位置から推定）
-            if transcription_result.segments:
-                total_duration = transcription_result.segments[-1].end
-                char_duration = total_duration / len(normalized_text) if normalized_text else 0
-                time_range = TimeRange(
-                    start=pos * char_duration,
-                    end=(pos + len(normalized_query)) * char_duration
-                )
-                results.append((full_text[pos:pos + len(query)], time_range))
-            
-            start = pos + 1
-        
-        return results
-    
-    def split_text_by_separator(self, text: str, separator: str = None) -> List[str]:
-        """区切り文字でテキストを分割"""
-        if separator is None:
-            separator = self.DEFAULT_SEPARATOR
-        
-        # 区切り文字で分割
-        sections = text.split(separator)
-        
-        # 空のセクションを除去し、前後の空白を削除
-        sections = [section.strip() for section in sections if section.strip()]
-        
-        return sections
-    
-    def find_differences_with_separator(
-        self,
-        source_text: str,
-        target_text: str,
-        transcription_result: TranscriptionResult,
-        separator: str = None,
-        skip_normalization: bool = False
-    ) -> Optional[TextDifference]:
-        """区切り文字に対応した差分検索"""
-        if separator is None:
-            separator = self.DEFAULT_SEPARATOR
-        
-        # TranscriptionResultが渡された場合、CharacterArrayBuilderで構築したテキストを使用
-        if transcription_result:
-            # キャッシュをチェック
-            if self._transcription_result != transcription_result:
-                from domain.use_cases.character_array_builder import CharacterArrayBuilder
-                builder = CharacterArrayBuilder()
-                _, self._char_array_text = builder.build_from_transcription(transcription_result)
-                self._transcription_result = transcription_result
-                logger.info(f"CharacterArrayBuilderで再構築: {len(self._char_array_text)}文字")
-            
-            # CharacterArrayBuilderで構築したテキストを使用
-            source_text = self._char_array_text
-        
-        # 区切り文字で分割
-        sections = self.split_text_by_separator(target_text, separator)
-        
-        all_differences = []
-        
-        # 各セクションについて個別に差分検索
-        for section in sections:
-            if not section.strip():
-                continue
-            
-            # セクションの差分を検出
-            section_diff = self.find_differences(source_text, section, skip_normalization)
-            
-            # 結果をマージ
-            if section_diff.differences:
-                all_differences.extend(section_diff.differences)
-        
-        if not all_differences:
-            return None
-        
-        return TextDifference(
-            id=str(uuid4()),
-            original_text=source_text,
-            edited_text=target_text,
-            differences=all_differences
-        )
-    
-    def remove_boundary_markers(self, text: str) -> str:
-        """境界調整マーカーと文脈マーカーを除去"""
-        # マーカーパターン（負の数値にも対応）
-        import re
-        marker_pattern = re.compile(r'\[(-?\d+(?:\.\d+)?)[<>]\]|\[[<>](-?\d+(?:\.\d+)?)\]')
-        
-        # 境界調整マーカーを除去
-        cleaned_text = marker_pattern.sub('', text)
-        
-        # 文脈マーカーも除去（内容は含める）
-        # 注: 検索時には文脈マーカーを含めたいので、ここでは除去しない
-        # cleaned_text = self.remove_context_markers(cleaned_text)
-        
-        # stripのみ実行（空白の正規化はしない）
-        return cleaned_text.strip()
-    
-    def _extract_boundary_markers(self, text: str) -> list[dict]:
-        """テキストから境界調整マーカーを抽出"""
-        import re
+    def _extract_boundary_markers(self, text: str) -> List[dict]:
+        """境界調整マーカーを抽出"""
         markers = []
         
-        # マーカーパターン
-        marker_patterns = [
-            (r'\[(-?\d+(?:\.\d+)?)<\]', 'shrink_prev'),   # [1.0<] 前のクリップを縮める
-            (r'\[(-?\d+(?:\.\d+)?)>\]', 'extend_prev'),   # [1.0>] 前のクリップを延ばす
-            (r'\[<(-?\d+(?:\.\d+)?)\]', 'advance_next'),  # [<1.0] 次のクリップを早める
-            (r'\[>(-?\d+(?:\.\d+)?)\]', 'delay_next'),    # [>1.0] 次のクリップを遅らせる
-        ]
-        
-        for pattern, marker_type in marker_patterns:
-            for match in re.finditer(pattern, text):
-                markers.append({
-                    'marker': match.group(0),
-                    'type': marker_type,
-                    'amount': float(match.group(1)),
-                    'position': match.start()
-                })
-        
-        # 位置順にソート
-        markers.sort(key=lambda m: m['position'])
-        return markers
-    
-    def extract_existing_markers(self, text: str) -> dict:
-        """テキストから既存マーカー情報を抽出"""
-        import re
-        markers = {}
-        lines = text.split('\n')
-        
-        for line in lines:
-            # 例: [<0.5]ハイパー企業ラジオっていう[1.0>]
-            start_match = re.search(r'\[<(-?\d+(?:\.\d+)?)\]', line)
-            end_match = re.search(r'\[(-?\d+(?:\.\d+)?)>\]', line)
-            
-            if start_match and end_match:
-                # マーカーを除去したテキストを取得
-                segment_text = re.sub(r'\[<?-?\d+(?:\.\d+)?>?\]', '', line).strip()
-                if segment_text:
-                    markers[segment_text] = {
-                        'start': float(start_match.group(1)),
-                        'end': float(end_match.group(1))
-                    }
-        
-        return markers
-    
-    def extract_context_markers(self, text: str) -> list[dict]:
-        """テキストから文脈マーカー {} を抽出"""
-        import re
-        markers = []
-        
-        # {} で囲まれた部分を検索
-        pattern = r'\{([^}]+)\}'
-        for match in re.finditer(pattern, text):
+        # 前方調整マーカー
+        for match in re.finditer(r'\[<(\d+(?:\.\d+)?)\]', text):
             markers.append({
-                'content': match.group(1),  # {} 内のテキスト
-                'full_match': match.group(0),  # {} を含む全体
-                'start': match.start(),
-                'end': match.end()
+                'marker': match.group(0),
+                'value': float(match.group(1)),
+                'position': match.start(),
+                'type': 'backward'
             })
         
-        logger.debug(f"文脈マーカーを{len(markers)}個検出")
-        return markers
-    
-    def remove_context_markers(self, text: str) -> str:
-        """文脈マーカー {} とその内容を削除"""
-        import re
-        # {} とその中身を削除
-        cleaned = re.sub(r'\{[^}]+\}', '', text)
-        return cleaned
-    
-    def remove_context_markers_preserve_positions(self, text: str) -> str:
-        """文脈マーカーの内容を空白で置換（位置を保持）"""
-        import re
-        # {} 内のテキストを同じ長さの空白で置換
-        def replace_with_spaces(match):
-            return '{' + ' ' * len(match.group(1)) + '}'
+        # 後方調整マーカー
+        for match in re.finditer(r'\[(\d+(?:\.\d+)?)>\]', text):
+            markers.append({
+                'marker': match.group(0),
+                'value': float(match.group(1)),
+                'position': match.start(),
+                'type': 'forward'
+            })
         
-        return re.sub(r'\{([^}]+)\}', replace_with_spaces, text)
-    
-    def _exclude_context_marker_ranges(
-        self, time_ranges: List[TimeRange], context_markers: list[dict], 
-        char_array: list, edited_text: str
-    ) -> List[TimeRange]:
-        """文脈マーカー部分を時間範囲から除外
-        
-        注: 現在は簡易実装。文脈マーカーを含む場合は範囲全体をスキップ
-        """
-        if not context_markers:
-            return time_ranges
-        
-        # 簡易実装：文脈マーカーが検出された場合は警告を出力
-        logger.warning("文脈マーカーが検出されました。音声プレビューでの除外は未実装です。")
-        
-        # TODO: より正確な実装
-        # 1. 差分検出結果から文脈マーカーの正確な位置を特定
-        # 2. 各時間範囲を文脈マーカーの前後で分割
-        # 3. 文脈マーカー部分の時間を除外
-        
-        return time_ranges
+        return sorted(markers, key=lambda x: x['position'])

@@ -736,6 +736,9 @@ def show_diff_viewer(original_text: str, diff: TextDifference | None = None, hei
                     diff_type, text, positions = diff_item
                     extra_attrs = None
                 if diff_type == DifferenceType.UNCHANGED and positions:
+                    # 文脈マーカーフラグが付いているものは除外
+                    if extra_attrs and extra_attrs.get('is_context_marker'):
+                        continue
                     # positionsは[(start, end), ...]の形式
                     for pos in positions:
                         if isinstance(pos, tuple) and len(pos) >= 2:
