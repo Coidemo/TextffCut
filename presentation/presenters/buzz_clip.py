@@ -30,7 +30,7 @@ class BuzzClipPresenter(BasePresenter[BuzzClipViewModel]):
     def __init__(
         self,
         view_model: BuzzClipViewModel,
-        generate_buzz_clips_use_case: GenerateBuzzClipsUseCase,
+        generate_buzz_clips_use_case: GenerateBuzzClipsUseCase | None = None,
         session_manager: Any = None,
     ):
         """
@@ -38,7 +38,7 @@ class BuzzClipPresenter(BasePresenter[BuzzClipViewModel]):
 
         Args:
             view_model: ViewModel
-            generate_buzz_clips_use_case: バズクリップ生成ユースケース
+            generate_buzz_clips_use_case: バズクリップ生成ユースケース（外部AIサービス版では不要）
             session_manager: セッション管理
         """
         super().__init__(view_model)
@@ -49,11 +49,11 @@ class BuzzClipPresenter(BasePresenter[BuzzClipViewModel]):
         """初期化処理"""
         logger.info("BuzzClipPresenter initialized")
 
-        # セッションから状態を復元
-        if self.session_manager:
-            saved_state = self.session_manager.get("buzz_clip_state")
-            if saved_state:
-                self._restore_state(saved_state)
+        # 外部AIサービスを使用する新しい実装ではセッション復元は不要
+        # if self.session_manager:
+        #     saved_state = self.session_manager.get("buzz_clip_state")
+        #     if saved_state:
+        #         self._restore_state(saved_state)
 
     def set_generation_params(
         self, num_candidates: int, min_duration: int, max_duration: int, categories: list[str]
@@ -72,9 +72,9 @@ class BuzzClipPresenter(BasePresenter[BuzzClipViewModel]):
         self.view_model.max_duration = max_duration
         self.view_model.selected_categories = categories
 
-        # セッションに保存
-        if self.session_manager:
-            self._save_state()
+        # 外部AIサービスを使用する新しい実装ではセッション保存は不要
+        # if self.session_manager:
+        #     self._save_state()
 
     def generate_buzz_clips(
         self,
@@ -202,6 +202,107 @@ class BuzzClipPresenter(BasePresenter[BuzzClipViewModel]):
         # セッションからも削除
         if self.session_manager:
             self.session_manager.set("buzz_clip_state", None)
+    
+    def generate_prompt_for_external_ai(self, transcription_segments: list[dict[str, Any]]) -> str:
+        """外部AIサービス用のプロンプトを生成"""
+        logger.info("Generating prompt for external AI service")
+        
+        from utils.prompt_loader import PromptLoader
+        
+        loader = PromptLoader()
+        prompt = loader.load_buzz_clip_prompt(transcription_segments)
+        
+        return prompt
+    
+    def _format_segments(self, segments: list[dict[str, Any]]) -> str:
+        """セグメントをフォーマット"""
+        formatted_lines = []
+        for seg in segments:
+            time_str = f"[{seg['start']:.1f}s - {seg['end']:.1f}s]"
+            formatted_lines.append(f"{time_str} {seg['text']}")
+        return "\n".join(formatted_lines)
+    
+    def _get_system_prompt(self) -> str:
+        """システムプロンプトを取得"""
+        return """あなたは「保存したくなる」「誰かに教えたくなる」ショート動画を特定する専門家です。
+長い会話から、視聴者が「これは役立つ！」「あるある！」と思う部分を見つけることが得意です。
+
+以下の基準で切り抜き候補を選んでください：
+
+1. 実用性（すぐに実践できる具体的なアドバイスや解決策）
+2. 共感性（「あるある」「それな！」と思える日常の悩みや疑問）  
+3. 明快さ（断定的で分かりやすい主張、「なるほど！」という気づき）
+4. 現代性（AI、リモートワークなど現代的な話題やツール）
+5. 完結性（問題提起→原因分析→解決策の流れが30-40秒で完結）
+
+特に以下のような内容を優先してください：
+- 仕事や人間関係の悩みへの具体的な解決策
+- 日常の「あるある」や素朴な疑問への答え
+- すぐに試せるライフハックや仕事術
+- 「そういう考え方があったのか！」という新しい視点
+
+各候補に0-20のスコアを付けて、スコアの高い順に返してください。"""
+    
+    def _create_user_prompt(self, segments_text: str) -> str:
+        """ユーザープロンプトを作成"""
+        prompt = f"""以下の動画の文字起こし結果から、{self.view_model.min_duration}〜{self.view_model.max_duration}秒の「保存したくなる」切り抜きショート動画の候補を{self.view_model.num_candidates}個選んでください。
+
+【文字起こし結果】
+{segments_text}
+
+【編集ルール】※違反は不採用
+1. 引用厳守：文字起こし結果の文字のみ使用（一切の追加禁止）
+2. フィラー削除：「あの」「その」「えっと」「まあ」などを削る
+3. 大胆カット：本筋に関係ない例示・補足説明・挨拶は削除
+4. 重複削除：同じ内容の繰り返しは1回に圧縮
+5. 数字・単位：原文のまま（95パー→ 95パー）
+6. 語尾：重複語尾は1回に圧縮しつつ原文を保持
+
+【選定基準】  
+- 各候補は{self.view_model.min_duration}〜{self.view_model.max_duration}秒の長さ（約150-250文字目安）
+- 「これは保存したい！」「誰かに教えたい！」と思える内容
+- 断定的で分かりやすい主張
+- 読後に「行動」か「気づき」が残る形で締める
+
+【構成パターン】（どれか1つを選択）
+A. Q→A型：問題提起→解決策→行動提案
+B. 主張型：主張→理由→提案／未来予測
+C. Tips型：結論→具体例の列挙（「〜すると」「〜とか」で並列）
+
+- タイトルは「〇〇する方法」「〇〇の理由」など実用的に
+- スコア（0-20）で評価"""
+        
+        if self.view_model.selected_categories:
+            prompt += f"\n\n優先カテゴリ: {', '.join(self.view_model.selected_categories)}"
+        
+        prompt += """
+
+【出力形式】
+JSON形式で以下の構造で出力してください：
+{
+  "clips": [
+    {
+      "title": "タイトル案",
+      "text": "切り抜き部分のテキスト",
+      "start_time": 開始時間（秒）,
+      "end_time": 終了時間（秒）,
+      "score": バズスコア（0-20）,
+      "category": "カテゴリ（仕事術/人間関係/ライフハック/日常の疑問/新しい視点/その他）",
+      "reasoning": "選定理由",
+      "keywords": ["キーワード1", "キーワード2"]
+    }
+  ]
+}
+
+【セルフ検品フェーズ】（全案に必ず実行）
+① 時間…{self.view_model.min_duration}〜{self.view_model.max_duration}秒内か
+② 引用違反…原文にない語彙・語順変更がないか
+③ フィラー残存…「えー」「あの」等を取り除いたか
+④ 余談残り…挨拶や無関係な例示が残っていないか
+⑤ 構成…A〜Cいずれかに適合しているか
+→ 1つでもNG項目があれば該当案を再生成せよ。"""
+        
+        return prompt
 
     def _save_state(self) -> None:
         """状態をセッションに保存"""
@@ -283,7 +384,12 @@ class BuzzClipPresenter(BasePresenter[BuzzClipViewModel]):
         return cache_dir / filename
 
     def save_to_cache(self, video_path: str | Path, transcription_model: str = None) -> None:
-        """結果をキャッシュに保存"""
+        """結果をキャッシュに保存（外部AIサービス版では使用しない）"""
+        # 外部AIサービスを使用する新しい実装ではキャッシュ保存は不要
+        logger.info("save_to_cache called but skipped in external AI service mode")
+        return
+        
+        """# 以下は旧実装のコード（コメントアウト）
         if not self.view_model.candidates:
             return
 
@@ -311,17 +417,23 @@ class BuzzClipPresenter(BasePresenter[BuzzClipViewModel]):
             json.dump(cache_data, f, ensure_ascii=False, indent=2)
 
         logger.info(f"Saved buzz clip cache to {cache_path}")
+        """
 
     def load_from_cache(
         self, video_path: str | Path, transcription_model: str = None, auto_adjust_params: bool = True
     ) -> bool:
-        """キャッシュから結果を読み込み
+        """キャッシュから結果を読み込み（外部AIサービス版では使用しない）
 
         Args:
             video_path: 動画ファイルパス
             transcription_model: 文字起こしモデル名
             auto_adjust_params: キャッシュのパラメータに自動調整するか
         """
+        # 外部AIサービスを使用する新しい実装ではキャッシュ読み込みは不要
+        logger.info("load_from_cache called but skipped in external AI service mode")
+        return False
+        
+        """# 以下は旧実装のコード（コメントアウト）
         # まず、利用可能なキャッシュを探す
         if auto_adjust_params:
             cache_files = self._find_available_buzz_caches(video_path, transcription_model)
@@ -401,6 +513,7 @@ class BuzzClipPresenter(BasePresenter[BuzzClipViewModel]):
         except Exception as e:
             logger.error(f"Failed to load buzz clip cache: {e}")
             return False
+        """
 
     def _find_available_buzz_caches(self, video_path: str | Path, transcription_model: str = None) -> list[Path]:
         """利用可能なバズクリップキャッシュを探す"""

@@ -117,11 +117,12 @@ class PresentationContainer(containers.DeclarativeContainer):
         error_handler=services.error_handler,
     )
 
-    # 注: buzz_clip_presenterは実行時にgenerate_buzz_clips_use_caseを必要とするため、main.pyで直接作成する
+    # buzz_clip_presenter
+    # 外部AIサービス版では generate_buzz_clips_use_case は不要
     buzz_clip_presenter = providers.Factory(
         BuzzClipPresenter,
         view_model=buzz_clip_view_model,
-        # generate_buzz_clips_use_case は実行時に提供される
+        generate_buzz_clips_use_case=None,  # 外部AIサービス版では不要
         session_manager=session_manager,
     )
 
