@@ -31,80 +31,62 @@ class YouTubeDownloadView(BaseView[YouTubeDownloadViewModel]):
     def render(self) -> None:
         """UIをレンダリング"""
         # YouTube URLダウンロードセクション
-        with st.container(border=True):
-            st.markdown("#### 🎥 YouTubeからダウンロード")
-            st.caption("作者の許可を得た動画のみダウンロードしてください")
+        st.caption("作者の認可を得た動画のみダウンロードしてください")
 
-            # URL入力
-            col1, col2 = st.columns([3, 1])
+        # URL入力
+        col1, col2 = st.columns([3, 1])
 
-            with col1:
-                url = st.text_input(
-                    "YouTube URL",
-                    value=self.view_model.url,
-                    placeholder="https://youtube.com/watch?v=...",
-                    label_visibility="collapsed",
-                    disabled=self.view_model.is_downloading or self.view_model.download_complete,
-                    help="作者の許可を得た動画のURLを入力してください",
-                )
+        with col1:
+            url = st.text_input(
+                "YouTube URL",
+                value=self.view_model.url,
+                placeholder="https://youtube.com/watch?v=...",
+                label_visibility="collapsed",
+                disabled=self.view_model.is_downloading or self.view_model.download_complete,
+                help="作者の許可を得た動画のURLを入力してください",
+            )
 
-                if url != self.view_model.url:
-                    self.view_model.url = url
-                    if url:
-                        # URL入力時に自動的に動画情報を取得
-                        self.presenter.get_video_info(url)
+            if url != self.view_model.url:
+                self.view_model.url = url
 
-            with col2:
-                # 情報取得ボタン
-                if st.button(
-                    "🔍 情報取得",
-                    use_container_width=True,
-                    disabled=not url or self.view_model.is_downloading or self.view_model.download_complete,
-                ):
-                    self.presenter.get_video_info(url)
+        with col2:
+            # 情報取得ボタン
+            if st.button(
+                "🔍 情報取得",
+                use_container_width=True,
+                disabled=not self.view_model.url or self.view_model.is_downloading or self.view_model.download_complete,
+            ):
+                self.presenter.get_video_info(url)
 
-            # エラー表示
-            if self.view_model.has_error:
-                st.error(self.view_model.error_message)
+        # エラー表示
+        if self.view_model.has_error:
+            st.error(self.view_model.error_message)
 
-            # ローディング表示
-            if self.view_model.is_loading:
-                st.info(self.view_model.loading_message)
+        # ローディング表示
+        if self.view_model.is_loading:
+            st.info(self.view_model.loading_message)
 
-            # 動画情報表示
-            if self.view_model.has_video_info and not self.view_model.is_downloading:
-                self._render_video_info()
+        # 動画情報表示
+        if self.view_model.has_video_info and not self.view_model.is_downloading:
+            self._render_video_info()
 
-            # ダウンロード進捗表示
-            if self.view_model.is_downloading:
-                self._render_download_progress()
+        # ダウンロード進捗表示
+        if self.view_model.is_downloading:
+            self._render_download_progress()
 
-            # ダウンロード完了表示
-            if self.view_model.download_complete:
-                self._render_download_complete()
+        # ダウンロード完了表示
+        if self.view_model.download_complete:
+            self._render_download_complete()
 
     def _render_video_info(self) -> None:
         """動画情報を表示"""
-        with st.expander("📊 動画情報", expanded=True):
-            col1, col2 = st.columns(2)
+        # コンパクトな1行表示
+        info_text = f"🎬 **{self.view_model.video_title}** | {self.view_model.video_uploader} | {self.view_model.duration_text} | {self.view_model.estimated_size_mb:.1f} MB"
+        st.markdown(info_text)
 
-            with col1:
-                st.markdown("**タイトル:**")
-                st.text(self.view_model.video_title)
-
-                st.markdown("**アップロード者:**")
-                st.text(self.view_model.video_uploader)
-
-            with col2:
-                st.markdown("**動画時間:**")
-                st.text(self.view_model.duration_text)
-
-                st.markdown("**推定サイズ:**")
-                st.text(f"{self.view_model.estimated_size_mb:.1f} MB")
-
-        # ダウンロードボタン
-        col1, col2 = st.columns(2)
-
+        # ダウンロードボタンとリセットボタン
+        col1, col2 = st.columns([3, 1])
+        
         with col1:
             if st.button(
                 "📥 ダウンロード開始",
@@ -112,14 +94,13 @@ class YouTubeDownloadView(BaseView[YouTubeDownloadViewModel]):
                 use_container_width=True,
                 disabled=not self.view_model.can_download,
             ):
-                with st.spinner(f"ダウンロード中... 動画サイズ: 約{self.view_model.estimated_size_mb:.1f}MB"):
+                with st.spinner(f"ダウンロード中... (推定サイズ: {self.view_model.estimated_size_mb:.1f} MB)"):
                     self.presenter.start_download(self.view_model.url)
-
+        
         with col2:
             if st.button(
-                "❌ キャンセル",
+                "🔄 リセット",
                 use_container_width=True,
-                disabled=self.view_model.download_complete,
             ):
                 self.presenter.reset()
                 st.rerun()
@@ -153,21 +134,7 @@ class YouTubeDownloadView(BaseView[YouTubeDownloadViewModel]):
 
     def _render_download_complete(self) -> None:
         """ダウンロード完了を表示"""
-        st.success("✅ ダウンロード完了！")
+        st.success("✅ ダウンロード完了！ローカルファイルタブに移動して、ダウンロードしたファイルを選択してください。")
 
         if self.view_model.downloaded_file_path:
             st.info(f"保存先: {self.view_model.downloaded_file_path}")
-
-        col1, col2 = st.columns(2)
-
-        with col1:
-            if st.button("📂 動画ファイル選択へ", type="primary", use_container_width=True):
-                # セッション状態を更新して動画選択画面へ
-                st.session_state.downloaded_video = self.view_model.downloaded_file_path
-                st.session_state.show_youtube_download = False
-                st.rerun()
-
-        with col2:
-            if st.button("🔄 別の動画をダウンロード", use_container_width=True):
-                self.presenter.reset()
-                st.rerun()

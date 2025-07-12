@@ -198,6 +198,7 @@ class YouTubeDownloadGateway(IYouTubeDownloadGateway):
             "quiet": True,
             "no_warnings": True,
             "restrictfilenames": False,  # 日本語ファイル名を許可
+            "overwrites": False,  # 既存ファイルを上書きしない
         }
 
         try:

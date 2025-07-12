@@ -5,6 +5,9 @@ YouTube動画のダウンロード処理を管理します。
 """
 
 import logging
+from pathlib import Path
+
+import streamlit as st
 
 from domain.interfaces.error_handler import IErrorHandler
 from infrastructure.ui.session_manager import SessionManager
@@ -129,8 +132,14 @@ class YouTubeDownloadPresenter(BasePresenter[YouTubeDownloadViewModel]):
             self.view_model.set_downloading(True)
             self.view_model.set_loading("ダウンロードを開始しています...")
 
+            # 進捗が更新されたかどうかを追跡
+            progress_updated = False
+            
             # 進捗コールバック
             def progress_callback(progress):
+                nonlocal progress_updated
+                progress_updated = True
+                
                 self.view_model.update_progress(
                     percent=progress.percent,
                     downloaded_mb=progress.downloaded_bytes / (1024 * 1024),
@@ -148,6 +157,11 @@ class YouTubeDownloadPresenter(BasePresenter[YouTubeDownloadViewModel]):
 
             # ダウンロード完了
             self.view_model.set_download_complete(str(result.file_path))
+            
+            # 進捗が一度も更新されなかった場合は、既存ファイルのスキップと判断
+            if not progress_updated:
+                logger.info(f"既存ファイルをスキップ: {result.file_path}")
+                st.info(f"✅ この動画は既にダウンロード済みです: {Path(result.file_path).name}")
 
             # セッションに保存
             self.session_manager.set("downloaded_video_path", str(result.file_path))

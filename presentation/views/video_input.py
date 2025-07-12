@@ -64,10 +64,11 @@ class VideoInputView:
             st.info("🔍 動画ファイルを検索中...")
             st.spinner()
 
-        # ローカルファイル選択セクション
-        with st.container(border=True):
-            st.markdown("#### 📁 ローカルファイルから選択")
-
+        # ソースタイプの選択（タブ形式）
+        source_tab1, source_tab2 = st.tabs(["📁 ローカルファイル", "🎥 YouTubeからダウンロード"])
+        
+        with source_tab1:
+            # ローカルファイル選択セクション
             # ファイル選択と更新ボタン（mainブランチのレイアウト）
             if self.view_model.video_files:
                 col1, col2 = st.columns([4, 1])
@@ -101,28 +102,28 @@ class VideoInputView:
             else:
                 st.info("📁 動画ファイルが見つかりません。videosフォルダに動画ファイルを配置してください。")
 
-            # 動画フォルダのパス表示
-            st.caption(f"📁 動画フォルダのパス: {self.view_model.video_directory}")
-            st.caption("対応形式: MP4, MOV, AVI, MKV, WebM")
-
-        # YouTubeダウンロードセクション
-        if "show_youtube_download" not in st.session_state:
-            st.session_state.show_youtube_download = False
-
-        if not st.session_state.show_youtube_download:
-            # YouTubeダウンロードボタン
-            st.markdown("---")
-            st.markdown("**または**")
-
-            if st.button("🎥 YouTubeからダウンロード", use_container_width=True):
-                st.session_state.show_youtube_download = True
-                st.rerun()
-        else:
-            # YouTubeダウンロードView を表示
-
-            youtube_view = st.session_state.get("youtube_download_view")
-            if youtube_view:
-                youtube_view.render()
+                # 動画フォルダのパス表示
+                st.caption(f"📁 動画フォルダのパス: {self.view_model.video_directory}")
+                st.caption("対応形式: MP4, MOV, AVI, MKV, WebM")
+        
+        with source_tab2:
+            # YouTubeダウンロードセクション
+            # YouTubeダウンロードビューを初期化
+            if "youtube_download_view" not in st.session_state:
+                # DIコンテナをセッションから取得
+                from di.containers import ApplicationContainer
+                container = ApplicationContainer()
+                container.wire(modules=[__name__])
+                
+                # プレゼンターを作成
+                youtube_presenter = container.presentation.youtube_download_presenter()
+                youtube_presenter.initialize()
+                from presentation.views.youtube_download import YouTubeDownloadView
+                
+                st.session_state.youtube_download_view = YouTubeDownloadView(youtube_presenter)
+            
+            # ビューをレンダリング
+            st.session_state.youtube_download_view.render()
 
         # 動画情報表示（mainブランチのようにシンプルに）
         if self.view_model.is_loading:
