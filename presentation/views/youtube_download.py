@@ -31,7 +31,7 @@ class YouTubeDownloadView(BaseView[YouTubeDownloadViewModel]):
     def render(self) -> None:
         """UIをレンダリング"""
         # YouTube URLダウンロードセクション
-        st.caption("作者の認可を得た動画のみダウンロードしてください")
+        st.caption("作者の許可を得た動画のみダウンロードしてください")
 
         # URL入力
         col1, col2 = st.columns([3, 1])
