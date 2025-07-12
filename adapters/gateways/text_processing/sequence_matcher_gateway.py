@@ -119,20 +119,17 @@ class SequenceMatcherTextProcessorGateway(ITextProcessorGateway):
                 original_text = self._char_array_text
             
             # 編集テキストの前処理
-            # 1. 境界調整マーカーを除去
-            cleaned_edited = self.remove_boundary_markers(edited_text)
-            
-            # 2. 文脈マーカーを抽出（元の位置で）
-            context_markers_original = self.extract_context_markers(cleaned_edited)
+            # 文脈マーカーを抽出（元の位置で）
+            context_markers_original = self.extract_context_markers(edited_text)
             logger.info(f"[find_differences] 文脈マーカー検出: {len(context_markers_original)}個")
             
-            # 3. 正規化しながら位置を追跡
+            # 2. 正規化しながら位置を追跡
             normalized_edited, context_markers_normalized, pos_map = self.normalize_with_position_tracking(
-                cleaned_edited, context_markers_original
+                edited_text, context_markers_original
             )
             logger.info(f"正規化後: {len(normalized_edited)}文字")
             
-            # 4. 文脈マーカーを削除（{}だけを削除、中身は残す）
+            # 3. 文脈マーカーを削除（{}だけを削除、中身は残す）
             comparison_text = normalized_edited
             
             # {}の位置を記録（削除前）
@@ -344,19 +341,6 @@ class SequenceMatcherTextProcessorGateway(ITextProcessorGateway):
         logger.debug(f"文脈マーカーを{len(markers)}個検出しました")
         return markers
     
-    def remove_boundary_markers(self, text: str) -> str:
-        """境界調整マーカーを除去"""
-        # 境界調整マーカーのパターン
-        patterns = [
-            r'\[<\d+(?:\.\d+)?\]',  # 前方調整: [<0.1]
-            r'\[\d+(?:\.\d+)?>\]',  # 後方調整: [0.1>]
-        ]
-        
-        cleaned = text
-        for pattern in patterns:
-            cleaned = re.sub(pattern, '', cleaned)
-        
-        return cleaned
     
     def remove_spaces(self, text: str) -> str:
         """テキストから空白を除去"""
@@ -374,7 +358,7 @@ class SequenceMatcherTextProcessorGateway(ITextProcessorGateway):
     def get_time_ranges(
         self, text_difference: TextDifference, transcription_result: TranscriptionResult
     ) -> List[TimeRange]:
-        """差分情報から時間範囲を計算（境界調整マーカーと文脈マーカーも処理）"""
+        """差分情報から時間範囲を計算"""
         logger.info("時間範囲の計算を開始します")
         
         # CharacterArrayBuilderで再構築したテキストを使用
@@ -383,22 +367,6 @@ class SequenceMatcherTextProcessorGateway(ITextProcessorGateway):
         char_array, full_text = builder.build_from_transcription(transcription_result)
         
         logger.info(f"CharacterArrayBuilderで再構築: {len(full_text)}文字")
-        
-        # 編集テキストからマーカーを抽出
-        edited_text = text_difference.edited_text
-        logger.info(f"[get_time_ranges] edited_text: {edited_text[:50]}...")
-        boundary_markers = self._extract_boundary_markers(edited_text)
-        context_markers = self.extract_context_markers(edited_text)
-        
-        if boundary_markers:
-            logger.info(f"[境界調整] {len(boundary_markers)}個のマーカーを検出")
-            for marker in boundary_markers:
-                logger.info(f"  - {marker['marker']} (位置: {marker['position']}, タイプ: {marker['type']})")
-        
-        if context_markers:
-            logger.info(f"[文脈マーカー] {len(context_markers)}個のマーカーを検出")
-            for marker in context_markers:
-                logger.info(f"  - {marker['full_match']} (位置: {marker['start']}-{marker['end']})")
         
         # 差分から時間範囲を抽出
         time_ranges = []
@@ -433,17 +401,9 @@ class SequenceMatcherTextProcessorGateway(ITextProcessorGateway):
                     end_time = end_char.end
                 
                 if start_char.start is not None and end_time is not None:
-                    # 境界調整マーカーのチェック（TODO: 境界調整の実装を改善する必要がある）
-                    start_adjustment = 0
-                    end_adjustment = 0
-                    
-                    # 調整を適用
-                    adjusted_start = max(0, start_char.start + start_adjustment)
-                    adjusted_end = max(adjusted_start, end_time + end_adjustment)
-                    
                     time_ranges.append(TimeRange(
-                        start=adjusted_start,
-                        end=adjusted_end
+                        start=start_char.start,
+                        end=end_time
                     ))
                     range_index += 1  # 実際の範囲を追加したのでインクリメント
         
@@ -452,30 +412,6 @@ class SequenceMatcherTextProcessorGateway(ITextProcessorGateway):
         for idx, tr in enumerate(time_ranges):
             logger.debug(f"  範囲{idx+1}: {tr.start:.3f} - {tr.end:.3f}秒")
         
-        # マージはしない（境界調整を正確に反映するため）
+        # 時間範囲のマージはしない（文脈マーカーによる分割を保持するため）
         logger.info(f"時間範囲を計算しました: {len(time_ranges)}個の範囲")
         return time_ranges
-    
-    def _extract_boundary_markers(self, text: str) -> List[dict]:
-        """境界調整マーカーを抽出"""
-        markers = []
-        
-        # 前方調整マーカー
-        for match in re.finditer(r'\[<(\d+(?:\.\d+)?)\]', text):
-            markers.append({
-                'marker': match.group(0),
-                'value': float(match.group(1)),
-                'position': match.start(),
-                'type': 'backward'
-            })
-        
-        # 後方調整マーカー
-        for match in re.finditer(r'\[(\d+(?:\.\d+)?)>\]', text):
-            markers.append({
-                'marker': match.group(0),
-                'value': float(match.group(1)),
-                'position': match.start(),
-                'type': 'forward'
-            })
-        
-        return sorted(markers, key=lambda x: x['position'])

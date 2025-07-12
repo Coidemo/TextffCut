@@ -104,8 +104,8 @@ class TranscriptionView:
                 selected_option = st.selectbox(
                     "保存済みの文字起こし結果",
                     cache_options,
-                    index=None,  # デフォルトで何も選択しない
-                    placeholder="キャッシュを選択してください",
+                    index=0 if cache_options else None,  # キャッシュがある場合は最初の要素（最新）を選択
+                    placeholder="キャッシュを選択してください" if not cache_options else None,
                     help="使用する文字起こし結果を選択してください",
                 )
 
@@ -118,7 +118,7 @@ class TranscriptionView:
                     "💾 選択した結果を使用",
                     type="primary",
                     use_container_width=True,
-                    disabled=selected_option is None,  # 選択されていない場合は無効
+                    disabled=not cache_options,  # キャッシュがない場合のみ無効
                 ):
                     if self.presenter.load_selected_cache():
                         use_cache = True

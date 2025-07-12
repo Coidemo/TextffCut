@@ -198,20 +198,8 @@ class TextEditorPresenter(BasePresenter[TextEditorViewModel]):
         if hasattr(self.text_processor_gateway, 'set_transcription_result'):
             self.text_processor_gateway.set_transcription_result(self.view_model.transcription_result)
 
-        # 境界調整マーカーの存在をチェック
-        has_markers = any(marker in edited_text for marker in ["[<", "[>", "<]", ">]"])
-        self.view_model.has_boundary_markers = has_markers
-
-        # 境界調整マーカーを除去
-        if has_markers:
-            cleaned_text = self.text_processor_gateway.remove_boundary_markers(edited_text)
-            self.view_model.cleaned_text = cleaned_text
-        else:
-            cleaned_text = edited_text
-            self.view_model.cleaned_text = cleaned_text
-
         # 区切り文字を検出
-        separator = self._detect_separator(cleaned_text)
+        separator = self._detect_separator(edited_text)
 
         if separator:
             # セクション分割モード（元のテキストを渡す）
@@ -396,17 +384,6 @@ class TextEditorPresenter(BasePresenter[TextEditorViewModel]):
         if self.session_manager and time_ranges:
             self.session_manager.set_time_ranges(time_ranges)
 
-    def remove_boundary_markers(self, text: str) -> str:
-        """
-        境界調整マーカーを削除
-
-        Args:
-            text: マーカーを削除するテキスト
-
-        Returns:
-            マーカーを削除したテキスト
-        """
-        return self.text_processor_gateway.remove_boundary_markers(text)
 
 
 

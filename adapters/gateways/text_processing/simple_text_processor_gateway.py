@@ -207,22 +207,6 @@ class SimpleTextProcessorGateway(ITextProcessorGateway):
         """
         return [section.strip() for section in text.split(separator) if section.strip()]
 
-    def remove_boundary_markers(self, text: str) -> str:
-        """
-        境界調整マーカーを削除
-
-        Args:
-            text: マーカーを削除するテキスト
-
-        Returns:
-            マーカーを削除したテキスト
-        """
-        # マーカーパターン: [<数値], [数値>]
-        import re
-
-        text = re.sub(r"\[<[\d.]+\]", "", text)
-        text = re.sub(r"\[[\d.]+>\]", "", text)
-        return text
 
     def extract_existing_markers(self, text: str) -> dict[str, dict[str, float]]:
         """
