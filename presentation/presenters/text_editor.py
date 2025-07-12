@@ -198,20 +198,8 @@ class TextEditorPresenter(BasePresenter[TextEditorViewModel]):
         if hasattr(self.text_processor_gateway, 'set_transcription_result'):
             self.text_processor_gateway.set_transcription_result(self.view_model.transcription_result)
 
-        # 境界調整マーカーの存在をチェック
-        has_markers = any(marker in edited_text for marker in ["[<", "[>", "<]", ">]"])
-        self.view_model.has_boundary_markers = has_markers
-
-        # 境界調整マーカーを除去
-        if has_markers:
-            cleaned_text = self.text_processor_gateway.remove_boundary_markers(edited_text)
-            self.view_model.cleaned_text = cleaned_text
-        else:
-            cleaned_text = edited_text
-            self.view_model.cleaned_text = cleaned_text
-
         # 区切り文字を検出
-        separator = self._detect_separator(cleaned_text)
+        separator = self._detect_separator(edited_text)
 
         if separator:
             # セクション分割モード（元のテキストを渡す）
@@ -342,11 +330,14 @@ class TextEditorPresenter(BasePresenter[TextEditorViewModel]):
                 f"[_check_added_chars] differences数: {len(diff_result.differences) if diff_result.differences else 0}"
             )
 
-            for diff_type, text, _ in diff_result.differences:
-                logger.debug(f"[_check_added_chars] 差分タイプ: {diff_type}, テキスト長: {len(text)}")
-                if diff_type == DifferenceType.ADDED:
-                    added_texts.append(text)
-                    logger.info(f"追加されたテキスト検出: '{text}'")
+            for diff_item in diff_result.differences:
+                # タプルの長さをチェック
+                if len(diff_item) >= 3:
+                    diff_type, text = diff_item[0], diff_item[1]
+                    logger.debug(f"[_check_added_chars] 差分タイプ: {diff_type}, テキスト長: {len(text)}")
+                    if diff_type == DifferenceType.ADDED:
+                        added_texts.append(text)
+                        logger.info(f"追加されたテキスト検出: '{text}'")
 
         # ViewModelに状態を設定
         self.view_model.has_added_chars = len(added_texts) > 0
@@ -377,9 +368,9 @@ class TextEditorPresenter(BasePresenter[TextEditorViewModel]):
                 from domain.entities.text_difference import DifferenceType
 
                 unchanged_texts = []
-                for diff_type, text, _ in diff_result.differences:
-                    if diff_type == DifferenceType.UNCHANGED:
-                        unchanged_texts.append(text)
+                for diff_item in diff_result.differences:
+                    if len(diff_item) >= 3 and diff_item[0] == DifferenceType.UNCHANGED:
+                        unchanged_texts.append(diff_item[1])
                 if i < len(unchanged_texts):
                     preview_text = (
                         unchanged_texts[i][:50] + "..." if len(unchanged_texts[i]) > 50 else unchanged_texts[i]
@@ -393,17 +384,6 @@ class TextEditorPresenter(BasePresenter[TextEditorViewModel]):
         if self.session_manager and time_ranges:
             self.session_manager.set_time_ranges(time_ranges)
 
-    def remove_boundary_markers(self, text: str) -> str:
-        """
-        境界調整マーカーを削除
-
-        Args:
-            text: マーカーを削除するテキスト
-
-        Returns:
-            マーカーを削除したテキスト
-        """
-        return self.text_processor_gateway.remove_boundary_markers(text)
 
 
 

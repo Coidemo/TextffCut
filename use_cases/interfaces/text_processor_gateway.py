@@ -48,18 +48,6 @@ class ITextProcessorGateway(Protocol):
         """
         ...
 
-    def apply_boundary_adjustments(self, text: str, time_ranges: list[TimeRange]) -> tuple[str, list[TimeRange]]:
-        """
-        境界調整マーカーを適用
-
-        Args:
-            text: マーカーを含むテキスト
-            time_ranges: 元の時間範囲
-
-        Returns:
-            マーカーを除去したテキストと調整後の時間範囲
-        """
-        ...
 
     def normalize_text(self, text: str) -> str:
         """
