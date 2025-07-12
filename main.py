@@ -21,14 +21,6 @@ def render_video_input_section(container):
     """動画入力セクション"""
     st.subheader("🎥 動画ファイル選択")
 
-    # YouTubeダウンロードビューのインスタンスを保持
-    if st.session_state.get("show_youtube_download", False):
-        if "youtube_download_view" not in st.session_state:
-            youtube_presenter = container.presentation.youtube_download_presenter()
-            youtube_presenter.initialize()
-            from presentation.views.youtube_download import YouTubeDownloadView
-
-            st.session_state.youtube_download_view = YouTubeDownloadView(youtube_presenter)
 
     # VideoInputPresenterを使用
     video_input_presenter = container.presentation.video_input_presenter()
