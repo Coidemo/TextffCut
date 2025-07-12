@@ -31,6 +31,24 @@ class VideoInputView:
 
         # ViewModelの変更を監視
         self.view_model.subscribe(self)
+        
+        # メモリリーク対策: 古いYouTubeビューのクリーンアップ
+        self._cleanup_old_youtube_view()
+    
+    def _cleanup_old_youtube_view(self) -> None:
+        """古いYouTubeビューインスタンスをクリーンアップ"""
+        # セッションの有効期限を確認（1時間以上経過していたら削除）
+        if "youtube_view_created_at" in st.session_state:
+            import time
+            current_time = time.time()
+            created_time = st.session_state.get("youtube_view_created_at", 0)
+            
+            # 1時間以上経過していたらクリーンアップ
+            if current_time - created_time > 3600:
+                if "youtube_download_view" in st.session_state:
+                    del st.session_state.youtube_download_view
+                if "youtube_view_created_at" in st.session_state:
+                    del st.session_state.youtube_view_created_at
 
     def update(self, view_model: VideoInputViewModel) -> None:
         """
@@ -110,20 +128,32 @@ class VideoInputView:
             # YouTubeダウンロードセクション
             # YouTubeダウンロードビューを初期化
             if "youtube_download_view" not in st.session_state:
-                # DIコンテナをセッションから取得
-                from di.containers import ApplicationContainer
-                container = ApplicationContainer()
-                container.wire(modules=[__name__])
-                
-                # プレゼンターを作成
-                youtube_presenter = container.presentation.youtube_download_presenter()
-                youtube_presenter.initialize()
-                from presentation.views.youtube_download import YouTubeDownloadView
-                
-                st.session_state.youtube_download_view = YouTubeDownloadView(youtube_presenter)
+                try:
+                    # DIコンテナを取得
+                    from di.containers import ApplicationContainer
+                    container = ApplicationContainer()
+                    container.wire(modules=[__name__])
+                    
+                    # プレゼンターを作成
+                    youtube_presenter = container.presentation.youtube_download_presenter()
+                    youtube_presenter.initialize()
+                    from presentation.views.youtube_download import YouTubeDownloadView
+                    
+                    st.session_state.youtube_download_view = YouTubeDownloadView(youtube_presenter)
+                    
+                    # 作成時刻を記録（メモリリーク対策）
+                    import time
+                    st.session_state.youtube_view_created_at = time.time()
+                except Exception as e:
+                    st.error(f"YouTube機能の初期化エラー: {e}")
+                    st.info("ページをリロードしてもう一度お試しください。")
+                    return self.presenter.get_selected_video_path()
             
             # ビューをレンダリング
-            st.session_state.youtube_download_view.render()
+            if "youtube_download_view" in st.session_state:
+                st.session_state.youtube_download_view.render()
+            else:
+                st.warning("YouTube機能が利用できません。")
 
         # 動画情報表示（mainブランチのようにシンプルに）
         if self.view_model.is_loading:
