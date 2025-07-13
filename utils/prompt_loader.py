@@ -60,3 +60,28 @@ class PromptLoader:
             time_str = f"[{seg['start']:.1f}s - {seg['end']:.1f}s]"
             formatted_lines.append(f"{time_str} {seg['text']}")
         return "\n".join(formatted_lines)
+    
+    def load_title_generation_prompt(self, edited_text: str) -> str:
+        """
+        タイトル生成用のプロンプトを読み込んで編集テキストを埋め込む
+        
+        Args:
+            edited_text: 編集された切り抜きテキスト
+            
+        Returns:
+            完成したプロンプト
+        """
+        prompt_file = self.prompts_dir / "title_generation.md"
+        
+        if not prompt_file.exists():
+            logger.error(f"Prompt file not found: {prompt_file}")
+            raise FileNotFoundError(f"プロンプトファイルが見つかりません: {prompt_file}")
+        
+        # プロンプトテンプレートを読み込む
+        with open(prompt_file, "r", encoding="utf-8") as f:
+            template = f.read()
+        
+        # プレースホルダーを置き換え
+        prompt = template.replace("{EDITED_TEXT}", edited_text)
+        
+        return prompt

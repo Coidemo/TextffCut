@@ -547,9 +547,20 @@ class TextEditorView:
                 for seg in actual_result.segments:
                     segments.append({"text": seg.text, "start": seg.start, "end": seg.end})
             
-            # バズクリップ生成UIを表示
+            # プロンプト生成UI（横並び表示）
             if segments and self.container:
-                show_buzz_clip_generation(self.container, segments)
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    # バズクリップ生成UI
+                    show_buzz_clip_generation(self.container, segments)
+                
+                with col2:
+                    # タイトル生成プロンプト
+                    self._render_title_generation_prompt()
+                
+                # 両方のプロンプトに対する説明を中央に配置
+                st.caption("上記のプロンプトをChatGPT/Claude/Geminiなどにコピー&ペーストして使用してください")
 
     def _render_text_stats(self) -> None:
         """文字数と時間の統計を表示"""
@@ -691,6 +702,36 @@ class TextEditorView:
         """時間範囲の計算結果を表示"""
         # 時間範囲が計算されたことを示すだけ（特に表示なし）
         pass
+    
+    def _render_title_generation_prompt(self) -> None:
+        """タイトル生成プロンプトを表示"""
+        from utils.prompt_loader import PromptLoader
+        
+        if not self.view_model.edited_text:
+            # 編集テキストがない場合は空のエリアを表示
+            st.text_area(
+                "🎯 タイトル生成プロンプト",
+                value="（切り抜き箇所を入力すると表示されます）",
+                height=68,
+                key="title_generation_prompt",
+                disabled=True
+            )
+            return
+        
+        try:
+            loader = PromptLoader()
+            prompt = loader.load_title_generation_prompt(self.view_model.edited_text)
+            
+            # プロンプトを表示（最小高さ）
+            st.text_area(
+                "🎯 タイトル生成プロンプト",
+                value=prompt,
+                height=68,
+                key="title_generation_prompt",
+                help="Ctrl+A (Windows) / Cmd+A (Mac) で全選択してコピー"
+            )
+        except Exception as e:
+            logger.error(f"タイトル生成プロンプトの読み込みエラー: {e}")
 
 
 def show_text_editor_section(
