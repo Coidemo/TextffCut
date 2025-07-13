@@ -30,7 +30,7 @@ class BuzzClipPresenter(BasePresenter[BuzzClipViewModel]):
     def __init__(
         self,
         view_model: BuzzClipViewModel,
-        generate_buzz_clips_use_case: GenerateBuzzClipsUseCase,
+        generate_buzz_clips_use_case: GenerateBuzzClipsUseCase | None = None,
         session_manager: Any = None,
     ):
         """
@@ -38,7 +38,7 @@ class BuzzClipPresenter(BasePresenter[BuzzClipViewModel]):
 
         Args:
             view_model: ViewModel
-            generate_buzz_clips_use_case: バズクリップ生成ユースケース
+            generate_buzz_clips_use_case: バズクリップ生成ユースケース（外部AIサービス版では不要）
             session_manager: セッション管理
         """
         super().__init__(view_model)
@@ -48,12 +48,6 @@ class BuzzClipPresenter(BasePresenter[BuzzClipViewModel]):
     def initialize(self) -> None:
         """初期化処理"""
         logger.info("BuzzClipPresenter initialized")
-
-        # セッションから状態を復元
-        if self.session_manager:
-            saved_state = self.session_manager.get("buzz_clip_state")
-            if saved_state:
-                self._restore_state(saved_state)
 
     def set_generation_params(
         self, num_candidates: int, min_duration: int, max_duration: int, categories: list[str]
@@ -71,10 +65,6 @@ class BuzzClipPresenter(BasePresenter[BuzzClipViewModel]):
         self.view_model.min_duration = min_duration
         self.view_model.max_duration = max_duration
         self.view_model.selected_categories = categories
-
-        # セッションに保存
-        if self.session_manager:
-            self._save_state()
 
     def generate_buzz_clips(
         self,
@@ -202,64 +192,19 @@ class BuzzClipPresenter(BasePresenter[BuzzClipViewModel]):
         # セッションからも削除
         if self.session_manager:
             self.session_manager.set("buzz_clip_state", None)
+    
+    def generate_prompt_for_external_ai(self, transcription_segments: list[dict[str, Any]]) -> str:
+        """外部AIサービス用のプロンプトを生成"""
+        logger.info("Generating prompt for external AI service")
+        
+        from utils.prompt_loader import PromptLoader
+        
+        loader = PromptLoader()
+        prompt = loader.load_buzz_clip_prompt(transcription_segments)
+        
+        return prompt
+    
 
-    def _save_state(self) -> None:
-        """状態をセッションに保存"""
-        if not self.session_manager:
-            return
-
-        state = {
-            "num_candidates": self.view_model.num_candidates,
-            "min_duration": self.view_model.min_duration,
-            "max_duration": self.view_model.max_duration,
-            "selected_categories": self.view_model.selected_categories,
-            "candidates": [c.to_dict() for c in self.view_model.candidates],
-            "total_processing_time": self.view_model.total_processing_time,
-            "model_used": self.view_model.model_used,
-            "token_usage": self.view_model.token_usage,
-        }
-
-        self.session_manager.set("buzz_clip_state", state)
-
-    def _restore_state(self, state: dict[str, Any]) -> None:
-        """セッションから状態を復元"""
-        self.view_model.num_candidates = state.get("num_candidates", 5)
-        self.view_model.min_duration = state.get("min_duration", 30)
-        self.view_model.max_duration = state.get("max_duration", 40)
-        self.view_model.selected_categories = state.get("selected_categories", [])
-        self.view_model.total_processing_time = state.get("total_processing_time", 0.0)
-        self.view_model.model_used = state.get("model_used", "")
-        self.view_model.token_usage = state.get("token_usage", {})
-
-        # 候補を復元
-        candidates = []
-        for candidate_dict in state.get("candidates", []):
-            # created_atの処理
-            created_at = candidate_dict.get("created_at")
-            if created_at and isinstance(created_at, str):
-                # ISO形式の文字列からdatetimeに変換
-                created_at = datetime.fromisoformat(created_at)
-            elif not created_at:
-                # created_atがない場合は現在時刻を使用
-                created_at = datetime.now()
-
-            candidate = BuzzClipCandidate(
-                id=candidate_dict["id"],
-                title=candidate_dict["title"],
-                text=candidate_dict["text"],
-                start_time=candidate_dict["start_time"],
-                end_time=candidate_dict["end_time"],
-                duration=candidate_dict["duration"],
-                score=candidate_dict["score"],
-                category=candidate_dict["category"],
-                reasoning=candidate_dict["reasoning"],
-                keywords=candidate_dict["keywords"],
-                created_at=created_at,
-            )
-            candidates.append(candidate)
-
-        if candidates:
-            self.view_model.candidates = candidates
 
     def get_cache_path(self, video_path: str | Path, transcription_model: str = None) -> Path:
         """キャッシュファイルのパスを取得"""
@@ -283,152 +228,21 @@ class BuzzClipPresenter(BasePresenter[BuzzClipViewModel]):
         return cache_dir / filename
 
     def save_to_cache(self, video_path: str | Path, transcription_model: str = None) -> None:
-        """結果をキャッシュに保存"""
-        if not self.view_model.candidates:
-            return
-
-        cache_path = self.get_cache_path(video_path, transcription_model)
-
-        cache_data = {
-            "version": "1.0",
-            "generated_at": datetime.now().isoformat(),
-            "transcription_model": transcription_model,  # 紐づいている文字起こしモデル
-            "parameters": {
-                "num_candidates": self.view_model.num_candidates,
-                "min_duration": self.view_model.min_duration,
-                "max_duration": self.view_model.max_duration,
-                "selected_categories": self.view_model.selected_categories,
-            },
-            "results": {
-                "candidates": [c.to_dict() for c in self.view_model.candidates],
-                "total_processing_time": self.view_model.total_processing_time,
-                "model_used": self.view_model.model_used,
-                "token_usage": self.view_model.token_usage,
-            },
-        }
-
-        with open(cache_path, "w", encoding="utf-8") as f:
-            json.dump(cache_data, f, ensure_ascii=False, indent=2)
-
-        logger.info(f"Saved buzz clip cache to {cache_path}")
+        """結果をキャッシュに保存（外部AIサービス版では使用しない）"""
+        # 外部AIサービスを使用する新しい実装ではキャッシュ保存は不要
+        logger.info("save_to_cache called but skipped in external AI service mode")
+        return
 
     def load_from_cache(
         self, video_path: str | Path, transcription_model: str = None, auto_adjust_params: bool = True
     ) -> bool:
-        """キャッシュから結果を読み込み
+        """キャッシュから結果を読み込み（外部AIサービス版では使用しない）
 
         Args:
             video_path: 動画ファイルパス
             transcription_model: 文字起こしモデル名
             auto_adjust_params: キャッシュのパラメータに自動調整するか
         """
-        # まず、利用可能なキャッシュを探す
-        if auto_adjust_params:
-            cache_files = self._find_available_buzz_caches(video_path, transcription_model)
-            if cache_files:
-                # 最新のキャッシュを選択
-                cache_path = cache_files[0]
-                logger.info(f"Found buzz clip cache: {cache_path}")
-            else:
-                logger.info("No buzz clip cache found")
-                return False
-        else:
-            cache_path = self.get_cache_path(video_path, transcription_model)
-            if not cache_path.exists():
-                logger.info(f"Cache file does not exist: {cache_path}")
-                return False
-
-        try:
-            with open(cache_path, encoding="utf-8") as f:
-                cache_data = json.load(f)
-
-            # パラメータが一致するか確認
-            params = cache_data.get("parameters", {})
-            logger.info(f"Cache params: {params}")
-            logger.info(
-                f"Current params: num_candidates={self.view_model.num_candidates}, min_duration={self.view_model.min_duration}, max_duration={self.view_model.max_duration}, selected_categories={self.view_model.selected_categories}"
-            )
-
-            if auto_adjust_params:
-                # パラメータをキャッシュに合わせて更新
-                self.view_model.num_candidates = params.get("num_candidates", 5)
-                self.view_model.min_duration = params.get("min_duration", 30)
-                self.view_model.max_duration = params.get("max_duration", 40)
-                self.view_model.selected_categories = params.get("selected_categories", [])
-                logger.info("Auto-adjusted parameters to match cache")
-            else:
-                # 通常のパラメータチェック
-                if (
-                    params.get("num_candidates") != self.view_model.num_candidates
-                    or params.get("min_duration") != self.view_model.min_duration
-                    or params.get("max_duration") != self.view_model.max_duration
-                    or params.get("selected_categories") != self.view_model.selected_categories
-                ):
-                    logger.info("Cache parameters do not match current settings")
-                    return False
-
-            # 結果を復元
-            results = cache_data.get("results", {})
-            candidates = []
-            for candidate_dict in results.get("candidates", []):
-                # datetimeの変換
-                created_at = datetime.fromisoformat(candidate_dict["created_at"])
-                candidate = BuzzClipCandidate(
-                    id=candidate_dict["id"],
-                    title=candidate_dict["title"],
-                    text=candidate_dict["text"],
-                    start_time=candidate_dict["start_time"],
-                    end_time=candidate_dict["end_time"],
-                    duration=candidate_dict["duration"],
-                    score=candidate_dict["score"],
-                    category=candidate_dict["category"],
-                    reasoning=candidate_dict["reasoning"],
-                    keywords=candidate_dict["keywords"],
-                    created_at=created_at,
-                )
-                candidates.append(candidate)
-
-            self.view_model.complete_generation(
-                candidates=candidates,
-                processing_time=results.get("total_processing_time", 0.0),
-                model_used=results.get("model_used", ""),
-                token_usage=results.get("token_usage", {}),
-            )
-
-            logger.info(f"Loaded {len(candidates)} buzz clips from cache")
-            return True
-
-        except Exception as e:
-            logger.error(f"Failed to load buzz clip cache: {e}")
-            return False
-
-    def _find_available_buzz_caches(self, video_path: str | Path, transcription_model: str = None) -> list[Path]:
-        """利用可能なバズクリップキャッシュを探す"""
-        from utils.file_utils import get_safe_filename
-
-        video_name = Path(video_path).stem
-        video_parent = Path(video_path).parent
-        safe_name = get_safe_filename(video_name)
-
-        # TextffCutフォルダ内のbuzz_clips/サブフォルダ
-        textffcut_dir = video_parent / f"{safe_name}_TextffCut"
-        cache_dir = textffcut_dir / "buzz_clips"
-
-        if not cache_dir.exists():
-            return []
-
-        # バズクリップのキャッシュファイルを検索
-        cache_files = []
-        if transcription_model:
-            # 特定のモデルに紐づいたキャッシュを探す
-            cache_file = cache_dir / f"{transcription_model}.json"
-            if cache_file.exists():
-                cache_files.append(cache_file)
-        else:
-            # すべてのバズクリップキャッシュを探す
-            for cache_file in cache_dir.glob("*.json"):
-                cache_files.append(cache_file)
-
-        # 更新時刻でソート（新しい順）
-        cache_files.sort(key=lambda x: x.stat().st_mtime, reverse=True)
-        return cache_files
+        # 外部AIサービスを使用する新しい実装ではキャッシュ読み込みは不要
+        logger.info("load_from_cache called but skipped in external AI service mode")
+        return False

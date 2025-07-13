@@ -25,15 +25,17 @@ class TextEditorView:
     MVPパターンのView部分を担当し、UI表示とユーザーイベントの収集を行います。
     """
 
-    def __init__(self, presenter: TextEditorPresenter):
+    def __init__(self, presenter: TextEditorPresenter, container: Any | None = None):
         """
         初期化
 
         Args:
             presenter: テキスト編集Presenter
+            container: DIコンテナ（バズクリップ機能で使用）
         """
         self.presenter = presenter
         self.view_model = presenter.view_model
+        self.container = container
 
         # ViewModelの変更を監視
         self.view_model.subscribe(self)
@@ -68,47 +70,8 @@ class TextEditorView:
             if "buzz_clip_cache_exists" in st.session_state:
                 del st.session_state["buzz_clip_cache_exists"]
 
-        # バズクリップ候補を使用する場合は、先にセッション状態をクリアしてフラグを立てる
-        skip_initial_processing = False
-        if st.session_state.get("use_buzz_clips", False) and "buzz_clip_candidates" in st.session_state:
-            # 古いテキストや差分情報をクリア
-            if "edited_text" in st.session_state:
-                del st.session_state["edited_text"]
-            if "text_differences" in st.session_state:
-                del st.session_state["text_differences"]
-            # 初期処理をスキップするフラグ
-            skip_initial_processing = True
-
-        # 初期化（バズクリップ使用時は初期処理をスキップ）
-        if skip_initial_processing:
-            # 一時的に初期処理をスキップするフラグを設定
-            st.session_state["_skip_initial_text_processing"] = True
-
+        # 初期化
         self.presenter.initialize(transcription_result)
-
-        # フラグをクリア
-        if "_skip_initial_text_processing" in st.session_state:
-            del st.session_state["_skip_initial_text_processing"]
-
-        # バズクリップ候補を使用する場合
-        if st.session_state.get("use_buzz_clips", False) and "buzz_clip_candidates" in st.session_state:
-            candidates = st.session_state["buzz_clip_candidates"]
-            # 候補からテキストを生成
-            text_parts = []
-            for candidate in candidates:
-                text_parts.append(candidate.text)
-
-            # セパレータで結合
-            edited_text = "\n\n---\n\n".join(text_parts)
-
-            # テキストエディタに設定
-            st.session_state["text_editor_value"] = edited_text
-
-            # フラグをリセット
-            st.session_state["use_buzz_clips"] = False
-
-            # 使用した候補の情報を表示
-            st.info(f"🎬 {len(candidates)}個のバズクリップ候補をテキストエディタに設定しました")
 
         # モーダル表示（最優先）
         if st.session_state.get("show_modal", False):
@@ -562,66 +525,42 @@ class TextEditorView:
 
     def _render_buzz_clip_section(self) -> None:
         """バズクリップセクションを表示"""
-        # キャッシュの有無を確認してセッション状態に保存
-        logger.info(
-            f"[_render_buzz_clip_section] cache_checked in session: {'buzz_clip_cache_checked' in st.session_state}"
-        )
-        if "buzz_clip_cache_checked" not in st.session_state:
-            logger.info("[_render_buzz_clip_section] Checking buzz clip cache...")
-            cache_exists = self._check_buzz_clip_cache()
-            st.session_state["buzz_clip_cache_exists"] = cache_exists
-            st.session_state["buzz_clip_cache_checked"] = True
-            logger.info(f"[_render_buzz_clip_section] Cache check result: {cache_exists}")
-
-        # バズクリップ候補がある場合はナビゲーションを表示
-        if "buzz_clip_all_candidates" in st.session_state and st.session_state.buzz_clip_all_candidates:
-            st.markdown("")
-            self._render_buzz_clip_navigation()
-        else:
-            # セッション状態からキャッシュの有無を取得
-            has_cache = st.session_state.get("buzz_clip_cache_exists", False)
-            logger.info(f"[_render_buzz_clip_section] has_cache from session: {has_cache}")
-
-            # バズクリップ生成ボタンを表示
-            st.markdown("")
-            if has_cache:
-                button_text = "💾 保存済みのバズクリップ候補を読み込む"
+        # 新しい外部AIサービス版のバズクリップ機能を表示
+        from presentation.views.buzz_clip import show_buzz_clip_generation
+        from infrastructure.ui.session_manager import SessionManager
+        
+        session_manager = SessionManager()
+        transcription_result = session_manager.get_transcription_result()
+        
+        if transcription_result:
+            # TranscriptionResultAdapterの処理
+            from presentation.adapters.transcription_result_adapter import TranscriptionResultAdapter
+            
+            if isinstance(transcription_result, TranscriptionResultAdapter):
+                actual_result = transcription_result.domain_result
             else:
-                button_text = "🤖 AIでバズクリップ候補を生成"
-
-            logger.info(f"[_render_buzz_clip_section] Button text: {button_text}")
-
-            if st.button(button_text, key="generate_buzz_clips", use_container_width=True):
-                # 生成フラグを設定してrerun
-                st.session_state["buzz_clip_generation_requested"] = True
-                st.rerun()
-
-            # 予想コストを表示（キャッシュがない場合のみ）
-            if not has_cache:
-                self._render_estimated_cost()
-
-        # 生成リクエストがある場合は処理を実行
-        if st.session_state.get("buzz_clip_generation_requested", False):
-            # フラグをクリア
-            del st.session_state["buzz_clip_generation_requested"]
-            # 生成処理を実行
-            self._generate_buzz_clips()
-
-        # 新規生成リクエストがある場合は処理を実行
-        if st.session_state.get("buzz_clip_new_generation_requested", False):
-            # フラグをクリア
-            del st.session_state["buzz_clip_new_generation_requested"]
-            # 新規生成処理を実行
-            with st.spinner("🤖 AIが新しい候補を生成中..."):
-                self._generate_buzz_clips(force_new=True)
-
-        # 追加生成リクエストの処理
-        if st.session_state.get("buzz_clip_append_generation_requested", False):
-            # フラグをクリア
-            del st.session_state["buzz_clip_append_generation_requested"]
-            # 既存の候補を保持して追加生成処理を実行
-            with st.spinner("🤖 AIが追加の候補を生成中..."):
-                self._generate_buzz_clips(force_new=True, append_to_existing=True)
+                actual_result = transcription_result
+            
+            # セグメントを辞書形式に変換
+            segments = []
+            if hasattr(actual_result, 'segments'):
+                for seg in actual_result.segments:
+                    segments.append({"text": seg.text, "start": seg.start, "end": seg.end})
+            
+            # プロンプト生成UI（横並び表示）
+            if segments and self.container:
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    # バズクリップ生成UI
+                    show_buzz_clip_generation(self.container, segments)
+                
+                with col2:
+                    # タイトル生成プロンプト
+                    self._render_title_generation_prompt()
+                
+                # 両方のプロンプトに対する説明を中央に配置
+                st.caption("上記のプロンプトをChatGPT/Claude/Geminiなどにコピー&ペーストして使用してください")
 
     def _render_text_stats(self) -> None:
         """文字数と時間の統計を表示"""
@@ -763,6 +702,36 @@ class TextEditorView:
         """時間範囲の計算結果を表示"""
         # 時間範囲が計算されたことを示すだけ（特に表示なし）
         pass
+    
+    def _render_title_generation_prompt(self) -> None:
+        """タイトル生成プロンプトを表示"""
+        from utils.prompt_loader import PromptLoader
+        
+        if not self.view_model.edited_text:
+            # 編集テキストがない場合は空のエリアを表示
+            st.text_area(
+                "🎯 タイトル生成プロンプト",
+                value="（切り抜き箇所を入力すると表示されます）",
+                height=68,
+                key="title_generation_prompt",
+                disabled=True
+            )
+            return
+        
+        try:
+            loader = PromptLoader()
+            prompt = loader.load_title_generation_prompt(self.view_model.edited_text)
+            
+            # プロンプトを表示（最小高さ）
+            st.text_area(
+                "🎯 タイトル生成プロンプト",
+                value=prompt,
+                height=68,
+                key="title_generation_prompt",
+                help="Ctrl+A (Windows) / Cmd+A (Mac) で全選択してコピー"
+            )
+        except Exception as e:
+            logger.error(f"タイトル生成プロンプトの読み込みエラー: {e}")
 
 
 def show_text_editor_section(
@@ -789,7 +758,7 @@ def show_text_editor_section(
 
     # PresenterとViewを作成
     presenter = container.presentation.text_editor_presenter()
-    view = TextEditorView(presenter)
+    view = TextEditorView(presenter, container)
 
     # UIをレンダリングして結果を返す
     return view.render(transcription_result, video_path)

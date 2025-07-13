@@ -135,7 +135,7 @@ def render_text_edit_section(container):
     if transcription_result and video_path:
         from presentation.views.text_editor import TextEditorView
 
-        view = TextEditorView(text_editor_presenter)
+        view = TextEditorView(text_editor_presenter, container)
 
         # TranscriptionResultAdapterの処理
         from presentation.adapters.transcription_result_adapter import TranscriptionResultAdapter
