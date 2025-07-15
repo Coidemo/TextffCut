@@ -3,6 +3,7 @@
 """
 
 import logging
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,9 @@ class PromptLoader:
             self.prompts_dir = Path(__file__).parent.parent / "prompts"
         else:
             self.prompts_dir = Path(prompts_dir)
+            
+        # プロンプトファイルの初期化（Docker環境でのみ必要）
+        self._initialize_prompts()
     
     def load_buzz_clip_prompt(self, transcription_segments: list[dict[str, Any]]) -> str:
         """
@@ -35,7 +39,10 @@ class PromptLoader:
         Returns:
             完成したプロンプト
         """
-        prompt_file = self.prompts_dir / "buzz_clip.md"
+        # 初期化処理を再実行（念のため）
+        self._initialize_prompts()
+        
+        prompt_file = self.prompts_dir / "clip_suggestions.md"
         
         if not prompt_file.exists():
             logger.error(f"Prompt file not found: {prompt_file}")
@@ -71,6 +78,9 @@ class PromptLoader:
         Returns:
             完成したプロンプト
         """
+        # 初期化処理を再実行（念のため）
+        self._initialize_prompts()
+        
         prompt_file = self.prompts_dir / "title_generation.md"
         
         if not prompt_file.exists():
@@ -85,3 +95,44 @@ class PromptLoader:
         prompt = template.replace("{EDITED_TEXT}", edited_text)
         
         return prompt
+    
+    def _initialize_prompts(self):
+        """
+        プロンプトファイルを初期化（存在しない場合はデフォルトからコピー）
+        """
+        # プロンプトディレクトリが存在しない場合は作成
+        if not self.prompts_dir.exists():
+            self.prompts_dir.mkdir(parents=True, exist_ok=True)
+            logger.info(f"Created prompts directory: {self.prompts_dir}")
+        
+        # 必要なプロンプトファイルのリスト
+        prompt_files = ["clip_suggestions.md", "title_generation.md"]
+        
+        # Docker環境でのデフォルトプロンプトディレクトリ
+        default_prompts_dir = Path("/app/default_prompts")
+        
+        for filename in prompt_files:
+            target_file = self.prompts_dir / filename
+            
+            # ファイルが存在しない場合
+            if not target_file.exists():
+                # デフォルトプロンプトディレクトリから試す
+                if default_prompts_dir.exists():
+                    source_file = default_prompts_dir / filename
+                    if source_file.exists():
+                        try:
+                            shutil.copy2(source_file, target_file)
+                            logger.info(f"Copied default prompt file: {filename}")
+                            continue
+                        except Exception as e:
+                            logger.error(f"Failed to copy default prompt file {filename}: {e}")
+                
+                # デフォルトが利用できない場合は、基本的な内容を作成
+                logger.warning(f"Creating basic prompt file: {filename}")
+                try:
+                    if filename == "clip_suggestions.md":
+                        target_file.write_text("# 切り抜き候補生成プロンプト\n\n{TRANSCRIPTION}", encoding="utf-8")
+                    elif filename == "title_generation.md":
+                        target_file.write_text("# タイトル生成プロンプト\n\n{EDITED_TEXT}", encoding="utf-8")
+                except Exception as e:
+                    logger.error(f"Failed to create basic prompt file {filename}: {e}")

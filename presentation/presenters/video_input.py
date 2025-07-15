@@ -5,10 +5,12 @@
 """
 
 import logging
+import os
 from pathlib import Path
 
 from domain.value_objects import FilePath
 from presentation.view_models.video_input import VideoInfo, VideoInputViewModel
+from utils.environment import IS_DOCKER, DEFAULT_HOST_PATH
 
 from .base import BasePresenter
 
@@ -52,8 +54,13 @@ class VideoInputPresenter(BasePresenter[VideoInputViewModel]):
                     self.file_gateway.create_directory(FilePath(self.videos_dir))
                     logger.info(f"Created videos directory: {self.videos_dir}")
 
-                # ディレクトリパスをViewModelに設定
-                self.view_model.video_directory = str(Path(self.videos_dir).absolute())
+                # ディレクトリパスをViewModelに設定（環境に応じた表示）
+                if IS_DOCKER:
+                    # Docker環境では環境変数から取得したホストパスを使用
+                    self.view_model.video_directory = os.getenv("HOST_VIDEOS_PATH", DEFAULT_HOST_PATH)
+                else:
+                    # ローカル環境では実際のフルパス
+                    self.view_model.video_directory = str(Path(self.videos_dir).absolute())
 
                 # ファイル一覧を取得
                 patterns = ["*" + ext for ext in self.view_model.supported_extensions]

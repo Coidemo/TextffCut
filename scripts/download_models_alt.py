@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """
-WhisperX mediumモデルとアライメントモデルを事前ダウンロード
-Dockerイメージビルド時に実行して、モデルを含める
+WhisperX mediumモデルとアライメントモデルを事前ダウンロード（代替版）
+HTTP 301エラーを回避するための代替実装
 """
 import logging
 import os
 import sys
+import subprocess
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -15,9 +16,8 @@ def download_models():
     """mediumモデルと日本語アライメントモデルをダウンロード"""
     try:
         import torch
-        import whisperx
         
-        logger.info("=== TextffCut モデルダウンロード開始 ===")
+        logger.info("=== TextffCut モデルダウンロード開始（代替版）===")
         logger.info("mediumモデル（高速・高精度）と日本語アライメントモデルをダウンロードします")
         
         # ダウンロード時はオンラインモードを確保
@@ -34,39 +34,49 @@ def download_models():
         for cache_dir in cache_dirs:
             os.makedirs(cache_dir, exist_ok=True)
 
-        # 1. Whisper mediumモデルをダウンロード（whisperx形式）
+        # 1. Hugging Face CLIを使用してモデルを直接ダウンロード
         logger.info("\n1. Whisper mediumモデルをダウンロード中（faster-whisper形式）...")
         try:
-            # whisperxと同じ方法でモデルをロード（faster-whisper形式）
-            model = whisperx.load_model(
-                "medium",
-                device="cpu",
-                compute_type="float32",  # CPUではfloat32を使用
-                language="ja"
+            # huggingface-hubを使用して直接ダウンロード
+            from huggingface_hub import snapshot_download
+            
+            model_id = "Systran/faster-whisper-medium"
+            logger.info(f"モデルID: {model_id}")
+            
+            # モデルをダウンロード
+            local_dir = snapshot_download(
+                repo_id=model_id,
+                cache_dir="/home/appuser/.cache/huggingface",
+                resume_download=True,
+                max_workers=1  # 並列ダウンロードを制限
             )
-            logger.info("✓ Whisper mediumモデル（faster-whisper形式）: ダウンロード成功")
+            logger.info(f"✓ Whisper mediumモデル（faster-whisper形式）: ダウンロード成功")
+            logger.info(f"  保存先: {local_dir}")
             
-            # モデルのパスを確認（デバッグ用）
-            try:
-                import huggingface_hub
-                model_path = huggingface_hub.snapshot_download(
-                    "Systran/faster-whisper-medium",
-                    local_files_only=True,
-                    cache_dir="/home/appuser/.cache/huggingface"
-                )
-                logger.info(f"  モデルパス: {model_path}")
-            except Exception as e:
-                # エラーは無視（モデルは既にダウンロード済み）
-                logger.info("  モデルパスの確認はスキップ（モデルはダウンロード済み）")
-            
-            del model
         except Exception as e:
             logger.error(f"✗ Whisper mediumモデル: ダウンロード失敗 - {e}")
-            return False
+            # フォールバック: whisperxのインポート時にダウンロード
+            logger.info("フォールバック: whisperxインポート時のダウンロードを試行")
+            try:
+                import whisperx
+                # モデルをロードしてダウンロードをトリガー
+                model = whisperx.load_model(
+                    "medium",
+                    device="cpu",
+                    compute_type="float32",
+                    language="ja",
+                    download_root="/home/appuser/.cache"
+                )
+                del model
+                logger.info("✓ フォールバック成功")
+            except Exception as fallback_error:
+                logger.error(f"✗ フォールバックも失敗: {fallback_error}")
+                return False
 
         # 2. 日本語アライメントモデルをダウンロード
         logger.info("\n2. 日本語アライメントモデルをダウンロード中...")
         try:
+            import whisperx
             model, metadata = whisperx.load_align_model(language_code="ja", device="cpu")
             logger.info("✓ 日本語アライメントモデル: ダウンロード成功")
             del model
