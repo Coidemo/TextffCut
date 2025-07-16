@@ -57,7 +57,10 @@ class VideoInputPresenter(BasePresenter[VideoInputViewModel]):
                 # ディレクトリパスをViewModelに設定（環境に応じた表示）
                 if IS_DOCKER:
                     # Docker環境では環境変数から取得したホストパスを使用
-                    self.view_model.video_directory = os.getenv("HOST_VIDEOS_PATH", DEFAULT_HOST_PATH)
+                    host_path = os.getenv("HOST_VIDEOS_PATH", DEFAULT_HOST_PATH)
+                    if not host_path:
+                        logger.warning("HOST_VIDEOS_PATH not set, using default: %s", DEFAULT_HOST_PATH)
+                    self.view_model.video_directory = host_path
                 else:
                     # ローカル環境では実際のフルパス
                     self.view_model.video_directory = str(Path(self.videos_dir).absolute())

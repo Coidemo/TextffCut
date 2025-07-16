@@ -129,10 +129,52 @@ class PromptLoader:
                 
                 # デフォルトが利用できない場合は、基本的な内容を作成
                 logger.warning(f"Creating basic prompt file: {filename}")
+                logger.warning("Note: This is a basic template. For better results, please provide a complete prompt file.")
                 try:
                     if filename == "clip_suggestions.md":
-                        target_file.write_text("# 切り抜き候補生成プロンプト\n\n{TRANSCRIPTION}", encoding="utf-8")
+                        # より完全な基本プロンプト
+                        basic_content = """# バズクリップ候補生成
+
+以下の文字起こしから、バズりそうな切り抜き候補を10個生成してください。
+
+## 文字起こし内容
+{TRANSCRIPTION}
+
+## 生成条件
+- 各候補は150-250文字程度
+- エンタメ性の高い内容を優先
+- 視聴者の興味を引くタイトル案も提案
+
+## 出力フォーマット
+各候補について以下の形式で出力してください：
+- タイトル案：
+- 内容要約：
+- 開始時刻：
+- 終了時刻：
+"""
+                        target_file.write_text(basic_content, encoding="utf-8")
                     elif filename == "title_generation.md":
-                        target_file.write_text("# タイトル生成プロンプト\n\n{EDITED_TEXT}", encoding="utf-8")
+                        # より完全な基本プロンプト
+                        basic_content = """# タイトル生成
+
+以下の切り抜きテキストから、魅力的なタイトルを生成してください。
+
+## 切り抜きテキスト
+{EDITED_TEXT}
+
+## タイトル生成条件
+- 20-40文字程度
+- クリックしたくなる魅力的な表現
+- 内容を正確に表現
+- 5個のタイトル案を提案
+
+## 出力フォーマット
+1. [タイトル案1]
+2. [タイトル案2]
+3. [タイトル案3]
+4. [タイトル案4]
+5. [タイトル案5]
+"""
+                        target_file.write_text(basic_content, encoding="utf-8")
                 except Exception as e:
                     logger.error(f"Failed to create basic prompt file {filename}: {e}")
