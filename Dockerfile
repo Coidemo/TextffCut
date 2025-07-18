@@ -109,6 +109,9 @@ ENV HF_HOME=/app/model_cache/huggingface
 ENV HUGGINGFACE_HUB_CACHE=/app/model_cache/huggingface/hub
 ENV TRANSFORMERS_CACHE=/app/model_cache/huggingface/transformers
 
+# デフォルトプロンプトディレクトリ
+ENV DEFAULT_PROMPTS_DIR=/app/default_prompts
+
 # オフラインモードを強制（ネットワーク通信を防ぐ）
 ENV HF_HUB_OFFLINE=1
 ENV TRANSFORMERS_OFFLINE=1

@@ -3,6 +3,7 @@
 """
 
 import logging
+import os
 import shutil
 from pathlib import Path
 from typing import Any
@@ -108,8 +109,8 @@ class PromptLoader:
         # 必要なプロンプトファイルのリスト
         prompt_files = ["clip_suggestions.md", "title_generation.md"]
         
-        # Docker環境でのデフォルトプロンプトディレクトリ
-        default_prompts_dir = Path("/app/default_prompts")
+        # デフォルトプロンプトディレクトリ（環境変数で設定可能）
+        default_prompts_dir = Path(os.getenv("DEFAULT_PROMPTS_DIR", "/app/default_prompts"))
         
         for filename in prompt_files:
             target_file = self.prompts_dir / filename
