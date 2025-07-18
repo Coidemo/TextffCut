@@ -27,7 +27,6 @@ RUN pip install --no-cache-dir \
 
 # ダウンロードスクリプトをコピー
 COPY scripts/download_models.py .
-COPY scripts/download_models_alt.py .
 
 # Hugging Faceのキャッシュ設定（ビルド時は通常のパス）
 ENV HF_HOME=/home/appuser/.cache/huggingface

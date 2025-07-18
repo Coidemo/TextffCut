@@ -2,6 +2,8 @@
 """
 WhisperX mediumモデルとアライメントモデルを事前ダウンロード
 Dockerイメージビルド時に実行して、モデルを含める
+
+HTTP 301エラーが発生した場合は代替方法でダウンロードを試みます。
 """
 import logging
 import os
@@ -9,6 +11,25 @@ import sys
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+def download_with_huggingface_hub(model_id: str, cache_dir: str) -> str:
+    """Hugging Face Hubを使用してモデルを直接ダウンロード（代替方法）"""
+    try:
+        from huggingface_hub import snapshot_download
+        
+        logger.info(f"Hugging Face Hub経由でダウンロード: {model_id}")
+        local_dir = snapshot_download(
+            repo_id=model_id,
+            cache_dir=cache_dir,
+            resume_download=True,
+            max_workers=1  # 並列ダウンロードを制限
+        )
+        logger.info(f"✓ ダウンロード成功: {local_dir}")
+        return local_dir
+    except Exception as e:
+        logger.error(f"Hugging Face Hubでのダウンロード失敗: {e}")
+        raise
 
 
 def download_models():
@@ -36,6 +57,9 @@ def download_models():
 
         # 1. Whisper mediumモデルをダウンロード（whisperx形式）
         logger.info("\n1. Whisper mediumモデルをダウンロード中（faster-whisper形式）...")
+        model_downloaded = False
+        
+        # 方法1: whisperxを使用した通常のダウンロード
         try:
             # whisperxと同じ方法でモデルをロード（faster-whisper形式）
             model = whisperx.load_model(
@@ -45,6 +69,7 @@ def download_models():
                 language="ja"
             )
             logger.info("✓ Whisper mediumモデル（faster-whisper形式）: ダウンロード成功")
+            model_downloaded = True
             
             # モデルのパスを確認（デバッグ用）
             try:
@@ -62,7 +87,17 @@ def download_models():
             del model
         except Exception as e:
             logger.error(f"✗ Whisper mediumモデル: ダウンロード失敗 - {e}")
-            return False
+            logger.info("代替方法でダウンロードを試みます...")
+        
+        # 方法2: HTTP 301エラーの場合、Hugging Face Hub経由でダウンロード
+        if not model_downloaded:
+            try:
+                model_id = "Systran/faster-whisper-medium"
+                download_with_huggingface_hub(model_id, "/home/appuser/.cache/huggingface")
+                model_downloaded = True
+            except Exception as e:
+                logger.error(f"代替方法でもダウンロード失敗: {e}")
+                return False
 
         # 2. 日本語アライメントモデルをダウンロード
         logger.info("\n2. 日本語アライメントモデルをダウンロード中...")
