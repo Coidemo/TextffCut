@@ -505,6 +505,27 @@ make check  # フォーマット、Lint、テストを一括実行
    - 推定コストと実際のコストの表示
    - API呼び出し状態の詳細な可視化
 
+## 🎉 最近の改善（2025-07-16）
+
+### Dockerイメージサイズの大幅削減
+1. **サイズ削減の成果**
+   - 39.6GB → 17.1GB（56%削減）
+   - 不要なファイル（test_v0910/、動画ファイル等）を.dockerignoreで除外
+   - `COPY --chown`を使用して後の`chown -R`を削除
+
+2. **環境変数の追加**
+   - `HOST_VIDEOS_PATH`: Docker環境でホストのvideosパスを表示
+   - `DEFAULT_PROMPTS_DIR`: デフォルトプロンプトディレクトリ（デフォルト: /app/default_prompts）
+   - `HF_HOME`, `HUGGINGFACE_HUB_CACHE`, `TRANSFORMERS_CACHE`: モデルキャッシュパス
+
+3. **モデルキャッシュの配置変更**
+   - `/home/appuser/.cache` → `/app/model_cache`
+   - docker-compose.ymlのボリュームマウントによる上書きを防止
+
+4. **プロンプトファイルの自動初期化**
+   - Docker環境で初回起動時にプロンプトファイルを自動生成
+   - より完全なデフォルトテンプレートを提供
+
 ## 🎉 最近の改善（2025-07-06）
 
 ### テキスト処理のクリーンアーキテクチャ化
