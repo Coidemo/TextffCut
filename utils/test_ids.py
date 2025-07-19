@@ -93,6 +93,7 @@ class TestIds:
     
     # 出力オプション
     EXPORT_REMOVE_SILENCE_CHECKBOX = "export_remove_silence_checkbox"
+    EXPORT_REMOVE_SILENCE_CHECKBOX_SRT = "export_remove_silence_checkbox_srt"
     EXPORT_INCLUDE_SRT_CHECKBOX = "export_include_srt_checkbox"
     EXPORT_SILENCE_REMOVAL_ENABLED = "export_silence_removal_enabled"
     EXPORT_SRT_CHECKBOX = "export_srt_checkbox"

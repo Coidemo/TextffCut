@@ -117,7 +117,7 @@ class ExportSettingsView:
                 "無音部分を削除",
                 value=self.view_model.remove_silence,
                 help="無音部分を自動的に削除します。詳細設定はサイドバーで変更できます。",
-                key=TestIds.EXPORT_REMOVE_SILENCE_CHECKBOX,
+                key=TestIds.EXPORT_REMOVE_SILENCE_CHECKBOX_SRT,
             )
             self.presenter.set_remove_silence(remove_silence)
 
