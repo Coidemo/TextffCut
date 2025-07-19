@@ -92,15 +92,11 @@ class TestIds:
     EXPORT_FORMAT_RADIO = "export_format_radio"
     
     # 出力オプション
-    EXPORT_REMOVE_SILENCE_CHECKBOX = "export_remove_silence_checkbox"
-    EXPORT_INCLUDE_SRT_CHECKBOX = "export_include_srt_checkbox"
     EXPORT_SILENCE_REMOVAL_ENABLED = "export_silence_removal_enabled"
     EXPORT_SRT_CHECKBOX = "export_srt_checkbox"
     EXPORT_XML_CHECKBOX = "export_xml_checkbox"
     
     # SRT字幕設定
-    EXPORT_SRT_MAX_LINE_LENGTH = "export_srt_max_line_length"
-    EXPORT_SRT_MAX_LINES = "export_srt_max_lines"
     SRT_MAX_LINE_LENGTH = "srt_max_line_length"
     SRT_MAX_LINES = "srt_max_lines"
     

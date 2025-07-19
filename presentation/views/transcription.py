@@ -12,6 +12,7 @@ import streamlit as st
 
 from presentation.presenters.transcription import TranscriptionPresenter
 from presentation.view_models.transcription import TranscriptionViewModel
+from utils.test_ids import TestIds
 
 logger = logging.getLogger(__name__)
 
@@ -167,7 +168,7 @@ class TranscriptionView:
                     "処理モード",
                     mode_options,
                     index=default_index,
-                    key="transcription_mode_radio",
+                    key=TestIds.TRANSCRIPTION_MODE_RADIO,
                     label_visibility="collapsed",
                     horizontal=True,
                 )

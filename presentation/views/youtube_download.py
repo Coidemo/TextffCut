@@ -9,6 +9,7 @@ import streamlit as st
 from presentation.presenters.youtube_download import YouTubeDownloadPresenter
 from presentation.view_models.youtube_download import YouTubeDownloadViewModel
 from presentation.views.base import BaseView
+from utils.test_ids import TestIds
 
 
 class YouTubeDownloadView(BaseView[YouTubeDownloadViewModel]):
@@ -41,6 +42,7 @@ class YouTubeDownloadView(BaseView[YouTubeDownloadViewModel]):
                 "YouTube URL",
                 value=self.view_model.url,
                 placeholder="https://youtube.com/watch?v=...",
+                key=TestIds.YOUTUBE_URL_INPUT,
                 label_visibility="collapsed",
                 disabled=self.view_model.is_downloading or self.view_model.download_complete,
                 help="作者の許可を得た動画のURLを入力してください",
@@ -53,6 +55,7 @@ class YouTubeDownloadView(BaseView[YouTubeDownloadViewModel]):
             # 情報取得ボタン
             if st.button(
                 "🔍 情報取得",
+                key=TestIds.YOUTUBE_INFO_BUTTON,
                 use_container_width=True,
                 disabled=not self.view_model.url or self.view_model.is_downloading or self.view_model.download_complete,
             ):
@@ -90,6 +93,7 @@ class YouTubeDownloadView(BaseView[YouTubeDownloadViewModel]):
         with col1:
             if st.button(
                 "📥 ダウンロード開始",
+                key=TestIds.YOUTUBE_DOWNLOAD_BUTTON,
                 type="primary",
                 use_container_width=True,
                 disabled=not self.view_model.can_download,

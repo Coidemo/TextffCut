@@ -10,6 +10,7 @@ import streamlit as st
 
 from presentation.presenters.video_input import VideoInputPresenter
 from presentation.view_models.video_input import VideoInputViewModel
+from utils.test_ids import TestIds
 
 
 class VideoInputView:
@@ -107,7 +108,7 @@ class VideoInputView:
                     "", 
                     options=options, 
                     index=current_index, 
-                    key="video_file_select", 
+                    key=TestIds.VIDEO_SELECT_DROPDOWN, 
                     label_visibility="collapsed",
                     disabled=(not self.view_model.video_files)  # ファイルがない場合は無効化
                 )

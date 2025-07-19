@@ -9,6 +9,7 @@ import streamlit as st
 from presentation.presenters.sidebar import SidebarPresenter
 from presentation.view_models.sidebar import SidebarViewModel
 from presentation.views.base import BaseView
+from utils.test_ids import TestIds
 
 
 class SidebarView(BaseView[SidebarViewModel]):
@@ -59,6 +60,7 @@ class SidebarView(BaseView[SidebarViewModel]):
             value=int(self.view_model.silence_threshold),
             step=1,
             help="この値より小さい音量を無音と判定します",
+            key=TestIds.SIDEBAR_SILENCE_THRESHOLD,
         )
 
         if threshold != self.view_model.silence_threshold:
@@ -76,6 +78,7 @@ class SidebarView(BaseView[SidebarViewModel]):
                 step=0.05,
                 format="%.2f",
                 help="この時間以上続く無音のみを削除対象とします",
+                key=TestIds.SIDEBAR_MIN_SILENCE_DURATION,
             )
 
             min_segment = st.number_input(
@@ -86,6 +89,7 @@ class SidebarView(BaseView[SidebarViewModel]):
                 step=0.05,
                 format="%.2f",
                 help="セグメントとして残す最小の時間",
+                key=TestIds.SIDEBAR_MIN_SEGMENT_DURATION,
             )
 
         with col2:
@@ -97,6 +101,7 @@ class SidebarView(BaseView[SidebarViewModel]):
                 step=0.05,
                 format="%.2f",
                 help="有音部分の開始前に残す時間",
+                key=TestIds.SIDEBAR_SILENCE_PAD + "_start",
             )
 
             pad_end = st.number_input(
@@ -107,6 +112,7 @@ class SidebarView(BaseView[SidebarViewModel]):
                 step=0.05,
                 format="%.2f",
                 help="有音部分の終了後に残す時間",
+                key=TestIds.SIDEBAR_SILENCE_PAD + "_end",
             )
 
         # 設定が変更されたら更新
@@ -142,7 +148,7 @@ class SidebarView(BaseView[SidebarViewModel]):
             st.caption("🔒 APIキーは暗号化して保存されています")
 
             # 削除ボタン
-            if st.button("🗑️ 保存済みキーを削除", use_container_width=True):
+            if st.button("🗑️ 保存済みキーを削除", use_container_width=True, key=TestIds.SIDEBAR_API_KEY_DELETE):
                 if self.presenter.delete_api_key():
                     st.success("保存されたAPIキーを削除しました")
                     st.rerun()
@@ -154,6 +160,7 @@ class SidebarView(BaseView[SidebarViewModel]):
                 "OpenAI APIキー",
                 type="password",
                 help="入力すると自動的に暗号化して保存されます",
+                key=TestIds.SIDEBAR_API_KEY_INPUT,
             )
 
             # APIキーが入力されたら保存
