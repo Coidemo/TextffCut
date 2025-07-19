@@ -8,6 +8,7 @@ import streamlit as st
 
 from adapters.gateways.text_processing.simple_text_processor_gateway import SimpleTextProcessorGateway
 from domain.entities.text_difference import TextDifference
+from utils.test_ids import TestIds
 
 
 def show_api_key_manager() -> None:
@@ -805,7 +806,7 @@ def show_diff_viewer(original_text: str, diff: TextDifference | None = None, hei
                 if current_pos < start:
                     html_content += original_text[current_pos:start]
                 # ハイライト部分（緑）
-                html_content += f'<span class="highlight-match" style="background-color: #e6ffe6;">{text}</span>'
+                html_content += f'<span class="highlight-match" style="background-color: #90ee90; color: #000000;">{text}</span>'
                 current_pos = end
 
             # 残りの部分
@@ -821,7 +822,7 @@ def show_diff_viewer(original_text: str, diff: TextDifference | None = None, hei
                     html_content += original_text[current_pos : pos.start]
 
                 # 共通部分（緑でハイライト - クラス名を追加）
-                html_content += f'<span class="highlight-match" style="background-color: #e6ffe6;">{pos.text}</span>'
+                html_content += f'<span class="highlight-match" style="background-color: #90ee90; color: #000000;">{pos.text}</span>'
                 current_pos = pos.end
 
             # 最後の部分
