@@ -87,41 +87,51 @@ class VideoInputView:
         
         with source_tab1:
             # ローカルファイル選択セクション
-            # ファイル選択と更新ボタン（mainブランチのレイアウト）
-            if self.view_model.video_files:
-                col1, col2 = st.columns([4, 1])
+            # ファイル選択と更新ボタン（常に同じレイアウト）
+            col1, col2 = st.columns([4, 1])
 
-                with col1:
-                    # 現在の選択を含むオプションリスト
+            with col1:
+                # オプションリストを作成
+                if self.view_model.video_files:
                     options = ["-- 選択してください --"] + self.view_model.video_files
-
                     # 現在の選択インデックス
                     current_index = 0
                     if self.view_model.selected_file in self.view_model.video_files:
                         current_index = self.view_model.video_files.index(self.view_model.selected_file) + 1
+                else:
+                    options = ["動画ファイルがありません"]
+                    current_index = 0
 
-                    # セレクトボックス（ラベルなし）
-                    selected = st.selectbox(
-                        "", options=options, index=current_index, key="video_file_select", label_visibility="collapsed"
-                    )
+                # セレクトボックス（ラベルなし）
+                selected = st.selectbox(
+                    "", 
+                    options=options, 
+                    index=current_index, 
+                    key="video_file_select", 
+                    label_visibility="collapsed",
+                    disabled=(not self.view_model.video_files)  # ファイルがない場合は無効化
+                )
 
-                with col2:
-                    # 更新ボタン
-                    if st.button("🔄 更新", help="動画ファイル一覧を更新", use_container_width=True):
-                        self.presenter.refresh_video_list()
+            with col2:
+                # 更新ボタン（常に表示）
+                if st.button("🔄 更新", help="動画ファイル一覧を更新", use_container_width=True):
+                    self.presenter.refresh_video_list()
 
-                # 選択が変更された場合
+            # 選択が変更された場合（動画ファイルがある場合のみ）
+            if self.view_model.video_files:
                 if selected != "-- 選択してください --":
                     if selected != self.view_model.selected_file:
                         self.presenter.select_video(selected)
                 else:
                     if self.view_model.selected_file is not None:
                         self.presenter.select_video(None)
-            else:
-                st.info("📁 動画ファイルが見つかりません。videosフォルダに動画ファイルを配置してください。")
-
-                # 動画フォルダのパス表示
-                st.caption(f"📁 動画フォルダのパス: {self.view_model.video_directory}")
+            
+            # 動画フォルダのパス表示（常に表示）
+            st.caption(f"📁 動画フォルダのパス: {self.view_model.video_directory}")
+            
+            # 動画ファイルがない場合のメッセージ
+            if not self.view_model.video_files:
+                st.info("動画ファイルが見つかりません。上記のフォルダに動画ファイルを配置してください。")
                 st.caption("対応形式: MP4, MOV, AVI, MKV, WebM")
         
         with source_tab2:

@@ -25,8 +25,13 @@ RUN pip install --no-cache-dir \
     transformers==4.36.0 \
     && rm -rf /root/.cache/pip
 
-# ダウンロードスクリプトのみコピー
+# ダウンロードスクリプトをコピー
 COPY scripts/download_models.py .
+
+# Hugging Faceのキャッシュ設定（ビルド時は通常のパス）
+ENV HF_HOME=/home/appuser/.cache/huggingface
+ENV HUGGINGFACE_HUB_CACHE=/home/appuser/.cache/huggingface/hub
+ENV TRANSFORMERS_CACHE=/home/appuser/.cache/huggingface/transformers
 
 # モデルをダウンロード（/home/appuser配下に保存）
 RUN mkdir -p /home/appuser/.cache && \
@@ -62,27 +67,28 @@ ENV LANG=ja_JP.UTF-8 \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# アプリケーションのコピー
-COPY . .
-
-# アプリケーション用ユーザーを作成
+# アプリケーション用ユーザーを作成（COPYの前に）
 RUN useradd -m -s /bin/bash appuser
 
+# アプリケーションのコピー（--chownで所有者を設定）
+COPY --chown=appuser:appuser . .
+
 # 必要なディレクトリを作成（root権限で）
-RUN mkdir -p /app/videos /app/output /app/transcriptions /app/logs /app/temp
+RUN mkdir -p /app/videos /app/output /app/transcriptions /app/logs /app/temp /app/default_prompts
 
 # キャッシュディレクトリを作成
 RUN mkdir -p /home/appuser/.cache/matplotlib && \
     chown -R appuser:appuser /home/appuser
 
-# Stage 1からダウンロード済みモデルをコピー
-COPY --from=model-downloader --chown=appuser:appuser /home/appuser/.cache /home/appuser/.cache
+# Stage 1からダウンロード済みモデルをコピー（別ディレクトリに保存）
+COPY --from=model-downloader --chown=appuser:appuser /home/appuser/.cache /app/model_cache
 
-# アプリケーションディレクトリの所有権を変更
-# videosとlogsは書き込み可能にする必要がある
-RUN chown -R appuser:appuser /app && \
-    chmod -R 755 /app && \
-    chmod -R 777 /app/videos /app/output /app/transcriptions /app/logs /app/temp
+# デフォルトプロンプトファイルをコピー（ボリュームマウント前の初期化用）
+COPY --chown=appuser:appuser prompts/ /app/default_prompts/
+
+# 書き込み可能なディレクトリのみ権限を変更
+# （既にCOPY時に所有権は設定済み）
+RUN chmod -R 777 /app/videos /app/output /app/transcriptions /app/logs /app/temp
 
 # Streamlit設定（appuserのホームディレクトリに）
 USER appuser
@@ -97,6 +103,17 @@ RUN if [ -f test_docker_permissions.py ]; then python test_docker_permissions.py
 ENV PYTHONUNBUFFERED=1
 ENV TEXTFFCUT_ISOLATION_MODE=subprocess
 ENV MPLCONFIGDIR=/home/appuser/.cache/matplotlib
+# モデルキャッシュの環境変数を設定
+ENV HF_HOME=/app/model_cache/huggingface
+ENV HUGGINGFACE_HUB_CACHE=/app/model_cache/huggingface/hub
+ENV TRANSFORMERS_CACHE=/app/model_cache/huggingface/transformers
+
+# デフォルトプロンプトディレクトリ
+ENV DEFAULT_PROMPTS_DIR=/app/default_prompts
+
+# オフラインモードを強制（ネットワーク通信を防ぐ）
+ENV HF_HUB_OFFLINE=1
+ENV TRANSFORMERS_OFFLINE=1
 
 # ヘルスチェック
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \

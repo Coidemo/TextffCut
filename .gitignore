@@ -214,6 +214,9 @@ streamlit.log
 # リリースパッケージ
 release/
 
+# テストディレクトリ
+test_*/
+
 # モデルファイル
 models/
 *.pkl

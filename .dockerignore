@@ -32,6 +32,12 @@ models/*
 *.mkv
 *.wmv
 
+# Test and release files
+test_v0910/
+textffcut_*.tar.gz
+*.tar.gz
+release/
+
 # Git
 .git/
 .gitignore

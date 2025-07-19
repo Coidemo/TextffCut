@@ -3,6 +3,8 @@
 """
 
 import logging
+import os
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +26,12 @@ class PromptLoader:
             self.prompts_dir = Path(__file__).parent.parent / "prompts"
         else:
             self.prompts_dir = Path(prompts_dir)
+            
+        # 初期化フラグ
+        self._initialized = False
+        
+        # プロンプトファイルの初期化（初回のみ）
+        self._ensure_prompts_initialized()
     
     def load_buzz_clip_prompt(self, transcription_segments: list[dict[str, Any]]) -> str:
         """
@@ -35,7 +43,7 @@ class PromptLoader:
         Returns:
             完成したプロンプト
         """
-        prompt_file = self.prompts_dir / "buzz_clip.md"
+        prompt_file = self.prompts_dir / "clip_suggestions.md"
         
         if not prompt_file.exists():
             logger.error(f"Prompt file not found: {prompt_file}")
@@ -85,3 +93,92 @@ class PromptLoader:
         prompt = template.replace("{EDITED_TEXT}", edited_text)
         
         return prompt
+    
+    def _ensure_prompts_initialized(self):
+        """プロンプトファイルの初期化を確実に行う（一度だけ）"""
+        if not self._initialized:
+            self._initialize_prompts()
+            self._initialized = True
+    
+    def _initialize_prompts(self):
+        """
+        プロンプトファイルを初期化（存在しない場合はデフォルトからコピー）
+        """
+        # プロンプトディレクトリが存在しない場合は作成
+        if not self.prompts_dir.exists():
+            self.prompts_dir.mkdir(parents=True, exist_ok=True)
+            logger.info(f"Created prompts directory: {self.prompts_dir}")
+        
+        # 必要なプロンプトファイルのリスト
+        prompt_files = ["clip_suggestions.md", "title_generation.md"]
+        
+        # デフォルトプロンプトディレクトリ（環境変数で設定可能）
+        default_prompts_dir = Path(os.getenv("DEFAULT_PROMPTS_DIR", "/app/default_prompts"))
+        
+        for filename in prompt_files:
+            target_file = self.prompts_dir / filename
+            
+            # ファイルが存在しない場合
+            if not target_file.exists():
+                # デフォルトプロンプトディレクトリから試す
+                if default_prompts_dir.exists():
+                    source_file = default_prompts_dir / filename
+                    if source_file.exists():
+                        try:
+                            shutil.copy2(source_file, target_file)
+                            logger.info(f"Copied default prompt file: {filename}")
+                            continue
+                        except Exception as e:
+                            logger.error(f"Failed to copy default prompt file {filename}: {e}")
+                
+                # デフォルトが利用できない場合は、基本的な内容を作成
+                logger.warning(f"Creating basic prompt file: {filename}")
+                logger.warning("Note: This is a basic template. For better results, please provide a complete prompt file.")
+                try:
+                    if filename == "clip_suggestions.md":
+                        # より完全な基本プロンプト
+                        basic_content = """# バズクリップ候補生成
+
+以下の文字起こしから、バズりそうな切り抜き候補を10個生成してください。
+
+## 文字起こし内容
+{TRANSCRIPTION}
+
+## 生成条件
+- 各候補は150-250文字程度
+- エンタメ性の高い内容を優先
+- 視聴者の興味を引くタイトル案も提案
+
+## 出力フォーマット
+各候補について以下の形式で出力してください：
+- タイトル案：
+- 内容要約：
+- 開始時刻：
+- 終了時刻：
+"""
+                        target_file.write_text(basic_content, encoding="utf-8")
+                    elif filename == "title_generation.md":
+                        # より完全な基本プロンプト
+                        basic_content = """# タイトル生成
+
+以下の切り抜きテキストから、魅力的なタイトルを生成してください。
+
+## 切り抜きテキスト
+{EDITED_TEXT}
+
+## タイトル生成条件
+- 20-40文字程度
+- クリックしたくなる魅力的な表現
+- 内容を正確に表現
+- 5個のタイトル案を提案
+
+## 出力フォーマット
+1. [タイトル案1]
+2. [タイトル案2]
+3. [タイトル案3]
+4. [タイトル案4]
+5. [タイトル案5]
+"""
+                        target_file.write_text(basic_content, encoding="utf-8")
+                except Exception as e:
+                    logger.error(f"Failed to create basic prompt file {filename}: {e}")

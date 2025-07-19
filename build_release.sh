@@ -90,7 +90,7 @@ if errorlevel 1 (
 echo.
 
 echo Creating folders...
-for %%f in (videos logs models) do (
+for %%f in (videos logs models prompts) do (
     if not exist %%f (
         mkdir %%f
         echo Created %%f folder
@@ -185,7 +185,7 @@ echo.
 
 REM Create folders
 echo Creating folders...
-for %%f in (videos logs models) do (
+for %%f in (videos logs models prompts) do (
     if not exist %%f (
         mkdir %%f
         echo Created %%f folder
@@ -379,7 +379,7 @@ if lsof -ti:$PORT > /dev/null 2>&1; then
 fi
 
 # 必要なフォルダを作成
-for folder in videos logs models; do
+for folder in videos logs models prompts; do
     if [ ! -d "$folder" ]; then
         echo "📁 $folder フォルダを作成しています..."
         mkdir -p "$folder"
@@ -550,6 +550,7 @@ services:
       - ./logs:/app/logs
       - ./models:/home/appuser/.cache
       - ./optimizer_profiles:/home/appuser/.textffcut
+      - ./prompts:/app/prompts
     environment:
       - TZ=Asia/Tokyo
       - HOST_VIDEOS_PATH=\${HOST_VIDEOS_PATH}
@@ -687,7 +688,7 @@ else
 fi
 
 # 必要なフォルダを作成
-for folder in videos logs models; do
+for folder in videos logs models prompts; do
     if [ ! -d "$folder" ]; then
         echo "📁 $folder フォルダを作成しています..."
         mkdir -p "$folder"
