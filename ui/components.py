@@ -8,6 +8,7 @@ import streamlit as st
 
 from adapters.gateways.text_processing.simple_text_processor_gateway import SimpleTextProcessorGateway
 from domain.entities.text_difference import TextDifference
+from utils.test_ids import TestIds
 
 
 def show_api_key_manager() -> None:
@@ -391,7 +392,7 @@ def show_text_editor(initial_text: str = "", height: int = 400) -> str:
         value=st.session_state.get("text_editor_value", initial_text),
         height=height,
         label_visibility="collapsed",
-        key="text_editor_widget",
+        key=TestIds.TEXT_EDITOR_AREA,
         help=(
             "文字起こし結果から切り抜く文章をコピペしてください。\n\n"
             "**💡 複数セクション指定**\n"
@@ -657,7 +658,7 @@ def show_red_highlight_modal(edited_text: str, diff: TextDifference | None = Non
     col1, col2 = st.columns(2)
     
     with col1:
-        if st.button("削除", type="primary", use_container_width=True, key="delete_highlights_modal"):
+        if st.button("削除", type="primary", use_container_width=True, key=TestIds.DELETE_HIGHLIGHTS_MODAL_BUTTON):
         # 既に渡されたdiffオブジェクトを使用
         # これにより、ゲートウェイ経由で処理されたドメイン形式の差分が使われる
 
@@ -739,7 +740,7 @@ def show_red_highlight_modal(edited_text: str, diff: TextDifference | None = Non
             st.rerun()
     
     with col2:
-        if st.button("編集を続ける", use_container_width=True, key="continue_editing_modal"):
+        if st.button("編集を続ける", use_container_width=True, key=TestIds.CONTINUE_EDITING_MODAL_BUTTON):
             # モーダルを閉じるだけで、テキストは変更しない
             st.session_state.show_modal = False
             st.session_state.show_error_and_delete = False  # エラー状態もクリア
@@ -805,7 +806,7 @@ def show_diff_viewer(original_text: str, diff: TextDifference | None = None, hei
                 if current_pos < start:
                     html_content += original_text[current_pos:start]
                 # ハイライト部分（緑）
-                html_content += f'<span class="highlight-match" style="background-color: #e6ffe6;">{text}</span>'
+                html_content += f'<span class="highlight-match" style="background-color: #90ee90; color: #000000;">{text}</span>'
                 current_pos = end
 
             # 残りの部分
@@ -821,7 +822,7 @@ def show_diff_viewer(original_text: str, diff: TextDifference | None = None, hei
                     html_content += original_text[current_pos : pos.start]
 
                 # 共通部分（緑でハイライト - クラス名を追加）
-                html_content += f'<span class="highlight-match" style="background-color: #e6ffe6;">{pos.text}</span>'
+                html_content += f'<span class="highlight-match" style="background-color: #90ee90; color: #000000;">{pos.text}</span>'
                 current_pos = pos.end
 
             # 最後の部分

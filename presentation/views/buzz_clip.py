@@ -12,6 +12,7 @@ import streamlit as st
 from domain.entities.buzz_clip import BuzzClipCandidate
 from presentation.presenters.buzz_clip import BuzzClipPresenter
 from presentation.view_models.buzz_clip import BuzzClipViewModel
+from utils.test_ids import TestIds
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +83,7 @@ class BuzzClipView:
             "💡 切り抜き生成プロンプト",
             value=prompt,
             height=68,
-            key="buzz_clip_prompt",
+            key=TestIds.BUZZ_CLIP_PROMPT_AREA,
             help="Ctrl+A (Windows) / Cmd+A (Mac) で全選択してコピー"
         )
 

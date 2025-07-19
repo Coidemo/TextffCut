@@ -10,6 +10,7 @@ import streamlit as st
 
 from presentation.presenters.export_settings import ExportSettingsPresenter
 from presentation.view_models.export_settings import ExportSettingsViewModel
+from utils.test_ids import TestIds
 
 
 class ExportSettingsView:
@@ -82,6 +83,7 @@ class ExportSettingsView:
             index=list(format_options.keys()).index(self.view_model.export_format),
             horizontal=True,
             label_visibility="collapsed",
+            key=TestIds.EXPORT_FORMAT_RADIO,
         )
         self.presenter.set_export_format(selected_format)
 
@@ -96,6 +98,7 @@ class ExportSettingsView:
                     "無音部分を削除",
                     value=self.view_model.remove_silence,
                     help="無音部分を自動的に削除します。詳細設定はサイドバーで変更できます。",
+                    key=TestIds.EXPORT_REMOVE_SILENCE_CHECKBOX,
                 )
                 self.presenter.set_remove_silence(remove_silence)
 
@@ -105,6 +108,7 @@ class ExportSettingsView:
                     "SRT字幕も同時に出力",
                     value=self.view_model.include_srt,
                     help="各クリップに対応するSRT字幕ファイルを生成します",
+                    key=TestIds.EXPORT_INCLUDE_SRT_CHECKBOX,
                 )
                 self.presenter.set_include_srt(include_srt)
         else:
@@ -113,6 +117,7 @@ class ExportSettingsView:
                 "無音部分を削除",
                 value=self.view_model.remove_silence,
                 help="無音部分を自動的に削除します。詳細設定はサイドバーで変更できます。",
+                key=TestIds.EXPORT_REMOVE_SILENCE_CHECKBOX_SRT,
             )
             self.presenter.set_remove_silence(remove_silence)
 
@@ -129,6 +134,7 @@ class ExportSettingsView:
                         value=self.view_model.srt_max_line_length,
                         step=5,
                         help="字幕の1行あたりの最大文字数",
+                        key=TestIds.EXPORT_SRT_MAX_LINE_LENGTH,
                     )
 
                 with col2:
@@ -139,6 +145,7 @@ class ExportSettingsView:
                         value=self.view_model.srt_max_lines,
                         step=1,
                         help="1つの字幕ブロックの最大行数",
+                        key=TestIds.EXPORT_SRT_MAX_LINES,
                     )
 
                 self.presenter.set_srt_settings(max_line_length, max_lines)
@@ -161,6 +168,7 @@ class ExportSettingsView:
                 type="primary",
                 use_container_width=True,
                 disabled=not self.view_model.is_ready_to_export,
+                key=TestIds.EXPORT_EXECUTE_BUTTON,
             ):
                 # セッション状態にフラグを保存
                 st.session_state.export_should_run = True

@@ -14,6 +14,7 @@ from presentation.presenters.text_editor import TextEditorPresenter
 from presentation.view_models.text_editor import TextEditorViewModel
 from ui.components import show_diff_viewer, show_edited_text_with_highlights, show_red_highlight_modal, show_text_editor
 from utils.logging import get_logger
+from utils.test_ids import TestIds
 
 logger = get_logger(__name__)
 
@@ -587,7 +588,7 @@ class TextEditorView:
 
         with button_col1:
             # 更新ボタン
-            if st.button("更新", type="primary", use_container_width=True, key="update_button"):
+            if st.button("更新", type="primary", use_container_width=True, key=TestIds.TEXT_UPDATE_BUTTON):
                 # 編集されたテキストを取得（text_editorウィジェットの値）
                 current_text = st.session_state.get("text_editor", "")
 
