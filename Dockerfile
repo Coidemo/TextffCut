@@ -35,8 +35,7 @@ ENV TRANSFORMERS_CACHE=/home/appuser/.cache/huggingface/transformers
 
 # モデルをダウンロード（/home/appuser配下に保存）
 RUN mkdir -p /home/appuser/.cache && \
-    # 通常のスクリプトで試し、失敗したら代替スクリプトを使用
-    (python download_models.py || python download_models_alt.py) && \
+    python download_models.py && \
     # 不要なファイルを削除
     find /home/appuser/.cache -name "*.pyc" -delete && \
     find /home/appuser/.cache -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true

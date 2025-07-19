@@ -27,8 +27,11 @@ class PromptLoader:
         else:
             self.prompts_dir = Path(prompts_dir)
             
-        # プロンプトファイルの初期化（Docker環境でのみ必要）
-        self._initialize_prompts()
+        # 初期化フラグ
+        self._initialized = False
+        
+        # プロンプトファイルの初期化（初回のみ）
+        self._ensure_prompts_initialized()
     
     def load_buzz_clip_prompt(self, transcription_segments: list[dict[str, Any]]) -> str:
         """
@@ -40,9 +43,6 @@ class PromptLoader:
         Returns:
             完成したプロンプト
         """
-        # 初期化処理を再実行（念のため）
-        self._initialize_prompts()
-        
         prompt_file = self.prompts_dir / "clip_suggestions.md"
         
         if not prompt_file.exists():
@@ -79,9 +79,6 @@ class PromptLoader:
         Returns:
             完成したプロンプト
         """
-        # 初期化処理を再実行（念のため）
-        self._initialize_prompts()
-        
         prompt_file = self.prompts_dir / "title_generation.md"
         
         if not prompt_file.exists():
@@ -96,6 +93,12 @@ class PromptLoader:
         prompt = template.replace("{EDITED_TEXT}", edited_text)
         
         return prompt
+    
+    def _ensure_prompts_initialized(self):
+        """プロンプトファイルの初期化を確実に行う（一度だけ）"""
+        if not self._initialized:
+            self._initialize_prompts()
+            self._initialized = True
     
     def _initialize_prompts(self):
         """

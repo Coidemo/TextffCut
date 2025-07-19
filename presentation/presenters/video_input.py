@@ -58,8 +58,9 @@ class VideoInputPresenter(BasePresenter[VideoInputViewModel]):
                 if IS_DOCKER:
                     # Docker環境では環境変数から取得したホストパスを使用
                     host_path = os.getenv("HOST_VIDEOS_PATH", DEFAULT_HOST_PATH)
-                    if not host_path:
-                        logger.warning("HOST_VIDEOS_PATH not set, using default: %s", DEFAULT_HOST_PATH)
+                    if not host_path or host_path.strip() == "":
+                        logger.warning("HOST_VIDEOS_PATH not set or empty, using default: %s", DEFAULT_HOST_PATH)
+                        host_path = DEFAULT_HOST_PATH
                     self.view_model.video_directory = host_path
                 else:
                     # ローカル環境では実際のフルパス
