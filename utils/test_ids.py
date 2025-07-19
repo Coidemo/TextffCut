@@ -101,8 +101,6 @@ class TestIds:
     # SRT字幕設定
     EXPORT_SRT_MAX_LINE_LENGTH = "export_srt_max_line_length"
     EXPORT_SRT_MAX_LINES = "export_srt_max_lines"
-    SRT_MAX_LINE_LENGTH = "srt_max_line_length"
-    SRT_MAX_LINES = "srt_max_lines"
     
     # 実行制御
     EXPORT_EXECUTE_BUTTON = "export_execute_button"
