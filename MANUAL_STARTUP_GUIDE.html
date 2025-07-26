@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TextffCutの手動起動ガイド</title>
+    <style>
+        /* リセット */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        /* 基本スタイル */
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+            font-size: 16px;
+            line-height: 1.6;
+            color: #24292e;
+            background-color: #ffffff;
+        }
+
+        /* コンテナ */
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 32px 24px;
+        }
+
+        /* 見出し */
+        h1 {
+            font-size: 32px;
+            font-weight: 600;
+            margin-bottom: 16px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #e1e4e8;
+        }
+
+        h2 {
+            font-size: 24px;
+            font-weight: 600;
+            margin-top: 32px;
+            margin-bottom: 16px;
+        }
+
+        h3 {
+            font-size: 20px;
+            font-weight: 600;
+            margin-top: 24px;
+            margin-bottom: 12px;
+        }
+
+        h4 {
+            font-size: 16px;
+            font-weight: 600;
+            margin-top: 16px;
+            margin-bottom: 8px;
+        }
+
+        /* 段落 */
+        p {
+            margin-bottom: 16px;
+        }
+
+        /* リスト */
+        ul, ol {
+            margin-bottom: 16px;
+            padding-left: 2em;
+        }
+
+        li {
+            margin-bottom: 4px;
+        }
+
+        /* 目次 */
+        .toc {
+            background-color: #f6f8fa;
+            border: 1px solid #d1d5da;
+            border-radius: 6px;
+            padding: 16px;
+            margin-bottom: 24px;
+        }
+
+        .toc h2 {
+            font-size: 18px;
+            margin-top: 0;
+            margin-bottom: 12px;
+        }
+
+        .toc ol {
+            margin-bottom: 0;
+        }
+
+        .toc a {
+            color: #0366d6;
+            text-decoration: none;
+        }
+
+        .toc a:hover {
+            text-decoration: underline;
+        }
+
+        /* リンク */
+        a {
+            color: #0366d6;
+            text-decoration: none;
+        }
+
+        a:hover {
+            text-decoration: underline;
+        }
+
+        /* コードブロック */
+        pre {
+            background-color: #f6f8fa;
+            border-radius: 6px;
+            padding: 16px;
+            overflow-x: auto;
+            margin-bottom: 16px;
+            font-size: 14px;
+            line-height: 1.45;
+        }
+
+        code {
+            font-family: SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
+            font-size: 85%;
+            background-color: rgba(27, 31, 35, 0.05);
+            border-radius: 3px;
+            padding: 0.2em 0.4em;
+        }
+
+        pre code {
+            background-color: transparent;
+            padding: 0;
+            font-size: 100%;
+        }
+
+        /* 強調 */
+        strong {
+            font-weight: 600;
+        }
+
+        /* 引用符 */
+        blockquote {
+            border-left: 4px solid #dfe2e5;
+            padding-left: 16px;
+            margin-bottom: 16px;
+            color: #6a737d;
+        }
+
+        /* レスポンシブ */
+        @media (max-width: 768px) {
+            .container {
+                padding: 16px 16px;
+            }
+
+            h1 {
+                font-size: 28px;
+            }
+
+            h2 {
+                font-size: 22px;
+            }
+
+            h3 {
+                font-size: 18px;
+            }
+
+            pre {
+                padding: 12px;
+                font-size: 12px;
+            }
+        }
+
+        /* 印刷用スタイル */
+        @media print {
+            body {
+                color: #000;
+                background-color: #fff;
+            }
+
+            .toc {
+                border: 1px solid #000;
+            }
+
+            pre {
+                border: 1px solid #ddd;
+                page-break-inside: avoid;
+            }
+        }
+
+        /* スムーズスクロール */
+        html {
+            scroll-behavior: smooth;
+        }
+
+        /* アンカーのオフセット */
+        h2[id], h3[id], h4[id] {
+            scroll-margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>TextffCutの手動起動ガイド</h1>
+        
+        <p>自動起動スクリプトが失敗した場合に、手動でTextffCutを起動する方法を説明します。</p>
+
+        <div class="toc">
+            <h2>📋 目次</h2>
+            <ol>
+                <li><a href="#起動スクリプトが行っていること">起動スクリプトが行っていること</a></li>
+                <li><a href="#手動での起動方法">手動での起動方法</a></li>
+                <li><a href="#プラットフォーム別の操作">プラットフォーム別の操作</a></li>
+                <li><a href="#よくあるエラーと対処法">よくあるエラーと対処法</a></li>
+            </ol>
+        </div>
+
+        <h2 id="起動スクリプトが行っていること">起動スクリプトが行っていること</h2>
+        
+        <p>起動スクリプトは以下の処理を自動で行っています：</p>
+
+        <h3>1. <strong>Dockerの起動確認</strong></h3>
+        <ul>
+            <li>Docker Desktop（Windows/Mac）またはDocker Engine（Linux）が起動しているかチェック</li>
+            <li>起動していない場合はエラーメッセージを表示</li>
+        </ul>
+
+        <h3>2. <strong>使用可能なポートの検索</strong></h3>
+        <ul>
+            <li>ポート8501が使用中かどうかを確認</li>
+            <li>使用中の場合は8502〜8510の範囲で空いているポートを探す</li>
+            <li>空いているポートが見つかったら、そのポートを使用</li>
+        </ul>
+
+        <h3>3. <strong>必要なフォルダの作成</strong></h3>
+        <ul>
+            <li><code>videos</code>フォルダ（動画ファイル用）</li>
+            <li><code>logs</code>フォルダ（ログファイル用）</li>
+            <li><code>prompts</code>フォルダ（プロンプトファイル用）</li>
+        </ul>
+
+        <h3>4. <strong>Dockerコンテナの起動</strong></h3>
+        <ul>
+            <li>Dockerイメージのビルド</li>
+            <li>コンテナの起動</li>
+            <li>ブラウザでアクセスできるURLの表示</li>
+        </ul>
+
+        <h2 id="手動での起動方法">手動での起動方法</h2>
+
+        <h3>基本的な手順</h3>
+
+        <ol>
+            <li><strong>ターミナル/コマンドプロンプトを開く</strong></li>
+            <li><strong>TextffCutフォルダに移動</strong></li>
+            <li><strong>必要なフォルダを作成</strong></li>
+            <li><strong>Dockerコンテナを起動</strong></li>
+        </ol>
+
+        <h3>詳細な手順</h3>
+
+        <h4>1. Dockerの起動確認</h4>
+
+        <p><strong>Mac/Windows:</strong></p>
+        <pre><code>docker --version</code></pre>
+
+        <p><strong>Linux:</strong></p>
+        <pre><code>sudo docker --version</code></pre>
+
+        <p>エラーが出る場合は、Docker Desktop（Mac/Windows）またはDocker Engine（Linux）を起動してください。</p>
+
+        <h4>2. TextffCutフォルダに移動</h4>
+
+        <p><strong>Mac/Linux:</strong></p>
+        <pre><code>cd ~/Downloads/TextffCut</code></pre>
+
+        <p><strong>Windows:</strong></p>
+        <pre><code>cd C:\Users\あなたのユーザー名\Downloads\TextffCut</code></pre>
+
+        <p>（実際のパスに置き換えてください）</p>
+
+        <h4>3. 使用中のポートを確認</h4>
+
+        <p><strong>Mac/Linux:</strong></p>
+        <pre><code>lsof -i :8501</code></pre>
+
+        <p><strong>Windows:</strong></p>
+        <pre><code>netstat -an | findstr :8501</code></pre>
+
+        <p>何か表示される場合は、ポート8501が使用中です。</p>
+
+        <h4>4. 必要なフォルダの作成</h4>
+
+        <p><strong>Mac/Linux:</strong></p>
+        <pre><code>mkdir -p videos logs prompts</code></pre>
+
+        <p><strong>Windows:</strong></p>
+        <pre><code>mkdir videos 2>nul
+mkdir logs 2>nul
+mkdir prompts 2>nul</code></pre>
+
+        <h4>5. Dockerコンテナを起動</h4>
+
+        <p><strong>通常の起動:</strong></p>
+        <pre><code>docker compose up --build</code></pre>
+
+        <p><strong>古いバージョンのDocker Composeの場合:</strong></p>
+        <pre><code>docker-compose up --build</code></pre>
+
+        <h4>6. ブラウザでアクセス</h4>
+        <ul>
+            <li><a href="http://localhost:8501">http://localhost:8501</a> を開く</li>
+            <li>もし「接続できません」と表示される場合は、少し待ってから再度アクセス</li>
+        </ul>
+
+        <h2 id="プラットフォーム別の操作">プラットフォーム別の操作</h2>
+
+        <h3>Mac環境での追加情報</h3>
+
+        <h4>Docker Desktop GUIからの起動</h4>
+        <ol>
+            <li>アプリケーションフォルダから「Docker」を起動</li>
+            <li>メニューバーのDockerアイコンが「Docker Desktop is running」と表示されるまで待つ</li>
+            <li>ターミナルを開いて上記の手順を実行</li>
+        </ol>
+
+        <h4>ポートを手動で変更する場合</h4>
+        <ol>
+            <li>テキストエディタで<code>docker-compose.yml</code>を開く
+                <pre><code>open -e docker-compose.yml</code></pre>
+            </li>
+            <li>ポート設定を変更（例：8502を使用）
+                <pre><code>ports:
+  - "8502:8501"  # 左側の数字だけ変更</code></pre>
+            </li>
+            <li>保存して起動</li>
+        </ol>
+
+        <h3>Windows環境での追加情報</h3>
+
+        <h4>Docker Desktop GUIからの起動</h4>
+        <ol>
+            <li>スタートメニューから「Docker Desktop」を起動</li>
+            <li>タスクバーのDockerアイコンが白くなるまで待つ</li>
+            <li>コマンドプロンプトまたはPowerShellで上記の手順を実行</li>
+        </ol>
+
+        <h4>メモ帳でポートを変更する場合</h4>
+        <ol>
+            <li><code>docker-compose.yml</code>を右クリック→「プログラムから開く」→「メモ帳」</li>
+            <li>ポート設定を変更して保存</li>
+        </ol>
+
+        <h3>Linux環境での追加情報</h3>
+
+        <h4>Dockerサービスの確認</h4>
+        <pre><code>sudo systemctl status docker</code></pre>
+
+        <p>起動していない場合：</p>
+        <pre><code>sudo systemctl start docker</code></pre>
+
+        <h4>権限エラーの場合</h4>
+        <pre><code>sudo docker compose up --build</code></pre>
+
+        <h2 id="よくあるエラーと対処法">よくあるエラーと対処法</h2>
+
+        <h3>エラー1: 「docker: command not found」または「'docker' は認識されていません」</h3>
+        <p><strong>原因</strong>: Dockerがインストールされていない、またはPATHに追加されていない</p>
+
+        <p><strong>対処法</strong>:</p>
+        <ul>
+            <li><strong>Mac</strong>: Docker Desktopをインストール</li>
+            <li><strong>Windows</strong>: Docker Desktopをインストール後、PCを再起動</li>
+            <li><strong>Linux</strong>: Docker Engineをインストール</li>
+        </ul>
+
+        <h3>エラー2: 「bind: address already in use」</h3>
+        <p><strong>原因</strong>: ポートが既に使用されている</p>
+
+        <p><strong>対処法</strong>:</p>
+
+        <p>方法1: 別のポートを使用</p>
+        <pre><code># docker-compose.override.ymlを作成
+cat > docker-compose.override.yml << EOF
+services:
+  textffcut:
+    ports:
+      - "8502:8501"
+EOF
+
+# 起動
+docker compose up --build</code></pre>
+
+        <p>方法2: 使用中のプロセスを確認して終了</p>
+        <ul>
+            <li><strong>Mac/Linux</strong>: <code>lsof -i :8501</code> でプロセスを確認</li>
+            <li><strong>Windows</strong>: タスクマネージャーで該当プロセスを終了</li>
+        </ul>
+
+        <h3>エラー3: 「Cannot connect to the Docker daemon」</h3>
+        <p><strong>原因</strong>: Dockerが起動していない</p>
+
+        <p><strong>対処法</strong>:</p>
+        <ul>
+            <li><strong>Mac/Windows</strong>: Docker Desktopを起動</li>
+            <li><strong>Linux</strong>: <code>sudo systemctl start docker</code></li>
+        </ul>
+
+        <h3>エラー4: ファイアウォールの問題</h3>
+        <p><strong>症状</strong>: コンテナは起動したが、ブラウザでアクセスできない</p>
+
+        <p><strong>対処法</strong>:</p>
+        <ol>
+            <li><code>http://127.0.0.1:8501</code> でアクセスしてみる</li>
+            <li>ファイアウォール設定を確認</li>
+            <li>セキュリティソフトの設定を確認</li>
+        </ol>
+
+        <h2>🔍 高度なトラブルシューティング</h2>
+
+        <h3>ログの確認</h3>
+        <pre><code># コンテナのログを表示
+docker compose logs
+
+# リアルタイムでログを表示
+docker compose logs -f</code></pre>
+
+        <h3>コンテナの状態確認</h3>
+        <pre><code># 実行中のコンテナを表示
+docker ps
+
+# すべてのコンテナを表示（停止中も含む）
+docker ps -a</code></pre>
+
+        <h3>クリーンな再起動</h3>
+        <pre><code># すべてを停止・削除して再起動
+docker compose down
+docker compose up --build --force-recreate</code></pre>
+
+        <h3>ポートの解放（強制）</h3>
+        <p><strong>Mac/Linux:</strong></p>
+        <pre><code># プロセスIDを確認
+lsof -ti:8501
+# プロセスを終了（PIDを置き換えて実行）
+kill -9 &lt;PID&gt;</code></pre>
+
+        <p><strong>Windows (管理者権限で実行):</strong></p>
+        <pre><code># プロセスIDを確認
+netstat -aon | findstr :8501
+# プロセスを終了（PIDを置き換えて実行）
+taskkill /F /PID &lt;PID&gt;</code></pre>
+
+        <h2>📞 サポート</h2>
+
+        <p>上記の方法で解決しない場合は、以下の情報を添えてサポートにお問い合わせください：</p>
+        <ul>
+            <li>OS情報（例：macOS 14.2、Windows 11 23H2、Ubuntu 22.04）</li>
+            <li>Dockerのバージョン（<code>docker --version</code>の結果）</li>
+            <li>表示されたエラーメッセージの全文</li>
+            <li>実行したコマンドと結果</li>
+        </ul>
+    </div>
+</body>
+</html>

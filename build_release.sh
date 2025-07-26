@@ -64,6 +64,7 @@ echo "4. 配布用ファイルを作成しています..."
 cat > release/START.bat <<EOF
 @echo off
 chcp 65001 >nul
+setlocal enabledelayedexpansion
 echo Starting TextffCut v${VERSION}...
 echo.
 
@@ -108,14 +109,54 @@ if errorlevel 1 (
 )
 echo.
 
+REM ポート自動検出
+set BASE_PORT=8501
+set PORT=!BASE_PORT!
+set MAX_PORT=8510
+set FOUND=0
+
+:find_port
+netstat -an | findstr /r ":!PORT! .*LISTENING" >nul 2>&1
+if %errorlevel% equ 0 (
+    REM ポートが使用中
+    set /a PORT=PORT+1
+    if !PORT! gtr !MAX_PORT! (
+        echo ❌ Error: No available port found.
+        pause
+        exit /b 1
+    )
+    goto find_port
+) else (
+    REM ポートが空いている
+    set FOUND=1
+)
+
+if !PORT! neq !BASE_PORT! (
+    echo ⚠️  Port !BASE_PORT! is in use, using port !PORT!
+    
+    REM docker-compose.override.ymlを作成
+    (
+        echo version: '3.8'
+        echo services:
+        echo   textffcut:
+        echo     ports:
+        echo       - "!PORT!:8501"
+    ) > docker-compose.override.yml
+)
+
 echo Starting TextffCut...
-echo URL: http://localhost:8501
+echo URL: http://localhost:!PORT!
 echo Videos folder: %cd%\videos
 echo.
 echo Opening browser...
-start http://localhost:8501
+start http://localhost:!PORT!
 
-%COMPOSE_CMD% -f docker-compose-simple.yml up
+%COMPOSE_CMD% -f docker-compose-simple.yml -f docker-compose.override.yml up
+
+REM クリーンアップ
+if exist docker-compose.override.yml (
+    del docker-compose.override.yml
+)
 
 pause
 EOF
@@ -124,6 +165,7 @@ EOF
 cat > release/START_CLEAN.bat <<EOF
 @echo off
 chcp 65001 >nul
+setlocal enabledelayedexpansion
 echo TextffCut v${VERSION} Clean Start
 echo.
 
@@ -198,14 +240,54 @@ echo Loading Docker image...
 docker load -i textffcut_v${VERSION}_docker.tar.gz
 echo.
 
+REM ポート自動検出
+set BASE_PORT=8501
+set PORT=!BASE_PORT!
+set MAX_PORT=8510
+set FOUND=0
+
+:find_port_clean
+netstat -an | findstr /r ":!PORT! .*LISTENING" >nul 2>&1
+if %errorlevel% equ 0 (
+    REM ポートが使用中
+    set /a PORT=PORT+1
+    if !PORT! gtr !MAX_PORT! (
+        echo ❌ Error: No available port found.
+        pause
+        exit /b 1
+    )
+    goto find_port_clean
+) else (
+    REM ポートが空いている
+    set FOUND=1
+)
+
+if !PORT! neq !BASE_PORT! (
+    echo ⚠️  Port !BASE_PORT! is in use, using port !PORT!
+    
+    REM docker-compose.override.ymlを作成
+    (
+        echo version: '3.8'
+        echo services:
+        echo   textffcut:
+        echo     ports:
+        echo       - "!PORT!:8501"
+    ) > docker-compose.override.yml
+)
+
 echo Starting TextffCut...
-echo URL: http://localhost:8501
+echo URL: http://localhost:!PORT!
 echo Videos folder: %cd%\videos
 echo.
 echo Opening browser...
-start http://localhost:8501
+start http://localhost:!PORT!
 
-%COMPOSE_CMD% -f docker-compose-simple.yml up
+%COMPOSE_CMD% -f docker-compose-simple.yml -f docker-compose.override.yml up
+
+REM クリーンアップ
+if exist docker-compose.override.yml (
+    del docker-compose.override.yml
+)
 
 pause
 EOF
@@ -262,18 +344,7 @@ fi
 echo "   割り当てメモリ: ${RECOMMENDED_MEM}GB"
 echo ""
 
-# docker-compose.override.ymlを生成（メモリ制限を追加）
-cat > docker-compose.override.yml <<OVERRIDE_EOF
-version: '3.8'
-services:
-  textffcut:
-    deploy:
-      resources:
-        limits:
-          memory: ${RECOMMENDED_MEM}g
-    environment:
-      - TEXTFFCUT_MEMORY_LIMIT=${RECOMMENDED_MEM}g
-OVERRIDE_EOF
+# この時点ではまだPORT変数が設定されていないため、override.ymlの生成は後で行う
 
 # ===========================================
 # Docker Desktop確認
@@ -332,50 +403,68 @@ if [ -n "$STOPPED_CONTAINER" ]; then
     exit 0
 fi
 
-# ポート8501を使用しているプロセスをチェック
-PORT=8501
-if lsof -ti:$PORT > /dev/null 2>&1; then
-    echo "警告: ポート$PORTが既に使用されています。"
+# ポート自動検出機能
+find_available_port() {
+    local base_port=$1
+    local port=$base_port
+    local max_attempts=10
+    local attempt=0
     
-    # Dockerコンテナが使用しているかチェック
-    CONTAINER_USING_PORT=$(docker ps --format "{{.Names}}" | while read container; do
-        if docker port "$container" 2>/dev/null | grep -q "$PORT"; then
-            echo "$container"
-            break
+    while [ $attempt -lt $max_attempts ]; do
+        if ! lsof -ti:$port > /dev/null 2>&1; then
+            echo $port
+            return 0
         fi
-    done)
+        port=$((port + 1))
+        attempt=$((attempt + 1))
+    done
     
-    if [ -n "$CONTAINER_USING_PORT" ]; then
-        # TextffCutのコンテナかチェック
-        if [[ "$CONTAINER_USING_PORT" == textffcut* ]] || [[ "$CONTAINER_USING_PORT" == "TextffCut" ]]; then
-            echo "既存のTextffCutコンテナ($CONTAINER_USING_PORT)が起動しています。"
-            echo "自動的に停止して新しいコンテナを起動します..."
-            docker stop "$CONTAINER_USING_PORT"
-            docker rm "$CONTAINER_USING_PORT" 2>/dev/null
-        else
-            echo "別のDockerコンテナ($CONTAINER_USING_PORT)がポート$PORTを使用しています。"
-            # 別のポートを探す
-            for ALT_PORT in 8502 8503 8504 8505; do
-                if ! lsof -ti:$ALT_PORT > /dev/null 2>&1; then
-                    PORT=$ALT_PORT
-                    echo "代替ポート$PORTを使用します。"
-                    export TEXTFFCUT_PORT=$PORT
-                    break
-                fi
-            done
-        fi
-    else
-        echo "Docker以外のプロセスがポート$PORTを使用しています。"
-        # 別のポートを探す
-        for ALT_PORT in 8502 8503 8504 8505; do
-            if ! lsof -ti:$ALT_PORT > /dev/null 2>&1; then
-                PORT=$ALT_PORT
-                echo "代替ポート$PORTを使用します。"
-                export TEXTFFCUT_PORT=$PORT
-                break
-            fi
-        done
-    fi
+    return 1
+}
+
+# 使用するポートを決定
+PORT=$(find_available_port 8501)
+
+if [ -z "$PORT" ]; then
+    echo "❌ エラー: 利用可能なポートが見つかりませんでした。"
+    echo "   他のアプリケーションを終了してから再度お試しください。"
+    read -p "Enterキーを押して終了..."
+    exit 1
+fi
+
+if [ "$PORT" != "8501" ]; then
+    echo "⚠️  ポート8501が使用中のため、ポート$PORTを使用します。"
+fi
+
+# docker-compose.override.ymlを生成（メモリ制限とポート設定を追加）
+if [ "$PORT" != "8501" ]; then
+    # ポート変更が必要な場合
+    cat > docker-compose.override.yml <<OVERRIDE_EOF
+version: '3.8'
+services:
+  textffcut:
+    ports:
+      - "$PORT:8501"
+    deploy:
+      resources:
+        limits:
+          memory: ${RECOMMENDED_MEM}g
+    environment:
+      - TEXTFFCUT_MEMORY_LIMIT=${RECOMMENDED_MEM}g
+OVERRIDE_EOF
+else
+    # ポート変更が不要な場合
+    cat > docker-compose.override.yml <<OVERRIDE_EOF
+version: '3.8'
+services:
+  textffcut:
+    deploy:
+      resources:
+        limits:
+          memory: ${RECOMMENDED_MEM}g
+    environment:
+      - TEXTFFCUT_MEMORY_LIMIT=${RECOMMENDED_MEM}g
+OVERRIDE_EOF
 fi
 
 # 必要なフォルダを作成
@@ -418,22 +507,16 @@ echo "アプリケーションを起動しています..."
 echo "ブラウザで http://localhost:$PORT を開いています..."
 open "http://localhost:$PORT"
 
-if [ -n "$TEXTFFCUT_PORT" ]; then
-    # docker-compose.ymlを一時的に作成（ポート変更対応）
-    sed "s/8501:8501/$TEXTFFCUT_PORT:8501/g" ./docker-compose.yml > ./docker-compose-temp.yml
-    
-    # overrideファイルと一緒に起動
-    docker-compose -f ./docker-compose-temp.yml -f ./docker-compose.override.yml up
-    
-    # 一時ファイルを削除
-    rm -f ./docker-compose-temp.yml
-    rm -f ./docker-compose.override.yml
+# Docker Composeで起動
+if docker compose version &> /dev/null; then
+    docker compose -f docker-compose-simple.yml -f docker-compose.override.yml up
 else
-    # overrideファイルと一緒に起動
-    docker-compose -f ./docker-compose.yml -f ./docker-compose.override.yml up
-    
-    # overrideファイルを削除
-    rm -f ./docker-compose.override.yml
+    docker-compose -f docker-compose-simple.yml -f docker-compose.override.yml up
+fi
+
+# クリーンアップ
+if [ -f docker-compose.override.yml ]; then
+    rm -f docker-compose.override.yml
 fi
 
 read -p "Enterキーを押して終了..."
@@ -596,6 +679,10 @@ TextffCut
    - Windows: START_CLEAN.bat をダブルクリック
    - macOS: START_CLEAN.command をダブルクリック
    （Dockerイメージを削除して再読み込みします）
+
+スクリプトで起動できない場合:
+   MANUAL_STARTUP_GUIDE.html をブラウザで開いて
+   手動起動の詳しい手順をご確認ください。
 
 【詳しい使い方】
 
@@ -801,6 +888,12 @@ mv START.command TextffCut/
 mv START_CLEAN.command TextffCut/
 mv docker-compose-simple.yml TextffCut/
 mv README.txt TextffCut/
+
+# MANUAL_STARTUP_GUIDE.htmlをコピー
+if [ -f "../MANUAL_STARTUP_GUIDE.html" ]; then
+    cp ../MANUAL_STARTUP_GUIDE.html TextffCut/
+    echo "✅ MANUAL_STARTUP_GUIDE.html を追加しました"
+fi
 
 # ZIPファイルを作成
 zip -r TextffCut_v${VERSION}.zip TextffCut

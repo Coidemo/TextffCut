@@ -68,9 +68,25 @@
 ```bash
 git clone https://github.com/Coidemo/TextffCut.git
 cd TextffCut
+
+# 方法1: ポート自動検出機能付き起動（推奨）
+./docker-compose-with-port-check.sh
+
+# 方法2: 通常のdocker-compose
 docker-compose up -d
 # ブラウザで http://localhost:8501 にアクセス
 ```
+
+#### 🔧 ポート自動検出機能
+ポート8501が使用中の場合、自動的に別のポート（8502-8510）を探して起動します。
+
+**対応スクリプト:**
+- `./docker-compose-with-port-check.sh` (Mac/Linux)
+- `docker-compose-with-port-check.bat` (Windows)
+- `./scripts/start-dev.sh` (Mac/Linux開発用)
+- `scripts\start-dev.bat` (Windows開発用)
+- `./scripts/start-clean.sh` (Mac/Linuxクリーン起動)
+- `scripts\start-clean.bat` (Windowsクリーン起動)
 
 ### ローカル版
 ```bash
@@ -267,6 +283,7 @@ docker-compose restart
 ### 詳細情報
 - 🐳 [Docker ガイド](docs/DOCKER_GUIDE.md) - Docker版の使い方
 - 🔧 [トラブルシューティング](docs/TROUBLESHOOTING.md) - 問題解決ガイド
+- 🔄 [手動起動ガイド](docs/MANUAL_STARTUP_GUIDE.md) - 自動起動が失敗した場合の対処法
 - 📝 [開発者向け情報](CLAUDE.md) - 開発・カスタマイズ情報
 
 ## 📞 サポート
