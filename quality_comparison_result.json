@@ -1,0 +1,31 @@
+{
+  "text_length": {
+    "original": 6400,
+    "compressed": 6400
+  },
+  "word_count": {
+    "original": 56,
+    "compressed": 56
+  },
+  "similarity": {
+    "character_level": 1.0,
+    "word_level": 1.0
+  },
+  "differences": [],
+  "alignment": {
+    "original": {
+      "total_words": 6345,
+      "aligned_words": 6345,
+      "alignment_rate": 1.0,
+      "avg_confidence": 0.8829480444785219,
+      "low_confidence_count": 10
+    },
+    "compressed": {
+      "total_words": 6345,
+      "aligned_words": 6345,
+      "alignment_rate": 1.0,
+      "avg_confidence": 0.8829480444785219,
+      "low_confidence_count": 10
+    }
+  }
+}

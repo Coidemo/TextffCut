@@ -143,29 +143,31 @@ class APITranscriber:
             if progress_callback:
                 progress_callback(0.05, f"音声を読み込み中（元サイズ: {original_size:.1f}MB）...")
 
-            # WhisperXと同じ方法で音声を読み込み
+            # API用に音声を圧縮（メモリ効率化）
+            from core.audio_optimizer import IntelligentAudioOptimizer
+            optimizer = IntelligentAudioOptimizer()
+            
+            if progress_callback:
+                progress_callback(0.05, "API送信用に音声を圧縮中...")
+            
+            # API送信用に音声を圧縮（MP3形式、32kbps）
+            compressed_path = optimizer.prepare_audio_for_api(Path(audio_path))
+            compressed_size = os.path.getsize(compressed_path) / (1024 * 1024)
+            
+            if progress_callback:
+                progress_callback(0.1, f"音声圧縮完了（{original_size:.1f}MB → {compressed_size:.1f}MB）")
+            
             try:
-                import whisperx
-
-                audio = whisperx.load_audio(audio_path)
-
-                if progress_callback:
-                    progress_callback(0.1, "音声データを最適化完了、チャンク分割中...")
-
-                # ローカル版と同じチャンク分割処理
-                result = self._transcribe_with_chunks(
-                    client, audio, audio_path, progress_callback, perf_tracker, video_info.duration
-                )
-                return result
-
-            except ImportError:
-                # WhisperXが利用できない場合はFFmpegで変換
-                logger.warning("WhisperXが利用できないため、FFmpegで音声変換します")
-                result = self._transcribe_with_ffmpeg(client, audio_path, progress_callback)
-                # FFmpegの場合もトラッキング
-                perf_tracker.start_tracking("normal", "whisper-1", True, video_info.duration)
+                # 圧縮された音声ファイルで文字起こし
+                result = self._transcribe_single_file(client, compressed_path, progress_callback)
+                # トラッキング
+                perf_tracker.start_tracking("api_optimized", "whisper-1", True, video_info.duration)
                 perf_tracker.end_tracking(len(result.segments) if result else 0)
                 return result
+            finally:
+                # 一時ファイルを削除
+                if compressed_path.exists():
+                    compressed_path.unlink()
 
         except ImportError as e:
             from utils.exceptions import TranscriptionError

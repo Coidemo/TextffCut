@@ -1,0 +1,38 @@
+[
+  {
+    "description": "圧縮なし（元音声）",
+    "file_size_mb": 3.200742721557617,
+    "audio_duration_sec": 30.0001875,
+    "load_time_sec": 0.05134987831115723,
+    "model_load_time_sec": 4.697973012924194,
+    "transcribe_time_sec": 23.80203104019165,
+    "total_time_sec": 28.551353931427002,
+    "used_batch_size": 16,
+    "num_segments": 1,
+    "total_text_length": 168,
+    "memory_start_gb": 47.74324035644531,
+    "memory_peak_gb": 49.975067138671875,
+    "memory_increase_gb": 2.2318267822265625,
+    "device": "cpu",
+    "compute_type": "int8"
+  },
+  {
+    "description": "圧縮あり（16kHz/モノラル）",
+    "file_size_mb": 0.9156074523925781,
+    "audio_duration_sec": 30.0001875,
+    "load_time_sec": 0.08813786506652832,
+    "model_load_time_sec": 1.9367177486419678,
+    "transcribe_time_sec": 22.809756755828857,
+    "total_time_sec": 24.834612369537354,
+    "used_batch_size": 16,
+    "num_segments": 1,
+    "total_text_length": 168,
+    "memory_start_gb": 49.95298767089844,
+    "memory_peak_gb": 50.771331787109375,
+    "memory_increase_gb": 0.8183441162109375,
+    "device": "cpu",
+    "compute_type": "int8",
+    "compress_time_sec": 0.16181087493896484,
+    "total_time_with_compress_sec": 24.99642324447632
+  }
+]
