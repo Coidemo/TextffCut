@@ -108,17 +108,9 @@ class ThemeDetector:
                         isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
                     }
                     
-                    // 検出結果をStreamlitのquery paramsに送信
+                    // 検出結果をコンソールに出力（デバッグ用）
                     const theme = isDark ? 'dark' : 'light';
                     console.log('Detected theme:', theme);
-                    
-                    // Streamlitのセッション状態を更新するため、隠しボタンをクリック
-                    const hiddenButton = document.getElementById('theme-update-button');
-                    if (hiddenButton) {
-                        // ボタンのテキストを更新してからクリック
-                        hiddenButton.textContent = theme;
-                        hiddenButton.click();
-                    }
                 };
                 
                 // DOMロード後とStreamlitの動的レンダリング後の両方で実行
@@ -171,23 +163,6 @@ class ThemeDetector:
             </script>
             """
             st.markdown(detector_script, unsafe_allow_html=True)
-            
-            # 隠しボタンでテーマ情報を受け取る
-            if st.button("theme_update", key="theme_update_button", help="Hidden theme update button", 
-                        disabled=False, use_container_width=False):
-                # このボタンは見えないがJavaScriptからクリックされる
-                pass
-            
-            # ボタンを非表示にするCSS
-            st.markdown("""
-            <style>
-            button[kind="primary"][key="theme_update_button"] {
-                display: none !important;
-            }
-            </style>
-            <button id="theme-update-button" style="display: none;">light</button>
-            """, unsafe_allow_html=True)
-            
             st.session_state.theme_detector_injected = True
     
     @staticmethod
