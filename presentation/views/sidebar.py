@@ -32,10 +32,6 @@ class SidebarView(BaseView[SidebarViewModel]):
     def render(self) -> None:
         """UIをレンダリング"""
         with st.sidebar:
-            # タイトル
-            st.markdown("## 🎬 TextffCut")
-            st.markdown("---")
-
             # タブ表示
             tab1, tab2 = st.tabs(["🎛️ 設定", "❓ ヘルプ"])
 
