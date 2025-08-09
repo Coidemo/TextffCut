@@ -1,8 +1,0 @@
-{
-  "id": "profile_1753654799.0",
-  "batch_size": 8,
-  "compute_type": null,
-  "max_conversion_time": 300,
-  "min_memory_threshold_gb": 4.0,
-  "metrics_history": []
-}

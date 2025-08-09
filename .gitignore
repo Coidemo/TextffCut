@@ -228,3 +228,10 @@ models/
 *.safetensors
 test_output/
 text_processing_comparison.md
+
+# Performance test files
+transcription_*.txt
+test_whisperx_*.py
+whisperx_performance_*.json
+quality_comparison_*.json
+.performance_profile_json_example
