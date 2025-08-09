@@ -57,8 +57,12 @@ class ThemeDetector:
             detector_script = """
             <script>
             (function() {
-                // テーマを検出してStreamlitに送信
-                const detectAndSendTheme = () => {
+                // テーマ検出の状態管理
+                let lastDetectedTheme = null;
+                let themeDetectionComplete = false;
+                
+                // テーマを検出する関数
+                const detectTheme = () => {
                     let isDark = null;
                     
                     // 1. Streamlitの設定オブジェクトから直接取得
@@ -71,7 +75,7 @@ class ThemeDetector:
                             }
                         }
                     } catch (e) {
-                        console.log('Theme detection error (method 1):', e);
+                        console.debug('Theme detection method 1 not available');
                     }
                     
                     // 2. CSSカスタムプロパティから取得
@@ -86,79 +90,155 @@ class ThemeDetector:
                                 isDark = false;
                             }
                         } catch (e) {
-                            console.log('Theme detection error (method 2):', e);
+                            console.debug('Theme detection method 2 not available');
                         }
                     }
                     
                     // 3. body要素の背景色をチェック
-                    if (isDark === null) {
-                        const body = document.body;
-                        const bgColor = window.getComputedStyle(body).backgroundColor;
-                        // RGB値を解析
-                        const rgb = bgColor.match(/\d+/g);
-                        if (rgb && rgb.length >= 3) {
-                            // 暗い色かどうかを判定（しきい値: 128）
-                            const brightness = (parseInt(rgb[0]) + parseInt(rgb[1]) + parseInt(rgb[2])) / 3;
-                            isDark = brightness < 128;
+                    if (isDark === null && document.body) {
+                        try {
+                            const bgColor = window.getComputedStyle(document.body).backgroundColor;
+                            // RGB値を解析
+                            const rgb = bgColor.match(/\d+/g);
+                            if (rgb && rgb.length >= 3) {
+                                // 暗い色かどうかを判定（しきい値: 128）
+                                const brightness = (parseInt(rgb[0]) + parseInt(rgb[1]) + parseInt(rgb[2])) / 3;
+                                isDark = brightness < 128;
+                            }
+                        } catch (e) {
+                            console.debug('Theme detection method 3 failed');
                         }
                     }
                     
                     // 4. prefers-color-schemeをチェック（最終フォールバック）
                     if (isDark === null) {
-                        isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+                        try {
+                            isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+                        } catch (e) {
+                            // フォールバック: ライトモードをデフォルトとする
+                            isDark = false;
+                            console.debug('Using default theme: light');
+                        }
                     }
                     
-                    // 検出結果をコンソールに出力（デバッグ用）
-                    const theme = isDark ? 'dark' : 'light';
-                    console.log('Detected theme:', theme);
+                    return isDark;
                 };
                 
-                // DOMロード後とStreamlitの動的レンダリング後の両方で実行
-                if (document.readyState === 'loading') {
-                    document.addEventListener('DOMContentLoaded', detectAndSendTheme);
-                } else {
-                    detectAndSendTheme();
-                }
-                
-                // Streamlitの動的レンダリングに対応
-                setTimeout(detectAndSendTheme, 100);
-                setTimeout(detectAndSendTheme, 500);
-                setTimeout(detectAndSendTheme, 1000);
-                
-                // 背景色を強制的に適用
+                // 背景色を適用する関数（より効率的に）
                 const applyBackgroundColor = () => {
                     const isDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches;
+                    const theme = isDarkMode ? 'dark' : 'light';
+                    
+                    // すでに適用済みならスキップ
+                    if (document.documentElement.getAttribute('data-theme-applied') === theme) {
+                        return;
+                    }
+                    
                     const bgColor = isDarkMode ? '#0e1117' : '#ffffff';
                     const textColor = isDarkMode ? '#fafafa' : '#262730';
+                    const sidebarBg = isDarkMode ? '#262730' : '#f0f2f6';
                     
-                    // 複数の要素に背景色を適用
-                    const elements = [
-                        document.documentElement,
-                        document.body,
-                        document.querySelector('.stApp'),
-                        document.querySelector('.main'),
-                        document.querySelector('[data-testid="stAppViewContainer"]')
-                    ];
-                    
-                    elements.forEach(el => {
-                        if (el) {
-                            el.style.backgroundColor = bgColor;
-                            el.style.color = textColor;
+                    // CSSカスタムプロパティを使用して一括適用
+                    const style = document.createElement('style');
+                    style.id = 'theme-detector-styles';
+                    style.textContent = `
+                        :root {
+                            --theme-bg-color: ${bgColor};
+                            --theme-text-color: ${textColor};
+                            --theme-sidebar-bg: ${sidebarBg};
                         }
+                        html, body, .stApp, .main, [data-testid="stAppViewContainer"] {
+                            background-color: var(--theme-bg-color);
+                            color: var(--theme-text-color);
+                        }
+                        section[data-testid="stSidebar"], .css-1d391kg {
+                            background-color: var(--theme-sidebar-bg);
+                        }
+                    `;
+                    
+                    // 既存のスタイルを置き換え
+                    const existingStyle = document.getElementById('theme-detector-styles');
+                    if (existingStyle) {
+                        existingStyle.remove();
+                    }
+                    document.head.appendChild(style);
+                    
+                    // 適用済みフラグを設定
+                    document.documentElement.setAttribute('data-theme-applied', theme);
+                };
+                
+                // MutationObserverを使ってDOM変更を監視
+                const observer = new MutationObserver((mutations) => {
+                    // Streamlitの動的レンダリングを検出
+                    const shouldRecheck = mutations.some(mutation => {
+                        return mutation.type === 'childList' && 
+                               (mutation.target.classList.contains('stApp') || 
+                                mutation.target.tagName === 'BODY');
                     });
                     
-                    // サイドバーの背景色も設定
-                    const sidebar = document.querySelector('section[data-testid="stSidebar"]');
-                    if (sidebar) {
-                        sidebar.style.backgroundColor = isDarkMode ? '#262730' : '#f0f2f6';
+                    if (shouldRecheck && !themeDetectionComplete) {
+                        const currentTheme = detectTheme();
+                        if (currentTheme !== null && currentTheme !== lastDetectedTheme) {
+                            lastDetectedTheme = currentTheme;
+                            console.log('Theme detected:', currentTheme ? 'dark' : 'light');
+                            applyBackgroundColor();
+                            
+                            // 安定したテーマが検出されたら監視を減らす
+                            if (currentTheme !== null) {
+                                themeDetectionComplete = true;
+                                // 監視を続けるが、頻度を下げる
+                                observer.disconnect();
+                                observer.observe(document.body, {
+                                    childList: true,
+                                    subtree: false // subtreeをfalseにして負荷を軽減
+                                });
+                            }
+                        }
+                    }
+                });
+                
+                // 初期設定とオブザーバーの開始
+                const initialize = () => {
+                    // 初回のテーマ検出と適用
+                    lastDetectedTheme = detectTheme();
+                    applyBackgroundColor();
+                    
+                    // DOM監視を開始
+                    if (document.body) {
+                        observer.observe(document.body, {
+                            childList: true,
+                            subtree: true,
+                            attributes: false,
+                            characterData: false
+                        });
+                    }
+                    
+                    // メディアクエリの変更を監視
+                    try {
+                        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+                            console.log('System theme changed:', e.matches ? 'dark' : 'light');
+                            applyBackgroundColor();
+                        });
+                    } catch (e) {
+                        // 古いブラウザのフォールバック
+                        window.matchMedia('(prefers-color-scheme: dark)').addListener((e) => {
+                            console.log('System theme changed:', e.matches ? 'dark' : 'light');
+                            applyBackgroundColor();
+                        });
                     }
                 };
                 
-                // 初回実行と遅延実行
-                applyBackgroundColor();
-                setTimeout(applyBackgroundColor, 200);
-                setTimeout(applyBackgroundColor, 500);
-                setTimeout(applyBackgroundColor, 1000);
+                // DOMContentLoadedまたは即座に実行
+                if (document.readyState === 'loading') {
+                    document.addEventListener('DOMContentLoaded', initialize);
+                } else {
+                    initialize();
+                }
+                
+                // クリーンアップ関数（必要に応じて）
+                window.addEventListener('beforeunload', () => {
+                    observer.disconnect();
+                });
             })();
             </script>
             """
@@ -172,88 +252,168 @@ class ThemeDetector:
         背景色を確実に設定する
         """
         # CSS media queriesを使った自動切り替え方式に変更
+        # より具体的なセレクタで特異性を高め、!importantの使用を最小限に
         theme_css = """
         <style>
-        /* ライトモード用のスタイル */
+        /* デフォルト値（CSS変数非対応ブラウザ用フォールバック） */
+        :root {
+            /* ライトモードをデフォルトとして設定 */
+            --textffcut-bg-primary: #ffffff;
+            --textffcut-bg-secondary: #f0f2f6;
+            --textffcut-text-primary: #262730;
+            --textffcut-text-secondary: #555555;
+            --textffcut-highlight-match: #28a745;
+            --textffcut-highlight-addition: #dc3545;
+            --textffcut-highlight-text: #ffffff;
+            --textffcut-highlight-text-match: #ffffff;
+            --textffcut-highlight-text-addition: #ffffff;
+        }
+        
+        /* CSS変数の定義 - メディアクエリで上書き */
         @media (prefers-color-scheme: light) {
-            /* メインアプリケーションの背景 */
-            html, body, .stApp, .main, [data-testid="stAppViewContainer"] {
-                background-color: #ffffff !important;
-                color: #262730 !important;
-            }
-            
-            /* Streamlitの内部要素も白背景に */
-            .block-container, div[data-testid="block-container"] {
-                background-color: #ffffff !important;
-            }
-            
-            /* サイドバー */
-            section[data-testid="stSidebar"], .css-1d391kg {
-                background-color: #f0f2f6 !important;
-                color: #262730 !important;
-            }
-            
-            /* ヘッダー */
-            header[data-testid="stHeader"] {
-                background-color: #ffffff !important;
-            }
-            
-            /* すべてのセクション背景を透明に */
-            section.main > div {
-                background-color: transparent !important;
-            }
-            
-            /* ハイライト色の調整 */
-            .highlight-match {
-                background-color: #28a745 !important;
-                color: #ffffff !important;
-            }
-            
-            .highlight-addition {
-                background-color: #dc3545 !important;
-                color: #ffffff !important;
+            :root {
+                --textffcut-bg-primary: #ffffff;
+                --textffcut-bg-secondary: #f0f2f6;
+                --textffcut-text-primary: #262730;
+                --textffcut-text-secondary: #555555;
+                --textffcut-highlight-match: #28a745;
+                --textffcut-highlight-addition: #dc3545;
+                --textffcut-highlight-text: #ffffff;
+                --textffcut-highlight-text-match: #ffffff;
+                --textffcut-highlight-text-addition: #ffffff;
             }
         }
         
-        /* ダークモード用のスタイル */
         @media (prefers-color-scheme: dark) {
-            /* メインアプリケーションの背景 */
-            html, body, .stApp, .main, [data-testid="stAppViewContainer"] {
-                background-color: #0e1117 !important;
-                color: #fafafa !important;
-            }
-            
-            /* サイドバー */
-            section[data-testid="stSidebar"], .css-1d391kg {
-                background-color: #262730 !important;
-                color: #fafafa !important;
-            }
-            
-            /* ヘッダー */
-            header[data-testid="stHeader"] {
-                background-color: #0e1117 !important;
-            }
-            
-            /* ハイライト色の調整 */
-            .highlight-match {
-                background-color: #2d5a2d !important;
-                color: #b8e7b8 !important;
-            }
-            
-            .highlight-addition {
-                background-color: #5a2d2d !important;
-                color: #ffb3b3 !important;
+            :root {
+                --textffcut-bg-primary: #0e1117;
+                --textffcut-bg-secondary: #262730;
+                --textffcut-text-primary: #fafafa;
+                --textffcut-text-secondary: #cccccc;
+                --textffcut-highlight-match: #2d5a2d;
+                --textffcut-highlight-addition: #5a2d2d;
+                --textffcut-highlight-text-match: #b8e7b8;
+                --textffcut-highlight-text-addition: #ffb3b3;
             }
         }
         
-        /* 共通の強制スタイル - Streamlitのデフォルトスタイルを上書き */
-        .stApp > div:first-child {
-            background-color: inherit !important;
+        /* CSS変数非対応ブラウザ用の直接指定フォールバック */
+        @supports not (--css: variables) {
+            /* ライトモードのフォールバック */
+            html, body, .stApp {
+                background-color: #ffffff;
+                color: #262730;
+            }
+            
+            section[data-testid="stSidebar"] {
+                background-color: #f0f2f6;
+                color: #262730;
+            }
         }
         
-        /* メインコンテンツエリアの背景を確実に設定 */
-        .main .block-container {
-            background-color: transparent !important;
+        /* 特異性の高いセレクタで背景色を設定 */
+        /* ルート要素 */
+        html:root,
+        body:root {
+            background-color: var(--textffcut-bg-primary);
+            color: var(--textffcut-text-primary);
+        }
+        
+        /* Streamlitメインアプリケーション */
+        .stApp,
+        body > div:first-child > div.stApp,
+        [data-testid="stAppViewContainer"] {
+            background-color: var(--textffcut-bg-primary);
+            color: var(--textffcut-text-primary);
+        }
+        
+        /* メインコンテンツエリア */
+        .main,
+        section.main,
+        .stApp > section.main {
+            background-color: var(--textffcut-bg-primary);
+        }
+        
+        /* ブロックコンテナ - transparentで親の背景を継承 */
+        .block-container,
+        div[data-testid="block-container"],
+        .main .block-container,
+        section.main .block-container {
+            background-color: transparent;
+        }
+        
+        /* サイドバー - より具体的なセレクタ */
+        section[data-testid="stSidebar"],
+        .stApp section[data-testid="stSidebar"],
+        section[data-testid="stSidebar"] > div:first-child {
+            background-color: var(--textffcut-bg-secondary);
+            color: var(--textffcut-text-primary);
+        }
+        
+        /* ヘッダー */
+        header[data-testid="stHeader"],
+        .stApp header[data-testid="stHeader"] {
+            background-color: var(--textffcut-bg-primary);
+        }
+        
+        /* 内部要素の背景を継承 */
+        .stApp > div:first-child,
+        section.main > div {
+            background-color: inherit;
+        }
+        
+        /* ハイライト色 - より具体的なセレクタで!importantを回避 */
+        /* ライトモード */
+        @media (prefers-color-scheme: light) {
+            .highlight-match,
+            .stApp .highlight-match,
+            span.highlight-match {
+                background-color: var(--textffcut-highlight-match);
+                color: var(--textffcut-highlight-text);
+                padding: 2px 4px;
+                border-radius: 3px;
+            }
+            
+            .highlight-addition,
+            .stApp .highlight-addition,
+            span.highlight-addition {
+                background-color: var(--textffcut-highlight-addition);
+                color: var(--textffcut-highlight-text);
+                padding: 2px 4px;
+                border-radius: 3px;
+            }
+        }
+        
+        /* ダークモード */
+        @media (prefers-color-scheme: dark) {
+            .highlight-match,
+            .stApp .highlight-match,
+            span.highlight-match {
+                background-color: var(--textffcut-highlight-match);
+                color: var(--textffcut-highlight-text-match);
+                padding: 2px 4px;
+                border-radius: 3px;
+            }
+            
+            .highlight-addition,
+            .stApp .highlight-addition,
+            span.highlight-addition {
+                background-color: var(--textffcut-highlight-addition);
+                color: var(--textffcut-highlight-text-addition);
+                padding: 2px 4px;
+                border-radius: 3px;
+            }
+        }
+        
+        /* Streamlitのデフォルトスタイルより優先度を高くする追加セレクタ */
+        /* 必要最小限の!importantのみ使用 */
+        html body .stApp {
+            background-color: var(--textffcut-bg-primary) !important;
+        }
+        
+        /* トランジションを追加してちらつきを軽減 */
+        html, body, .stApp, .main, section[data-testid="stSidebar"] {
+            transition: background-color 0.2s ease, color 0.2s ease;
         }
         </style>
         """

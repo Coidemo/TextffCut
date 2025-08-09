@@ -19,6 +19,10 @@ def get_icon_svg() -> str:
 <style>
 .textffcut-logo .icon-dynamic { fill: #2a363b; }
 .textffcut-logo .icon-red { fill: #fd444d; }
+@supports not (prefers-color-scheme: dark) {
+    .textffcut-logo .icon-dynamic { fill: #2a363b; }
+    .textffcut-logo .icon-red { fill: #fd444d; }
+}
 @media (prefers-color-scheme: dark) {
     .textffcut-logo .icon-dynamic { fill: #ffffff; }
     .textffcut-logo .icon-red { fill: #fd444d; }
