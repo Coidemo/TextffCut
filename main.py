@@ -268,9 +268,12 @@ def main():
         unsafe_allow_html=True,
     )
 
+    # テーマ検出器を初期化
+    from utils.theme_detector import ThemeDetector
+    ThemeDetector.inject_theme_detector()
+    
     # ダークモードスタイルを適用
     from ui.dark_mode_styles import apply_dark_mode_styles
-
     apply_dark_mode_styles()
 
     # タイトル
