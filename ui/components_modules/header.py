@@ -7,7 +7,7 @@
 
 import streamlit as st
 
-from ui.constants import ICON_SVG
+from ui.icon_utils import get_icon_svg
 
 
 def show_app_title(version: str = "v1.0.0") -> None:
@@ -35,7 +35,7 @@ def show_app_title(version: str = "v1.0.0") -> None:
     try:
         # まずSVGを試す
         st.markdown(
-            f'{ICON_SVG}<span style="font-size: 3rem; font-weight: bold; vertical-align: middle;">{title_text}</span>',
+            f'{get_icon_svg()}<span style="font-size: 3rem; font-weight: bold; vertical-align: middle;">{title_text}</span>',
             unsafe_allow_html=True,
         )
     except:

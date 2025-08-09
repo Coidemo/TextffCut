@@ -78,19 +78,8 @@ class TimelineColorScheme:
         Returns:
             ダークモードの場合True
         """
-        # セッション状態で明示的に指定されている場合
-        if "dark_mode" in st.session_state:
-            return st.session_state.dark_mode
-
-        # Streamlitの暗黙的なテーマ判定
-        # dark_mode_styles.pyで使用されているのと同じ判定方法を使用
-        try:
-            # theme.baseの設定を確認
-            theme_base = st.get_option("theme.base")
-            return theme_base == "dark"
-        except Exception:
-            # エラーの場合はデフォルトでライトモード
-            return False
+        from utils.theme_detector import ThemeDetector
+        return ThemeDetector.is_dark_mode()
 
     @staticmethod
     def apply_plotly_theme(fig, is_dark_mode: bool | None = None) -> None:

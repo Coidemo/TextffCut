@@ -268,9 +268,40 @@ def main():
         unsafe_allow_html=True,
     )
 
+    # 初期レンダリング時のちらつきを防ぐため、
+    # 最初にベースCSSを適用してからテーマ検出を行う
+    st.markdown("""
+    <style>
+    /* 初期レンダリング用のベーススタイル */
+    /* prefers-color-schemeで即座に適用される */
+    @media (prefers-color-scheme: light) {
+        html, body, .stApp {
+            background-color: #ffffff;
+            color: #262730;
+        }
+    }
+    @media (prefers-color-scheme: dark) {
+        html, body, .stApp {
+            background-color: #0e1117;
+            color: #fafafa;
+        }
+    }
+    /* ちらつき防止のための即時適用 */
+    html, body {
+        transition: none;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    # テーマ検出器を初期化
+    from utils.theme_detector import ThemeDetector
+    ThemeDetector.inject_theme_detector()
+    
+    # テーマ別CSSを適用（背景色も含む）
+    ThemeDetector.apply_theme_specific_css()
+    
     # ダークモードスタイルを適用
     from ui.dark_mode_styles import apply_dark_mode_styles
-
     apply_dark_mode_styles()
 
     # タイトル

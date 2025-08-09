@@ -1,21 +1,22 @@
-[theme]
+# [theme]
+# テーマ設定をコメントアウトして、ユーザーの設定に従うようにする
 # プライマリカラー
-primaryColor = "#FF6B6B"
+# primaryColor = "#FF6B6B"
 
 # 背景色（アプリ全体）
-backgroundColor = "#0E1117"
+# backgroundColor = "#0E1117"
 
 # サイドバーの背景色
-secondaryBackgroundColor = "#262730"
+# secondaryBackgroundColor = "#262730"
 
 # テキストカラー
-textColor = "#FAFAFA"
+# textColor = "#FAFAFA"
 
 # フォント
-font = "sans serif"
+# font = "sans serif"
 
 # ベーステーマ
-base = "dark"
+# base = "dark"
 
 [server]
 # ファイルサイズ制限を2GBに設定

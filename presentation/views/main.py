@@ -47,6 +47,13 @@ class MainView(BaseView[MainViewModel]):
 
     def _apply_custom_css(self) -> None:
         """カスタムCSSを適用"""
+        # テーマ検出器をインポート
+        from utils.theme_detector import ThemeDetector
+        
+        # テーマ検出
+        is_dark = ThemeDetector.is_dark_mode()
+        
+        # 共通CSS
         css = """
         <style>
         /* Streamlitのデフォルト余白を調整 */
@@ -82,12 +89,7 @@ class MainView(BaseView[MainViewModel]):
             justify-content: space-between;
             margin-bottom: 2rem;
             padding: 1rem;
-            background: #f0f2f6;
             border-radius: 0.5rem;
-        }
-        
-        .step-indicator.dark {
-            background: #262730;
         }
         
         .step {
@@ -100,19 +102,7 @@ class MainView(BaseView[MainViewModel]):
         }
         
         .step.active {
-            background: #1f77b4;
-            color: white;
             font-weight: bold;
-        }
-        
-        .step.completed {
-            background: #2ca02c;
-            color: white;
-        }
-        
-        .step.disabled {
-            background: #e0e0e0;
-            color: #999;
         }
         
         /* シンプルステップインジケーター */
@@ -150,22 +140,6 @@ class MainView(BaseView[MainViewModel]):
             font-size: 0.9rem;
             transition: all 0.3s ease;
             cursor: pointer;
-            background: #2a2a3e;
-            border: 2px solid #333;
-            color: #666;
-        }
-        
-        .step-circle.completed {
-            background: #00b894;
-            border-color: #00b894;
-            color: #fff;
-        }
-        
-        .step-circle.current {
-            background: #fff;
-            border-color: #00b894;
-            color: #00b894;
-            box-shadow: 0 0 0 3px rgba(0, 184, 148, 0.2);
         }
         
         .step-circle.disabled {
@@ -175,63 +149,27 @@ class MainView(BaseView[MainViewModel]):
         
         .step-circle:not(.disabled):not(.current):hover {
             transform: scale(1.05);
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
         }
         
         /* ステップラベル */
         .step-label {
             font-size: 0.8rem;
-            color: rgba(255, 255, 255, 0.6);
             text-align: center;
             white-space: nowrap;
-        }
-        
-        .step-label.completed {
-            color: #00b894;
-        }
-        
-        .step-label.current {
-            color: #fff;
-            font-weight: 500;
         }
         
         /* ステップコネクター */
         .step-connector {
             width: 60px;
             height: 2px;
-            background: #333;
             margin: 0 -8px;
             margin-bottom: 1.5rem;
             z-index: 1;
             transition: background 0.3s ease;
         }
         
-        .step-connector.completed {
-            background: #00b894;
-        }
-        
-        /* ナビゲーションボタンのスタイル */
-        [data-testid*="nav_"] > button {
-            background: transparent !important;
-            border: 1px solid rgba(255, 255, 255, 0.2) !important;
-            color: rgba(255, 255, 255, 0.8) !important;
-            font-size: 0.8rem !important;
-            padding: 0.25rem 0.5rem !important;
-            height: auto !important;
-            transition: all 0.2s ease !important;
-        }
-        
-        [data-testid*="nav_"] > button:hover {
-            background: rgba(0, 184, 148, 0.1) !important;
-            border-color: #00b894 !important;
-            color: #00b894 !important;
-        }
-        
-        
         /* エラーメッセージ */
         .error-container {
-            background: #ffebee;
-            border: 1px solid #ef5350;
             border-radius: 0.5rem;
             padding: 1rem;
             margin: 1rem 0;
@@ -239,8 +177,6 @@ class MainView(BaseView[MainViewModel]):
         
         /* 成功メッセージ */
         .success-container {
-            background: #e8f5e9;
-            border: 1px solid #4caf50;
             border-radius: 0.5rem;
             padding: 1rem;
             margin: 1rem 0;
@@ -248,39 +184,246 @@ class MainView(BaseView[MainViewModel]):
         
         </style>
         """
-
         st.markdown(css, unsafe_allow_html=True)
-
-        # ダークテーマ用の追加スタイル
-        dark_theme_css = """
-        <style>
-        /* ボタンの追加エフェクト */
-        .step-grid .stButton > button::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: linear-gradient(45deg, transparent 30%, rgba(255, 255, 255, 0.1) 50%, transparent 70%);
-            transform: translateX(-100%);
-            transition: transform 0.6s;
-        }
         
-        .step-grid .stButton > button:hover::before {
-            transform: translateX(100%);
-        }
-        
-        /* 区切り線のスタイル */
-        hr {
-            border: none;
-            height: 1px;
-            background: rgba(255, 255, 255, 0.1);
-            margin: 2rem 0;
-        }
-        </style>
-        """
-        st.markdown(dark_theme_css, unsafe_allow_html=True)
+        # テーマ別CSS
+        if is_dark:
+            # ダークテーマ用CSS
+            dark_theme_css = """
+            <style>
+            /* ダークテーマカラー */
+            .step-indicator {
+                background: #262730;
+            }
+            
+            .step.active {
+                background: #1f77b4;
+                color: white;
+            }
+            
+            .step.completed {
+                background: #2ca02c;
+                color: white;
+            }
+            
+            .step.disabled {
+                background: #333;
+                color: #666;
+            }
+            
+            /* ステップサークル - ダークテーマ */
+            .step-circle {
+                background: #2a2a3e;
+                border: 2px solid #333;
+                color: #666;
+            }
+            
+            .step-circle.completed {
+                background: #00b894;
+                border-color: #00b894;
+                color: #fff;
+            }
+            
+            .step-circle.current {
+                background: #fff;
+                border-color: #00b894;
+                color: #00b894;
+                box-shadow: 0 0 0 3px rgba(0, 184, 148, 0.2);
+            }
+            
+            .step-circle:not(.disabled):not(.current):hover {
+                box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+            }
+            
+            /* ステップラベル - ダークテーマ */
+            .step-label {
+                color: rgba(255, 255, 255, 0.6);
+            }
+            
+            .step-label.completed {
+                color: #00b894;
+            }
+            
+            .step-label.current {
+                color: #fff;
+                font-weight: 500;
+            }
+            
+            /* ステップコネクター - ダークテーマ */
+            .step-connector {
+                background: #333;
+            }
+            
+            .step-connector.completed {
+                background: #00b894;
+            }
+            
+            /* ナビゲーションボタン - ダークテーマ */
+            [data-testid*="nav_"] > button {
+                background: transparent !important;
+                border: 1px solid rgba(255, 255, 255, 0.2) !important;
+                color: rgba(255, 255, 255, 0.8) !important;
+                font-size: 0.8rem !important;
+                padding: 0.25rem 0.5rem !important;
+                height: auto !important;
+                transition: all 0.2s ease !important;
+            }
+            
+            [data-testid*="nav_"] > button:hover {
+                background: rgba(0, 184, 148, 0.1) !important;
+                border-color: #00b894 !important;
+                color: #00b894 !important;
+            }
+            
+            /* エラーコンテナ - ダークテーマ */
+            .error-container {
+                background: #3d1f1f;
+                border: 1px solid #ef5350;
+            }
+            
+            /* 成功コンテナ - ダークテーマ */
+            .success-container {
+                background: #1f3d1f;
+                border: 1px solid #4caf50;
+            }
+            
+            /* ボタンのエフェクト */
+            .step-grid .stButton > button::before {
+                content: '';
+                position: absolute;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background: linear-gradient(45deg, transparent 30%, rgba(255, 255, 255, 0.1) 50%, transparent 70%);
+                transform: translateX(-100%);
+                transition: transform 0.6s;
+            }
+            
+            .step-grid .stButton > button:hover::before {
+                transform: translateX(100%);
+            }
+            
+            /* 区切り線 - ダークテーマ */
+            hr {
+                border: none;
+                height: 1px;
+                background: rgba(255, 255, 255, 0.1);
+                margin: 2rem 0;
+            }
+            </style>
+            """
+            st.markdown(dark_theme_css, unsafe_allow_html=True)
+        else:
+            # ライトテーマ用CSS
+            light_theme_css = """
+            <style>
+            /* ライトテーマカラー */
+            .step-indicator {
+                background: #f0f2f6;
+            }
+            
+            .step.active {
+                background: #1f77b4;
+                color: white;
+            }
+            
+            .step.completed {
+                background: #2ca02c;
+                color: white;
+            }
+            
+            .step.disabled {
+                background: #e0e0e0;
+                color: #999;
+            }
+            
+            /* ステップサークル - ライトテーマ */
+            .step-circle {
+                background: #f0f2f6;
+                border: 2px solid #ddd;
+                color: #999;
+            }
+            
+            .step-circle.completed {
+                background: #2ca02c;
+                border-color: #2ca02c;
+                color: #fff;
+            }
+            
+            .step-circle.current {
+                background: #1f77b4;
+                border-color: #1f77b4;
+                color: #fff;
+                box-shadow: 0 0 0 3px rgba(31, 119, 180, 0.2);
+            }
+            
+            .step-circle:not(.disabled):not(.current):hover {
+                box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+            }
+            
+            /* ステップラベル - ライトテーマ */
+            .step-label {
+                color: #666;
+            }
+            
+            .step-label.completed {
+                color: #2ca02c;
+            }
+            
+            .step-label.current {
+                color: #1f77b4;
+                font-weight: 500;
+            }
+            
+            /* ステップコネクター - ライトテーマ */
+            .step-connector {
+                background: #ddd;
+            }
+            
+            .step-connector.completed {
+                background: #2ca02c;
+            }
+            
+            /* ナビゲーションボタン - ライトテーマ */
+            [data-testid*="nav_"] > button {
+                background: transparent !important;
+                border: 1px solid #ddd !important;
+                color: #666 !important;
+                font-size: 0.8rem !important;
+                padding: 0.25rem 0.5rem !important;
+                height: auto !important;
+                transition: all 0.2s ease !important;
+            }
+            
+            [data-testid*="nav_"] > button:hover {
+                background: rgba(31, 119, 180, 0.1) !important;
+                border-color: #1f77b4 !important;
+                color: #1f77b4 !important;
+            }
+            
+            /* エラーコンテナ - ライトテーマ */
+            .error-container {
+                background: #ffebee;
+                border: 1px solid #ef5350;
+            }
+            
+            /* 成功コンテナ - ライトテーマ */
+            .success-container {
+                background: #e8f5e9;
+                border: 1px solid #4caf50;
+            }
+            
+            /* 区切り線 - ライトテーマ */
+            hr {
+                border: none;
+                height: 1px;
+                background: #e0e0e0;
+                margin: 2rem 0;
+            }
+            </style>
+            """
+            st.markdown(light_theme_css, unsafe_allow_html=True)
 
     def render(self) -> None:
         """UIをレンダリング"""
