@@ -13,15 +13,12 @@ def get_icon_svg() -> str:
     Returns:
         SVG文字列
     """
-    # SVGとCSSのみのシンプルな実装（JavaScriptなし）
+    # SVGとCSSのみのシンプルな実装（コメントなし）
     return """<svg width="45" height="50" viewBox="0 0 139.61 154.82" xmlns="http://www.w3.org/2000/svg" style="vertical-align: middle; margin-right: 10px;" class="textffcut-logo">
 <defs>
 <style>
-/* デフォルト（ライトモード） */
 .textffcut-logo .icon-dynamic { fill: #2a363b; }
 .textffcut-logo .icon-red { fill: #fd444d; }
-
-/* ダークモード */
 @media (prefers-color-scheme: dark) {
     .textffcut-logo .icon-dynamic { fill: #ffffff; }
     .textffcut-logo .icon-red { fill: #fd444d; }
