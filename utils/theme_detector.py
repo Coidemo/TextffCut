@@ -59,38 +59,65 @@ class ThemeDetector:
             (function() {
                 // テーマを検出してStreamlitに送信
                 const detectAndSendTheme = () => {
-                    let isDark = false;
+                    let isDark = null;
                     
-                    // 1. Streamlitコンテナのdata-theme属性をチェック
-                    const container = document.querySelector('[data-testid="stAppViewContainer"]');
-                    if (container && container.getAttribute('data-theme') === 'dark') {
-                        isDark = true;
+                    // 1. Streamlitの設定オブジェクトから直接取得
+                    try {
+                        // Streamlitのグローバル設定を探す
+                        if (window.streamlit && window.streamlit.getTheme) {
+                            const theme = window.streamlit.getTheme();
+                            if (theme && theme.base) {
+                                isDark = theme.base === 'dark';
+                            }
+                        }
+                    } catch (e) {
+                        console.log('Theme detection error (method 1):', e);
                     }
                     
-                    // 2. CSS変数から背景色をチェック（フォールバック）
-                    if (!isDark) {
-                        const bgColor = getComputedStyle(document.documentElement)
-                            .getPropertyValue('--background-color').trim();
-                        // ダークモードの一般的な背景色
-                        if (bgColor && (
-                            bgColor.includes('26') ||  // #262730など
-                            bgColor.includes('1a') ||  // #1a1a1a など
-                            bgColor.includes('0d')     // #0d0d0d など
-                        )) {
-                            isDark = true;
+                    // 2. CSSカスタムプロパティから取得
+                    if (isDark === null) {
+                        try {
+                            const rootStyles = getComputedStyle(document.documentElement);
+                            const bgColor = rootStyles.getPropertyValue('--background-color').trim();
+                            // Streamlitのデフォルト背景色で判定
+                            if (bgColor === '#0e1117' || bgColor === 'rgb(14, 17, 23)') {
+                                isDark = true;
+                            } else if (bgColor === '#ffffff' || bgColor === 'rgb(255, 255, 255)') {
+                                isDark = false;
+                            }
+                        } catch (e) {
+                            console.log('Theme detection error (method 2):', e);
                         }
                     }
                     
-                    // 3. prefers-color-schemeをチェック（最終フォールバック）
-                    if (!isDark && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-                        isDark = true;
+                    // 3. body要素の背景色をチェック
+                    if (isDark === null) {
+                        const body = document.body;
+                        const bgColor = window.getComputedStyle(body).backgroundColor;
+                        // RGB値を解析
+                        const rgb = bgColor.match(/\d+/g);
+                        if (rgb && rgb.length >= 3) {
+                            // 暗い色かどうかを判定（しきい値: 128）
+                            const brightness = (parseInt(rgb[0]) + parseInt(rgb[1]) + parseInt(rgb[2])) / 3;
+                            isDark = brightness < 128;
+                        }
                     }
                     
-                    // 検出結果を隠し要素に設定（Streamlitが読み取れるように）
-                    const resultElement = document.getElementById('theme-detection-result');
-                    if (resultElement) {
-                        resultElement.textContent = isDark ? 'dark' : 'light';
-                        resultElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
+                    // 4. prefers-color-schemeをチェック（最終フォールバック）
+                    if (isDark === null) {
+                        isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+                    }
+                    
+                    // 検出結果をStreamlitのquery paramsに送信
+                    const theme = isDark ? 'dark' : 'light';
+                    console.log('Detected theme:', theme);
+                    
+                    // Streamlitのセッション状態を更新するため、隠しボタンをクリック
+                    const hiddenButton = document.getElementById('theme-update-button');
+                    if (hiddenButton) {
+                        // ボタンのテキストを更新してからクリック
+                        hiddenButton.textContent = theme;
+                        hiddenButton.click();
                     }
                 };
                 
@@ -102,64 +129,103 @@ class ThemeDetector:
                 }
                 
                 // Streamlitの動的レンダリングに対応
+                setTimeout(detectAndSendTheme, 100);
                 setTimeout(detectAndSendTheme, 500);
                 setTimeout(detectAndSendTheme, 1000);
+                
+                // 背景色を強制的に適用
+                const applyBackgroundColor = () => {
+                    const isDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches;
+                    const bgColor = isDarkMode ? '#0e1117' : '#ffffff';
+                    const textColor = isDarkMode ? '#fafafa' : '#262730';
+                    
+                    // 複数の要素に背景色を適用
+                    const elements = [
+                        document.documentElement,
+                        document.body,
+                        document.querySelector('.stApp'),
+                        document.querySelector('.main'),
+                        document.querySelector('[data-testid="stAppViewContainer"]')
+                    ];
+                    
+                    elements.forEach(el => {
+                        if (el) {
+                            el.style.backgroundColor = bgColor;
+                            el.style.color = textColor;
+                        }
+                    });
+                    
+                    // サイドバーの背景色も設定
+                    const sidebar = document.querySelector('section[data-testid="stSidebar"]');
+                    if (sidebar) {
+                        sidebar.style.backgroundColor = isDarkMode ? '#262730' : '#f0f2f6';
+                    }
+                };
+                
+                // 初回実行と遅延実行
+                applyBackgroundColor();
+                setTimeout(applyBackgroundColor, 200);
+                setTimeout(applyBackgroundColor, 500);
+                setTimeout(applyBackgroundColor, 1000);
             })();
             </script>
-            <div id="theme-detection-result" style="display: none;"></div>
             """
             st.markdown(detector_script, unsafe_allow_html=True)
+            
+            # 隠しボタンでテーマ情報を受け取る
+            if st.button("theme_update", key="theme_update_button", help="Hidden theme update button", 
+                        disabled=False, use_container_width=False):
+                # このボタンは見えないがJavaScriptからクリックされる
+                pass
+            
+            # ボタンを非表示にするCSS
+            st.markdown("""
+            <style>
+            button[kind="primary"][key="theme_update_button"] {
+                display: none !important;
+            }
+            </style>
+            <button id="theme-update-button" style="display: none;">light</button>
+            """, unsafe_allow_html=True)
+            
             st.session_state.theme_detector_injected = True
     
     @staticmethod
     def apply_theme_specific_css() -> None:
         """
         テーマに応じたCSSを適用
+        背景色を確実に設定する
         """
-        is_dark = ThemeDetector.is_dark_mode()
-        
-        # 共通CSS
-        common_css = """
+        # CSS media queriesを使った自動切り替え方式に変更
+        theme_css = """
         <style>
-        /* 共通スタイル */
-        .theme-aware {
-            transition: background-color 0.3s ease, color 0.3s ease;
-        }
-        </style>
-        """
-        st.markdown(common_css, unsafe_allow_html=True)
-        
-        if is_dark:
-            # ダークモード用CSS
-            dark_css = """
-            <style>
-            /* ダークモード専用スタイル */
-            .main {
-                background-color: #0e1117;
-                color: #fafafa;
+        /* ライトモード用のスタイル */
+        @media (prefers-color-scheme: light) {
+            /* メインアプリケーションの背景 */
+            html, body, .stApp, .main, [data-testid="stAppViewContainer"] {
+                background-color: #ffffff !important;
+                color: #262730 !important;
             }
             
-            /* ハイライト色の調整 */
-            .highlight-match {
-                background-color: #2d5a2d !important;
-                color: #b8e7b8 !important;
+            /* Streamlitの内部要素も白背景に */
+            .block-container, div[data-testid="block-container"] {
+                background-color: #ffffff !important;
             }
             
-            .highlight-addition {
-                background-color: #5a2d2d !important;
-                color: #ffb3b3 !important;
+            /* サイドバー */
+            section[data-testid="stSidebar"], .css-1d391kg {
+                background-color: #f0f2f6 !important;
+                color: #262730 !important;
             }
-            </style>
-            """
-            st.markdown(dark_css, unsafe_allow_html=True)
-        else:
-            # ライトモード用CSS
-            light_css = """
-            <style>
-            /* ライトモード専用スタイル */
-            .main {
-                background-color: #ffffff;
-                color: #262730;
+            
+            /* ヘッダー */
+            header[data-testid="stHeader"] {
+                background-color: #ffffff !important;
+            }
+            
+            /* すべてのセクション背景を透明に */
+            section.main > div {
+                background-color: transparent !important;
             }
             
             /* ハイライト色の調整 */
@@ -172,6 +238,48 @@ class ThemeDetector:
                 background-color: #dc3545 !important;
                 color: #ffffff !important;
             }
-            </style>
-            """
-            st.markdown(light_css, unsafe_allow_html=True)
+        }
+        
+        /* ダークモード用のスタイル */
+        @media (prefers-color-scheme: dark) {
+            /* メインアプリケーションの背景 */
+            html, body, .stApp, .main, [data-testid="stAppViewContainer"] {
+                background-color: #0e1117 !important;
+                color: #fafafa !important;
+            }
+            
+            /* サイドバー */
+            section[data-testid="stSidebar"], .css-1d391kg {
+                background-color: #262730 !important;
+                color: #fafafa !important;
+            }
+            
+            /* ヘッダー */
+            header[data-testid="stHeader"] {
+                background-color: #0e1117 !important;
+            }
+            
+            /* ハイライト色の調整 */
+            .highlight-match {
+                background-color: #2d5a2d !important;
+                color: #b8e7b8 !important;
+            }
+            
+            .highlight-addition {
+                background-color: #5a2d2d !important;
+                color: #ffb3b3 !important;
+            }
+        }
+        
+        /* 共通の強制スタイル - Streamlitのデフォルトスタイルを上書き */
+        .stApp > div:first-child {
+            background-color: inherit !important;
+        }
+        
+        /* メインコンテンツエリアの背景を確実に設定 */
+        .main .block-container {
+            background-color: transparent !important;
+        }
+        </style>
+        """
+        st.markdown(theme_css, unsafe_allow_html=True)

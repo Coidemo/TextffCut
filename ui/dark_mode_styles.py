@@ -4,28 +4,39 @@
 
 
 def get_dark_mode_styles() -> str:
-    """テーマに応じたCSSスタイルを返す"""
-    from utils.theme_detector import ThemeDetector
-    
-    is_dark = ThemeDetector.is_dark_mode()
-    
-    if is_dark:
-        # ダークモード用スタイル
-        return """
-        <style>
-        /* ダークモード用スタイル */
+    """テーマに応じたCSSスタイルを返す（v0.9.6のアプローチとThemeDetectorを併用）"""
+    return """
+    <style>
+    /* ライトモードでの緑ハイライトを見やすく */
+    @media (prefers-color-scheme: light) {
+        /* 緑色ハイライト（マッチした部分）をより見やすく */
         .highlight-match,
         span[style*="background-color: #e6ffe6"] {
-            background-color: #2d5a2d !important;
-            color: #b8e7b8 !important;
+            background-color: #28a745 !important;  /* はっきりした緑 */
+            color: #ffffff !important;  /* 白文字 */
+            padding: 2px 4px;
+            border-radius: 3px;
+        }
+    }
+    
+    /* ダークモード検出 */
+    @media (prefers-color-scheme: dark) {
+        /* ハイライト色の調整 */
+        
+        /* 緑色ハイライト（マッチした部分）をより見やすく */
+        .highlight-match,
+        span[style*="background-color: #e6ffe6"] {
+            background-color: #1a4d1a !important;  /* 暗い緑 */
+            color: #90ee90 !important;  /* 明るい緑の文字 */
             padding: 2px 4px;
             border-radius: 3px;
         }
         
+        /* 赤色ハイライト（追加文字）をより見やすく */
         .highlight-addition,
         span[style*="background-color: #ffe6e6"] {
-            background-color: #5a2d2d !important;
-            color: #ffb3b3 !important;
+            background-color: #4d1a1a !important;  /* 暗い赤 */
+            color: #ff9999 !important;  /* 明るい赤の文字 */
             padding: 2px 4px;
             border-radius: 3px;
         }
@@ -38,51 +49,21 @@ def get_dark_mode_styles() -> str:
             color: #e0e0e0 !important;
             border-color: #444 !important;
         }
-        
-        /* モノスペースフォントの読みやすさ改善 */
-        div[style*="font-family: monospace"] {
-            font-size: 14px;
-            line-height: 1.6;
-        }
-        </style>
-        """
-    else:
-        # ライトモード用スタイル
-        return """
-        <style>
-        /* ライトモード用スタイル */
-        .highlight-match,
-        span[style*="background-color: #e6ffe6"] {
-            background-color: #28a745 !important;
-            color: #ffffff !important;
-            padding: 2px 4px;
-            border-radius: 3px;
-        }
-        
-        .highlight-addition,
-        span[style*="background-color: #ffe6e6"] {
-            background-color: #dc3545 !important;
-            color: #ffffff !important;
-            padding: 2px 4px;
-            border-radius: 3px;
-        }
-        
-        /* ダイアログ内のテキスト表示エリア */
-        .edited-text-viewer,
-        .diff-viewer,
-        div[style*="background-color: #f9f9f9"] {
-            background-color: #f9f9f9 !important;
-            color: #262730 !important;
-            border-color: #ddd !important;
-        }
-        
-        /* モノスペースフォントの読みやすさ改善 */
-        div[style*="font-family: monospace"] {
-            font-size: 14px;
-            line-height: 1.6;
-        }
-        </style>
-        """
+    }
+    
+    /* 共通のスタイル改善 */
+    /* ハイライト表示の改善 */
+    div[style*="overflow-y: auto"] span {
+        transition: background-color 0.2s ease;
+    }
+    
+    /* モノスペースフォントの読みやすさ改善 */
+    div[style*="font-family: monospace"] {
+        font-size: 14px;
+        line-height: 1.6;
+    }
+    </style>
+    """
 
 
 def apply_dark_mode_styles() -> None:

@@ -272,6 +272,9 @@ def main():
     from utils.theme_detector import ThemeDetector
     ThemeDetector.inject_theme_detector()
     
+    # テーマ別CSSを適用（背景色も含む）
+    ThemeDetector.apply_theme_specific_css()
+    
     # ダークモードスタイルを適用
     from ui.dark_mode_styles import apply_dark_mode_styles
     apply_dark_mode_styles()
