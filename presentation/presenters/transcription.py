@@ -291,6 +291,18 @@ class TranscriptionPresenter(BasePresenter[TranscriptionViewModel]):
                 if progress_callback:
                     progress_callback(progress, status)
 
+            # バッチサイズ設定を取得
+            batch_size = self.session_manager.get("batch_size", None)
+            
+            # OptimizedTranscriptionGatewayAdapterの設定を更新
+            if hasattr(self.transcription_gateway, 'profile'):
+                logger.info(f"パフォーマンスプロファイルを更新 - batch_size: {batch_size}")
+                if batch_size is not None:
+                    self.transcription_gateway.profile.batch_size = batch_size
+                # プロファイルを保存
+                if hasattr(self.transcription_gateway, 'profile_repository'):
+                    self.transcription_gateway.profile_repository.save(self.transcription_gateway.profile)
+            
             # 文字起こしユースケースを実行
             logger.info(
                 f"TranscribeVideoRequest作成 - video_path: {self.view_model.video_path}, model_size: {self.view_model.model_size}"

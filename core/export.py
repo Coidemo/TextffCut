@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from config import Config
-from utils.environment import IS_DOCKER
+# utils.environmentのインポートは実行時に行う（循環依存回避のため）
 from utils.time_utils import frames_to_timecode
 
 from .video import VideoInfo
@@ -110,7 +110,8 @@ class FCPXMLExporter:
             duration_frames = round(info.duration * timeline_fps)
 
             # Docker環境の場合はホストパスに変換
-            if IS_DOCKER:
+            is_docker = os.path.exists("/.dockerenv")
+            if is_docker:
                 # /app/videos/xxx.mp4 -> HOST_VIDEOS_PATH/xxx.mp4
                 video_filename = Path(path).name
                 host_videos_path = os.getenv("HOST_VIDEOS_PATH", os.getenv("PWD", "") + "/videos")
@@ -332,7 +333,8 @@ class XMEMLExporter:
 
             # ファイルパスを処理
             # Docker環境の場合はホストパスに変換
-            if IS_DOCKER and str(seg.source_path).startswith("/app/videos/"):
+            is_docker = os.path.exists("/.dockerenv")
+            if is_docker and str(seg.source_path).startswith("/app/videos/"):
                 # Docker環境: /app/videos/xxx.mp4 -> HOST_VIDEOS_PATH/xxx.mp4
                 host_videos_path = os.getenv("HOST_VIDEOS_PATH", os.getenv("PWD", "") + "/videos")
                 relative_path = str(seg.source_path).replace("/app/videos/", "")

@@ -18,10 +18,13 @@ from adapters.gateways.export.video_export_gateway import VideoExportGatewayAdap
 from adapters.gateways.file.file_gateway import FileGatewayAdapter
 from adapters.gateways.text_processing.sequence_matcher_gateway import SequenceMatcherTextProcessorGateway
 from adapters.gateways.transcription.transcription_gateway import TranscriptionGatewayAdapter
+from adapters.gateways.transcription.optimized_transcription_gateway import OptimizedTranscriptionGatewayAdapter
 from adapters.gateways.video_processing.video_processor_gateway import VideoProcessorGatewayAdapter
 from adapters.gateways.youtube.youtube_download_gateway import YouTubeDownloadGateway
 from di.config import DIConfig
 from di.providers import StreamlitSessionProvider
+from infrastructure.gateways.audio_optimizer_gateway_adapter import AudioOptimizerGatewayAdapter
+from infrastructure.repositories.performance_profile_repository import FilePerformanceProfileRepository
 
 # Presentation層のインポート
 from presentation.di_config import PresentationContainer
@@ -39,6 +42,7 @@ from use_cases.transcription.load_cache import LoadTranscriptionCacheUseCase
 # ユースケースのインポート
 from use_cases.transcription.transcribe_video import TranscribeVideoUseCase
 from use_cases.video.detect_silence import DetectSilenceUseCase
+from application.use_cases.optimize_audio_use_case import OptimizeAudioUseCase
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -57,8 +61,19 @@ class GatewayContainer(containers.DeclarativeContainer):
     # ファイルゲートウェイ
     file_gateway = providers.Singleton(FileGatewayAdapter)
 
-    # 文字起こしゲートウェイ
-    transcription_gateway = providers.Factory(TranscriptionGatewayAdapter, config=config.legacy_config)
+    # 音声最適化ゲートウェイ
+    audio_optimizer_gateway = providers.Singleton(AudioOptimizerGatewayAdapter)
+
+    # パフォーマンスプロファイルリポジトリ
+    performance_profile_repository = providers.Singleton(FilePerformanceProfileRepository)
+
+    # 文字起こしゲートウェイ（最適化版）
+    transcription_gateway = providers.Factory(
+        OptimizedTranscriptionGatewayAdapter,
+        config=config.legacy_config,
+        audio_optimizer=audio_optimizer_gateway,
+        profile_repository=performance_profile_repository
+    )
 
     # テキスト処理ゲートウェイ
     text_processor_gateway = providers.Singleton(SequenceMatcherTextProcessorGateway)
@@ -128,6 +143,13 @@ class UseCaseContainer(containers.DeclarativeContainer):
             lambda gw: __import__("use_cases.youtube", fromlist=["DownloadYouTubeVideo"]).DownloadYouTubeVideo(gw),
             gateways.youtube_download_gateway,
         )
+    )
+
+    # 音声最適化ユースケース
+    optimize_audio = providers.Factory(
+        OptimizeAudioUseCase,
+        audio_optimizer_gateway=gateways.audio_optimizer_gateway,
+        profile_repository=gateways.performance_profile_repository
     )
 
     # 注: AI バズクリップ生成ユースケースは実行時にAI gatewayを必要とするため、main.pyで直接作成する

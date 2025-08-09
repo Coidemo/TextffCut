@@ -4,7 +4,7 @@ TextffCut ユーティリティモジュール
 
 from .api_key_manager import api_key_manager
 from .cleanup import ProcessingContext, TempFileManager, cleanup_intermediate_files, cleanup_old_projects
-from .environment import DEFAULT_HOST_PATH, LOGS_DIR, OUTPUT_DIR, TEMP_DIR, VIDEOS_DIR
+from .environment import DEFAULT_HOST_PATH, IS_DOCKER, LOGS_DIR, OUTPUT_DIR, TEMP_DIR, VIDEOS_DIR
 from .exceptions import (
     ConfigurationError,
     FFmpegError,
@@ -53,5 +53,6 @@ __all__ = [
     "LOGS_DIR",
     "TEMP_DIR",
     "DEFAULT_HOST_PATH",
+    "IS_DOCKER",
     "run_command_with_timeout",
 ]

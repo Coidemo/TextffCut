@@ -209,8 +209,6 @@ class Transcriber:
 
     # デフォルト値（自動最適化で動的に変更される）
     DEFAULT_BATCH_SIZE = 8
-    DEFAULT_CHUNK_SECONDS = 600  # 10分
-    DEFAULT_NUM_WORKERS = 2
 
     def __init__(self, config: Config) -> None:
         self.config = config
@@ -373,129 +371,6 @@ class Transcriber:
         with open(cache_path, "w", encoding="utf-8") as f:
             json.dump(result.to_dict(), f, ensure_ascii=False, indent=2)
 
-    def transcribe_chunk(self, chunk: dict[str, Any], asr_model: Any) -> list[dict[str, Any]]:
-        """チャンク単位の文字起こし"""
-        res = asr_model.transcribe(
-            chunk["array"],
-            batch_size=self.DEFAULT_BATCH_SIZE,  # デフォルト値を使用
-            language=self.config.transcription.language,
-        )
-
-        # デバッグ情報
-        if res["segments"]:
-            print(f"チャンク処理完了: 開始 {chunk['start']:.1f}秒, セグメント数: {len(res['segments'])}")
-
-        # チャンクのオフセットを適用
-        for seg in res["segments"]:
-            seg["start"] += chunk["start"]
-            seg["end"] += chunk["start"]
-
-        return res["segments"]
-
-    def transcribe_chunk_without_alignment(
-        self, chunk: dict[str, Any], asr_model: Any, chunk_idx: int
-    ) -> list[dict[str, Any]]:
-        """チャンクを文字起こしのみ（アライメントなし）"""
-        # 文字起こしのみ実行
-        segments = self.transcribe_chunk(chunk, asr_model)
-        logger.debug(f"チャンク {chunk_idx}: 文字起こし完了 ({len(segments)}セグメント)")
-        return segments
-
-    def _align_segments(
-        self, segments: list[dict[str, Any]], chunk: dict[str, Any], align_model: Any, align_meta: Any, chunk_idx: int
-    ) -> list[dict[str, Any]]:
-        """セグメントのアライメント処理（順次実行専用）"""
-        if align_model is None or align_meta is None or len(segments) == 0:
-            return segments
-
-        try:
-            # アライメント用に一時的にオフセットを削除（既に適用済みのため）
-            segments_for_align = []
-            for seg in segments:
-                seg_copy = seg.copy()
-                seg_copy["start"] -= chunk["start"]
-                seg_copy["end"] -= chunk["start"]
-                segments_for_align.append(seg_copy)
-
-            # チャンクの音声データでアライメント
-            aligned_result = whisperx.align(
-                segments_for_align,
-                align_model,
-                align_meta,
-                chunk["array"],  # チャンクの音声データのみ使用
-                self.device,
-                return_char_alignments=True,
-            )
-
-            # アライメント結果のオフセットを調整
-            aligned_segments = aligned_result["segments"]
-            for seg in aligned_segments:
-                # オフセットを再適用
-                seg["start"] += chunk["start"]
-                seg["end"] += chunk["start"]
-                # wordsのタイムスタンプも調整
-                if "words" in seg and seg["words"]:
-                    for word in seg["words"]:
-                        if "start" in word:
-                            word["start"] += chunk["start"]
-                        if "end" in word:
-                            word["end"] += chunk["start"]
-
-            logger.debug(
-                f"チャンク {chunk_idx}: アライメント成功 ({len(aligned_segments)}セグメント, words数: {sum(len(seg.get('words', [])) for seg in aligned_segments)})"
-            )
-            return aligned_segments
-
-        except Exception as e:
-            logger.warning(f"チャンク {chunk_idx} のアライメント処理に失敗: {e}")
-            logger.debug(f"エラー詳細: {type(e).__name__}: {str(e)}")
-            # アライメント失敗時は元のセグメントを返す
-            return segments
-
-    def transcribe_and_align_chunk(
-        self, chunk: dict[str, Any], asr_model: Any, align_model: Any, align_meta: Any, chunk_idx: int
-    ) -> list[dict[str, Any]]:
-        """チャンクを文字起こし＋アライメント処理"""
-        # まず文字起こし
-        segments = self.transcribe_chunk(chunk, asr_model)
-
-        # アライメント処理が有効でモデルが読み込まれている場合
-        if align_model is not None and align_meta is not None and len(segments) > 0:
-            try:
-                # チャンクの音声データでアライメント
-                aligned_result = whisperx.align(
-                    segments,
-                    align_model,
-                    align_meta,
-                    chunk["array"],  # チャンクの音声データのみ使用
-                    self.device,
-                    return_char_alignments=True,
-                )
-
-                # アライメント結果のオフセットを調整
-                aligned_segments = aligned_result["segments"]
-                for seg in aligned_segments:
-                    # セグメントのタイムスタンプはalignで再計算されるので調整が必要
-                    seg["start"] += chunk["start"]
-                    seg["end"] += chunk["start"]
-                    # wordsのタイムスタンプも調整
-                    if "words" in seg and seg["words"]:
-                        for word in seg["words"]:
-                            if "start" in word:
-                                word["start"] += chunk["start"]
-                            if "end" in word:
-                                word["end"] += chunk["start"]
-
-                logger.debug(f"チャンク {chunk_idx}: アライメント成功 ({len(aligned_segments)}セグメント)")
-                return aligned_segments
-
-            except Exception as e:
-                logger.warning(f"チャンク {chunk_idx} のアライメント処理に失敗: {e}")
-                # アライメント失敗時は元のセグメントを返す
-                return segments
-
-        return segments
-
     def transcribe(
         self,
         video_path: str | Path,
@@ -580,7 +455,7 @@ class Transcriber:
         save_cache: bool = True,
         skip_alignment: bool = False,
     ) -> TranscriptionResult:
-        """ローカル版の文字起こし（既存の実装）"""
+        """ローカル版の文字起こし（WhisperXに処理を任せる）"""
         start_time = time.time()
         model_size = model_size or self.config.transcription.model_size
 
@@ -610,191 +485,83 @@ class Transcriber:
             language=self.config.transcription.language,
         )
 
-        # チャンク分割
-        chunk_sec = self.DEFAULT_CHUNK_SECONDS  # デフォルト値を使用
-        sr = self.config.transcription.sample_rate
-        num_workers = self.DEFAULT_NUM_WORKERS  # デフォルト値を使用
-
-        step = chunk_sec * sr
-
-        # チャンクを作成（APIモードと同じ処理）
-        chunks: list[dict[str, Any]] = []
-        MIN_CHUNK_DURATION = 1.0  # 1秒未満のチャンクは結合（品質向上のため）
-
-        # 短いチャンクを一時保存する変数
-        pending_chunk = None
-
-        for i in range(0, len(audio), step):
-            chunk_audio = audio[i : i + step]
-            start_time = i / sr
-            duration = len(chunk_audio) / sr
-
-            # pending_chunkがある場合は先に結合を試みる
-            if pending_chunk is not None:
-                # 前の短いチャンクと現在のチャンクを結合
-                combined_audio = np.concatenate([pending_chunk["array"], chunk_audio])
-                combined_chunk = {
-                    "array": combined_audio,
-                    "start": pending_chunk["start"],
-                    "duration": len(combined_audio) / sr,
-                }
-                chunks.append(combined_chunk)
-                logger.info(
-                    f"短いチャンクを次のチャンクと結合しました (新しい長さ: {combined_chunk['duration']:.1f}秒)"
-                )
-                pending_chunk = None
-                continue
-
-            # 1秒未満のチャンクは処理しない
-            if duration < MIN_CHUNK_DURATION:
-                logger.warning(f"チャンクが短すぎます ({duration:.3f}秒) - 結合処理を行います")
-                # 前のチャンクがある場合は結合
-                if chunks:
-                    last_chunk = chunks[-1]
-                    # 前のチャンクに結合
-                    combined_audio = np.concatenate([last_chunk["array"], chunk_audio])
-                    chunks[-1] = {
-                        "array": combined_audio,
-                        "start": last_chunk["start"],
-                        "duration": len(combined_audio) / sr,
-                    }
-                    logger.info(
-                        f"短いチャンクを前のチャンクに結合しました (新しい長さ: {chunks[-1]['duration']:.1f}秒)"
-                    )
-                else:
-                    # 最初のチャンクが短すぎる場合は一時保存して次と結合
-                    pending_chunk = {"array": chunk_audio, "start": start_time, "duration": duration}
-                    logger.warning(f"最初のチャンクが短いため、次のチャンクと結合します ({duration:.3f}秒)")
-                continue
-
-            chunks.append({"array": chunk_audio, "start": start_time, "duration": duration})
-
-        # 最後にpending_chunkが残っている場合（音声全体が短い場合）
-        if pending_chunk is not None:
-            chunks.append(pending_chunk)
-            logger.warning(f"最後の短いチャンクをそのまま追加します ({pending_chunk['duration']:.3f}秒)")
-
-        # デバッグ情報
-        total_audio_duration = len(audio) / sr
-        print(f"音声の総時間: {total_audio_duration:.1f}秒, チャンク数: {len(chunks)}, チャンクサイズ: {chunk_sec}秒")
-
-        # 並列処理で文字起こし
-        segments_all = []
-        total_chunks = len(chunks)
-        completed_chunks = 0
-
-        # アライメント処理の準備（skip_alignmentがFalseの場合のみ）
-        align_model = None
-        align_meta = None
+        # WhisperXに処理を任せる（手動チャンク分割なし）
+        if progress_callback:
+            progress_callback(0.1, "文字起こしを開始中...")
+        
+        logger.info("WhisperXで音声全体を処理（内部VADベースチャンク処理）")
+        
+        # バッチサイズの設定（最適化済み）
+        batch_size = getattr(self, 'DEFAULT_BATCH_SIZE', 8)
+        
+        # WhisperXのtranscribeメソッドを直接呼び出し
+        result = asr_model.transcribe(
+            audio,
+            batch_size=batch_size,
+            language=self.config.transcription.language,
+            task="transcribe",
+        )
+        
+        if progress_callback:
+            progress_callback(0.7, "文字起こし完了、アライメント処理中...")
+        
+        # アライメント処理
         if not skip_alignment:
             try:
                 align_model, align_meta = whisperx.load_align_model(
-                    self.config.transcription.language, device=self.device
+                    language_code=self.config.transcription.language,
+                    device=self.device
                 )
-                logger.info("アライメントモデルを読み込みました")
-            except Exception as e:
-                logger.warning(f"アライメントモデルの読み込みに失敗: {e}")
-
-        # 文字起こしフェーズ（並列処理可能）
-        transcribed_chunks = []
-        with ThreadPoolExecutor(max_workers=num_workers) as executor:
-            futures = []
-            for i, chunk in enumerate(chunks):
-                # まず文字起こしのみを並列実行
-                future = executor.submit(self.transcribe_chunk, chunk, asr_model)
-                futures.append((i, future))
-
-            for i, future in futures:
-                segments = future.result()
-                transcribed_chunks.append((i, chunks[i], segments))
-                completed_chunks += 1
-
+                
+                result = whisperx.align(
+                    result["segments"],
+                    align_model,
+                    align_meta,
+                    audio,
+                    self.device,
+                    return_char_alignments=True
+                )
+                
                 if progress_callback:
-                    progress = 0.1 + (0.4 * completed_chunks / total_chunks)
-                    status = f"文字起こし処理中... ({completed_chunks}/{total_chunks} チャンク)"
-                    progress_callback(progress, status)
-
-        # アライメントフェーズ（順次処理）
-        if not skip_alignment and align_model is not None and align_meta is not None:
-            logger.info("アライメント処理を開始（順次実行）")
-            aligned_chunks_count = 0
-            for i, (chunk_idx, chunk, segments) in enumerate(transcribed_chunks):
-                try:
-                    # アライメント処理を順次実行
-                    aligned_segments = self._align_segments(segments, chunk, align_model, align_meta, chunk_idx)
-                    segments_all.extend(aligned_segments)
-                    aligned_chunks_count += 1
-
-                    if progress_callback:
-                        progress = 0.5 + (0.4 * aligned_chunks_count / len(transcribed_chunks))
-                        status = f"アライメント処理中... ({aligned_chunks_count}/{len(transcribed_chunks)} チャンク)"
-                        progress_callback(progress, status)
-
-                except Exception as e:
-                    logger.warning(f"チャンク {chunk_idx} のアライメント失敗: {e}")
-                    # アライメント失敗時は元のセグメントを使用
-                    segments_all.extend(segments)
-
-        else:
-            # アライメントをスキップする場合は、文字起こし結果をそのまま使用
-            for chunk_idx, chunk, segments in transcribed_chunks:
-                segments_all.extend(segments)
-
-        # セグメントをソート
-        segments_all.sort(key=lambda x: x["start"])
-
-        # デバッグ情報
-        print(f"文字起こし・アライメント完了: 全セグメント数: {len(segments_all)}")
-        if segments_all:
-            print(f"最初のセグメント: {segments_all[0]['start']:.1f}秒 - {segments_all[0]['end']:.1f}秒")
-            print(f"最後のセグメント: {segments_all[-1]['start']:.1f}秒 - {segments_all[-1]['end']:.1f}秒")
-
-        # 結果を構築
-        result_segments = [
-            TranscriptionSegment(
-                start=seg["start"], end=seg["end"], text=seg["text"], words=seg.get("words"), chars=seg.get("chars")
-            )
-            for seg in segments_all
-        ]
-
+                    progress_callback(0.9, "アライメント完了")
+                    
+            except Exception as e:
+                logger.warning(f"アライメント処理でエラー: {e}")
+                # アライメントエラーは致命的ではないので続行
+        
+        # 結果を整形
+        segments = result.get("segments", [])
+        
+        # TranscriptionResultに変換
         processing_time = time.time() - start_time
-
-        result = TranscriptionResult(
+        
+        # セグメントをTranscriptionSegmentオブジェクトに変換
+        transcription_segments = []
+        for seg in segments:
+            transcription_segments.append(
+                TranscriptionSegment(
+                    start=seg.get("start", 0),
+                    end=seg.get("end", 0),
+                    text=seg.get("text", ""),
+                    words=seg.get("words"),
+                    chars=seg.get("chars")
+                )
+            )
+        
+        transcription_result = TranscriptionResult(
+            segments=transcription_segments,
             language=self.config.transcription.language,
-            segments=result_segments,
-            original_audio_path=video_path,
-            model_size=model_size,
             processing_time=processing_time,
+            original_audio_path=str(video_path),  # 必須引数を追加
+            model_size=model_size,  # 必須引数を追加
         )
-
-        # wordsフィールドの検証（skip_alignmentがFalseの場合のみ）
-        if not skip_alignment:
-            is_valid, errors = result.validate_has_words()
-            if not is_valid:
-                # words情報が欠落している場合は警告として扱う
-                logger.warning(f"文字起こし結果にwords情報が欠落しています: {errors}")
-                logger.warning("words情報なしで処理を続行します。タイムライン編集機能が制限される可能性があります。")
-
-                # デバッグ情報：どのセグメントにwords情報がないか
-                segments_without_words = []
-                for i, seg in enumerate(result.segments):
-                    if not seg.words or len(seg.words) == 0:
-                        segments_without_words.append(i)
-
-                if len(segments_without_words) > 10:
-                    logger.warning(
-                        f"words情報がないセグメント: {segments_without_words[:10]}... (他{len(segments_without_words)-10}個)"
-                    )
-                else:
-                    logger.warning(f"words情報がないセグメント: {segments_without_words}")
-
-                # エラーを投げずに処理を続行
-
+        
         # キャッシュに保存
         if save_cache:
-            self.save_to_cache(result, cache_path)
-
-        if progress_callback:
-            progress_callback(1.0, "文字起こし完了")
-
-        return result
+            self.save_to_cache(transcription_result, cache_path)
+            if progress_callback:
+                progress_callback(1.0, "処理完了")
+        
+        logger.info(f"文字起こし完了: {len(segments)}セグメント, {processing_time:.1f}秒")
+        
+        return transcription_result

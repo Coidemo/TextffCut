@@ -190,6 +190,34 @@ class TranscriptionView:
             # API利用時の注意事項
             if self.view_model.use_api:
                 st.caption("⚠️ API料金: $0.006/分 | 為替変動あり | [最新料金](https://openai.com/pricing)を確認")
+            
+            # ローカルモード時の詳細設定
+            if not self.view_model.use_api:
+                with st.expander("🔧 詳細設定", expanded=False):
+                    # バッチサイズの設定
+                    col1, col2 = st.columns([3, 1])
+                    with col1:
+                        batch_size = st.slider(
+                            "バッチサイズ",
+                            min_value=1,
+                            max_value=16,
+                            value=8,
+                            help="小さい値にするとメモリ使用量が減りますが、処理時間が長くなります。"
+                        )
+                    with col2:
+                        st.markdown(f"**{batch_size}**")
+                    
+                    # 設定をセッションに保存
+                    st.session_state["batch_size"] = batch_size
+                    
+                    # メモリ情報の表示
+                    try:
+                        import psutil
+                        mem = psutil.virtual_memory()
+                        st.info(f"💾 システムメモリ: {mem.total / (1024**3):.1f}GB (使用可能: {mem.available / (1024**3):.1f}GB)")
+                        st.caption("ℹ️ 音声は自動的に最適化され、メモリ使用量を約60-70%削減します。")
+                    except Exception:
+                        pass
 
             # エラー表示
             if self.view_model.error_message:
