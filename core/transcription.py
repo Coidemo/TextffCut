@@ -58,7 +58,7 @@ class TranscriptionResult:
                 {"start": seg.start, "end": seg.end, "text": seg.text, "words": seg.words, "chars": seg.chars}
                 for seg in self.segments
             ],
-            "original_audio_path": self.original_audio_path,
+            "original_audio_path": str(self.original_audio_path),  # PosixPathを文字列に変換
             "model_size": self.model_size,
             "processing_time": self.processing_time,
         }
@@ -491,7 +491,8 @@ class Transcriber:
         
         logger.info("WhisperXで音声全体を処理（内部VADベースチャンク処理）")
         
-        # バッチサイズの設定（最適化済み）
+        # バッチサイズの設定（レガシー処理用のデフォルト値）
+        # 注：OptimizedTranscriptionGatewayAdapterではAutoOptimizerが動的に決定
         batch_size = getattr(self, 'DEFAULT_BATCH_SIZE', 8)
         
         # WhisperXのtranscribeメソッドを直接呼び出し

@@ -30,7 +30,10 @@ class TranscriptionConfig:
 
     # API用の固定設定
     api_retry_count: int = 3  # APIリトライ回数
-    api_align_in_subprocess: bool = True  # アライメント処理をサブプロセスで実行
+    api_align_in_subprocess: bool = False  # アライメント処理を同一プロセスで実行（高速・安定）
+    
+    # VAD処理設定
+    use_vad_processing: bool = True  # VADベースの処理を使用するか（デフォルトで有効）
 
     # 以下は全て自動最適化により動的に決定されるため削除
     # chunk_seconds, num_workers, batch_size, max_workers
@@ -45,6 +48,13 @@ class TranscriptionConfig:
         if api_key := os.getenv("TEXTFFCUT_API_KEY"):
             self.api_key = api_key
         # APIプロバイダーはOpenAI固定（環境変数での変更不要）
+        
+        # VAD処理フラグを環境変数から読み込み（明示的に設定された場合は上書き）
+        vad_env = os.getenv("TEXTFFCUT_USE_VAD", "").lower()
+        if vad_env == "true":
+            self.use_vad_processing = True
+        elif vad_env == "false":
+            self.use_vad_processing = False
 
 
 @dataclass

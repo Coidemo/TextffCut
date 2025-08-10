@@ -33,36 +33,36 @@ class AutoOptimizer:
     MODEL_PROFILES = {
         "base": {
             "base_memory_gb": 1.5,
-            "initial_chunk_seconds": 1200,  # 20分
-            "initial_align_chunk_seconds": 1800,  # 30分
-            "initial_max_workers": 3,
+            "initial_chunk_seconds": 30,  # 30秒（Whisper制約）
+            "initial_align_chunk_seconds": 60,  # 60秒
+            "initial_max_workers": 1,  # VADベースのため並列化は控えめ
             "initial_batch_size": 16,
         },
         "small": {
             "base_memory_gb": 2.0,
-            "initial_chunk_seconds": 900,  # 15分
-            "initial_align_chunk_seconds": 1200,  # 20分
-            "initial_max_workers": 2,
+            "initial_chunk_seconds": 30,  # 30秒（Whisper制約）
+            "initial_align_chunk_seconds": 60,  # 60秒
+            "initial_max_workers": 1,
             "initial_batch_size": 12,
         },
         "medium": {
             "base_memory_gb": 3.0,
-            "initial_chunk_seconds": 600,  # 10分
-            "initial_align_chunk_seconds": 900,  # 15分
-            "initial_max_workers": 2,
+            "initial_chunk_seconds": 30,  # 30秒（Whisper制約）
+            "initial_align_chunk_seconds": 60,  # 60秒
+            "initial_max_workers": 1,
             "initial_batch_size": 8,
         },
         "large": {
             "base_memory_gb": 4.0,
-            "initial_chunk_seconds": 480,  # 8分
-            "initial_align_chunk_seconds": 600,  # 10分
+            "initial_chunk_seconds": 30,  # 30秒（Whisper制約）
+            "initial_align_chunk_seconds": 60,  # 60秒
             "initial_max_workers": 1,
             "initial_batch_size": 4,
         },
         "large-v3": {
             "base_memory_gb": 4.5,
-            "initial_chunk_seconds": 300,  # 5分（より保守的に）
-            "initial_align_chunk_seconds": 480,  # 8分
+            "initial_chunk_seconds": 30,  # 30秒（Whisper制約）
+            "initial_align_chunk_seconds": 60,  # 60秒
             "initial_max_workers": 1,
             "initial_batch_size": 2,  # 2に削減（メモリ節約）
         },
@@ -137,6 +137,7 @@ class AutoOptimizer:
                     ),  # 最大5分
                     "max_workers": WorkerLimits.MINIMUM,
                     "batch_size": BatchSizeLimits.MINIMUM,  # 最小値
+                    "compute_type": "int8",  # メモリ不足時は必ずint8
                 }
         except Exception as e:
             logger.warning(f"Failed to check memory: {e}")
@@ -146,6 +147,7 @@ class AutoOptimizer:
             "align_chunk_seconds": profile["initial_align_chunk_seconds"],
             "max_workers": profile["initial_max_workers"],
             "batch_size": profile["initial_batch_size"],
+            "compute_type": "int8",  # デフォルトはint8（メモリ効率重視）
         }
 
     def get_optimal_params(self, current_memory_percent: float) -> dict:
@@ -156,7 +158,7 @@ class AutoOptimizer:
             current_memory_percent: 現在のメモリ使用率（0-100）
 
         Returns:
-            最適化されたパラメータ辞書
+            最適化されたパラメータ辞書（compute_typeを含む）
         """
         # 入力検証
         try:
@@ -180,6 +182,9 @@ class AutoOptimizer:
 
         # パラメータ調整
         new_params = self._adjust_parameters(adjustment_type)
+        
+        # メモリ使用率に基づいてcompute_typeを動的に選択
+        new_params["compute_type"] = self._determine_compute_type(current_memory_percent)
 
         # 履歴に記録
         self.adjustment_history.append(
@@ -238,6 +243,7 @@ class AutoOptimizer:
                 "chunk_factor": AdjustmentFactors.EMERGENCY_CHUNK_FACTOR,  # 半分に
                 "worker_change": AdjustmentFactors.EMERGENCY_WORKER_CHANGE,
                 "batch_factor": AdjustmentFactors.EMERGENCY_BATCH_FACTOR,
+                "batch_override": BatchSizeLimits.MINIMUM,  # 緊急時は必ず1
             },
             "aggressive_decrease": {
                 "chunk_factor": AdjustmentFactors.AGGRESSIVE_CHUNK_FACTOR,
@@ -294,7 +300,9 @@ class AutoOptimizer:
             )
 
         # バッチサイズ調整
-        if "batch_factor" in adj:
+        if "batch_override" in adj:
+            params["batch_size"] = adj["batch_override"]  # 絶対値で上書き
+        elif "batch_factor" in adj:
             params["batch_size"] = max(BatchSizeLimits.MINIMUM, int(params["batch_size"] * adj["batch_factor"]))
         elif "batch_change" in adj:
             params["batch_size"] = max(
@@ -330,6 +338,7 @@ class AutoOptimizer:
             "align_chunk_seconds": self.DIAGNOSTIC_CHUNK_SECONDS * 2,
             "max_workers": 1,
             "batch_size": min(4, self.current_params["batch_size"]),  # 最大4
+            "compute_type": "int8",  # 診断中は常にint8で安全に
         }
 
         # 診断フェーズ完了の判定
@@ -407,7 +416,49 @@ class AutoOptimizer:
             "align_chunk_seconds": int(predicted_chunk_seconds * 1.5),
             "max_workers": 1 if growth_rate > 2 else self.current_params["max_workers"],
             "batch_size": batch_size,
+            "compute_type": self._determine_compute_type(100 - available_memory_headroom),  # デバイスとメモリに応じて選択
         }
+
+    def _determine_compute_type(self, memory_percent: float) -> str:
+        """
+        メモリ使用率に基づいて最適なcompute_typeを決定
+        
+        Args:
+            memory_percent: 現在のメモリ使用率（0-100）
+            
+        Returns:
+            compute_type文字列（"int8", "float16", "float32"）
+        """
+        # CPUかGPUかを判定
+        import torch
+        is_cpu = not torch.cuda.is_available()
+        
+        # CPUの場合はfloat16をサポートしていないのでint8を使用
+        if is_cpu:
+            return "int8"
+        
+        # GPU使用時のメモリ使用率による判定
+        if memory_percent > MemoryThresholds.HIGH:  # 80%以上
+            return "int8"  # 最もメモリ効率的
+        elif memory_percent > MemoryThresholds.COMFORTABLE:  # 70%以上
+            # モデルサイズも考慮
+            if self.model_size in ["large", "large-v3"]:
+                return "int8"  # 大きいモデルはint8推奨
+            else:
+                return "float16"  # 中小モデルはfloat16でも可
+        elif memory_percent > MemoryThresholds.NORMAL:  # 60%以上
+            # large-v3は常にint8を推奨
+            if self.model_size == "large-v3":
+                return "int8"
+            else:
+                return "float16"  # 標準的な選択
+        else:
+            # メモリに余裕がある場合
+            # 小さいモデルならfloat32も選択可能（品質重視）
+            if self.model_size in ["base", "small"]:
+                return "float32"
+            else:
+                return "float16"
 
     def save_successful_run(self, params: dict, metrics: dict) -> None:
         """
