@@ -302,7 +302,7 @@ class APITranscriber:
                 client, audio, original_audio_path, chunks, progress_callback, perf_tracker, start_time
             )
 
-        # 従来の処理（API+アライメントを同時実行）
+        # デフォルト処理（API+アライメントを同一プロセスで実行 - 高速・安定）
         temp_dir = tempfile.mkdtemp(prefix="textffcut_api_chunks_")
 
         try:

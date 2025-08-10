@@ -30,7 +30,7 @@ class TranscriptionConfig:
 
     # API用の固定設定
     api_retry_count: int = 3  # APIリトライ回数
-    api_align_in_subprocess: bool = True  # アライメント処理をサブプロセスで実行
+    api_align_in_subprocess: bool = False  # アライメント処理を同一プロセスで実行（高速・安定）
     
     # VAD処理設定
     use_vad_processing: bool = True  # VADベースの処理を使用するか（デフォルトで有効）

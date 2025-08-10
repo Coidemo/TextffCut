@@ -43,6 +43,21 @@ class OptimizedTranscriptionGatewayAdapter(TranscriptionGatewayAdapter):
         self.profile_repository = profile_repository
         self.profile = self._load_or_create_profile()
         self.max_retries = 3
+        
+        # モデルキャッシュの初期化
+        self._model_cache = {
+            'whisper': None,
+            'whisper_params': {},
+            'align': None,
+            'align_language': None
+        }
+        # キャッシュ統計
+        self._cache_stats = {
+            'whisper_hits': 0,
+            'whisper_misses': 0,
+            'align_hits': 0,
+            'align_misses': 0
+        }
     
     def _load_or_create_profile(self) -> PerformanceProfile:
         """プロファイルを読み込みまたは作成"""
@@ -291,6 +306,18 @@ class OptimizedTranscriptionGatewayAdapter(TranscriptionGatewayAdapter):
             self.profile.add_metrics(metrics)
             self.profile_repository.save(self.profile)
             
+            # キャッシュ統計をログに出力
+            total_whisper = self._cache_stats['whisper_hits'] + self._cache_stats['whisper_misses']
+            total_align = self._cache_stats['align_hits'] + self._cache_stats['align_misses']
+            
+            if total_whisper > 0:
+                whisper_hit_rate = self._cache_stats['whisper_hits'] / total_whisper * 100
+                logger.info(f"Whisperモデルキャッシュ: {self._cache_stats['whisper_hits']}ヒット/{total_whisper}回 (ヒット率: {whisper_hit_rate:.1f}%)")
+            
+            if total_align > 0:
+                align_hit_rate = self._cache_stats['align_hits'] / total_align * 100
+                logger.info(f"アライメントモデルキャッシュ: {self._cache_stats['align_hits']}ヒット/{total_align}回 (ヒット率: {align_hit_rate:.1f}%)")
+            
             logger.info(f"VADベース文字起こし成功: {processing_time:.1f}秒")
             
             return domain_result
@@ -310,6 +337,87 @@ class OptimizedTranscriptionGatewayAdapter(TranscriptionGatewayAdapter):
             # クリーンアップ
             if os.path.exists(temp_dir):
                 shutil.rmtree(temp_dir)
+
+    def _get_cached_whisper_model(self, model_size: str, device: str, compute_type: str, language: str):
+        """Whisperモデルのキャッシュ管理"""
+        params = {
+            'model_size': model_size,
+            'device': device,
+            'compute_type': compute_type,
+            'language': language
+        }
+        
+        # キャッシュが有効か確認
+        if (self._model_cache['whisper'] is None or 
+            self._model_cache['whisper_params'] != params):
+            
+            # 古いモデルをクリア
+            if self._model_cache['whisper'] is not None:
+                del self._model_cache['whisper']
+                if device == 'cuda':
+                    torch.cuda.empty_cache()
+            
+            # 新しいモデルを読み込み
+            logger.info(f"Whisperモデルを読み込み中: {model_size}, {compute_type}")
+            import whisperx
+            self._model_cache['whisper'] = whisperx.load_model(
+                model_size, device, 
+                compute_type=compute_type, 
+                language=language
+            )
+            self._model_cache['whisper_params'] = params.copy()
+            self._cache_stats['whisper_misses'] += 1
+        else:
+            logger.debug(f"Whisperモデルをキャッシュから使用")
+            self._cache_stats['whisper_hits'] += 1
+        
+        return self._model_cache['whisper']
+    
+    def _get_cached_align_model(self, language: str, device: str):
+        """アライメントモデルのキャッシュ管理"""
+        if (self._model_cache['align'] is None or 
+            self._model_cache['align_language'] != language):
+            
+            # 古いモデルをクリア
+            if self._model_cache['align'] is not None:
+                del self._model_cache['align'][0]  # align_model
+                del self._model_cache['align'][1]  # metadata
+                if device == 'cuda':
+                    torch.cuda.empty_cache()
+            
+            # 新しいモデルを読み込み
+            logger.info(f"アライメントモデルを読み込み中: {language}")
+            import whisperx
+            align_model, metadata = whisperx.load_align_model(
+                language_code=language, device=device
+            )
+            self._model_cache['align'] = (align_model, metadata)
+            self._model_cache['align_language'] = language
+            self._cache_stats['align_misses'] += 1
+        else:
+            logger.debug(f"アライメントモデルをキャッシュから使用")
+            self._cache_stats['align_hits'] += 1
+        
+        return self._model_cache['align']
+    
+    def _clear_model_cache(self):
+        """キャッシュをクリア"""
+        logger.info("モデルキャッシュをクリア")
+        
+        if self._model_cache['whisper'] is not None:
+            del self._model_cache['whisper']
+            self._model_cache['whisper'] = None
+            self._model_cache['whisper_params'] = {}
+        
+        if self._model_cache['align'] is not None:
+            del self._model_cache['align'][0]  # align_model
+            del self._model_cache['align'][1]  # metadata
+            self._model_cache['align'] = None
+            self._model_cache['align_language'] = None
+        
+        # GPUメモリもクリア
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
     
     def _process_vad_segment(
         self,
@@ -357,25 +465,27 @@ class OptimizedTranscriptionGatewayAdapter(TranscriptionGatewayAdapter):
             # デバイスの設定
             device = "cuda" if torch.cuda.is_available() else "cpu"
             
-            # モデルを読み込み
-            model = whisperx.load_model(
-                model_size,
-                device,
+            # キャッシュされたモデルを取得
+            lang = language or self.config.transcription.language
+            model = self._get_cached_whisper_model(
+                model_size=model_size,
+                device=device,
                 compute_type=optimal_params['compute_type'],
-                language=language or self.config.transcription.language,
+                language=lang
             )
             
             # 文字起こし
             result = model.transcribe(
                 audio, 
                 batch_size=optimal_params['batch_size'], 
-                language=language or self.config.transcription.language
+                language=lang
             )
             
             # アライメント処理
             try:
-                align_model, metadata = whisperx.load_align_model(
-                    language_code=language or self.config.transcription.language,
+                # キャッシュされたアライメントモデルを取得
+                align_model, metadata = self._get_cached_align_model(
+                    language=lang,
                     device=device
                 )
                 
@@ -400,13 +510,10 @@ class OptimizedTranscriptionGatewayAdapter(TranscriptionGatewayAdapter):
                 )
                 segments.append(segment)
             
-            # メモリ逼迫時の対策
-            if current_memory > 85:
-                logger.warning(f"メモリ使用率が高い: {current_memory:.1f}%")
-                del model
-                if 'align_model' in locals():
-                    del align_model
-                torch.cuda.empty_cache() if torch.cuda.is_available() else None
+            # メモリが非常に逼迫している場合のみキャッシュをクリア
+            if current_memory > 90:
+                logger.warning(f"メモリ使用率が非常に高い: {current_memory:.1f}% - キャッシュをクリア")
+                self._clear_model_cache()
                 
             return segments
             
@@ -562,3 +669,11 @@ class OptimizedTranscriptionGatewayAdapter(TranscriptionGatewayAdapter):
         """パフォーマンスプロファイルを更新"""
         self.profile = profile
         self.profile_repository.save(profile)
+
+    def __del__(self):
+        """デストラクタ：インスタンス破棄時にキャッシュをクリア"""
+        try:
+            self._clear_model_cache()
+        except Exception as e:
+            # デストラクタ内でのエラーは無視
+            pass
