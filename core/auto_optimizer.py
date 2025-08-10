@@ -416,7 +416,7 @@ class AutoOptimizer:
             "align_chunk_seconds": int(predicted_chunk_seconds * 1.5),
             "max_workers": 1 if growth_rate > 2 else self.current_params["max_workers"],
             "batch_size": batch_size,
-            "compute_type": "int8" if available_memory_headroom < 30 else "float16",  # メモリ余裕に応じて選択
+            "compute_type": self._determine_compute_type(100 - available_memory_headroom),  # デバイスとメモリに応じて選択
         }
 
     def _determine_compute_type(self, memory_percent: float) -> str:
@@ -429,7 +429,15 @@ class AutoOptimizer:
         Returns:
             compute_type文字列（"int8", "float16", "float32"）
         """
-        # メモリ使用率による判定
+        # CPUかGPUかを判定
+        import torch
+        is_cpu = not torch.cuda.is_available()
+        
+        # CPUの場合はfloat16をサポートしていないのでint8を使用
+        if is_cpu:
+            return "int8"
+        
+        # GPU使用時のメモリ使用率による判定
         if memory_percent > MemoryThresholds.HIGH:  # 80%以上
             return "int8"  # 最もメモリ効率的
         elif memory_percent > MemoryThresholds.COMFORTABLE:  # 70%以上

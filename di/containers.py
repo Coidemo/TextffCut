@@ -25,6 +25,8 @@ from di.config import DIConfig
 from di.providers import StreamlitSessionProvider
 from infrastructure.gateways.audio_optimizer_gateway_adapter import AudioOptimizerGatewayAdapter
 from infrastructure.repositories.performance_profile_repository import FilePerformanceProfileRepository
+from core.auto_optimizer import AutoOptimizer
+from core.memory_monitor import MemoryMonitor
 
 # Presentation層のインポート
 from presentation.di_config import PresentationContainer
