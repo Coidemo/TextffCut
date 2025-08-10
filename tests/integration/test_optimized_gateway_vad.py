@@ -44,9 +44,7 @@ class TestOptimizedGatewayVADIntegration(unittest.TestCase):
         
         # デフォルトプロファイルのモック
         mock_profile = MagicMock()
-        mock_profile.get_effective_batch_size.return_value = 8
         mock_profile.get_effective_compute_type.return_value = "int8"
-        mock_profile.batch_size = 8
         mock_profile.compute_type = "int8"
         mock_profile.add_metrics = MagicMock()
         mock_profile.metrics_history = []

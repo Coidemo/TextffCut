@@ -398,6 +398,7 @@ class SmartBoundaryTranscriber(Transcriber):
                 self.TARGET_DURATION = optimal_params["chunk_seconds"]
 
                 # バッチサイズも記録（後で使用）
+                # AutoOptimizerが現在のメモリ状況に基づいて動的に決定
                 self._dynamic_batch_size = optimal_params["batch_size"]
                 
                 # 動的パラメータを保存（後でモデル読み込み時に使用）

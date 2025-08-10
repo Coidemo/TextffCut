@@ -36,8 +36,7 @@ class PerformanceProfile:
     
     # 最適化設定は削除（常に最適化を実行）
     
-    # 処理設定
-    batch_size: Optional[int] = None
+    # 処理設定（自動最適化のみ）
     compute_type: Optional[str] = None
     
     # 詳細設定
@@ -63,28 +62,14 @@ class PerformanceProfile:
         success_times = [m.processing_time for m in self.metrics_history if m.success]
         return sum(success_times) / len(success_times) if success_times else 0.0
     
-    def should_reduce_batch_size(self) -> bool:
-        """バッチサイズを削減すべきか判定"""
+    def has_recent_memory_errors(self) -> bool:
+        """最近メモリエラーが発生しているか判定"""
         # 最近5件のうち2件以上がメモリエラーならTrue
         recent_errors = [
             m for m in self.metrics_history[-5:]
             if not m.success and m.error_message and 'memory' in m.error_message.lower()
         ]
         return len(recent_errors) >= 2
-    
-    def get_effective_batch_size(self) -> int:
-        """実効的なバッチサイズを取得"""
-        if self.batch_size is not None:
-            return self.batch_size
-        
-        # デフォルトバッチサイズ
-        base_size = 4
-        
-        # エラー履歴に基づく自動調整
-        if self.should_reduce_batch_size():
-            return max(1, base_size // 2)
-        
-        return base_size
     
     def get_effective_compute_type(self) -> str:
         """実効的な計算精度を取得"""

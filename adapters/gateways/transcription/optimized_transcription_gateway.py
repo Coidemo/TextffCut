@@ -591,10 +591,14 @@ class OptimizedTranscriptionGatewayAdapter(TranscriptionGatewayAdapter):
         """現在の処理設定を取得"""
         available_memory = psutil.virtual_memory().available / (1024**3)
         
+        # AutoOptimizerで動的に決定されるため、デフォルト値を使用
+        # VAD処理ではAutoOptimizerが各セグメントごとに最適値を決定
+        # レガシー処理用のフォールバック値
+        default_batch_size = 8 if available_memory >= 8 else 4
+        
         config = {
-            'batch_size': self.profile.get_effective_batch_size(),
+            'batch_size': default_batch_size,
             'compute_type': self.profile.get_effective_compute_type(),
-            # optimization_preferenceは削除
         }
         
         # メモリ制約時の自動調整
@@ -619,11 +623,7 @@ class OptimizedTranscriptionGatewayAdapter(TranscriptionGatewayAdapter):
         self.profile.add_metrics(metrics)
         
         # 設定を調整
-        if self.profile.batch_size and self.profile.batch_size > 1:
-            self.profile.batch_size = max(1, self.profile.batch_size // 2)
-        else:
-            self.profile.batch_size = 1
-        
+        # バッチサイズは完全に自動化されているため、compute_typeのみ調整
         self.profile.compute_type = 'int8'
         
         # optimization_preferenceは削除（常に最適化を実行）

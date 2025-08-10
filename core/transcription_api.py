@@ -158,11 +158,15 @@ class APITranscriber:
                 progress_callback(0.1, f"音声圧縮完了（{original_size:.1f}MB → {compressed_size:.1f}MB）")
             
             try:
-                # 圧縮された音声ファイルで文字起こし
-                result = self._transcribe_single_file(client, compressed_path, progress_callback)
-                # トラッキング
-                perf_tracker.start_tracking("api_optimized", "whisper-1", True, video_info.duration)
-                perf_tracker.end_tracking(len(result.segments) if result else 0)
+                # 圧縮された音声ファイルで文字起こし（チャンク処理でアライメントも実行）
+                import whisperx
+                audio = whisperx.load_audio(str(compressed_path))
+                
+                # チャンク処理でアライメントも含めて実行
+                # 重要: original_audio_pathは元の動画ファイルパスを使用
+                result = self._transcribe_with_chunks(
+                    client, audio, audio_path, progress_callback, perf_tracker, video_info.duration
+                )
                 return result
             finally:
                 # 一時ファイルを削除

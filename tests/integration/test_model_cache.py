@@ -38,7 +38,6 @@ class TestModelCache(unittest.TestCase):
         
         # デフォルトプロファイルのモック
         mock_profile = MagicMock()
-        mock_profile.get_effective_batch_size.return_value = 8
         mock_profile.get_effective_compute_type.return_value = "int8"
         self.mock_profile_repository.load.return_value = mock_profile
         

@@ -298,8 +298,8 @@ elif task_type == "separated_mode":
         progress_callback=lambda p, m: alignment_progress(p * 0.2, f"[診断] {m}"),
     )
     
-    # 最適化されたバッチサイズで本番用AlignmentProcessorを初期化
-    alignment_processor = AlignmentProcessor(config, batch_size=optimal_batch_size)
+    # AlignmentProcessorを初期化（バッチサイズは自動最適化）
+    alignment_processor = AlignmentProcessor(config)
     aligned_segments = alignment_processor.align(
         segments, video_path, result.language, progress_callback=main_alignment_progress
     )
@@ -357,7 +357,7 @@ sequenceDiagram
         
         loop 診断フェーズ (3チャンク)
             SBT->>AO: get_optimal_params(memory_percent)
-            AO-->>SBT: {chunk_seconds: 30, batch_size: 4}
+            AO-->>SBT: {chunk_seconds: 30, compute_type: int8}
             SBT->>SBT: process_chunk()
         end
         
@@ -378,11 +378,11 @@ sequenceDiagram
     
     %% アライメント診断
     AP->>AP: run_diagnostic(sample_segments)
-    Note over AP: モデルメモリ測定<br/>音声メモリ推定<br/>最適バッチサイズ決定
-    AP-->>WP: {optimal_batch_size: 8}
+    Note over AP: モデルメモリ測定<br/>音声メモリ推定<br/>パラメータ最適化
+    AP-->>WP: 診断完了
     
     %% 本番アライメント
-    WP->>AP: AlignmentProcessor(config, batch_size=8)
+    WP->>AP: AlignmentProcessor(config)
     AP->>AP: align(segments, audio_path)
     
     loop 各バッチ

@@ -31,8 +31,7 @@ class FilePerformanceProfileRepository(IPerformanceProfileRepository):
         try:
             data = {
                 'id': profile.id,
-                # optimization_preferenceは削除
-                'batch_size': profile.batch_size,
+                # optimization_preferenceとbatch_sizeは削除
                 'compute_type': profile.compute_type,
                 'max_conversion_time': profile.max_conversion_time,
                 'min_memory_threshold_gb': profile.min_memory_threshold_gb,
@@ -72,8 +71,7 @@ class FilePerformanceProfileRepository(IPerformanceProfileRepository):
             
             profile = PerformanceProfile(
                 id=data.get('id', f"profile_{datetime.now().timestamp()}"),
-                # optimization_preferenceは削除
-                batch_size=data.get('batch_size'),
+                # optimization_preferenceとbatch_sizeは削除
                 compute_type=data.get('compute_type'),
                 max_conversion_time=data.get('max_conversion_time', 300),
                 min_memory_threshold_gb=data.get('min_memory_threshold_gb', 4.0),
