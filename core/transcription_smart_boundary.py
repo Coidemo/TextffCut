@@ -162,7 +162,17 @@ class SmartBoundaryTranscriber(Transcriber):
             duration_cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration", 
                            "-of", "default=noprint_wrappers=1:nokey=1", audio_path]
             result = subprocess.run(duration_cmd, capture_output=True, text=True)
-            total_duration = float(result.stdout.strip())
+            
+            # エラーチェック
+            if result.returncode != 0:
+                raise Exception(f"ffprobe failed: {result.stderr}")
+            
+            # 空の出力チェック
+            duration_str = result.stdout.strip()
+            if not duration_str:
+                raise Exception("ffprobe returned empty duration")
+                
+            total_duration = float(duration_str)
             
             # 無音検出で音声区間を特定
             silence_cmd = [
@@ -251,7 +261,19 @@ class SmartBoundaryTranscriber(Transcriber):
         cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration", 
                "-of", "default=noprint_wrappers=1:nokey=1", audio_path]
         result = subprocess.run(cmd, capture_output=True, text=True)
-        duration = float(result.stdout.strip())
+        
+        # エラーチェック
+        if result.returncode != 0:
+            logger.error(f"ffprobe failed in fallback: {result.stderr}")
+            # 最後の手段として30分を仮定
+            duration = 1800.0
+        else:
+            duration_str = result.stdout.strip()
+            if not duration_str:
+                logger.error("ffprobe returned empty duration in fallback")
+                duration = 1800.0
+            else:
+                duration = float(duration_str)
         
         segments = []
         current = 0.0

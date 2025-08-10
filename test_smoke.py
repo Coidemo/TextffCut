@@ -105,13 +105,13 @@ def test_di_container():
     """DIコンテナの初期化確認"""
     print("\nTesting DI container...")
     try:
-        from di.containers import Container
-        container = Container()
+        from di.containers import ApplicationContainer
+        container = ApplicationContainer()
         
         # 基本的なプロバイダーの確認
         assert hasattr(container, 'gateways')
         assert hasattr(container, 'use_cases')
-        assert hasattr(container, 'presenters')
+        assert hasattr(container, 'services')
         
         print("✓ DI container initialized successfully")
         return True
