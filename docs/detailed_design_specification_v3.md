@@ -103,136 +103,305 @@
 | ビジネス層 | データ層 | ファイルI/O | 辞書/JSON |
 | データ層 | インフラ層 | Wrapper関数 | プリミティブ型 |
 
-## 4. 主要処理の詳細シーケンス
+## 4. 実装詳細
 
-### 4.1 文字起こし処理完全シーケンス
+### 4.1 ローカルモード処理フロー
+
+#### 4.1.1 SmartBoundaryTranscriber
+
+##### 主要メソッド
+
+```python
+def transcribe(
+    self,
+    video_path: str,
+    model_size: str,
+    progress_callback: Callable[[float, str], None] | None = None,
+    use_cache: bool = False,
+    save_cache: bool = False,
+    skip_alignment: bool = False
+) -> TranscriptionResult:
+    """
+    文字起こし処理のメインメソッド
+    
+    処理フロー:
+    1. 音声変換（VAD前処理付き）
+    2. VADベースセグメント分割（30秒制約）
+    3. 動的メモリ最適化
+    4. 単一パス推論（skip_alignment=True時）
+    5. キャッシュ管理
+    """
+```
+
+```python
+def _process_with_vad_segmentation(
+    self,
+    audio_path: str,
+    model_size: str,
+    progress_callback: Callable[[float, str], None] | None = None
+) -> TranscriptionResult:
+    """
+    VADベースのセグメント分割処理
+    
+    1. Voice Activity Detectionで音声区間を検出
+    2. 30秒以内のセグメントに分割（Whisperの制約）
+    3. 動的パラメータ調整で処理
+    4. 診断フェーズで最適値を学習
+    """
+```
+
+##### セグメント設定
+
+```python
+# core/transcription_smart_boundary.py
+MAX_SEGMENT_DURATION = 30  # Whisperの最大セグメント長（秒）
+PREFERRED_SEGMENT_DURATION = 20  # 推奨セグメント長（秒）
+MIN_SEGMENT_DURATION = 5   # 最小セグメント長（秒）
+```
+
+#### 4.1.2 AlignmentProcessor  
+
+##### 診断フェーズ付きバッチ処理
+
+```python
+def run_diagnostic(
+    self,
+    audio_path: str,
+    language: str,
+    sample_segments: list[TranscriptionSegmentV2] | None = None,
+    progress_callback: Callable[[float, str], None] | None = None
+) -> dict[str, Any]:
+    """
+    アライメント前の診断フェーズ
+    - モデルメモリ使用量の測定
+    - 音声データメモリの推定
+    - 最適バッチサイズの決定
+    """
+
+def _process_batch(
+    self,
+    segments: list[TranscriptionSegmentV2],
+    audio_data: Any,
+    language: str
+) -> list[TranscriptionSegmentV2]:
+    """
+    バッチ単位でアライメント処理
+    注意: WhisperX.align()は内部的に1つずつ処理
+    """
+```
+
+### 4.2 APIモード処理フロー
+
+#### 4.2.1 APITranscriber
+
+##### 処理の流れ
+
+1. **音声変換**
+   - FFmpegで動画からWAV抽出
+   - 16kHz, モノラル変換
+   - 音声最適化の適用
+
+2. **API呼び出し**
+   - OpenAI Whisper APIまたはGroq APIを使用
+   - 25MB制限を考慮した分割処理
+
+3. **結果処理**
+   - レスポンスをTranscriptionResult形式に変換
+   - words情報なし（APIの制限）
+
+4. **アライメント処理（重要）**
+   - APIモードでも必須
+   - separated_modeでAlignmentProcessorを使用
+   - word-level timestampsの生成
+
+### 4.3 メモリ最適化戦略
+
+#### 4.3.1 診断フェーズ
+
+```python
+class AutoOptimizer:
+    DIAGNOSTIC_CHUNK_SECONDS = 30  # 診断用チャンク（30秒）
+    DIAGNOSTIC_CHUNKS_COUNT = 3    # 診断チャンク数
+    
+    def _handle_diagnostic_phase(self, current_memory_percent: float) -> dict:
+        """
+        初期診断フェーズ
+        - メモリ増加率の測定
+        - 最適パラメータの予測
+        - 学習ベースの調整
+        """
+```
+
+#### 4.3.2 動的パラメータ調整
+
+```python
+def get_optimal_params(self, current_memory_percent: float) -> dict:
+    """
+    メモリ使用率に基づくパラメータ調整
+    - セグメントサイズ: 5-30秒（VAD制約）
+    - バッチサイズ: 1-16（診断結果ベース）
+    - ワーカー数: 1（メモリ節約重視）
+    - 量子化: int8/float16の動的選択
+    """
+```
+
+### 4.4 共通処理
+
+#### 4.4.1 ワーカープロセス管理
+
+##### worker_transcribe.pyの役割
+
+```python
+# worker_transcribe.pyの主要な役割
+1. サブプロセスとして起動され、文字起こし処理を実行
+2. メモリ使用量をメインプロセスから分離
+3. 処理完了後に自動的に終了してメモリを解放
+```
+
+##### 処理モードの判定
+
+```python
+# APIモードかローカルモードかで処理を分岐
+if config.transcription.use_api:
+    # APIモードの場合は直接Transcriberを使用
+    transcriber = Transcriber(config)
+    logger.info("ＡＰＩモードで処理")
+    task_type = "transcribe_only"  # APIモードではtranscribe_onlyを使用
+else:
+    # ローカルモードでは常に分離モード + SmartBoundaryTranscriberを使用
+    logger.info("ローカルモード: 自動最適化による分離処理")
+    task_type = "separated_mode"
+    transcriber = SmartBoundaryTranscriber(config, optimizer=optimizer, memory_monitor=memory_monitor)
+```
+
+##### 分離モード処理
+
+```python
+elif task_type == "separated_mode":
+    # 分離モード（文字起こし→アライメント）
+    
+    # ステップ1: 文字起こしのみ
+    result = transcriber.transcribe(
+        video_path=video_path,
+        model_size=model_size,
+        progress_callback=transcribe_progress,
+        skip_alignment=True,  # アライメントをスキップ
+    )
+    
+    # ステップ2: アライメント処理
+    # 診断フェーズを実行して最適なバッチサイズを決定
+    diagnostic_processor = AlignmentProcessor(config)
+    diagnostic_result = diagnostic_processor.run_diagnostic(
+        audio_path=video_path,
+        language=result.language,
+        sample_segments=sample_segments,
+        progress_callback=lambda p, m: alignment_progress(p * 0.2, f"[診断] {m}"),
+    )
+    
+    # 最適化されたバッチサイズで本番用AlignmentProcessorを初期化
+    alignment_processor = AlignmentProcessor(config, batch_size=optimal_batch_size)
+    aligned_segments = alignment_processor.align(
+        segments, video_path, result.language, progress_callback=main_alignment_progress
+    )
+```
+
+### 4.5 主要処理の詳細シーケンス
+
+#### 4.5.1 文字起こし処理完全シーケンス
 
 ```mermaid
 sequenceDiagram
     participant User
     participant UI
     participant WS as WorkflowService
-    participant TS as TranscriptionService
-    participant TM as TranscriptionManager
-    participant VV as VideoValidator
-    participant FFmpeg as FFmpegWrapper
-    participant AP as AudioProcessor
-    participant WX as WhisperXWrapper
-    participant APIClient
-    participant Align as AlignmentProcessor
-    participant EH as ErrorHandler
+    participant TS as TranscriptionService  
+    participant O as Orchestrator
+    participant WP as WorkerProcess
+    participant UT as UnifiedTranscriber
+    participant SBT as SmartBoundaryTranscriber
+    participant AO as AutoOptimizer
+    participant AP as AlignmentProcessor
     
     User->>UI: 動画ファイル選択
     UI->>WS: start_transcription(file_path, config)
     WS->>TS: transcribe(file_path, config)
     
-    %% 検証フェーズ
-    TS->>VV: validate_video_file(file_path)
-    Note over VV: 1. os.path.exists(file_path)<br/>2. magic.from_file(file_path, mime=True)<br/>3. os.path.getsize(file_path) <= 2GB<br/>4. extension in [.mp4, .mov, .avi, .mkv, .webm]
-    
-    alt 検証失敗
-        VV-->>TS: ValidationError(詳細)
-        TS->>EH: handle_validation_error(error)
-        EH-->>UI: エラーダイアログ表示
-    else 検証成功
-        VV-->>TS: VideoInfo{path, duration, fps, codec}
-    end
-    
     %% キャッシュ確認
     TS->>TS: check_cache(video_path, model_size)
-    Note over TS: TranscriptionService内で<br/>キャッシュキーを生成し<br/>ファイル存在確認
-    
     alt キャッシュヒット
         TS-->>WS: キャッシュされた結果
-        WS-->>UI: transcript_result（from_cache=true）
     else キャッシュミス
-        Note over TS: 新規文字起こし処理へ
+        TS->>O: run_isolated_transcription(config)
     end
     
-    %% 音声抽出フェーズ
-    TS->>TM: transcribe(video_path, config)
-    TM->>FFmpeg: probe_video(video_path)
-    Note over FFmpeg: ffprobe -v quiet -print_format json -show_streams
-    FFmpeg-->>TM: StreamInfo{audio_streams, video_streams}
+    %% Orchestratorがワーカープロセスを起動
+    O->>O: create_config_file(config_data)
+    O->>WP: subprocess.Popen(["python", "worker_transcribe.py", config_path])
     
-    TM->>FFmpeg: extract_audio(video_path, temp_wav_path)
-    Note over FFmpeg: ffmpeg -i input -vn -acodec pcm_s16le<br/>-ar 16000 -ac 1 output.wav
+    %% ワーカープロセス内の処理
+    WP->>WP: load_config(config_path)
+    WP->>AO: AutoOptimizer(model_size)
     
-    loop プログレス更新
-        FFmpeg-->>TM: progress_callback(percent)
-        TM-->>UI: update_progress("音声抽出中", percent)
-    end
-    
-    FFmpeg-->>TM: wav_file_path
-    
-    %% 音声前処理
-    TM->>AP: preprocess_audio(wav_file_path)
-    Note over AP: 1. 音声正規化 (RMS = -20dB)<br/>2. ノイズ除去 (spectral subtraction)<br/>3. 無音検出 (VAD)
-    AP-->>TM: ProcessedAudio{path, segments[], duration}
-    
-    %% 文字起こし処理
-    alt ローカルモード
-        TM->>WX: load_model("medium")
-        Note over WX: model = whisperx.load_model(<br/>  "medium",<br/>  device="cuda" if available else "cpu",<br/>  compute_type="float16" if GPU else "float32"<br/>)
+    alt APIモード
+        WP->>UT: Transcriber(config)
+        Note over WP: task_type = "transcribe_only"
+        UT->>UT: transcribe_api(skip_alignment=True)
+        UT-->>WP: result (words=None)
+    else ローカルモード
+        WP->>SBT: SmartBoundaryTranscriber(config, optimizer)
+        Note over WP: task_type = "separated_mode"
         
-        TM->>TM: split_audio_chunks(processed_audio)
-        Note over TM: チャンク条件:<br/>1. 最大10分<br/>2. 無音部分で分割<br/>3. オーバーラップ0.5秒
+        %% 文字起こしフェーズ
+        SBT->>SBT: transcribe(skip_alignment=True)
+        Note over SBT: VADベースセグメント分割<br/>30秒制約で処理
         
-        par 並列処理 (max_workers=4)
-            loop 各チャンク
-                TM->>WX: transcribe_chunk(chunk, model)
-                Note over WX: result = model.transcribe(<br/>  audio_chunk,<br/>  batch_size=16,<br/>  language=config.language<br/>)
-                WX-->>TM: chunk_result
-            end
+        loop 診断フェーズ (3チャンク)
+            SBT->>AO: get_optimal_params(memory_percent)
+            AO-->>SBT: {chunk_seconds: 30, batch_size: 4}
+            SBT->>SBT: process_chunk()
         end
         
-        TM->>TM: merge_chunks(chunk_results)
-        Note over TM: 1. タイムスタンプ調整<br/>2. 重複部分の除去<br/>3. 文の結合
+        SBT->>AO: reset_diagnostic_mode()
+        AO->>AO: _predict_optimal_params()
         
-    else APIモード
-        TM->>TM: estimate_cost(audio_duration)
-        Note over TM: cost = duration_minutes * 0.006 USD
-        TM->>UI: show_cost_dialog(estimated_cost)
-        
-        alt ユーザー承認
-            TM->>TM: split_for_api(audio_file)
-            Note over TM: 25MB制限でチャンク分割
-            
-            loop 各チャンク
-                TM->>APIClient: transcribe(chunk)
-                Note over APIClient: POST /v1/audio/transcriptions<br/>model="whisper-1"<br/>response_format="verbose_json"
-                APIClient-->>TM: api_result
-            end
-        else ユーザーキャンセル
-            TM-->>TS: UserCancelled
+        loop 本番処理
+            SBT->>AO: get_optimal_params(memory_percent)
+            AO-->>SBT: 最適化されたパラメータ
+            SBT->>SBT: process_chunk()
         end
+        
+        SBT-->>WP: result (アライメントなし)
     end
     
-    %% アライメント処理
-    TM->>Align: align_words(transcript, audio_file)
-    Note over Align: 1. 音素分割 (phonemizer)<br/>2. 強制アライメント (HMM-GMM)<br/>3. 境界調整 (±50ms)
+    %% アライメント処理（両モード共通）
+    WP->>AP: AlignmentProcessor(config)
     
-    loop 各セグメント
-        Align->>Align: extract_segment_audio(start, end)
-        Align->>Align: force_align(text, audio)
-        Note over Align: DTW (Dynamic Time Warping)<br/>window_size = 0.1秒<br/>step_pattern = symmetric2
-        Align->>Align: refine_boundaries(aligned_words)
+    %% アライメント診断
+    AP->>AP: run_diagnostic(sample_segments)
+    Note over AP: モデルメモリ測定<br/>音声メモリ推定<br/>最適バッチサイズ決定
+    AP-->>WP: {optimal_batch_size: 8}
+    
+    %% 本番アライメント
+    WP->>AP: AlignmentProcessor(config, batch_size=8)
+    AP->>AP: align(segments, audio_path)
+    
+    loop 各バッチ
+        AP->>AP: _process_batch(segments)
+        Note over AP: WhisperX.align()は<br/>内部でセグメントを<br/>1つずつ処理
     end
     
-    Align-->>TM: AlignedTranscript{segments[{words[{text, start, end}]}]}
+    AP-->>WP: aligned_segments
     
-    %% 後処理とキャッシュ保存
-    TM->>TM: post_process(aligned_transcript)
-    Note over TM: 1. 信頼度スコア計算<br/>2. 句読点の調整<br/>3. タイムスタンプ検証
+    %% 結果保存
+    WP->>WP: save_result(result_path)
+    WP->>O: PROGRESS:100|処理が完了しました
     
-    TM->>Cache: save_transcript(video_path, final_transcript)
-    Note over Cache: 保存先: video_dir/{video_name}/transcription.json<br/>形式: JSON (pretty print, 非圧縮)<br/>メタデータ: cache.jsonに記録
-    
-    TM-->>TS: TranscriptionResult
+    O->>O: load_result(result_path)
+    O-->>TS: TranscriptionResult
     TS-->>UI: display_result(transcript)
 ```
 
-### 3.2 YouTube動画ダウンロード処理
+#### 4.5.2 YouTube動画ダウンロード処理
 
 ```mermaid
 sequenceDiagram
@@ -305,7 +474,7 @@ sequenceDiagram
     UI->>UI: 自動的に文字起こし画面へ遷移
 ```
 
-### 3.3 テキスト差分検出の詳細処理（正規化とタイムスタンプ整合性）
+#### 4.5.3 テキスト差分検出の詳細処理（正規化とタイムスタンプ整合性）
 
 ```mermaid
 sequenceDiagram
@@ -384,7 +553,7 @@ sequenceDiagram
 - "とても"（位置4-6） → word_id:1, time:1.0-1.5  # 正規化前の位置で管理
 ```
 
-### 3.4 無音削除処理の詳細
+#### 4.5.4 無音削除処理の詳細
 
 ```mermaid
 sequenceDiagram
@@ -443,11 +612,11 @@ sequenceDiagram
     VP-->>VP: SilenceRemovalResult{kept_ranges, statistics}
 ```
 
-## 4. データ構造とアルゴリズム詳細
+## 5. データ構造とアルゴリズム詳細
 
-### 4.1 主要データ構造の完全定義
+### 5.1 主要データ構造の完全定義
 
-#### 4.1.1 Transcript構造体
+#### 5.1.1 Transcript構造体
 
 ```
 Transcript:
@@ -478,7 +647,7 @@ Word:
   phonemes: str[]       # 音素配列（オプション）
 ```
 
-#### 4.1.2 時間範囲の表現
+#### 5.1.2 時間範囲の表現
 
 ```
 TimeRange:
@@ -494,9 +663,9 @@ TimeRange:
   - end - start >= 0.1 (最小長)
 ```
 
-### 4.2 重要アルゴリズムの詳細
+### 5.2 重要アルゴリズムの詳細
 
-#### 4.2.1 文字列差分検出と時間計算アルゴリズム
+#### 5.2.1 文字列差分検出と時間計算アルゴリズム
 
 **目的**: 編集されたテキストの位置を特定し、対応する時間範囲を高精度で計算する。
 
@@ -943,7 +1112,7 @@ def find_differences_hybrid(full_text, edited_text):
 - 複数の切り抜き箇所を順序通りに処理可能
 - 文脈ヒントにより曖昧性を解消
 
-#### 4.2.2 音声レベル計算（RMS）
+#### 5.2.2 音声レベル計算（RMS）
 
 **目的**: 音声データから無音区間を検出するため、時間窓ごとの音量レベルを計算する。
 
@@ -967,7 +1136,7 @@ def find_differences_hybrid(full_text, edited_text):
 - 窓サイズ20ms：音声の基本周波数（50-400Hz）を捉えるのに十分な長さ
 - オーバーラップ50%：急激な音量変化を見逃さないための安全マージン
 
-#### 4.2.3 時間マッピング（TimeMapper）
+#### 5.2.3 時間マッピング（TimeMapper）
 
 **目的**: 無音削除により分割・移動した時間範囲を正確に追跡し、元動画の時間と処理後の時間を対応付ける。
 
@@ -996,7 +1165,7 @@ def find_differences_hybrid(full_text, edited_text):
        return segments
    ```
 
-#### 4.2.4 セグメント結合アルゴリズム
+#### 5.2.4 セグメント結合アルゴリズム
 
 **目的**: 細切れになった音声セグメントを適切に結合し、自然な編集結果を生成する。
 
@@ -1022,7 +1191,7 @@ def find_differences_hybrid(full_text, edited_text):
    - 無限ループを防ぐため、再結合は最大3回までに制限
    - 各反復で結合条件を緩和（間隔を0.5秒、1.0秒と段階的に拡大）
 
-## 5. エラー処理とリカバリー詳細
+## 6. エラー処理とリカバリー詳細
 
 ### 5.1 エラー分類と処理戦略
 
@@ -1064,7 +1233,7 @@ def find_differences_hybrid(full_text, edited_text):
    - 一時ファイルの削除とシステムリソースの解放
    - クリーンアップ失敗時もアプリケーションは継続
 
-### 5.3 チェックポイントとリカバリー
+### 6.3 チェックポイントとリカバリー
 
 ```
 チェックポイント保存タイミング:
@@ -1087,9 +1256,9 @@ def find_differences_hybrid(full_text, edited_text):
 4. 承認されたら最後のチェックポイントから再開
 ```
 
-### 5.4 ローカル環境特有のエラー処理
+### 6.4 ローカル環境特有のエラー処理
 
-#### 5.4.1 Docker環境エラーメッセージ
+#### 6.4.1 Docker環境エラーメッセージ
 
 **Docker環境固有のエラーハンドリング**:
 
@@ -1112,7 +1281,7 @@ def find_differences_hybrid(full_text, edited_text):
 
 これらのエラーは自動的に検出され、ユーザーに分かりやすい日本語の解決策を表示します。
 
-#### 5.4.2 ファイル操作の競合防止
+#### 6.4.2 ファイル操作の競合防止
 
 **ファイルロック機構の実装**:
 
@@ -1136,7 +1305,7 @@ def find_differences_hybrid(full_text, edited_text):
    - ロック取得失敗時は分かりやすいエラーメッセージを表示
    - 処理終了時は確実にロックを解放
 
-#### 5.4.3 メモリ管理とチェック
+#### 6.4.3 メモリ管理とチェック
 
 **インテリジェントなメモリ管理システム**:
 
@@ -1161,7 +1330,7 @@ def find_differences_hybrid(full_text, edited_text):
    - メモリ不足時はDocker Desktopの設定変更を案内
    - コンテナ内でのメモリ制限を考慮したアドバイス
 
-#### 5.4.4 一時ファイルの確実なクリーンアップ
+#### 6.4.4 一時ファイルの確実なクリーンアップ
 
 **一時ファイル管理システム**:
 
@@ -1189,7 +1358,7 @@ def find_differences_hybrid(full_text, edited_text):
    - MB単位でサイズを返し、ディスク使用量を可視化
    - 定期的な監視で容量不足を事前に検知
 
-### 5.5 処理キャンセルとグレースフルシャットダウン
+### 6.5 処理キャンセルとグレースフルシャットダウン
 
 **安全な処理中断メカニズム**:
 
@@ -1218,11 +1387,9 @@ def find_differences_hybrid(full_text, edited_text):
 - クリーンアップは逆順で実行し、依存関係を適切に処理
 - エラーとキャンセルを区別して、適切なメッセージを表示
 
-## 6. パフォーマンス最適化詳細
+## 7. パフォーマンス最適化詳細
 
-### 6.1 並列処理の実装
-
-### 6.1 並列処理最適化
+### 7.1 並列処理最適化
 
 **プラットフォーム別のワーカー数決定ロジック**:
 
@@ -1251,7 +1418,7 @@ def find_differences_hybrid(full_text, edited_text):
 4️⃣ 正常終了したチャンク結果を元の順序でマージ
 5️⃣ キャンセルチェックは各チャンク投入前に実施
 
-### 6.2 メモリ管理戦略
+### 7.2 メモリ管理戦略
 
 **メモリ使用量の事前計算**:
 1️⃣ **音声データのサイズ推定**
@@ -1275,7 +1442,7 @@ def find_differences_hybrid(full_text, edited_text):
 - 循環参照を避ける設計でメモリリークを防止
 - 大きなデータはweakrefを使用して必要時のみ保持
 
-### 6.3 キャッシュ戦略
+### 7.3 キャッシュ戦略
 
 **キャッシュキーの生成ロジック**:
 1️⃣ 動画ファイルの先頭1MBからSHA256ハッシュを計算
@@ -1315,9 +1482,9 @@ video_folder_TextffCut/              # 動画名_TextffCutフォルダ
 2️⃣ 整合性確認：SHA256チェックサムでファイルの同一性を保証
 3️⃣ バージョン管理：スキーマバージョンでフォーマット互換性を維持
 
-## 7. プラットフォーム別実装詳細
+## 8. プラットフォーム別実装詳細
 
-### 7.1 Docker環境
+### 8.1 Docker環境
 
 ```
 ディレクトリ構造:
@@ -1344,7 +1511,7 @@ CUDA_VISIBLE_DEVICES=0 (GPU使用時)
 - 最小: 4GB（機能制限あり）
 ```
 
-### 7.2 OS別の注意事項
+### 8.2 OS別の注意事項
 
 | OS | パス処理 | 改行コード | 特殊考慮 |
 |----|---------|-----------|---------|
@@ -1352,7 +1519,7 @@ CUDA_VISIBLE_DEVICES=0 (GPU使用時)
 | **macOS** | UTF-8正規化 | LF | Apple Silicon対応 |
 | **Linux** | そのまま | LF | SELinux/AppArmor |
 
-### 7.3 ファイル出力の連番管理
+### 8.3 ファイル出力の連番管理
 
 **連番付き出力ファイル名の生成ロジック**:
 
@@ -1380,7 +1547,7 @@ CUDA_VISIBLE_DEVICES=0 (GPU使用時)
    字幕: sample_video_001.srt
    ```
 
-### 7.4 SRT字幕エクスポート
+### 8.4 SRT字幕エクスポート
 
 **SRTエクスポート機能の実装**:
 

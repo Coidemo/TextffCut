@@ -28,9 +28,12 @@ class SmartBoundaryTranscriber(Transcriber):
     """スマート境界検出による文字起こしクラス"""
 
     # 基本設定
-    TARGET_DURATION = 20 * 60  # 20分を目標
-    BOUNDARY_WINDOW = 30  # 境界前後30秒を検査
-    MIN_SILENCE_LEN = 0.5  # 最小無音長（秒）
+    TARGET_DURATION = 30  # 30秒を目標（Whisperの制約）
+    MAX_SEGMENT_DURATION = 30  # Whisperの最大セグメント長
+    PREFERRED_SEGMENT_DURATION = 20  # 推奨セグメント長
+    MIN_SEGMENT_DURATION = 5  # 最小セグメント長
+    BOUNDARY_WINDOW = 5  # 境界前後5秒を検査
+    MIN_SILENCE_LEN = 0.3  # 最小無音長（秒）
     SILENCE_THRESH = -35  # 無音閾値（dB）
 
     def __init__(
@@ -80,16 +83,23 @@ class SmartBoundaryTranscriber(Transcriber):
 
         try:
             if progress_callback:
-                progress_callback(0.1, "最適な分割点を検出中...")
+                progress_callback(0.05, "音声を抽出中...")
+            
+            # まず全体の音声を抽出（VAD処理のため）
+            temp_audio = os.path.join(self.temp_dir, "audio.wav")
+            extract_cmd = [
+                "ffmpeg", "-y", "-i", video_path,
+                "-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1",
+                temp_audio
+            ]
+            subprocess.run(extract_cmd, capture_output=True, check=True)
+            
+            if progress_callback:
+                progress_callback(0.1, "音声区間を検出中...")
 
-            # スマート境界検出で分割点を決定
-            split_points = self._find_smart_boundaries(video_path, duration)
-            logger.info(f"分割点: {[f'{p / 60:.1f}分' for p in split_points]}")
-
-            # セグメントに分割
-            segments = []
-            for i in range(len(split_points) - 1):
-                segments.append((split_points[i], split_points[i + 1]))
+            # VADベースでセグメントを検出
+            segments = self._find_vad_based_segments(temp_audio)
+            logger.info(f"VADセグメント数: {len(segments)}, 総時間: {sum(e-s for s,e in segments):.1f}秒")
 
             # 各セグメントを処理
             all_results = []
@@ -99,7 +109,7 @@ class SmartBoundaryTranscriber(Transcriber):
                     progress_callback(base_progress, f"セグメント {i + 1}/{len(segments)} を処理中...")
 
                 # セグメントを処理
-                segment_result = self._process_segment(video_path, start, end, model_size, i)
+                segment_result = self._process_segment(video_path, start, end, model_size, i, skip_alignment)
                 all_results.extend(segment_result)
 
             # 結果を作成
@@ -142,8 +152,118 @@ class SmartBoundaryTranscriber(Transcriber):
         result = subprocess.run(cmd, capture_output=True, text=True)
         return float(result.stdout.strip())
 
+    def _find_vad_based_segments(self, audio_path: str) -> list[tuple[float, float]]:
+        """VADベースで音声セグメントを検出し、30秒制約で分割"""
+        try:
+            # 簡易的なVAD実装（ffmpegのsilencedetectを使用）
+            # 本来はpyannote.audioなどを使うべきだが、依存関係を最小限にするため
+            
+            # 音声の長さを取得
+            duration_cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration", 
+                           "-of", "default=noprint_wrappers=1:nokey=1", audio_path]
+            result = subprocess.run(duration_cmd, capture_output=True, text=True)
+            total_duration = float(result.stdout.strip())
+            
+            # 無音検出で音声区間を特定
+            silence_cmd = [
+                "ffmpeg", "-i", audio_path, "-af",
+                f"silencedetect=noise={self.SILENCE_THRESH}dB:d={self.MIN_SILENCE_LEN}",
+                "-f", "null", "-"
+            ]
+            result = subprocess.run(silence_cmd, capture_output=True, text=True, stderr=subprocess.STDOUT)
+            
+            # 無音区間を解析して音声区間を抽出
+            vad_segments = []
+            current_start = 0.0
+            
+            import re
+            silence_starts = re.findall(r"silence_start: ([\d.]+)", result.stdout)
+            silence_ends = re.findall(r"silence_end: ([\d.]+)", result.stdout)
+            
+            # 無音区間から音声区間を計算
+            if silence_starts:
+                # 最初の無音開始まで
+                if float(silence_starts[0]) > 0.1:
+                    vad_segments.append((0.0, float(silence_starts[0])))
+                
+                # 無音区間の間の音声区間
+                for i in range(len(silence_ends)):
+                    start = float(silence_ends[i])
+                    if i < len(silence_starts) - 1:
+                        end = float(silence_starts[i + 1])
+                    else:
+                        end = total_duration
+                    
+                    if end - start > 0.1:  # 0.1秒以上の音声区間のみ
+                        vad_segments.append((start, end))
+            else:
+                # 無音が検出されなかった場合は全体を1つのセグメントとして扱う
+                vad_segments = [(0.0, total_duration)]
+            
+            # VADセグメントを30秒以内に分割
+            final_segments = []
+            for segment in vad_segments:
+                start, end = segment  # タプルとして扱う
+                
+                # セグメントが30秒を超える場合は分割
+                if end - start > self.MAX_SEGMENT_DURATION:
+                    current_start = start
+                    while current_start < end:
+                        segment_end = min(current_start + self.PREFERRED_SEGMENT_DURATION, end)
+                        final_segments.append((current_start, segment_end))
+                        current_start = segment_end
+                else:
+                    final_segments.append((start, end))
+            
+            # 短すぎるセグメントを結合
+            merged_segments = []
+            i = 0
+            while i < len(final_segments):
+                start, end = final_segments[i]
+                
+                # 次のセグメントと結合可能か確認
+                while i + 1 < len(final_segments):
+                    next_start, next_end = final_segments[i + 1]
+                    # 間隔が短く、合計時間が30秒以内なら結合
+                    if (next_start - end < 0.5 and 
+                        next_end - start <= self.MAX_SEGMENT_DURATION):
+                        end = next_end
+                        i += 1
+                    else:
+                        break
+                
+                # 最小長以上なら追加
+                if end - start >= self.MIN_SEGMENT_DURATION:
+                    merged_segments.append((start, end))
+                i += 1
+            
+            logger.info(f"VAD検出: {len(vad_segments)}個の音声区間 → {len(merged_segments)}個のセグメントに分割")
+            return merged_segments
+            
+        except Exception as e:
+            logger.warning(f"VADベース分割に失敗、フォールバック: {e}")
+            # フォールバック：固定長分割
+            return self._find_fixed_segments(audio_path)
+    
+    def _find_fixed_segments(self, audio_path: str) -> list[tuple[float, float]]:
+        """固定長でセグメントを分割（フォールバック）"""
+        # 音声の長さを取得
+        cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration", 
+               "-of", "default=noprint_wrappers=1:nokey=1", audio_path]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        duration = float(result.stdout.strip())
+        
+        segments = []
+        current = 0.0
+        while current < duration:
+            segment_end = min(current + self.PREFERRED_SEGMENT_DURATION, duration)
+            segments.append((current, segment_end))
+            current = segment_end
+            
+        return segments
+
     def _find_smart_boundaries(self, video_path: str | Path, duration: float) -> list[float]:
-        """スマートに境界を検出"""
+        """スマートに境界を検出（レガシー実装、互換性のため残す）"""
         boundaries = [0.0]  # 開始点
 
         # 理想的な分割点を計算
@@ -238,7 +358,7 @@ class SmartBoundaryTranscriber(Transcriber):
                 os.unlink(temp_wav)
 
     def _process_segment(
-        self, video_path: str | Path, start: float, end: float, model_size: str, segment_index: int
+        self, video_path: str | Path, start: float, end: float, model_size: str, segment_index: int, skip_alignment: bool = False
     ) -> list[TranscriptionSegment]:
         """セグメントを処理"""
         # 動的メモリ最適化
@@ -257,25 +377,31 @@ class SmartBoundaryTranscriber(Transcriber):
 
                 # バッチサイズも記録（後で使用）
                 self._dynamic_batch_size = optimal_params["batch_size"]
+                
+                # 動的パラメータを保存（後でモデル読み込み時に使用）
+                self._dynamic_compute_type = optimal_params.get("compute_type", self.config.transcription.compute_type)
 
                 # 診断フェーズかどうかを確認
                 if hasattr(self.optimizer, "diagnostic_mode") and self.optimizer.diagnostic_mode:
                     logger.info(
                         f"診断フェーズ {self.optimizer.diagnostic_chunks_processed + 1}/{self.optimizer.DIAGNOSTIC_CHUNKS_COUNT}: "
-                        f"チャンク={self.TARGET_DURATION}秒, バッチサイズ={self._dynamic_batch_size}"
+                        f"チャンク={self.TARGET_DURATION}秒, バッチサイズ={self._dynamic_batch_size}, compute_type={self._dynamic_compute_type}"
                     )
                 else:
                     logger.info(
-                        f"動的パラメータ調整: TARGET_DURATION {old_duration}秒 → {self.TARGET_DURATION}秒, バッチサイズ: {self._dynamic_batch_size}"
+                        f"動的パラメータ調整: TARGET_DURATION {old_duration}秒 → {self.TARGET_DURATION}秒, "
+                        f"バッチサイズ: {self._dynamic_batch_size}, compute_type: {self._dynamic_compute_type}"
                     )
 
             except Exception as e:
                 logger.warning(f"動的最適化でエラー: {e}")
                 # エラーが発生してもデフォルト値で継続
                 self._dynamic_batch_size = 16
+                self._dynamic_compute_type = self.config.transcription.compute_type
         else:
             # オプティマイザがない場合はデフォルト値
             self._dynamic_batch_size = 16
+            self._dynamic_compute_type = self.config.transcription.compute_type
 
         # セグメントのWAVファイルを作成
         segment_wav = os.path.join(self.temp_dir, f"segment_{segment_index}.wav")
@@ -308,11 +434,16 @@ class SmartBoundaryTranscriber(Transcriber):
             # 音声を読み込み
             audio = whisperx.load_audio(segment_wav)
 
+            # 動的に決定されたcompute_typeを使用
+            compute_type = getattr(self, "_dynamic_compute_type", self.config.transcription.compute_type)
+            if compute_type != self.config.transcription.compute_type:
+                logger.info(f"動的compute_type: {compute_type} (デフォルト: {self.config.transcription.compute_type})")
+            
             # モデルを読み込み
             model = whisperx.load_model(
                 model_size,
                 self.device,
-                compute_type=self.config.transcription.compute_type,
+                compute_type=compute_type,
                 language=self.config.transcription.language,
             )
 
@@ -322,21 +453,25 @@ class SmartBoundaryTranscriber(Transcriber):
             # 文字起こし（VAD有効）
             result = model.transcribe(audio, batch_size=batch_size, language=self.config.transcription.language)
 
-            # アライメント処理（必須）
-            try:
-                align_model, metadata = whisperx.load_align_model(
-                    language_code=self.config.transcription.language, device=self.device
-                )
+            # アライメント処理（skip_alignment=Falseの場合のみ実行）
+            if not skip_alignment:
+                try:
+                    align_model, metadata = whisperx.load_align_model(
+                        language_code=self.config.transcription.language, device=self.device
+                    )
 
-                aligned_result = whisperx.align(
-                    result["segments"], align_model, metadata, audio, self.device, return_char_alignments=True
-                )
-                segments_data = aligned_result["segments"]
-            except Exception as e:
-                logger.error(f"アライメント処理に失敗しました: {str(e)}")
-                raise RuntimeError(
-                    f"文字位置情報の取得に失敗しました。アライメント処理でエラーが発生しました: {str(e)}"
-                ) from e
+                    aligned_result = whisperx.align(
+                        result["segments"], align_model, metadata, audio, self.device, return_char_alignments=True
+                    )
+                    segments_data = aligned_result["segments"]
+                except Exception as e:
+                    logger.error(f"アライメント処理に失敗しました: {str(e)}")
+                    raise RuntimeError(
+                        f"文字位置情報の取得に失敗しました。アライメント処理でエラーが発生しました: {str(e)}"
+                    ) from e
+            else:
+                # アライメントをスキップする場合は、resultのセグメントをそのまま使用
+                segments_data = result["segments"]
 
             # セグメントを変換（オフセット適用）
             segments = []

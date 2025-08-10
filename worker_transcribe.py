@@ -98,7 +98,8 @@ def main() -> None:
 
             transcriber = Transcriber(config)
             logger.info("APIモードで処理")
-            task_type = "transcribe_only"  # APIモードではtranscribe_onlyを使用
+            # APIモードでもアライメント処理が必要なため、separated_modeを使用
+            task_type = "separated_mode"
         else:
             # ローカルモードでは常に分離モード + SmartBoundaryTranscriberを使用
             logger.info("ローカルモード: 自動最適化による分離処理")
@@ -309,11 +310,8 @@ def main() -> None:
                 first_word = first_seg.words[0]
                 logger.info(f"最初のwordの型: {type(first_word)}, 内容: {first_word}")
 
-        # APIモードの場合は検証を完全にスキップ
-        if config.transcription.use_api:
-            logger.info("APIモード: wordsフィールドの検証をスキップします")
-        # wordsフィールドの厳密な検証（transcribe_onlyモードまたはAPIモードではスキップ）
-        elif task_type != "transcribe_only" and result.segments:
+        # wordsフィールドの厳密な検証（transcribe_onlyモードではスキップ）
+        if task_type != "transcribe_only" and result.segments:
             logger.info("ローカルモード: wordsフィールドの検証を開始します")
             # 検証を実行（ローカルモードのみ）
             is_valid, errors = result.validate_has_words()

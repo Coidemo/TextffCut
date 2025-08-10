@@ -117,26 +117,26 @@ class BatchSizeLimits:
 class ChunkSizeLimits:
     """チャンクサイズの制限値（秒）"""
 
-    # 絶対的な制限
-    ABSOLUTE_MINIMUM: Final[int] = 180  # 3分
-    EMERGENCY_MINIMUM: Final[int] = 300  # 5分
-    MAXIMUM: Final[int] = 1800  # 30分
+    # 絶対的な制限（Whisperの30秒制約）
+    ABSOLUTE_MINIMUM: Final[int] = 5  # 5秒
+    EMERGENCY_MINIMUM: Final[int] = 10  # 10秒
+    MAXIMUM: Final[int] = 30  # 30秒（Whisperの最大）
     ALIGN_MAXIMUM_MULTIPLIER: Final[float] = 2.0  # アライメント用の最大倍率
 
     # 調整用の値
-    SMALL_ADJUSTMENT: Final[int] = 60  # 1分
-    MEDIUM_ADJUSTMENT: Final[int] = 120  # 2分
-    LARGE_ADJUSTMENT: Final[int] = 180  # 3分
+    SMALL_ADJUSTMENT: Final[int] = 5  # 5秒
+    MEDIUM_ADJUSTMENT: Final[int] = 10  # 10秒
+    LARGE_ADJUSTMENT: Final[int] = 15  # 15秒
     ALIGN_MULTIPLIER: Final[float] = 1.5  # アライメントチャンクの基本倍率
 
     # 診断用
     DIAGNOSTIC_CHUNK: Final[int] = 30  # 診断用チャンクサイズ
     DIAGNOSTIC_COUNT: Final[int] = 3  # 診断チャンク数
 
-    # バッチサイズ決定用の閾値
-    BATCH_SIZE_THRESHOLD_LARGE: Final[int] = 540  # 9分
-    BATCH_SIZE_THRESHOLD_MEDIUM: Final[int] = 360  # 6分
-    BATCH_SIZE_THRESHOLD_SMALL: Final[int] = 240  # 4分
+    # バッチサイズ決定用の閾値（30秒ベースのため無効化）
+    BATCH_SIZE_THRESHOLD_LARGE: Final[int] = 30  # 30秒
+    BATCH_SIZE_THRESHOLD_MEDIUM: Final[int] = 20  # 20秒
+    BATCH_SIZE_THRESHOLD_SMALL: Final[int] = 10  # 10秒
 
 
 class WorkerLimits:
