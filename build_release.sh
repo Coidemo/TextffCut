@@ -70,7 +70,7 @@ echo.
 
 echo Checking Docker...
 docker version >nul 2>&1
-if errorlevel 1 (
+if %ERRORLEVEL% neq 0 (
     echo Docker Desktop not running
     echo Please start Docker Desktop and try again.
     pause
@@ -81,8 +81,15 @@ echo.
 
 echo Checking Docker Compose v2...
 docker compose version >nul 2>&1
-if errorlevel 1 (
-    echo Docker Compose v2 not found. Using v1...
+if %ERRORLEVEL% neq 0 (
+    echo Docker Compose v2 not found. Checking v1...
+    docker-compose version >nul 2>&1
+    if %ERRORLEVEL% neq 0 (
+        echo [ERROR] Docker Compose not found
+        echo Please install Docker Desktop with Docker Compose
+        pause
+        exit /b 1
+    )
     set COMPOSE_CMD=docker-compose
 ) else (
     echo Docker Compose v2 OK
@@ -111,6 +118,10 @@ echo.
 
 REM メモリ設定（Windowsでは固定値を使用）
 set RECOMMENDED_MEM=4
+if %RECOMMENDED_MEM% lss 4 (
+    echo [WARNING] Memory allocation is less than recommended 4GB
+    echo Large videos may fail to process
+)
 
 REM ポート自動検出
 set BASE_PORT=8501
@@ -119,12 +130,12 @@ set MAX_PORT=8510
 set FOUND=0
 
 :find_port
-netstat -an | findstr ":!PORT!" | findstr "LISTENING" >nul 2>&1
-if not errorlevel 1 (
+netstat -an | findstr ":!PORT! " | findstr "LISTENING" >nul 2>&1
+if %ERRORLEVEL% equ 0 (
     REM ポートが使用中
     set /a PORT=PORT+1
     if !PORT! gtr !MAX_PORT! (
-        echo ❌ Error: No available port found.
+        echo [ERROR] No available port found.
         pause
         exit /b 1
     )
@@ -135,7 +146,7 @@ if not errorlevel 1 (
 )
 
 if !PORT! neq !BASE_PORT! (
-    echo ⚠️  Port !BASE_PORT! is in use, using port !PORT!
+    echo [WARNING] Port !BASE_PORT! is in use, using port !PORT!
     
     REM docker-compose.override.ymlを作成（ポートとメモリ設定）
     (
@@ -204,7 +215,14 @@ for /f "tokens=*" %%i in ('docker ps -a --format "{{.Names}}" ^| findstr /i text
 
 REM Check for Docker Compose v2
 docker compose version >nul 2>&1
-if errorlevel 1 (
+if %ERRORLEVEL% neq 0 (
+    docker-compose version >nul 2>&1
+    if %ERRORLEVEL% neq 0 (
+        echo [ERROR] Docker Compose not found
+        echo Please install Docker Desktop with Docker Compose
+        pause
+        exit /b 1
+    )
     set COMPOSE_CMD=docker-compose
 ) else (
     set COMPOSE_CMD=docker compose
@@ -238,7 +256,7 @@ echo.
 REM Check Docker
 echo Checking Docker...
 docker version >nul 2>&1
-if errorlevel 1 (
+if %ERRORLEVEL% neq 0 (
     echo Docker Desktop not running
     echo Please start Docker Desktop and try again.
     pause
@@ -264,6 +282,10 @@ echo.
 
 REM メモリ設定（Windowsでは固定値を使用）
 set RECOMMENDED_MEM=4
+if %RECOMMENDED_MEM% lss 4 (
+    echo [WARNING] Memory allocation is less than recommended 4GB
+    echo Large videos may fail to process
+)
 
 REM ポート自動検出
 set BASE_PORT=8501
@@ -272,12 +294,12 @@ set MAX_PORT=8510
 set FOUND=0
 
 :find_port_clean
-netstat -an | findstr ":!PORT!" | findstr "LISTENING" >nul 2>&1
-if not errorlevel 1 (
+netstat -an | findstr ":!PORT! " | findstr "LISTENING" >nul 2>&1
+if %ERRORLEVEL% equ 0 (
     REM ポートが使用中
     set /a PORT=PORT+1
     if !PORT! gtr !MAX_PORT! (
-        echo ❌ Error: No available port found.
+        echo [ERROR] No available port found.
         pause
         exit /b 1
     )
@@ -288,7 +310,7 @@ if not errorlevel 1 (
 )
 
 if !PORT! neq !BASE_PORT! (
-    echo ⚠️  Port !BASE_PORT! is in use, using port !PORT!
+    echo [WARNING] Port !BASE_PORT! is in use, using port !PORT!
     
     REM docker-compose.override.ymlを作成（ポートとメモリ設定）
     (
