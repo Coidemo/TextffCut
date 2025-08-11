@@ -117,11 +117,24 @@ class FCPXMLExporter:
 """
 
         # リソース（使用する動画ファイル）を追加
+        # DaVinci Resolveと同様に、各クリップごとに別々のアセットとして定義
         resource_map = {}
-        for i, (path, info) in enumerate(video_infos.items(), 1):
-            resource_id = f"r{i}"
-            resource_map[path] = resource_id
-
+        asset_counter = 1
+        
+        # 各セグメントに対して個別のアセットを作成
+        for seg in segments:
+            source_path_str = str(seg.source_path)
+            if source_path_str not in video_infos:
+                continue
+                
+            info = video_infos[source_path_str]
+            resource_id = f"r{asset_counter}"
+            
+            # セグメントごとにリソースIDを記録
+            if source_path_str not in resource_map:
+                resource_map[source_path_str] = []
+            resource_map[source_path_str].append((seg, resource_id))
+            
             # 動画の総フレーム数
             duration_frames = round(info.duration * timeline_fps)
 
@@ -129,20 +142,27 @@ class FCPXMLExporter:
             is_docker = os.path.exists("/.dockerenv")
             if is_docker:
                 # /app/videos/xxx.mp4 -> HOST_VIDEOS_PATH/xxx.mp4
-                video_filename = Path(path).name
+                video_filename = Path(source_path_str).name
                 host_videos_path = os.getenv("HOST_VIDEOS_PATH", os.getenv("PWD", "") + "/videos")
                 file_url = f"file://{os.path.join(host_videos_path, video_filename)}"
             else:
                 # ローカル環境は通常通り
-                file_url = f"file://{Path(path).resolve()}"
+                # DaVinci Resolveと同じくURLエンコードする
+                from urllib.parse import quote
+                file_path = Path(source_path_str).resolve()
+                # パスをURLエンコード（スラッシュは除く）
+                encoded_path = "/".join(quote(part, safe="") for part in str(file_path).split("/"))
+                file_url = f"file://{encoded_path}"
 
             xml_content += (
-                f'        <asset format="r0" name="{Path(path).name}" audioChannels="2" '
+                f'        <asset format="r0" name="{Path(source_path_str).name}" audioChannels="2" '
                 f'duration="{duration_frames}/{timeline_fps}s" audioSources="1" '
                 f'id="{resource_id}" hasVideo="1" hasAudio="1" start="0/1s">\n'
                 f'            <media-rep src="{file_url}" kind="original-media"/>\n'
                 f"        </asset>\n"
             )
+            
+            asset_counter += 1
 
         xml_content += (
             '''    </resources>
@@ -160,10 +180,16 @@ class FCPXMLExporter:
 
         # クリップを追加
         current_timeline_pos = 0
+        
+        # resource_mapを再構築（セグメントごとのリソースIDを取得できるように）
+        segment_to_resource = {}
+        for path, seg_resource_list in resource_map.items():
+            for seg, resource_id in seg_resource_list:
+                segment_to_resource[id(seg)] = resource_id
 
         for i, seg in enumerate(segments, 1):
             source_path_str = str(seg.source_path)
-            resource_id = resource_map[source_path_str]
+            resource_id = segment_to_resource[id(seg)]  # このセグメント専用のリソースIDを使用
             info = video_infos[source_path_str]
 
             # フレーム単位で計算
