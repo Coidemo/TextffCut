@@ -383,12 +383,10 @@ class VideoProcessorGatewayAdapter(IVideoProcessorGateway):
 
             # サイズ指定がある場合
             if width or height:
-                scale_filter = []
-                if width:
-                    scale_filter.append(f"w={width}")
-                if height:
-                    scale_filter.append(f"h={height}")
-                cmd.extend(["-vf", f"scale={':'.join(scale_filter)}"])
+                # FFmpegのscale構文: scale=width:height (-1で自動計算)
+                w = str(width) if width else "-1"
+                h = str(height) if height else "-1"
+                cmd.extend(["-vf", f"scale={w}:{h}"])
 
             cmd.append(str(output_path))
 
