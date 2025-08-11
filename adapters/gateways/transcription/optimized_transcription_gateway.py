@@ -410,8 +410,7 @@ class OptimizedTranscriptionGatewayAdapter(TranscriptionGatewayAdapter):
             self._model_cache['whisper_params'] = {}
         
         if self._model_cache['align'] is not None:
-            del self._model_cache['align'][0]  # align_model
-            del self._model_cache['align'][1]  # metadata
+            # タプル全体を削除（タプルの個別要素は削除できない）
             self._model_cache['align'] = None
             self._model_cache['align_language'] = None
         
