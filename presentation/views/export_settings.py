@@ -418,25 +418,23 @@ class ExportSettingsView:
                 cropped = img.crop((crop_left, crop_top, crop_right, crop_bottom))
                 preview = cropped.resize((output_width, output_height), Image.Resampling.LANCZOS)
                 
-                # 元画像も縦型/横型に合わせてクロップ
+                # 元画像も縦型/横型に合わせて表示
                 if orientation == "vertical":
-                    # 元画像を縦型アスペクト比でクロップ（長辺を短辺に合わせる）
-                    orig_aspect = width / height
-                    target_aspect = output_width / output_height  # 1080/1920 = 0.5625
+                    # 縦型の場合：横長動画を縦型フレームに収める（上下に黒帯）
+                    # 黒背景の縦型キャンバスを作成
+                    original_preview = Image.new('RGB', (output_width, output_height), (0, 0, 0))
                     
-                    if orig_aspect > target_aspect:
-                        # 元画像が横長すぎる場合、左右をクロップ
-                        new_width = int(height * target_aspect)
-                        crop_x = (width - new_width) // 2
-                        original_cropped = img.crop((crop_x, 0, crop_x + new_width, height))
-                    else:
-                        # 元画像が縦長の場合、上下をクロップ
-                        new_height = int(width / target_aspect)
-                        crop_y = (height - new_height) // 2
-                        original_cropped = img.crop((0, crop_y, width, crop_y + new_height))
+                    # 元画像を縦型フレームに収まるようにリサイズ
+                    # 横幅を1080に合わせる
+                    resize_width = output_width
+                    resize_height = int(height * (output_width / width))
                     
-                    # リサイズして表示用サイズに
-                    original_preview = original_cropped.resize((output_width, output_height), Image.Resampling.LANCZOS)
+                    # リサイズ
+                    img_resized = img.resize((resize_width, resize_height), Image.Resampling.LANCZOS)
+                    
+                    # 縦中央に配置（上下に黒帯）
+                    paste_y = (output_height - resize_height) // 2
+                    original_preview.paste(img_resized, (0, paste_y))
                 else:
                     # 横型の場合は元画像そのまま（必要に応じてリサイズ）
                     if width > output_width or height > output_height:
