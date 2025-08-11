@@ -122,8 +122,7 @@ if %ERRORLEVEL% neq 0 (
 )
 echo.
 
-REM メモリ設定（Windowsでは固定値を使用）
-set RECOMMENDED_MEM=4
+REM メモリ設定は削除（Docker Desktopに任せる）
 
 REM ポート自動検出
 set BASE_PORT=8501
@@ -148,33 +147,16 @@ if %ERRORLEVEL% equ 0 (
 if !PORT! neq !BASE_PORT! (
     echo [WARNING] Port !BASE_PORT! is in use, using port !PORT!
     
-    REM docker-compose.override.ymlを作成（ポートとメモリ設定）
+    REM docker-compose.override.ymlを作成（ポート設定のみ）
     (
         echo version: '3.8'
         echo services:
         echo   textffcut:
         echo     ports:
         echo       - "!PORT!:8501"
-        echo     deploy:
-        echo       resources:
-        echo         limits:
-        echo           memory: !RECOMMENDED_MEM!g
-        echo     environment:
-        echo       - TEXTFFCUT_MEMORY_LIMIT=!RECOMMENDED_MEM!g
     ) > docker-compose.override.yml
 ) else (
-    REM ポートは変更不要だがメモリ設定は必要
-    (
-        echo version: '3.8'
-        echo services:
-        echo   textffcut:
-        echo     deploy:
-        echo       resources:
-        echo         limits:
-        echo           memory: !RECOMMENDED_MEM!g
-        echo     environment:
-        echo       - TEXTFFCUT_MEMORY_LIMIT=!RECOMMENDED_MEM!g
-    ) > docker-compose.override.yml
+    REM ポートは変更不要なのでoverride.ymlは作成しない
 )
 
 echo Starting TextffCut...
@@ -192,11 +174,11 @@ if not exist docker-compose-simple.yml (
 echo Opening browser...
 start http://localhost:!PORT!
 
-%COMPOSE_CMD% -f docker-compose-simple.yml -f docker-compose.override.yml up
-
-REM クリーンアップ
 if exist docker-compose.override.yml (
+    %COMPOSE_CMD% -f docker-compose-simple.yml -f docker-compose.override.yml up
     del docker-compose.override.yml
+) else (
+    %COMPOSE_CMD% -f docker-compose-simple.yml up
 )
 
 pause
@@ -304,8 +286,7 @@ if %ERRORLEVEL% neq 0 (
 )
 echo.
 
-REM メモリ設定（Windowsでは固定値を使用）
-set RECOMMENDED_MEM=4
+REM メモリ設定は削除（Docker Desktopに任せる）
 
 REM ポート自動検出
 set BASE_PORT=8501
@@ -330,33 +311,16 @@ if %ERRORLEVEL% equ 0 (
 if !PORT! neq !BASE_PORT! (
     echo [WARNING] Port !BASE_PORT! is in use, using port !PORT!
     
-    REM docker-compose.override.ymlを作成（ポートとメモリ設定）
+    REM docker-compose.override.ymlを作成（ポート設定のみ）
     (
         echo version: '3.8'
         echo services:
         echo   textffcut:
         echo     ports:
         echo       - "!PORT!:8501"
-        echo     deploy:
-        echo       resources:
-        echo         limits:
-        echo           memory: !RECOMMENDED_MEM!g
-        echo     environment:
-        echo       - TEXTFFCUT_MEMORY_LIMIT=!RECOMMENDED_MEM!g
     ) > docker-compose.override.yml
 ) else (
-    REM ポートは変更不要だがメモリ設定は必要
-    (
-        echo version: '3.8'
-        echo services:
-        echo   textffcut:
-        echo     deploy:
-        echo       resources:
-        echo         limits:
-        echo           memory: !RECOMMENDED_MEM!g
-        echo     environment:
-        echo       - TEXTFFCUT_MEMORY_LIMIT=!RECOMMENDED_MEM!g
-    ) > docker-compose.override.yml
+    REM ポートは変更不要なのでoverride.ymlは作成しない
 )
 
 echo Starting TextffCut...
@@ -374,11 +338,11 @@ if not exist docker-compose-simple.yml (
 echo Opening browser...
 start http://localhost:!PORT!
 
-%COMPOSE_CMD% -f docker-compose-simple.yml -f docker-compose.override.yml up
-
-REM クリーンアップ
 if exist docker-compose.override.yml (
+    %COMPOSE_CMD% -f docker-compose-simple.yml -f docker-compose.override.yml up
     del docker-compose.override.yml
+) else (
+    %COMPOSE_CMD% -f docker-compose-simple.yml up
 )
 
 pause
@@ -403,45 +367,7 @@ cd "$SCRIPT_DIR"
 # 環境変数を設定
 export HOST_VIDEOS_PATH="${SCRIPT_DIR}/videos"
 
-# ===========================================
-# メモリ最適化設定
-# ===========================================
-echo "💾 Docker Desktopのメモリ設定を確認しています..."
-
-# Docker Desktopに割り当てられたメモリを取得
-DOCKER_MEM_BYTES=$(docker system info 2>/dev/null | grep "Total Memory" | awk '{print $3}' | sed 's/GiB//')
-if [ -n "$DOCKER_MEM_BYTES" ]; then
-    # GiBからGBに変換（小数点以下切り捨て）
-    DOCKER_MEM_GB=$(echo "$DOCKER_MEM_BYTES" | awk '{print int($1)}')
-else
-    # 取得できない場合はMacの物理メモリから推定
-    TOTAL_MEM_GB=$(( $(sysctl -n hw.memsize) / 1024 / 1024 / 1024 ))
-    # Docker Desktopのデフォルトは物理メモリの半分程度
-    DOCKER_MEM_GB=$(( TOTAL_MEM_GB / 2 ))
-    echo "   ⚠️  Docker Desktopのメモリ設定を取得できませんでした"
-    echo "   物理メモリ(${TOTAL_MEM_GB}GB)から推定: ${DOCKER_MEM_GB}GB"
-fi
-
-echo "   Docker Desktop割り当て: ${DOCKER_MEM_GB}GB"
-
-# Docker Desktopの割り当てメモリに基づいて推奨値を計算（80%を基本）
-RECOMMENDED_MEM=$(( DOCKER_MEM_GB * 80 / 100 ))
-
-# 最低1GBは確保（極小環境用の安全策）
-if [ $RECOMMENDED_MEM -lt 1 ]; then
-    RECOMMENDED_MEM=1
-fi
-
-# 推奨値がDocker割り当てを超えないようにチェック（念のため）
-if [ $RECOMMENDED_MEM -gt $DOCKER_MEM_GB ]; then
-    RECOMMENDED_MEM=$DOCKER_MEM_GB
-    echo "   ⚠️  Docker Desktop割り当てを超えないよう、${RECOMMENDED_MEM}GBに調整しました"
-fi
-
-echo "   割り当てメモリ: ${RECOMMENDED_MEM}GB"
-echo ""
-
-# この時点ではまだPORT変数が設定されていないため、override.ymlの生成は後で行う
+# Docker Desktopが適切にメモリ管理を行うため、追加の設定は不要
 
 # ===========================================
 # Docker Desktop確認
@@ -454,7 +380,7 @@ if ! docker version &>/dev/null; then
     echo ""
     echo "💡 Docker Desktopのメモリ設定を確認してください："
     echo "   1. Docker Desktop → Settings → Resources"
-    echo "   2. Memory を ${RECOMMENDED_MEM}GB 以上に設定"
+    echo "   2. Memory の設定を確認"
     echo ""
     
     read -p "Enterキーを押して終了..."
@@ -468,7 +394,6 @@ if [ -n "$RUNNING_CONTAINER" ]; then
     echo ""
     echo "=== 起動設定 ==="
     echo "📍 URL: http://localhost:8501"
-    echo "💾 メモリ割り当て: ${RECOMMENDED_MEM}GB"
     echo "📁 動画フォルダ: ${SCRIPT_DIR}/videos"
     echo ""
     echo "ブラウザで http://localhost:8501 を開いています..."
@@ -488,7 +413,6 @@ if [ -n "$STOPPED_CONTAINER" ]; then
     echo ""
     echo "=== 起動設定 ==="
     echo "📍 URL: http://localhost:8501"
-    echo "💾 メモリ割り当て: ${RECOMMENDED_MEM}GB"
     echo "📁 動画フォルダ: ${SCRIPT_DIR}/videos"
     echo ""
     echo "ブラウザで http://localhost:8501 を開いています..."
@@ -533,36 +457,18 @@ if [ "$PORT" != "8501" ]; then
     echo "⚠️  ポート8501が使用中のため、ポート$PORTを使用します。"
 fi
 
-# docker-compose.override.ymlを生成（メモリ制限とポート設定を追加）
+# docker-compose.override.ymlを生成（ポート設定のみ）
 if [ "$PORT" != "8501" ]; then
-    # ポート変更が必要な場合
+    # ポート変更が必要な場合のみ作成
     cat > docker-compose.override.yml <<OVERRIDE_EOF
 version: '3.8'
 services:
   textffcut:
     ports:
       - "$PORT:8501"
-    deploy:
-      resources:
-        limits:
-          memory: ${RECOMMENDED_MEM}g
-    environment:
-      - TEXTFFCUT_MEMORY_LIMIT=${RECOMMENDED_MEM}g
-OVERRIDE_EOF
-else
-    # ポート変更が不要な場合
-    cat > docker-compose.override.yml <<OVERRIDE_EOF
-version: '3.8'
-services:
-  textffcut:
-    deploy:
-      resources:
-        limits:
-          memory: ${RECOMMENDED_MEM}g
-    environment:
-      - TEXTFFCUT_MEMORY_LIMIT=${RECOMMENDED_MEM}g
 OVERRIDE_EOF
 fi
+# ポートがデフォルトの場合はoverride.ymlは不要
 
 # 必要なフォルダを作成
 for folder in videos logs models prompts; do
@@ -586,34 +492,31 @@ fi
 echo ""
 echo "=== 起動設定 ==="
 echo "📍 URL: http://localhost:$PORT"
-echo "💾 メモリ割り当て: ${RECOMMENDED_MEM}GB"
 echo "📁 動画フォルダ: ${SCRIPT_DIR}/videos"
 echo ""
 
-# メモリ不足の警告
-if [ $RECOMMENDED_MEM -lt 4 ]; then
-    echo "⚠️  警告: 割り当てメモリが4GB未満です"
-    echo "   大きな動画の処理に失敗する可能性があります"
-    echo "   Docker Desktopのメモリ設定を増やすか、他のアプリケーションを終了してください"
-    echo ""
-    echo "   ヒント: 2時間以上の動画は12GB以上推奨"
-    echo ""
-fi
+# メモリ警告は削除（Docker Desktopに任せる）
 
 echo "アプリケーションを起動しています..."
 echo "ブラウザで http://localhost:$PORT を開いています..."
 open "http://localhost:$PORT"
 
 # Docker Composeで起動
-if docker compose version &> /dev/null; then
-    docker compose -f docker-compose-simple.yml -f docker-compose.override.yml up
-else
-    docker-compose -f docker-compose-simple.yml -f docker-compose.override.yml up
-fi
-
-# クリーンアップ
 if [ -f docker-compose.override.yml ]; then
+    # override.ymlがある場合（ポート変更時）
+    if docker compose version &> /dev/null; then
+        docker compose -f docker-compose-simple.yml -f docker-compose.override.yml up
+    else
+        docker-compose -f docker-compose-simple.yml -f docker-compose.override.yml up
+    fi
     rm -f docker-compose.override.yml
+else
+    # override.ymlがない場合（通常）
+    if docker compose version &> /dev/null; then
+        docker compose -f docker-compose-simple.yml up
+    else
+        docker-compose -f docker-compose-simple.yml up
+    fi
 fi
 
 read -p "Enterキーを押して終了..."
@@ -887,8 +790,8 @@ else
     DOCKER_MEM_GB=$(( MEMORY_GB / 2 ))
 fi
 
-# 推奨メモリを計算
-RECOMMENDED_MEM=$(( DOCKER_MEM_GB * 80 / 100 ))
+# 推奨メモリ（Docker Desktopの割り当て全体を使用）
+RECOMMENDED_MEM=$DOCKER_MEM_GB
 if [ $RECOMMENDED_MEM -lt 1 ]; then
     RECOMMENDED_MEM=1
 fi
@@ -896,24 +799,13 @@ fi
 echo "Docker Desktop割り当て: ${DOCKER_MEM_GB}GB"
 echo "割り当てメモリ: ${RECOMMENDED_MEM}GB"
 
-# docker-compose.override.ymlを生成
-cat > docker-compose.override.yml <<OVERRIDE_EOF
-version: '3.8'
-services:
-  textffcut:
-    deploy:
-      resources:
-        limits:
-          memory: ${RECOMMENDED_MEM}g
-    environment:
-      - TEXTFFCUT_MEMORY_LIMIT=${RECOMMENDED_MEM}g
-OVERRIDE_EOF
+# docker-compose.override.ymlは作成しない（メモリ制限は不要）
 
 echo ""
 echo "🚀 TextffCut を起動しています..."
 
 # Docker Composeで起動
-docker-compose -f docker-compose-simple.yml -f docker-compose.override.yml up -d
+docker-compose -f docker-compose-simple.yml up -d
 
 # 起動確認
 echo ""
