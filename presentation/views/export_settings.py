@@ -161,25 +161,15 @@ class ExportSettingsView:
                 # プレビュー機能
                 st.markdown("#### 🖼️ プレビュー")
                 
-                # プレビュー時間選択
+                # プレビュー設定
                 if self.view_model.effective_time_ranges:
                     # 中間のクリップを選択
                     middle_idx = len(self.view_model.effective_time_ranges) // 2
                     middle_range = self.view_model.effective_time_ranges[middle_idx]
                     preview_time = (middle_range.start + middle_range.end) / 2
                     
-                    preview_col1, preview_col2, preview_col3 = st.columns([2, 1, 1])
+                    preview_col1, preview_col2 = st.columns([3, 1])
                     with preview_col1:
-                        selected_time = st.slider(
-                            "プレビュー時間（秒）",
-                            min_value=0.0,
-                            max_value=float(self.view_model.video_duration) if self.view_model.video_duration else 100.0,
-                            value=preview_time,
-                            step=0.1,
-                            key="fcpxml_preview_time",
-                        )
-                    
-                    with preview_col2:
                         preview_orientation = st.radio(
                             "プレビュー向き",
                             options=["vertical", "horizontal"],
@@ -188,12 +178,12 @@ class ExportSettingsView:
                             key="fcpxml_preview_orientation",
                         )
                     
-                    with preview_col3:
+                    with preview_col2:
                         if st.button("🔄 プレビュー更新", key="fcpxml_preview_update"):
                             st.session_state.fcpxml_preview_update_trigger = not st.session_state.get("fcpxml_preview_update_trigger", False)
                     
                     # プレビュー表示
-                    self._render_fcpxml_preview(selected_time, scale, anchor_x, anchor_y, preview_orientation)
+                    self._render_fcpxml_preview(preview_time, scale, anchor_x, anchor_y, preview_orientation)
 
         # オプション設定（SRT字幕のみ以外）
         if selected_format != "srt":
@@ -428,12 +418,38 @@ class ExportSettingsView:
                 cropped = img.crop((crop_left, crop_top, crop_right, crop_bottom))
                 preview = cropped.resize((output_width, output_height), Image.Resampling.LANCZOS)
                 
+                # 元画像も縦型/横型に合わせてクロップ
+                if orientation == "vertical":
+                    # 元画像を縦型アスペクト比でクロップ（長辺を短辺に合わせる）
+                    orig_aspect = width / height
+                    target_aspect = output_width / output_height  # 1080/1920 = 0.5625
+                    
+                    if orig_aspect > target_aspect:
+                        # 元画像が横長すぎる場合、左右をクロップ
+                        new_width = int(height * target_aspect)
+                        crop_x = (width - new_width) // 2
+                        original_cropped = img.crop((crop_x, 0, crop_x + new_width, height))
+                    else:
+                        # 元画像が縦長の場合、上下をクロップ
+                        new_height = int(width / target_aspect)
+                        crop_y = (height - new_height) // 2
+                        original_cropped = img.crop((0, crop_y, width, crop_y + new_height))
+                    
+                    # リサイズして表示用サイズに
+                    original_preview = original_cropped.resize((output_width, output_height), Image.Resampling.LANCZOS)
+                else:
+                    # 横型の場合は元画像そのまま（必要に応じてリサイズ）
+                    if width > output_width or height > output_height:
+                        # アスペクト比を保持してリサイズ
+                        img.thumbnail((output_width, output_height), Image.Resampling.LANCZOS)
+                    original_preview = img
+                
                 # 画像表示
                 col1, col2 = st.columns(2)
                 
                 with col1:
                     st.markdown("**元の画像**")
-                    st.image(img, use_container_width=True)
+                    st.image(original_preview, use_container_width=True)
                 
                 with col2:
                     st.markdown("**調整後プレビュー**")
@@ -441,7 +457,7 @@ class ExportSettingsView:
                     
                 # 情報表示
                 orientation_text = "縦型 (1080x1920)" if orientation == "vertical" else "横型 (1920x1080)"
-                st.caption(f"プレビュー時間: {time:.1f}秒 | {orientation_text} | ズーム: {scale * 100:.0f}% | アンカー: ({anchor_x:.1f}, {anchor_y:.1f})")
+                st.caption(f"{orientation_text} | ズーム: {scale * 100:.0f}% | アンカー: ({anchor_x:.1f}, {anchor_y:.1f})")
                 
         except Exception as e:
             st.error(f"プレビュー生成エラー: {str(e)}")
