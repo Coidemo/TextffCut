@@ -70,19 +70,26 @@ echo.
 
 echo Checking Docker...
 docker version >nul 2>&1
-if errorlevel 1 (
+if %ERRORLEVEL% neq 0 (
     echo Docker Desktop not running
     echo Please start Docker Desktop and try again.
     pause
-    exit /b
+    exit /b 1
 )
 echo Docker OK
 echo.
 
 echo Checking Docker Compose v2...
 docker compose version >nul 2>&1
-if errorlevel 1 (
-    echo Docker Compose v2 not found. Using v1...
+if %ERRORLEVEL% neq 0 (
+    echo Docker Compose v2 not found. Checking v1...
+    docker-compose version >nul 2>&1
+    if %ERRORLEVEL% neq 0 (
+        echo [ERROR] Docker Compose not found
+        echo Please install Docker Desktop with Docker Compose
+        pause
+        exit /b 1
+    )
     set COMPOSE_CMD=docker-compose
 ) else (
     echo Docker Compose v2 OK
@@ -101,53 +108,87 @@ echo.
 
 echo Loading Docker image...
 docker images | findstr textffcut:${VERSION} >nul 2>&1
-if errorlevel 1 (
+if %ERRORLEVEL% neq 0 (
     echo Loading image (first time only)...
     docker load -i textffcut_v${VERSION}_docker.tar.gz
+    if %ERRORLEVEL% neq 0 (
+        echo [ERROR] Failed to load Docker image
+        echo Please check if textffcut_v${VERSION}_docker.tar.gz exists
+        pause
+        exit /b 1
+    )
 ) else (
     echo Image already loaded
 )
 echo.
 
+REM メモリ設定（Windowsでは固定値を使用）
+set RECOMMENDED_MEM=4
+
 REM ポート自動検出
 set BASE_PORT=8501
 set PORT=!BASE_PORT!
 set MAX_PORT=8510
-set FOUND=0
 
 :find_port
-netstat -an | findstr /r ":!PORT! .*LISTENING" >nul 2>&1
-if %errorlevel% equ 0 (
+netstat -an | findstr ":!PORT! " | findstr "LISTENING" >nul 2>&1
+if %ERRORLEVEL% equ 0 (
     REM ポートが使用中
     set /a PORT=PORT+1
     if !PORT! gtr !MAX_PORT! (
-        echo ❌ Error: No available port found.
+        echo [ERROR] No available port found.
         pause
         exit /b 1
     )
     goto find_port
 ) else (
     REM ポートが空いている
-    set FOUND=1
 )
 
 if !PORT! neq !BASE_PORT! (
-    echo ⚠️  Port !BASE_PORT! is in use, using port !PORT!
+    echo [WARNING] Port !BASE_PORT! is in use, using port !PORT!
     
-    REM docker-compose.override.ymlを作成
+    REM docker-compose.override.ymlを作成（ポートとメモリ設定）
     (
         echo version: '3.8'
         echo services:
         echo   textffcut:
         echo     ports:
         echo       - "!PORT!:8501"
+        echo     deploy:
+        echo       resources:
+        echo         limits:
+        echo           memory: !RECOMMENDED_MEM!g
+        echo     environment:
+        echo       - TEXTFFCUT_MEMORY_LIMIT=!RECOMMENDED_MEM!g
+    ) > docker-compose.override.yml
+) else (
+    REM ポートは変更不要だがメモリ設定は必要
+    (
+        echo version: '3.8'
+        echo services:
+        echo   textffcut:
+        echo     deploy:
+        echo       resources:
+        echo         limits:
+        echo           memory: !RECOMMENDED_MEM!g
+        echo     environment:
+        echo       - TEXTFFCUT_MEMORY_LIMIT=!RECOMMENDED_MEM!g
     ) > docker-compose.override.yml
 )
 
 echo Starting TextffCut...
 echo URL: http://localhost:!PORT!
-echo Videos folder: %cd%\videos
+echo Videos folder: "%cd%\videos"
 echo.
+
+if not exist docker-compose-simple.yml (
+    echo [ERROR] docker-compose-simple.yml not found
+    echo Please make sure all files are extracted properly
+    pause
+    exit /b 1
+)
+
 echo Opening browser...
 start http://localhost:!PORT!
 
@@ -160,6 +201,11 @@ if exist docker-compose.override.yml (
 
 pause
 EOF
+
+# 改行コードをCRLFに変換（Windows用）
+if command -v unix2dos >/dev/null 2>&1; then
+    unix2dos release/START.bat >/dev/null 2>&1
+fi
 
 # START_CLEAN.bat の作成（v7ベースのクリーン起動版）
 cat > release/START_CLEAN.bat <<EOF
@@ -182,7 +228,14 @@ for /f "tokens=*" %%i in ('docker ps -a --format "{{.Names}}" ^| findstr /i text
 
 REM Check for Docker Compose v2
 docker compose version >nul 2>&1
-if errorlevel 1 (
+if %ERRORLEVEL% neq 0 (
+    docker-compose version >nul 2>&1
+    if %ERRORLEVEL% neq 0 (
+        echo [ERROR] Docker Compose not found
+        echo Please install Docker Desktop with Docker Compose
+        pause
+        exit /b 1
+    )
     set COMPOSE_CMD=docker-compose
 ) else (
     set COMPOSE_CMD=docker compose
@@ -216,11 +269,11 @@ echo.
 REM Check Docker
 echo Checking Docker...
 docker version >nul 2>&1
-if errorlevel 1 (
+if %ERRORLEVEL% neq 0 (
     echo Docker Desktop not running
     echo Please start Docker Desktop and try again.
     pause
-    exit /b
+    exit /b 1
 )
 echo Docker OK
 echo.
@@ -237,48 +290,87 @@ echo.
 
 REM Load fresh image
 echo Loading Docker image...
+if not exist textffcut_v${VERSION}_docker.tar.gz (
+    echo [ERROR] Docker image file not found: textffcut_v${VERSION}_docker.tar.gz
+    echo Please make sure the file exists in the current directory
+    pause
+    exit /b 1
+)
 docker load -i textffcut_v${VERSION}_docker.tar.gz
+if %ERRORLEVEL% neq 0 (
+    echo [ERROR] Failed to load Docker image
+    pause
+    exit /b 1
+)
 echo.
+
+REM メモリ設定（Windowsでは固定値を使用）
+set RECOMMENDED_MEM=4
 
 REM ポート自動検出
 set BASE_PORT=8501
 set PORT=!BASE_PORT!
 set MAX_PORT=8510
-set FOUND=0
 
 :find_port_clean
-netstat -an | findstr /r ":!PORT! .*LISTENING" >nul 2>&1
-if %errorlevel% equ 0 (
+netstat -an | findstr ":!PORT! " | findstr "LISTENING" >nul 2>&1
+if %ERRORLEVEL% equ 0 (
     REM ポートが使用中
     set /a PORT=PORT+1
     if !PORT! gtr !MAX_PORT! (
-        echo ❌ Error: No available port found.
+        echo [ERROR] No available port found.
         pause
         exit /b 1
     )
     goto find_port_clean
 ) else (
     REM ポートが空いている
-    set FOUND=1
 )
 
 if !PORT! neq !BASE_PORT! (
-    echo ⚠️  Port !BASE_PORT! is in use, using port !PORT!
+    echo [WARNING] Port !BASE_PORT! is in use, using port !PORT!
     
-    REM docker-compose.override.ymlを作成
+    REM docker-compose.override.ymlを作成（ポートとメモリ設定）
     (
         echo version: '3.8'
         echo services:
         echo   textffcut:
         echo     ports:
         echo       - "!PORT!:8501"
+        echo     deploy:
+        echo       resources:
+        echo         limits:
+        echo           memory: !RECOMMENDED_MEM!g
+        echo     environment:
+        echo       - TEXTFFCUT_MEMORY_LIMIT=!RECOMMENDED_MEM!g
+    ) > docker-compose.override.yml
+) else (
+    REM ポートは変更不要だがメモリ設定は必要
+    (
+        echo version: '3.8'
+        echo services:
+        echo   textffcut:
+        echo     deploy:
+        echo       resources:
+        echo         limits:
+        echo           memory: !RECOMMENDED_MEM!g
+        echo     environment:
+        echo       - TEXTFFCUT_MEMORY_LIMIT=!RECOMMENDED_MEM!g
     ) > docker-compose.override.yml
 )
 
 echo Starting TextffCut...
 echo URL: http://localhost:!PORT!
-echo Videos folder: %cd%\videos
+echo Videos folder: "%cd%\videos"
 echo.
+
+if not exist docker-compose-simple.yml (
+    echo [ERROR] docker-compose-simple.yml not found
+    echo Please make sure all files are extracted properly
+    pause
+    exit /b 1
+)
+
 echo Opening browser...
 start http://localhost:!PORT!
 
@@ -291,6 +383,11 @@ if exist docker-compose.override.yml (
 
 pause
 EOF
+
+# 改行コードをCRLFに変換（Windows用）
+if command -v unix2dos >/dev/null 2>&1; then
+    unix2dos release/START_CLEAN.bat >/dev/null 2>&1
+fi
 
 # START.command の作成（通常起動 - 高速版）
 cat > release/START.command <<'EOF'
@@ -680,10 +777,6 @@ TextffCut
    - macOS: START_CLEAN.command をダブルクリック
    （Dockerイメージを削除して再読み込みします）
 
-スクリプトで起動できない場合:
-   MANUAL_STARTUP_GUIDE.html をブラウザで開いて
-   手動起動の詳しい手順をご確認ください。
-
 【詳しい使い方】
 
 スクリーンショット付きの詳しい説明は note をご覧ください：
@@ -889,11 +982,6 @@ mv START_CLEAN.command TextffCut/
 mv docker-compose-simple.yml TextffCut/
 mv README.txt TextffCut/
 
-# MANUAL_STARTUP_GUIDE.htmlをコピー
-if [ -f "../MANUAL_STARTUP_GUIDE.html" ]; then
-    cp ../MANUAL_STARTUP_GUIDE.html TextffCut/
-    echo "✅ MANUAL_STARTUP_GUIDE.html を追加しました"
-fi
 
 # ZIPファイルを作成
 zip -r TextffCut_v${VERSION}.zip TextffCut
