@@ -135,8 +135,8 @@ class FCPXMLExporter:
                 resource_map[source_path_str] = []
             resource_map[source_path_str].append((seg, resource_id))
             
-            # 動画の総フレーム数
-            duration_frames = round(info.duration * timeline_fps)
+            # 動画の総フレーム数（ソースのFPSで計算）
+            duration_frames = round(info.duration * info.fps)
 
             # Docker環境の場合はホストパスに変換
             is_docker = os.path.exists("/.dockerenv")
@@ -156,7 +156,7 @@ class FCPXMLExporter:
 
             xml_content += (
                 f'        <asset format="r0" name="{Path(source_path_str).name}" audioChannels="2" '
-                f'duration="{duration_frames}/{timeline_fps}s" audioSources="1" '
+                f'duration="{duration_frames}/{int(info.fps)}s" audioSources="1" '
                 f'id="{resource_id}" hasVideo="1" hasAudio="1" start="0/1s">\n'
                 f'            <media-rep src="{file_url}" kind="original-media"/>\n'
                 f"        </asset>\n"
@@ -193,21 +193,20 @@ class FCPXMLExporter:
             info = video_infos[source_path_str]
 
             # フレーム単位で計算
-            start_frames = round(seg.start_time * info.fps)
-            duration_frames = round(seg.duration * timeline_fps)
+            # ソースメディア内の開始位置（ソースのFPSで計算）
+            source_start_frames = round(seg.start_time * info.fps)
+            # ソースメディア内の長さ（ソースのFPSで計算）
+            source_duration_frames = round(seg.duration * info.fps)
 
-            # タイムラインのFPSに合わせて変換
-            timeline_start_frames = round(start_frames * (timeline_fps / info.fps))
-
-            # 速度変更がある場合のduration調整
-            adjusted_duration_frames = round(duration_frames / speed)
+            # タイムライン上での長さ（速度調整後、タイムラインのFPSで計算）
+            timeline_duration_frames = round((seg.duration / speed) * timeline_fps)
 
             xml_content += (
                 f'                        <asset-clip tcFormat="NDF" '
                 f'offset="{current_timeline_pos}/{timeline_fps}s" format="r0" '
-                f'name="Segment {i}" duration="{adjusted_duration_frames}/{timeline_fps}s" '
+                f'name="Segment {i}" duration="{timeline_duration_frames}/{timeline_fps}s" '
                 f'ref="{resource_id}" enabled="1" '
-                f'start="{timeline_start_frames}/{timeline_fps}s">\n'
+                f'start="{source_start_frames}/{int(info.fps)}s">\n'
             )
 
             # 速度変更がある場合はtimeMapを追加
@@ -242,7 +241,7 @@ class FCPXMLExporter:
                 f"                        </asset-clip>\n"
             )
 
-            current_timeline_pos += adjusted_duration_frames
+            current_timeline_pos += timeline_duration_frames
 
         xml_content += """                    </spine>
                 </sequence>
