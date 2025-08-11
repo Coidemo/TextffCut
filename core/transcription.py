@@ -250,6 +250,10 @@ class Transcriber:
         textffcut_dir = video_parent / f"{safe_name}_TextffCut"
         cache_dir = textffcut_dir / "transcriptions"
 
+        # model_sizeに既に_apiが含まれている場合は、そのまま使用
+        if model_size.endswith("_api"):
+            return cache_dir / f"{model_size}.json"
+        
         # APIモードかどうかで、ファイル名を変える
         if self.config.transcription.use_api:
             # APIモードの場合は_apiサフィックスを追加
