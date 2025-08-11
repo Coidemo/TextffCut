@@ -109,6 +109,9 @@ if errorlevel 1 (
 )
 echo.
 
+REM メモリ設定（Windowsでは固定値を使用）
+set RECOMMENDED_MEM=4
+
 REM ポート自動検出
 set BASE_PORT=8501
 set PORT=!BASE_PORT!
@@ -116,8 +119,8 @@ set MAX_PORT=8510
 set FOUND=0
 
 :find_port
-netstat -an | findstr /r ":!PORT! .*LISTENING" >nul 2>&1
-if %errorlevel% equ 0 (
+netstat -an | findstr ":!PORT!" | findstr "LISTENING" >nul 2>&1
+if not errorlevel 1 (
     REM ポートが使用中
     set /a PORT=PORT+1
     if !PORT! gtr !MAX_PORT! (
@@ -134,13 +137,32 @@ if %errorlevel% equ 0 (
 if !PORT! neq !BASE_PORT! (
     echo ⚠️  Port !BASE_PORT! is in use, using port !PORT!
     
-    REM docker-compose.override.ymlを作成
+    REM docker-compose.override.ymlを作成（ポートとメモリ設定）
     (
         echo version: '3.8'
         echo services:
         echo   textffcut:
         echo     ports:
         echo       - "!PORT!:8501"
+        echo     deploy:
+        echo       resources:
+        echo         limits:
+        echo           memory: !RECOMMENDED_MEM!g
+        echo     environment:
+        echo       - TEXTFFCUT_MEMORY_LIMIT=!RECOMMENDED_MEM!g
+    ) > docker-compose.override.yml
+) else (
+    REM ポートは変更不要だがメモリ設定は必要
+    (
+        echo version: '3.8'
+        echo services:
+        echo   textffcut:
+        echo     deploy:
+        echo       resources:
+        echo         limits:
+        echo           memory: !RECOMMENDED_MEM!g
+        echo     environment:
+        echo       - TEXTFFCUT_MEMORY_LIMIT=!RECOMMENDED_MEM!g
     ) > docker-compose.override.yml
 )
 
@@ -240,6 +262,9 @@ echo Loading Docker image...
 docker load -i textffcut_v${VERSION}_docker.tar.gz
 echo.
 
+REM メモリ設定（Windowsでは固定値を使用）
+set RECOMMENDED_MEM=4
+
 REM ポート自動検出
 set BASE_PORT=8501
 set PORT=!BASE_PORT!
@@ -247,8 +272,8 @@ set MAX_PORT=8510
 set FOUND=0
 
 :find_port_clean
-netstat -an | findstr /r ":!PORT! .*LISTENING" >nul 2>&1
-if %errorlevel% equ 0 (
+netstat -an | findstr ":!PORT!" | findstr "LISTENING" >nul 2>&1
+if not errorlevel 1 (
     REM ポートが使用中
     set /a PORT=PORT+1
     if !PORT! gtr !MAX_PORT! (
@@ -265,13 +290,32 @@ if %errorlevel% equ 0 (
 if !PORT! neq !BASE_PORT! (
     echo ⚠️  Port !BASE_PORT! is in use, using port !PORT!
     
-    REM docker-compose.override.ymlを作成
+    REM docker-compose.override.ymlを作成（ポートとメモリ設定）
     (
         echo version: '3.8'
         echo services:
         echo   textffcut:
         echo     ports:
         echo       - "!PORT!:8501"
+        echo     deploy:
+        echo       resources:
+        echo         limits:
+        echo           memory: !RECOMMENDED_MEM!g
+        echo     environment:
+        echo       - TEXTFFCUT_MEMORY_LIMIT=!RECOMMENDED_MEM!g
+    ) > docker-compose.override.yml
+) else (
+    REM ポートは変更不要だがメモリ設定は必要
+    (
+        echo version: '3.8'
+        echo services:
+        echo   textffcut:
+        echo     deploy:
+        echo       resources:
+        echo         limits:
+        echo           memory: !RECOMMENDED_MEM!g
+        echo     environment:
+        echo       - TEXTFFCUT_MEMORY_LIMIT=!RECOMMENDED_MEM!g
     ) > docker-compose.override.yml
 )
 
@@ -680,10 +724,6 @@ TextffCut
    - macOS: START_CLEAN.command をダブルクリック
    （Dockerイメージを削除して再読み込みします）
 
-スクリプトで起動できない場合:
-   MANUAL_STARTUP_GUIDE.html をブラウザで開いて
-   手動起動の詳しい手順をご確認ください。
-
 【詳しい使い方】
 
 スクリーンショット付きの詳しい説明は note をご覧ください：
@@ -889,11 +929,6 @@ mv START_CLEAN.command TextffCut/
 mv docker-compose-simple.yml TextffCut/
 mv README.txt TextffCut/
 
-# MANUAL_STARTUP_GUIDE.htmlをコピー
-if [ -f "../MANUAL_STARTUP_GUIDE.html" ]; then
-    cp ../MANUAL_STARTUP_GUIDE.html TextffCut/
-    echo "✅ MANUAL_STARTUP_GUIDE.html を追加しました"
-fi
 
 # ZIPファイルを作成
 zip -r TextffCut_v${VERSION}.zip TextffCut
