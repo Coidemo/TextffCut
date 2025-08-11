@@ -585,6 +585,10 @@ class VideoProcessor:
         # 一時ディレクトリの削除エラーは無視（空でない場合など）
         with suppress(OSError):
             (output_dir_path / "temp_wav").rmdir()
+        
+        # output_dir_path自体も削除を試みる
+        with suppress(OSError):
+            output_dir_path.rmdir()
 
         if progress_callback:
             progress_callback(1.0, "無音検出完了")

@@ -422,7 +422,9 @@ def show_edited_text_with_highlights(edited_text: str, diff: TextDifference | No
 
     html_content = (
         f'<div class="edited-text-viewer" style="height: {height}px; overflow-y: auto; '
-        f'padding: 10px; border: 1px solid #ddd; border-radius: 5px; background-color: #f9f9f9;">'
+        f'padding: 10px; border: 1px solid #666; border-radius: 5px; '
+        f'background-color: var(--background-color, rgba(255, 255, 255, 0.05)); '
+        f'backdrop-filter: blur(5px);">'
     )
     
     # 文脈マーカーを検出
@@ -535,7 +537,9 @@ def show_edited_text_with_separators_highlights(edited_text: str, separator: str
     # 編集テキストベースで赤ハイライトを生成
     html_content = (
         f'<div class="edited-text-viewer" style="height: {height}px; overflow-y: auto; '
-        f"padding: 10px; border: 1px solid #ddd; border-radius: 5px; background-color: #f9f9f9; "
+        f"padding: 10px; border: 1px solid #666; border-radius: 5px; "
+        f"background-color: var(--background-color, rgba(255, 255, 255, 0.05)); "
+        f"backdrop-filter: blur(5px); "
         f'white-space: pre-wrap; font-family: monospace;">'
     )
 
@@ -635,7 +639,7 @@ def show_red_highlight_modal(edited_text: str, diff: TextDifference | None = Non
         edited_text: 編集されたテキスト
         diff: 差分情報
     """
-    st.markdown("赤色の部分を削除してください。")
+    st.markdown('<p style="color: inherit;">赤色の部分を削除してください。</p>', unsafe_allow_html=True)
 
     # 元のテキスト（区切り文字付き）を取得
     original_edited_text = st.session_state.get("original_edited_text", edited_text)
