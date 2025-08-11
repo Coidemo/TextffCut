@@ -74,7 +74,7 @@ if %ERRORLEVEL% neq 0 (
     echo Docker Desktop not running
     echo Please start Docker Desktop and try again.
     pause
-    exit /b
+    exit /b 1
 )
 echo Docker OK
 echo.
@@ -108,9 +108,15 @@ echo.
 
 echo Loading Docker image...
 docker images | findstr textffcut:${VERSION} >nul 2>&1
-if errorlevel 1 (
+if %ERRORLEVEL% neq 0 (
     echo Loading image (first time only)...
     docker load -i textffcut_v${VERSION}_docker.tar.gz
+    if %ERRORLEVEL% neq 0 (
+        echo [ERROR] Failed to load Docker image
+        echo Please check if textffcut_v${VERSION}_docker.tar.gz exists
+        pause
+        exit /b 1
+    )
 ) else (
     echo Image already loaded
 )
@@ -118,16 +124,11 @@ echo.
 
 REM メモリ設定（Windowsでは固定値を使用）
 set RECOMMENDED_MEM=4
-if %RECOMMENDED_MEM% lss 4 (
-    echo [WARNING] Memory allocation is less than recommended 4GB
-    echo Large videos may fail to process
-)
 
 REM ポート自動検出
 set BASE_PORT=8501
 set PORT=!BASE_PORT!
 set MAX_PORT=8510
-set FOUND=0
 
 :find_port
 netstat -an | findstr ":!PORT! " | findstr "LISTENING" >nul 2>&1
@@ -142,7 +143,6 @@ if %ERRORLEVEL% equ 0 (
     goto find_port
 ) else (
     REM ポートが空いている
-    set FOUND=1
 )
 
 if !PORT! neq !BASE_PORT! (
@@ -179,8 +179,16 @@ if !PORT! neq !BASE_PORT! (
 
 echo Starting TextffCut...
 echo URL: http://localhost:!PORT!
-echo Videos folder: %cd%\videos
+echo Videos folder: "%cd%\videos"
 echo.
+
+if not exist docker-compose-simple.yml (
+    echo [ERROR] docker-compose-simple.yml not found
+    echo Please make sure all files are extracted properly
+    pause
+    exit /b 1
+)
+
 echo Opening browser...
 start http://localhost:!PORT!
 
@@ -193,6 +201,11 @@ if exist docker-compose.override.yml (
 
 pause
 EOF
+
+# 改行コードをCRLFに変換（Windows用）
+if command -v unix2dos >/dev/null 2>&1; then
+    unix2dos release/START.bat >/dev/null 2>&1
+fi
 
 # START_CLEAN.bat の作成（v7ベースのクリーン起動版）
 cat > release/START_CLEAN.bat <<EOF
@@ -260,7 +273,7 @@ if %ERRORLEVEL% neq 0 (
     echo Docker Desktop not running
     echo Please start Docker Desktop and try again.
     pause
-    exit /b
+    exit /b 1
 )
 echo Docker OK
 echo.
@@ -277,21 +290,27 @@ echo.
 
 REM Load fresh image
 echo Loading Docker image...
+if not exist textffcut_v${VERSION}_docker.tar.gz (
+    echo [ERROR] Docker image file not found: textffcut_v${VERSION}_docker.tar.gz
+    echo Please make sure the file exists in the current directory
+    pause
+    exit /b 1
+)
 docker load -i textffcut_v${VERSION}_docker.tar.gz
+if %ERRORLEVEL% neq 0 (
+    echo [ERROR] Failed to load Docker image
+    pause
+    exit /b 1
+)
 echo.
 
 REM メモリ設定（Windowsでは固定値を使用）
 set RECOMMENDED_MEM=4
-if %RECOMMENDED_MEM% lss 4 (
-    echo [WARNING] Memory allocation is less than recommended 4GB
-    echo Large videos may fail to process
-)
 
 REM ポート自動検出
 set BASE_PORT=8501
 set PORT=!BASE_PORT!
 set MAX_PORT=8510
-set FOUND=0
 
 :find_port_clean
 netstat -an | findstr ":!PORT! " | findstr "LISTENING" >nul 2>&1
@@ -306,7 +325,6 @@ if %ERRORLEVEL% equ 0 (
     goto find_port_clean
 ) else (
     REM ポートが空いている
-    set FOUND=1
 )
 
 if !PORT! neq !BASE_PORT! (
@@ -343,8 +361,16 @@ if !PORT! neq !BASE_PORT! (
 
 echo Starting TextffCut...
 echo URL: http://localhost:!PORT!
-echo Videos folder: %cd%\videos
+echo Videos folder: "%cd%\videos"
 echo.
+
+if not exist docker-compose-simple.yml (
+    echo [ERROR] docker-compose-simple.yml not found
+    echo Please make sure all files are extracted properly
+    pause
+    exit /b 1
+)
+
 echo Opening browser...
 start http://localhost:!PORT!
 
@@ -357,6 +383,11 @@ if exist docker-compose.override.yml (
 
 pause
 EOF
+
+# 改行コードをCRLFに変換（Windows用）
+if command -v unix2dos >/dev/null 2>&1; then
+    unix2dos release/START_CLEAN.bat >/dev/null 2>&1
+fi
 
 # START.command の作成（通常起動 - 高速版）
 cat > release/START.command <<'EOF'
