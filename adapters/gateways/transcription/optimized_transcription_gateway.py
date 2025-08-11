@@ -411,6 +411,7 @@ class OptimizedTranscriptionGatewayAdapter(TranscriptionGatewayAdapter):
         
         if self._model_cache['align'] is not None:
             # タプル全体を削除（タプルの個別要素は削除できない）
+            del self._model_cache['align']
             self._model_cache['align'] = None
             self._model_cache['align_language'] = None
         
