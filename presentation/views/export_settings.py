@@ -87,6 +87,67 @@ class ExportSettingsView:
         )
         self.presenter.set_export_format(selected_format)
 
+        # FCPXMLの追加設定
+        if selected_format == "fcpxml":
+            with st.expander("🎥 FCPXML詳細設定", expanded=False):
+                # 速度設定
+                col1, col2 = st.columns(2)
+                with col1:
+                    speed_percent = st.number_input(
+                        "再生速度 (%)",
+                        min_value=50,
+                        max_value=200,
+                        value=100,
+                        step=10,
+                        help="100% = 通常速度、120% = 1.2倍速",
+                        key="fcpxml_speed",
+                    )
+                    speed = speed_percent / 100.0
+                
+                with col2:
+                    # ズーム設定
+                    zoom_percent = st.number_input(
+                        "ズーム (%)",
+                        min_value=50,
+                        max_value=300,
+                        value=100,
+                        step=10,
+                        help="100% = 元のサイズ、200% = 2倍拡大",
+                        key="fcpxml_zoom",
+                    )
+                    scale = zoom_percent / 100.0
+                
+                # アンカー位置設定
+                col3, col4 = st.columns(2)
+                with col3:
+                    anchor_x = st.number_input(
+                        "アンカー位置 X",
+                        min_value=-100.0,
+                        max_value=100.0,
+                        value=0.0,
+                        step=0.1,
+                        help="横方向の位置調整（0 = 中央）",
+                        key="fcpxml_anchor_x",
+                    )
+                
+                with col4:
+                    anchor_y = st.number_input(
+                        "アンカー位置 Y",
+                        min_value=-100.0,
+                        max_value=100.0,
+                        value=0.0,
+                        step=0.1,
+                        help="縦方向の位置調整（0 = 中央）",
+                        key="fcpxml_anchor_y",
+                    )
+                
+                # セッション状態に保存
+                st.session_state.fcpxml_settings = {
+                    "speed": speed,
+                    "scale": (scale, scale),
+                    "anchor": (anchor_x, anchor_y),
+                }
+
         # オプション設定（SRT字幕のみ以外）
         if selected_format != "srt":
             # 無音削除とSRT字幕を横並び

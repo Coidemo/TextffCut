@@ -318,12 +318,22 @@ class ExportSettingsPresenter(BasePresenter[ExportSettingsViewModel]):
                 for i, (start, end) in enumerate(keep_ranges):
                     logger.info(f"  削除後の範囲 {i+1}: {start:.2f}秒 - {end:.2f}秒 (長さ: {end-start:.2f}秒)")
 
+            # FCPXML設定を取得（セッション状態から）
+            import streamlit as st
+            fcpxml_settings = st.session_state.get("fcpxml_settings", {})
+            speed = fcpxml_settings.get("speed", 1.0)
+            scale = fcpxml_settings.get("scale", (1.0, 1.0))
+            anchor = fcpxml_settings.get("anchor", (0.0, 0.0))
+            
             # FCPXMLを生成（隙間を詰めて配置）
             self.fcpxml_export_gateway.export(
                 FilePath(str(self.view_model.video_path)),
                 legacy_ranges,
                 str(output_path),
                 with_gap_removal=True,  # 無音削除の有無に関わらず、常に隙間を詰める
+                speed=speed,
+                scale=scale,
+                anchor=anchor,
             )
 
             progress_callback(1.0, "FCPXML出力完了", "complete")

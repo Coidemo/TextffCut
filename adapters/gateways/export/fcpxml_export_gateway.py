@@ -38,6 +38,9 @@ class FCPXMLExportGatewayAdapter(IFCPXMLExportGateway):
         time_ranges: list[tuple[float, float]],
         output_path: str,
         with_gap_removal: bool = False,
+        speed: float = 1.0,
+        scale: tuple[float, float] = (1.0, 1.0),
+        anchor: tuple[float, float] = (0.0, 0.0),
     ) -> None:
         """
         FCPXMLファイルをエクスポート
@@ -47,11 +50,17 @@ class FCPXMLExportGatewayAdapter(IFCPXMLExportGateway):
             time_ranges: クリップの時間範囲リスト
             output_path: 出力XMLファイルパス
             with_gap_removal: 隙間を詰めて配置するかどうか
+            speed: 再生速度（1.0 = 100%、1.2 = 120%）
+            scale: ズーム倍率（x, y）
+            anchor: アンカー位置（x, y）
         """
         logger.info("=== FCPXMLエクスポートゲートウェイ ===")
         logger.info(f"入力動画: {video_path}")
         logger.info(f"時間範囲数: {len(time_ranges)}")
         logger.info(f"with_gap_removal: {with_gap_removal}")
+        logger.info(f"速度: {speed * 100:.0f}%")
+        logger.info(f"ズーム: {scale[0] * 100:.0f}% x {scale[1] * 100:.0f}%")
+        logger.info(f"アンカー: ({anchor[0]:.1f}, {anchor[1]:.1f})")
         for i, (start, end) in enumerate(time_ranges):
             logger.info(f"  範囲 {i+1}: {start:.2f}秒 - {end:.2f}秒")
 
@@ -77,7 +86,7 @@ class FCPXMLExportGatewayAdapter(IFCPXMLExportGateway):
                     timeline_start += end - start
 
             # FCPXMLを生成（exportメソッドが直接ファイルに書き込む）
-            success = exporter.export(segments, output_path)
+            success = exporter.export(segments, output_path, speed=speed, scale=scale, anchor=anchor)
 
             if not success:
                 raise RuntimeError("FCPXMLの生成に失敗しました")

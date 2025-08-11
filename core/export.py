@@ -39,6 +39,9 @@ class FCPXMLExporter:
         output_path: str | Path,
         timeline_fps: int = 30,
         project_name: str = "TextffCut Project",
+        speed: float = 1.0,
+        scale: tuple[float, float] = (1.0, 1.0),
+        anchor: tuple[float, float] = (0.0, 0.0),
     ) -> bool:
         """
         FCPXMLファイルをエクスポート
@@ -48,6 +51,9 @@ class FCPXMLExporter:
             output_path: 出力ファイルパス
             timeline_fps: タイムラインのFPS
             project_name: プロジェクト名
+            speed: 再生速度（1.0 = 100%、1.2 = 120%）
+            scale: ズーム倍率（x, y）
+            anchor: アンカー位置（x, y）
 
         Returns:
             成功したかどうか
@@ -61,7 +67,7 @@ class FCPXMLExporter:
                     video_infos[source_path_str] = VideoInfo.from_file(seg.source_path)
 
             # XMLを構築
-            xml_content = self._build_fcpxml(segments, video_infos, timeline_fps, project_name)
+            xml_content = self._build_fcpxml(segments, video_infos, timeline_fps, project_name, speed, scale, anchor)
 
             # ファイルに保存
             Path(output_path).parent.mkdir(parents=True, exist_ok=True)
@@ -84,11 +90,12 @@ class FCPXMLExporter:
             raise VideoProcessingError(f"FCPXMLエクスポートエラー: {str(e)}") from e
 
     def _build_fcpxml(
-        self, segments: list[ExportSegment], video_infos: dict[str, VideoInfo], timeline_fps: int, project_name: str
+        self, segments: list[ExportSegment], video_infos: dict[str, VideoInfo], timeline_fps: int, project_name: str,
+        speed: float, scale: tuple[float, float], anchor: tuple[float, float]
     ) -> str:
         """FCPXMLコンテンツを構築"""
-        # 総時間を計算
-        total_duration = sum(seg.duration for seg in segments)
+        # 総時間を計算（速度調整を考慮）
+        total_duration = sum(seg.duration for seg in segments) / speed
         total_frames = round(total_duration * timeline_fps)
 
         # XMLヘッダー
@@ -157,17 +164,36 @@ class FCPXMLExporter:
             # タイムラインのFPSに合わせて変換
             timeline_start_frames = round(start_frames * (timeline_fps / info.fps))
 
+            # 速度変更がある場合のduration調整
+            adjusted_duration_frames = round(duration_frames / speed)
+
             xml_content += (
                 f'                        <asset-clip tcFormat="NDF" '
                 f'offset="{current_timeline_pos}/{timeline_fps}s" format="r0" '
-                f'name="Segment {i}" duration="{duration_frames}/{timeline_fps}s" '
+                f'name="Segment {i}" duration="{adjusted_duration_frames}/{timeline_fps}s" '
                 f'ref="{resource_id}" enabled="1" '
                 f'start="{timeline_start_frames}/{timeline_fps}s">\n'
-                f'                            <adjust-transform scale="1 1" anchor="0 0" position="0 0"/>\n'
+            )
+
+            # 速度変更がある場合はtimeMapを追加
+            if speed != 1.0:
+                # 速度変更のための終了時間を計算
+                end_time_frames = duration_frames
+                adjusted_end_time_frames = adjusted_duration_frames
+                
+                xml_content += (
+                    f'                            <timeMap frameSampling="floor">\n'
+                    f'                                <timept time="0/1s" interp="linear" value="0/1s"/>\n'
+                    f'                                <timept time="{adjusted_end_time_frames}/{timeline_fps}s" interp="linear" value="{end_time_frames}/{timeline_fps}s"/>\n'
+                    f'                            </timeMap>\n'
+                )
+
+            xml_content += (
+                f'                            <adjust-transform scale="{scale[0]} {scale[1]}" anchor="{anchor[0]} {anchor[1]}" position="0 0"/>\n'
                 f"                        </asset-clip>\n"
             )
 
-            current_timeline_pos += duration_frames
+            current_timeline_pos += adjusted_duration_frames
 
         xml_content += """                    </spine>
                 </sequence>
