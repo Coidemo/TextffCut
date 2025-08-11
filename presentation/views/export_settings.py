@@ -89,7 +89,7 @@ class ExportSettingsView:
 
         # FCPXMLの追加設定
         if selected_format == "fcpxml":
-            with st.expander("🎥 FCPXML詳細設定", expanded=False):
+            with st.expander("🎥 FCPXML詳細設定", expanded=True):
                 # 速度設定
                 col1, col2 = st.columns(2)
                 with col1:
@@ -147,6 +147,34 @@ class ExportSettingsView:
                     "scale": (scale, scale),
                     "anchor": (anchor_x, anchor_y),
                 }
+                
+                # プレビュー機能
+                st.markdown("#### 🖼️ プレビュー")
+                
+                # プレビュー時間選択
+                if self.view_model.effective_time_ranges:
+                    # 中間のクリップを選択
+                    middle_idx = len(self.view_model.effective_time_ranges) // 2
+                    middle_range = self.view_model.effective_time_ranges[middle_idx]
+                    preview_time = (middle_range.start + middle_range.end) / 2
+                    
+                    preview_col1, preview_col2 = st.columns([3, 1])
+                    with preview_col1:
+                        selected_time = st.slider(
+                            "プレビュー時間（秒）",
+                            min_value=0.0,
+                            max_value=float(self.view_model.video_duration) if self.view_model.video_duration else 100.0,
+                            value=preview_time,
+                            step=0.1,
+                            key="fcpxml_preview_time",
+                        )
+                    
+                    with preview_col2:
+                        if st.button("🔄 プレビュー更新", key="fcpxml_preview_update"):
+                            st.session_state.fcpxml_preview_update_trigger = not st.session_state.get("fcpxml_preview_update_trigger", False)
+                    
+                    # プレビュー表示
+                    self._render_fcpxml_preview(selected_time, scale, anchor_x, anchor_y)
 
         # オプション設定（SRT字幕のみ以外）
         if selected_format != "srt":
@@ -301,6 +329,87 @@ class ExportSettingsView:
         else:
             st.info(self.view_model.status_message)
 
+    def _render_fcpxml_preview(self, time: float, scale: float, anchor_x: float, anchor_y: float) -> None:
+        """FCPXMLプレビューの表示"""
+        import tempfile
+        import os
+        from pathlib import Path
+        from PIL import Image
+        import numpy as np
+        
+        try:
+            # 一時ファイル用のディレクトリ
+            temp_dir = Path(tempfile.gettempdir()) / "textffcut_preview"
+            temp_dir.mkdir(exist_ok=True)
+            
+            # プレビュー画像のキャッシュキー
+            cache_key = f"preview_{self.view_model.video_path}_{time:.1f}"
+            preview_path = temp_dir / f"{cache_key}.jpg"
+            
+            # キャッシュがない場合は生成
+            if not preview_path.exists() or st.session_state.get("fcpxml_preview_update_trigger", False):
+                with st.spinner("プレビュー画像を生成中..."):
+                    # サムネイルを生成
+                    from domain.value_objects.file_path import FilePath
+                    self.presenter.video_processor_gateway.create_thumbnail(
+                        video_path=FilePath(str(self.view_model.video_path)),
+                        time=time,
+                        output_path=FilePath(str(preview_path)),
+                        width=640,  # プレビュー用サイズ
+                    )
+            
+            # 画像を読み込み
+            if preview_path.exists():
+                img = Image.open(preview_path)
+                img_array = np.array(img)
+                
+                # 画像の寸法を取得
+                height, width = img_array.shape[:2]
+                center_x, center_y = width / 2, height / 2
+                
+                # スケール適用後のサイズを計算
+                scaled_width = int(width * scale)
+                scaled_height = int(height * scale)
+                
+                # アンカー位置を考慮したクロップ範囲を計算
+                # anchor_xは-100〜100の範囲で、画像の幅に対する割合として扱う
+                anchor_offset_x = anchor_x * width / 100
+                anchor_offset_y = anchor_y * height / 100
+                
+                # クロップの中心点
+                crop_center_x = center_x + anchor_offset_x
+                crop_center_y = center_y + anchor_offset_y
+                
+                # クロップ範囲（元のサイズに戻す）
+                crop_left = max(0, int(crop_center_x - width / 2 / scale))
+                crop_top = max(0, int(crop_center_y - height / 2 / scale))
+                crop_right = min(width, int(crop_center_x + width / 2 / scale))
+                crop_bottom = min(height, int(crop_center_y + height / 2 / scale))
+                
+                # クロップとリサイズ
+                cropped = img.crop((crop_left, crop_top, crop_right, crop_bottom))
+                preview = cropped.resize((width, height), Image.Resampling.LANCZOS)
+                
+                # 画像表示
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.markdown("**元の画像**")
+                    st.image(img, use_container_width=True)
+                
+                with col2:
+                    st.markdown("**調整後プレビュー**")
+                    st.image(preview, use_container_width=True)
+                    
+                # 情報表示
+                st.caption(f"プレビュー時間: {time:.1f}秒 | ズーム: {scale * 100:.0f}% | アンカー: ({anchor_x:.1f}, {anchor_y:.1f})")
+                
+        except Exception as e:
+            st.error(f"プレビュー生成エラー: {str(e)}")
+            import traceback
+            with st.expander("エラー詳細"):
+                st.code(traceback.format_exc())
+    
     def _render_results(self) -> None:
         """結果表示"""
         if self.view_model.export_results:

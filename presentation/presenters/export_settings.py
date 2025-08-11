@@ -84,6 +84,15 @@ class ExportSettingsPresenter(BasePresenter[ExportSettingsViewModel]):
         self.view_model.video_path = (
             Path(self.session_manager.get_video_path()) if self.session_manager.get_video_path() else None
         )
+        
+        # 動画の長さを取得
+        if self.view_model.video_path:
+            try:
+                from core.video import VideoInfo
+                video_info = VideoInfo.from_file(str(self.view_model.video_path))
+                self.view_model.video_duration = video_info.duration
+            except Exception:
+                pass  # エラーは無視
         self.view_model.transcription_result = self.session_manager.get_transcription_result()
         self.view_model.edited_text = self.session_manager.get_edited_text()
 
