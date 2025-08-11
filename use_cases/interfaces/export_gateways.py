@@ -58,6 +58,7 @@ class IFCPXMLExportGateway(ABC):
         speed: float = 1.0,
         scale: tuple[float, float] = (1.0, 1.0),
         anchor: tuple[float, float] = (0.0, 0.0),
+        timeline_resolution: str = "horizontal",
     ) -> None:
         """
         FCPXMLファイルをエクスポート

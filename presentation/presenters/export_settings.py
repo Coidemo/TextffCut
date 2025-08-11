@@ -333,6 +333,7 @@ class ExportSettingsPresenter(BasePresenter[ExportSettingsViewModel]):
             speed = fcpxml_settings.get("speed", 1.0)
             scale = fcpxml_settings.get("scale", (1.0, 1.0))
             anchor = fcpxml_settings.get("anchor", (0.0, 0.0))
+            timeline_resolution = fcpxml_settings.get("timeline_resolution", "horizontal")
             
             # FCPXMLを生成（隙間を詰めて配置）
             self.fcpxml_export_gateway.export(
@@ -343,6 +344,7 @@ class ExportSettingsPresenter(BasePresenter[ExportSettingsViewModel]):
                 speed=speed,
                 scale=scale,
                 anchor=anchor,
+                timeline_resolution=timeline_resolution,
             )
 
             progress_callback(1.0, "FCPXML出力完了", "complete")

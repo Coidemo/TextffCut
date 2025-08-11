@@ -90,6 +90,15 @@ class ExportSettingsView:
         # FCPXMLの追加設定
         if selected_format == "fcpxml":
             with st.expander("🎥 FCPXML詳細設定", expanded=True):
+                # タイムライン解像度選択
+                timeline_resolution = st.radio(
+                    "タイムライン解像度",
+                    options=["horizontal", "vertical"],
+                    format_func=lambda x: "横型 (1920x1080)" if x == "horizontal" else "縦型 (1080x1920)",
+                    horizontal=True,
+                    key="fcpxml_timeline_resolution",
+                )
+                
                 # 速度設定
                 col1, col2 = st.columns(2)
                 with col1:
@@ -146,6 +155,7 @@ class ExportSettingsView:
                     "speed": speed,
                     "scale": (scale, scale),
                     "anchor": (anchor_x, anchor_y),
+                    "timeline_resolution": timeline_resolution,
                 }
                 
                 # プレビュー機能
@@ -158,7 +168,7 @@ class ExportSettingsView:
                     middle_range = self.view_model.effective_time_ranges[middle_idx]
                     preview_time = (middle_range.start + middle_range.end) / 2
                     
-                    preview_col1, preview_col2 = st.columns([3, 1])
+                    preview_col1, preview_col2, preview_col3 = st.columns([2, 1, 1])
                     with preview_col1:
                         selected_time = st.slider(
                             "プレビュー時間（秒）",
@@ -170,11 +180,20 @@ class ExportSettingsView:
                         )
                     
                     with preview_col2:
+                        preview_orientation = st.radio(
+                            "プレビュー向き",
+                            options=["vertical", "horizontal"],
+                            format_func=lambda x: "縦型 (1080x1920)" if x == "vertical" else "横型 (1920x1080)",
+                            horizontal=True,
+                            key="fcpxml_preview_orientation",
+                        )
+                    
+                    with preview_col3:
                         if st.button("🔄 プレビュー更新", key="fcpxml_preview_update"):
                             st.session_state.fcpxml_preview_update_trigger = not st.session_state.get("fcpxml_preview_update_trigger", False)
                     
                     # プレビュー表示
-                    self._render_fcpxml_preview(selected_time, scale, anchor_x, anchor_y)
+                    self._render_fcpxml_preview(selected_time, scale, anchor_x, anchor_y, preview_orientation)
 
         # オプション設定（SRT字幕のみ以外）
         if selected_format != "srt":
@@ -329,7 +348,7 @@ class ExportSettingsView:
         else:
             st.info(self.view_model.status_message)
 
-    def _render_fcpxml_preview(self, time: float, scale: float, anchor_x: float, anchor_y: float) -> None:
+    def _render_fcpxml_preview(self, time: float, scale: float, anchor_x: float, anchor_y: float, orientation: str = "vertical") -> None:
         """FCPXMLプレビューの表示"""
         import tempfile
         import os
@@ -367,6 +386,15 @@ class ExportSettingsView:
                 height, width = img_array.shape[:2]
                 center_x, center_y = width / 2, height / 2
                 
+                # 出力サイズを決定（縦型または横型）
+                if orientation == "horizontal":
+                    output_width, output_height = 1920, 1080
+                else:  # vertical
+                    output_width, output_height = 1080, 1920
+                
+                # アスペクト比を計算
+                output_aspect = output_width / output_height
+                
                 # スケール適用後のサイズを計算
                 scaled_width = int(width * scale)
                 scaled_height = int(height * scale)
@@ -380,15 +408,25 @@ class ExportSettingsView:
                 crop_center_x = center_x + anchor_offset_x
                 crop_center_y = center_y + anchor_offset_y
                 
-                # クロップ範囲（元のサイズに戻す）
-                crop_left = max(0, int(crop_center_x - width / 2 / scale))
-                crop_top = max(0, int(crop_center_y - height / 2 / scale))
-                crop_right = min(width, int(crop_center_x + width / 2 / scale))
-                crop_bottom = min(height, int(crop_center_y + height / 2 / scale))
+                # 出力アスペクト比に合わせてクロップサイズを計算
+                if scaled_width / scaled_height > output_aspect:
+                    # 横が長すぎる場合
+                    crop_width = int(scaled_height * output_aspect)
+                    crop_height = scaled_height
+                else:
+                    # 縦が長すぎる場合
+                    crop_width = scaled_width
+                    crop_height = int(scaled_width / output_aspect)
+                
+                # クロップ範囲を計算（ズームを考慮）
+                crop_left = max(0, int(crop_center_x - crop_width / 2 / scale))
+                crop_top = max(0, int(crop_center_y - crop_height / 2 / scale))
+                crop_right = min(width, int(crop_center_x + crop_width / 2 / scale))
+                crop_bottom = min(height, int(crop_center_y + crop_height / 2 / scale))
                 
                 # クロップとリサイズ
                 cropped = img.crop((crop_left, crop_top, crop_right, crop_bottom))
-                preview = cropped.resize((width, height), Image.Resampling.LANCZOS)
+                preview = cropped.resize((output_width, output_height), Image.Resampling.LANCZOS)
                 
                 # 画像表示
                 col1, col2 = st.columns(2)
@@ -402,7 +440,8 @@ class ExportSettingsView:
                     st.image(preview, use_container_width=True)
                     
                 # 情報表示
-                st.caption(f"プレビュー時間: {time:.1f}秒 | ズーム: {scale * 100:.0f}% | アンカー: ({anchor_x:.1f}, {anchor_y:.1f})")
+                orientation_text = "縦型 (1080x1920)" if orientation == "vertical" else "横型 (1920x1080)"
+                st.caption(f"プレビュー時間: {time:.1f}秒 | {orientation_text} | ズーム: {scale * 100:.0f}% | アンカー: ({anchor_x:.1f}, {anchor_y:.1f})")
                 
         except Exception as e:
             st.error(f"プレビュー生成エラー: {str(e)}")

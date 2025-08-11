@@ -42,6 +42,7 @@ class FCPXMLExporter:
         speed: float = 1.0,
         scale: tuple[float, float] = (1.0, 1.0),
         anchor: tuple[float, float] = (0.0, 0.0),
+        timeline_resolution: str = "horizontal",  # "horizontal" or "vertical"
     ) -> bool:
         """
         FCPXMLファイルをエクスポート
@@ -67,7 +68,7 @@ class FCPXMLExporter:
                     video_infos[source_path_str] = VideoInfo.from_file(seg.source_path)
 
             # XMLを構築
-            xml_content = self._build_fcpxml(segments, video_infos, timeline_fps, project_name, speed, scale, anchor)
+            xml_content = self._build_fcpxml(segments, video_infos, timeline_fps, project_name, speed, scale, anchor, timeline_resolution)
 
             # ファイルに保存
             Path(output_path).parent.mkdir(parents=True, exist_ok=True)
@@ -91,19 +92,27 @@ class FCPXMLExporter:
 
     def _build_fcpxml(
         self, segments: list[ExportSegment], video_infos: dict[str, VideoInfo], timeline_fps: int, project_name: str,
-        speed: float, scale: tuple[float, float], anchor: tuple[float, float]
+        speed: float, scale: tuple[float, float], anchor: tuple[float, float], timeline_resolution: str
     ) -> str:
         """FCPXMLコンテンツを構築"""
         # 総時間を計算（速度調整を考慮）
         total_duration = sum(seg.duration for seg in segments) / speed
         total_frames = round(total_duration * timeline_fps)
 
+        # タイムライン解像度を決定
+        if timeline_resolution == "vertical":
+            timeline_width, timeline_height = 1080, 1920
+            format_name = f"FFVideoFormatVertical{timeline_fps}"
+        else:
+            timeline_width, timeline_height = 1920, 1080
+            format_name = f"FFVideoFormat1080p{timeline_fps}"
+        
         # XMLヘッダー
         xml_content = f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE fcpxml>
 <fcpxml version="1.9">
     <resources>
-        <format width="1920" name="FFVideoFormat1080p{timeline_fps}" id="r0" height="1080"
+        <format width="{timeline_width}" name="{format_name}" id="r0" height="{timeline_height}"
                 frameDuration="1/{timeline_fps}s"/>
 """
 

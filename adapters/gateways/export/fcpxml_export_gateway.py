@@ -41,6 +41,7 @@ class FCPXMLExportGatewayAdapter(IFCPXMLExportGateway):
         speed: float = 1.0,
         scale: tuple[float, float] = (1.0, 1.0),
         anchor: tuple[float, float] = (0.0, 0.0),
+        timeline_resolution: str = "horizontal",
     ) -> None:
         """
         FCPXMLファイルをエクスポート
@@ -86,7 +87,7 @@ class FCPXMLExportGatewayAdapter(IFCPXMLExportGateway):
                     timeline_start += end - start
 
             # FCPXMLを生成（exportメソッドが直接ファイルに書き込む）
-            success = exporter.export(segments, output_path, speed=speed, scale=scale, anchor=anchor)
+            success = exporter.export(segments, output_path, speed=speed, scale=scale, anchor=anchor, timeline_resolution=timeline_resolution)
 
             if not success:
                 raise RuntimeError("FCPXMLの生成に失敗しました")
