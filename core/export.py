@@ -186,14 +186,28 @@ class FCPXMLExporter:
 
             # 速度変更がある場合はtimeMapを追加
             if speed != 1.0:
-                # 速度変更のための終了時間を計算
-                end_time_frames = duration_frames
-                adjusted_end_time_frames = adjusted_duration_frames
+                # DaVinci Resolveと同じ精密な計算方式を使用
+                # 元のクリップの実時間（秒）
+                original_duration_seconds = seg.duration
+                # 調整後の実時間（秒）
+                adjusted_duration_seconds = seg.duration / speed
+                
+                # 精密な分数表現のための計算
+                # DaVinci Resolveは非常に大きな分母を使用して精度を確保
+                precision_factor = 1998000  # DaVinci Resolveと同じ精度
+                
+                # 調整後の時間を精密な分数で表現
+                adjusted_numerator = int(adjusted_duration_seconds * precision_factor)
+                adjusted_denominator = precision_factor
+                
+                # 元の時間を精密な分数で表現（分母をFPSベースに）
+                original_numerator = int(original_duration_seconds * timeline_fps)
+                original_denominator = timeline_fps
                 
                 xml_content += (
                     f'                            <timeMap frameSampling="floor">\n'
                     f'                                <timept time="0/1s" interp="linear" value="0/1s"/>\n'
-                    f'                                <timept time="{adjusted_end_time_frames}/{timeline_fps}s" interp="linear" value="{end_time_frames}/{timeline_fps}s"/>\n'
+                    f'                                <timept time="{adjusted_numerator}/{adjusted_denominator}s" interp="linear" value="{original_numerator}/{original_denominator}s"/>\n'
                     f'                            </timeMap>\n'
                 )
 

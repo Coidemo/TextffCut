@@ -384,12 +384,9 @@ class ExportSettingsView:
                 
                 # アスペクト比を計算
                 output_aspect = output_width / output_height
+                input_aspect = width / height
                 
-                # スケール適用後のサイズを計算
-                scaled_width = int(width * scale)
-                scaled_height = int(height * scale)
-                
-                # アンカー位置を考慮したクロップ範囲を計算
+                # アンカー位置を考慮した中心点のオフセット
                 # anchor_xは-100〜100の範囲で、画像の幅に対する割合として扱う
                 anchor_offset_x = anchor_x * width / 100
                 anchor_offset_y = anchor_y * height / 100
@@ -398,25 +395,82 @@ class ExportSettingsView:
                 crop_center_x = center_x + anchor_offset_x
                 crop_center_y = center_y + anchor_offset_y
                 
-                # 出力アスペクト比に合わせてクロップサイズを計算
-                if scaled_width / scaled_height > output_aspect:
-                    # 横が長すぎる場合
-                    crop_width = int(scaled_height * output_aspect)
-                    crop_height = scaled_height
+                # 調整後プレビューの作成
+                if scale == 1.0 and anchor_x == 0.0 and anchor_y == 0.0:
+                    # スケール100%、アンカー(0,0)の場合はレターボックス/ピラーボックス表示
+                    preview = Image.new('RGB', (output_width, output_height), (0, 0, 0))
+                    
+                    # アスペクト比を保持してフィットさせる
+                    if input_aspect > output_aspect:
+                        # 元画像が出力より横長の場合（例：16:9を9:16に）
+                        # 横幅を出力幅に合わせる
+                        new_width = output_width
+                        new_height = int(output_width / input_aspect)
+                        # 上下中央に配置
+                        paste_y = (output_height - new_height) // 2
+                        paste_x = 0
+                    else:
+                        # 元画像が出力より縦長の場合
+                        # 高さを出力高さに合わせる
+                        new_height = output_height
+                        new_width = int(output_height * input_aspect)
+                        # 左右中央に配置
+                        paste_x = (output_width - new_width) // 2
+                        paste_y = 0
+                    
+                    # リサイズして貼り付け
+                    img_resized = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+                    preview.paste(img_resized, (paste_x, paste_y))
                 else:
-                    # 縦が長すぎる場合
-                    crop_width = scaled_width
-                    crop_height = int(scaled_width / output_aspect)
-                
-                # クロップ範囲を計算（ズームを考慮）
-                crop_left = max(0, int(crop_center_x - crop_width / 2 / scale))
-                crop_top = max(0, int(crop_center_y - crop_height / 2 / scale))
-                crop_right = min(width, int(crop_center_x + crop_width / 2 / scale))
-                crop_bottom = min(height, int(crop_center_y + crop_height / 2 / scale))
-                
-                # クロップとリサイズ
-                cropped = img.crop((crop_left, crop_top, crop_right, crop_bottom))
-                preview = cropped.resize((output_width, output_height), Image.Resampling.LANCZOS)
+                    # ズームまたはアンカー調整がある場合
+                    # Final Cut Proと同じ動作：レターボックス表示をベースにズーム
+                    
+                    # まず、黒背景のキャンバスを作成
+                    preview = Image.new('RGB', (output_width, output_height), (0, 0, 0))
+                    
+                    # レターボックス表示での元画像のサイズを計算
+                    if input_aspect > output_aspect:
+                        # 元画像が出力より横長の場合（例：16:9を9:16に）
+                        # 横幅を出力幅に合わせる
+                        letterbox_width = output_width
+                        letterbox_height = int(output_width / input_aspect)
+                    else:
+                        # 元画像が出力より縦長の場合
+                        # 高さを出力高さに合わせる
+                        letterbox_height = output_height
+                        letterbox_width = int(output_height * input_aspect)
+                    
+                    # ズームを適用
+                    scaled_width = int(letterbox_width * scale)
+                    scaled_height = int(letterbox_height * scale)
+                    
+                    # アンカー位置を適用（-100〜100をピクセル単位に変換）
+                    # アンカーは拡大後の画像サイズに対する割合
+                    anchor_offset_x_px = anchor_x * scaled_width / 100
+                    anchor_offset_y_px = anchor_y * scaled_height / 100
+                    
+                    # 画像をリサイズ
+                    img_scaled = img.resize((scaled_width, scaled_height), Image.Resampling.LANCZOS)
+                    
+                    # 配置位置を計算（中央配置＋アンカーオフセット）
+                    paste_x = int((output_width - scaled_width) / 2 + anchor_offset_x_px)
+                    paste_y = int((output_height - scaled_height) / 2 + anchor_offset_y_px)
+                    
+                    # 画面内に収まる部分だけを貼り付け
+                    # ソース画像の切り取り範囲
+                    src_left = max(0, -paste_x)
+                    src_top = max(0, -paste_y)
+                    src_right = min(scaled_width, output_width - paste_x)
+                    src_bottom = min(scaled_height, output_height - paste_y)
+                    
+                    # 貼り付け先の範囲
+                    dst_left = max(0, paste_x)
+                    dst_top = max(0, paste_y)
+                    
+                    # 切り取りサイズが有効な場合のみ貼り付け
+                    if src_right > src_left and src_bottom > src_top:
+                        cropped_img = img_scaled.crop((src_left, src_top, src_right, src_bottom))
+                        preview.paste(cropped_img, (dst_left, dst_top))
                 
                 # 元画像も縦型/横型に合わせて表示
                 if orientation == "vertical":
