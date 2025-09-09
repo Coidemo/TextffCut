@@ -160,7 +160,6 @@ class ExportSettingsView:
                 
                 # セッション状態に保存
                 st.session_state.fcpxml_settings = {
-                    "speed": 1.0,  # 速度変更は削除（DaVinci Resolve制限）
                     "scale": (scale, scale),
                     "anchor": (anchor_x, anchor_y),
                     "timeline_resolution": timeline_resolution,

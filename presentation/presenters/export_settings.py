@@ -330,7 +330,6 @@ class ExportSettingsPresenter(BasePresenter[ExportSettingsViewModel]):
             # FCPXML設定を取得（セッション状態から）
             import streamlit as st
             fcpxml_settings = st.session_state.get("fcpxml_settings", {})
-            speed = fcpxml_settings.get("speed", 1.0)
             scale = fcpxml_settings.get("scale", (1.0, 1.0))
             anchor = fcpxml_settings.get("anchor", (0.0, 0.0))
             timeline_resolution = fcpxml_settings.get("timeline_resolution", "horizontal")
@@ -350,7 +349,6 @@ class ExportSettingsPresenter(BasePresenter[ExportSettingsViewModel]):
                 legacy_ranges,
                 str(output_path),
                 with_gap_removal=True,  # 無音削除の有無に関わらず、常に隙間を詰める
-                speed=speed,
                 scale=scale,
                 anchor=anchor,
                 timeline_resolution=timeline_resolution,

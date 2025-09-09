@@ -66,7 +66,6 @@ class FCPXMLExporter:
         output_path: str | Path,
         timeline_fps: int = 30,
         project_name: str = "TextffCut Project",
-        speed: float = 1.0,
         scale: tuple[float, float] = (1.0, 1.0),
         anchor: tuple[float, float] = (0.0, 0.0),
         timeline_resolution: str = "horizontal",  # "horizontal" or "vertical"
@@ -82,7 +81,6 @@ class FCPXMLExporter:
             output_path: 出力ファイルパス
             timeline_fps: タイムラインのFPS
             project_name: プロジェクト名
-            speed: 再生速度（1.0 = 100%、1.2 = 120%）
             scale: ズーム倍率（x, y）
             anchor: アンカー位置（x, y）
 
@@ -98,7 +96,7 @@ class FCPXMLExporter:
                     video_infos[source_path_str] = VideoInfo.from_file(seg.source_path)
 
             # XMLを構築
-            xml_content = self._build_fcpxml(segments, video_infos, timeline_fps, project_name, speed, scale, anchor, timeline_resolution, overlay_settings, bgm_settings, additional_audio_settings)
+            xml_content = self._build_fcpxml(segments, video_infos, timeline_fps, project_name, scale, anchor, timeline_resolution, overlay_settings, bgm_settings, additional_audio_settings)
 
             # ファイルに保存
             Path(output_path).parent.mkdir(parents=True, exist_ok=True)
@@ -122,7 +120,7 @@ class FCPXMLExporter:
 
     def _build_fcpxml(
         self, segments: list[ExportSegment], video_infos: dict[str, VideoInfo], timeline_fps: int, project_name: str,
-        speed: float, scale: tuple[float, float], anchor: tuple[float, float], timeline_resolution: str,
+        scale: tuple[float, float], anchor: tuple[float, float], timeline_resolution: str,
         overlay_settings: dict | None = None, bgm_settings: dict | None = None, additional_audio_settings: dict | None = None
     ) -> str:
         """FCPXMLコンテンツを構築（DaVinci Resolve完全互換）"""
@@ -130,7 +128,7 @@ class FCPXMLExporter:
         total_duration = sum(seg.duration for seg in segments)
         total_frames = round(total_duration * timeline_fps)
         
-        # timeMap計算は削除（速度変更機能を削除）
+        # スピード変更機能は削除済み（DaVinci Resolve制限のため）
 
         # タイムライン解像度を決定
         if timeline_resolution == "vertical":
