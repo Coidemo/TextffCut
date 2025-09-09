@@ -59,6 +59,9 @@ class IFCPXMLExportGateway(ABC):
         scale: tuple[float, float] = (1.0, 1.0),
         anchor: tuple[float, float] = (0.0, 0.0),
         timeline_resolution: str = "horizontal",
+        overlay_settings: dict | None = None,
+        bgm_settings: dict | None = None,
+        additional_audio_settings: dict | None = None,
     ) -> None:
         """
         FCPXMLファイルをエクスポート

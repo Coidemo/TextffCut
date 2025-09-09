@@ -401,6 +401,15 @@ class SequenceMatcherTextProcessorGateway(ITextProcessorGateway):
                     end_time = end_char.end
                 
                 if start_char.start is not None and end_time is not None:
+                    # VADオフセット未適用などによる時間の不整合をチェック
+                    if end_time < start_char.start:
+                        logger.warning(
+                            f"時間の不整合を検出: char[{start_pos}].start={start_char.start:.3f} > "
+                            f"end_time={end_time:.3f} (VADオフセット未適用の可能性)"
+                        )
+                        # 現在の文字の終了時間を使用
+                        end_time = start_char.end
+                    
                     time_ranges.append(TimeRange(
                         start=start_char.start,
                         end=end_time

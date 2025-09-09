@@ -7,10 +7,13 @@ StreamlitのUIコンポーネントを使用してエクスポート設定画面
 from typing import Any
 
 import streamlit as st
+from utils.logging import get_logger
 
 from presentation.presenters.export_settings import ExportSettingsPresenter
 from presentation.view_models.export_settings import ExportSettingsViewModel
 from utils.test_ids import TestIds
+
+logger = get_logger(__name__)
 
 
 class ExportSettingsView:
@@ -89,101 +92,206 @@ class ExportSettingsView:
 
         # FCPXMLの追加設定
         if selected_format == "fcpxml":
+            # 設定マネージャーをインポート
+            from utils import settings_manager
+            
             with st.expander("🎥 FCPXML詳細設定", expanded=True):
+                # DaVinci Resolveの制限についての説明
+                st.info("ℹ️ 速度変更機能は削除されました。DaVinci Resolveでは速度変更を含むFCPXMLをインポートすると、複数のコンパウンドクリップとして読み込まれる仕様のためです。速度変更はDaVinci Resolve内で行ってください。")
                 # タイムライン解像度選択
+                saved_timeline_resolution = settings_manager.get("fcpxml_timeline_resolution", "horizontal")
                 timeline_resolution = st.radio(
                     "タイムライン解像度",
                     options=["horizontal", "vertical"],
                     format_func=lambda x: "横型 (1920x1080)" if x == "horizontal" else "縦型 (1080x1920)",
                     horizontal=True,
+                    index=["horizontal", "vertical"].index(saved_timeline_resolution),
                     key="fcpxml_timeline_resolution",
                 )
+                if timeline_resolution != saved_timeline_resolution:
+                    settings_manager.set("fcpxml_timeline_resolution", timeline_resolution)
                 
-                # 速度設定
-                col1, col2 = st.columns(2)
-                with col1:
-                    speed_percent = st.number_input(
-                        "再生速度 (%)",
-                        min_value=50,
-                        max_value=200,
-                        value=100,
-                        step=10,
-                        help="100% = 通常速度、120% = 1.2倍速",
-                        key="fcpxml_speed",
-                    )
-                    speed = speed_percent / 100.0
-                
-                with col2:
-                    # ズーム設定
-                    zoom_percent = st.number_input(
-                        "ズーム (%)",
-                        min_value=50,
-                        max_value=300,
-                        value=100,
-                        step=10,
-                        help="100% = 元のサイズ、200% = 2倍拡大",
-                        key="fcpxml_zoom",
-                    )
-                    scale = zoom_percent / 100.0
+                # ズーム設定（速度設定は削除）
+                saved_zoom = settings_manager.get("fcpxml_zoom", 100)
+                zoom_percent = st.number_input(
+                    "ズーム (%)",
+                    min_value=50,
+                    max_value=300,
+                    value=saved_zoom,
+                    step=10,
+                    help="100% = 元のサイズ、200% = 2倍拡大",
+                    key="fcpxml_zoom",
+                )
+                scale = zoom_percent / 100.0
+                # 値が変更されたら保存
+                if zoom_percent != saved_zoom:
+                    settings_manager.set("fcpxml_zoom", zoom_percent)
                 
                 # アンカー位置設定
+                saved_anchor_x = settings_manager.get("fcpxml_anchor_x", 0.0)
+                saved_anchor_y = settings_manager.get("fcpxml_anchor_y", 0.0)
+                
                 col3, col4 = st.columns(2)
                 with col3:
                     anchor_x = st.number_input(
                         "アンカー位置 X",
                         min_value=-100.0,
                         max_value=100.0,
-                        value=0.0,
+                        value=saved_anchor_x,
                         step=0.1,
                         help="横方向の位置調整（0 = 中央）",
                         key="fcpxml_anchor_x",
                     )
+                    if anchor_x != saved_anchor_x:
+                        settings_manager.set("fcpxml_anchor_x", anchor_x)
                 
                 with col4:
                     anchor_y = st.number_input(
                         "アンカー位置 Y",
                         min_value=-100.0,
                         max_value=100.0,
-                        value=0.0,
+                        value=saved_anchor_y,
                         step=0.1,
                         help="縦方向の位置調整（0 = 中央）",
                         key="fcpxml_anchor_y",
                     )
+                    if anchor_y != saved_anchor_y:
+                        settings_manager.set("fcpxml_anchor_y", anchor_y)
                 
                 # セッション状態に保存
                 st.session_state.fcpxml_settings = {
-                    "speed": speed,
+                    "speed": 1.0,  # 速度変更は削除（DaVinci Resolve制限）
                     "scale": (scale, scale),
                     "anchor": (anchor_x, anchor_y),
                     "timeline_resolution": timeline_resolution,
                 }
                 
-                # プレビュー機能
-                st.markdown("#### 🖼️ プレビュー")
+            # 画像オーバーレイ設定
+            with st.expander("🖼️ 画像オーバーレイ（オプション）", expanded=False):
+                st.info("💡 videosフォルダ内にoverlaysフォルダを作成し、frame.png（透過背景）を配置すると自動的に読み込まれます。")
                 
-                # プレビュー設定
-                if self.view_model.effective_time_ranges:
-                    # 中間のクリップを選択
-                    middle_idx = len(self.view_model.effective_time_ranges) // 2
-                    middle_range = self.view_model.effective_time_ranges[middle_idx]
-                    preview_time = (middle_range.start + middle_range.end) / 2
+                # オーバーレイ画像の自動検出
+                if self.view_model.video_path:
+                    video_dir = self.view_model.video_path.parent
+                    overlay_dir = video_dir / "overlays"
                     
-                    preview_col1, preview_col2 = st.columns([3, 1])
-                    with preview_col1:
-                        preview_orientation = st.radio(
-                            "プレビュー向き",
-                            options=["vertical", "horizontal"],
-                            format_func=lambda x: "縦型 (1080x1920)" if x == "vertical" else "横型 (1920x1080)",
-                            horizontal=True,
-                            key="fcpxml_preview_orientation",
+                    overlay_settings = {}
+                    
+                    if overlay_dir.exists():
+                        # 背景フレーム
+                        frame_path = overlay_dir / "frame.png"
+                        if frame_path.exists():
+                            st.success(f"✅ 背景フレーム検出: {frame_path.name}")
+                            overlay_settings['frame_path'] = str(frame_path)
+                            # デバッグ用ログ
+                            logger.info(f"オーバーレイ設定 - frame_path: {str(frame_path)}")
+                            st.info("💡 ロゴなどの要素は背景フレーム画像に含めてください。")
+                        else:
+                            st.info("frame.png が見つかりません。透過背景を使用する場合は overlays/frame.png を配置してください。")
+                    else:
+                        st.info("overlaysフォルダが見つかりません。画像オーバーレイを使用する場合は、videosフォルダ内に overlays フォルダを作成してください。")
+                    
+                    # セッション状態に保存
+                    st.session_state.fcpxml_overlay_settings = overlay_settings
+                
+            # BGM設定
+            with st.expander("🎵 BGM（オプション）", expanded=False):
+                st.info("💡 videosフォルダ内にoverlaysフォルダを作成し、bgm.mp3を配置すると自動的に読み込まれます。")
+                
+                bgm_settings = {}
+                
+                if self.view_model.video_path and overlay_dir and overlay_dir.exists():
+                    # BGMファイル
+                    bgm_path = overlay_dir / "bgm.mp3"
+                    if bgm_path.exists():
+                        st.success(f"✅ BGM検出: {bgm_path.name}")
+                        bgm_settings['bgm_path'] = str(bgm_path)
+                        # デバッグ用ログ
+                        logger.info(f"BGM設定 - bgm_path: {str(bgm_path)}")
+                        
+                        # 音量調整
+                        saved_bgm_volume = settings_manager.get("bgm_volume", -25)
+                        bgm_volume = st.slider(
+                            "BGM音量",
+                            min_value=-50,
+                            max_value=0,
+                            value=saved_bgm_volume,
+                            step=5,
+                            help="0 = 元の音量、-50 = 最小音量",
+                            key="bgm_volume"
                         )
+                        bgm_settings['bgm_volume'] = bgm_volume
+                        if bgm_volume != saved_bgm_volume:
+                            settings_manager.set("bgm_volume", bgm_volume)
+                        
+                        # ループ設定
+                        saved_bgm_loop = settings_manager.get("bgm_loop", True)
+                        bgm_loop = st.checkbox(
+                            "BGMをループ再生",
+                            value=saved_bgm_loop,
+                            help="動画の長さに合わせてBGMを繰り返し再生します",
+                            key="bgm_loop"
+                        )
+                        bgm_settings['bgm_loop'] = bgm_loop
+                        if bgm_loop != saved_bgm_loop:
+                            settings_manager.set("bgm_loop", bgm_loop)
+                    else:
+                        st.info("bgm.mp3 が見つかりません。BGMを使用する場合は overlays/bgm.mp3 を配置してください。")
+                
+                # セッション状態に保存
+                st.session_state.fcpxml_bgm_settings = bgm_settings
+                
+            # 追加オーディオ設定
+            with st.expander("🎶 追加オーディオ（オプション）", expanded=False):
+                st.info("💡 overlaysフォルダ内のbgm.mp3以外のMP3ファイルを自動的に検出し、BGMの下のレーンに並べて配置します。")
+                
+                additional_audio_settings = {}
+                
+                if self.view_model.video_path and overlay_dir and overlay_dir.exists():
+                    # bgm.mp3以外のMP3ファイルを検出
+                    mp3_files = []
+                    for file in overlay_dir.iterdir():
+                        if file.suffix.lower() == '.mp3' and file.name != 'bgm.mp3':
+                            mp3_files.append(file)
                     
-                    with preview_col2:
-                        if st.button("🔄 プレビュー更新", key="fcpxml_preview_update"):
-                            st.session_state.fcpxml_preview_update_trigger = not st.session_state.get("fcpxml_preview_update_trigger", False)
+                    # 名前順でソート
+                    mp3_files.sort(key=lambda x: x.name)
                     
-                    # プレビュー表示
-                    self._render_fcpxml_preview(preview_time, scale, anchor_x, anchor_y, preview_orientation)
+                    if mp3_files:
+                        st.success(f"✅ {len(mp3_files)}個の追加オーディオファイルを検出しました")
+                        
+                        # ファイルリスト表示（expanderの代わりにコンテナを使用）
+                        st.caption("検出されたファイル:")
+                        files_text = "\n".join([f"{idx}. {file.name}" for idx, file in enumerate(mp3_files, 1)])
+                        st.code(files_text, language=None)
+                        
+                        # 音量調整
+                        saved_additional_audio_volume = settings_manager.get("additional_audio_volume", -20)
+                        additional_audio_volume = st.slider(
+                            "追加オーディオ音量",
+                            min_value=-50,
+                            max_value=0,
+                            value=saved_additional_audio_volume,
+                            step=5,
+                            help="0 = 元の音量、-50 = 最小音量",
+                            key="additional_audio_volume"
+                        )
+                        if additional_audio_volume != saved_additional_audio_volume:
+                            settings_manager.set("additional_audio_volume", additional_audio_volume)
+                        
+                        # 設定に保存
+                        additional_audio_settings['audio_files'] = [str(f) for f in mp3_files]
+                        # デバッグ用ログ
+                        logger.info(f"追加オーディオ設定 - audio_files: {additional_audio_settings['audio_files']}")
+                        additional_audio_settings['volume'] = additional_audio_volume
+                        additional_audio_settings['muted'] = False  # ミュート解除
+                    else:
+                        st.info("追加のMP3ファイルが見つかりません。overlaysフォルダ内にMP3ファイルを配置してください。")
+                else:
+                    st.info("overlaysフォルダが見つかりません。")
+                
+                # セッション状態に保存
+                st.session_state.fcpxml_additional_audio_settings = additional_audio_settings
 
         # オプション設定（SRT字幕のみ以外）
         if selected_format != "srt":
@@ -338,184 +446,6 @@ class ExportSettingsView:
         else:
             st.info(self.view_model.status_message)
 
-    def _render_fcpxml_preview(self, time: float, scale: float, anchor_x: float, anchor_y: float, orientation: str = "vertical") -> None:
-        """FCPXMLプレビューの表示"""
-        import tempfile
-        import os
-        from pathlib import Path
-        from PIL import Image
-        import numpy as np
-        
-        try:
-            # 一時ファイル用のディレクトリ
-            temp_dir = Path(tempfile.gettempdir()) / "textffcut_preview"
-            temp_dir.mkdir(exist_ok=True)
-            
-            # プレビュー画像のキャッシュキー
-            cache_key = f"preview_{self.view_model.video_path}_{time:.1f}"
-            preview_path = temp_dir / f"{cache_key}.jpg"
-            
-            # キャッシュがない場合は生成
-            if not preview_path.exists() or st.session_state.get("fcpxml_preview_update_trigger", False):
-                with st.spinner("プレビュー画像を生成中..."):
-                    # サムネイルを生成
-                    from domain.value_objects.file_path import FilePath
-                    self.presenter.video_processor_gateway.create_thumbnail(
-                        video_path=FilePath(str(self.view_model.video_path)),
-                        time=time,
-                        output_path=FilePath(str(preview_path)),
-                        width=640,  # プレビュー用サイズ
-                    )
-            
-            # 画像を読み込み
-            if preview_path.exists():
-                img = Image.open(preview_path)
-                img_array = np.array(img)
-                
-                # 画像の寸法を取得
-                height, width = img_array.shape[:2]
-                center_x, center_y = width / 2, height / 2
-                
-                # 出力サイズを決定（縦型または横型）
-                if orientation == "horizontal":
-                    output_width, output_height = 1920, 1080
-                else:  # vertical
-                    output_width, output_height = 1080, 1920
-                
-                # アスペクト比を計算
-                output_aspect = output_width / output_height
-                input_aspect = width / height
-                
-                # アンカー位置を考慮した中心点のオフセット
-                # anchor_xは-100〜100の範囲で、画像の幅に対する割合として扱う
-                anchor_offset_x = anchor_x * width / 100
-                anchor_offset_y = anchor_y * height / 100
-                
-                # クロップの中心点
-                crop_center_x = center_x + anchor_offset_x
-                crop_center_y = center_y + anchor_offset_y
-                
-                # 調整後プレビューの作成
-                if scale == 1.0 and anchor_x == 0.0 and anchor_y == 0.0:
-                    # スケール100%、アンカー(0,0)の場合はレターボックス/ピラーボックス表示
-                    preview = Image.new('RGB', (output_width, output_height), (0, 0, 0))
-                    
-                    # アスペクト比を保持してフィットさせる
-                    if input_aspect > output_aspect:
-                        # 元画像が出力より横長の場合（例：16:9を9:16に）
-                        # 横幅を出力幅に合わせる
-                        new_width = output_width
-                        new_height = int(output_width / input_aspect)
-                        # 上下中央に配置
-                        paste_y = (output_height - new_height) // 2
-                        paste_x = 0
-                    else:
-                        # 元画像が出力より縦長の場合
-                        # 高さを出力高さに合わせる
-                        new_height = output_height
-                        new_width = int(output_height * input_aspect)
-                        # 左右中央に配置
-                        paste_x = (output_width - new_width) // 2
-                        paste_y = 0
-                    
-                    # リサイズして貼り付け
-                    img_resized = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
-                    preview.paste(img_resized, (paste_x, paste_y))
-                else:
-                    # ズームまたはアンカー調整がある場合
-                    # Final Cut Proと同じ動作：レターボックス表示をベースにズーム
-                    
-                    # まず、黒背景のキャンバスを作成
-                    preview = Image.new('RGB', (output_width, output_height), (0, 0, 0))
-                    
-                    # レターボックス表示での元画像のサイズを計算
-                    if input_aspect > output_aspect:
-                        # 元画像が出力より横長の場合（例：16:9を9:16に）
-                        # 横幅を出力幅に合わせる
-                        letterbox_width = output_width
-                        letterbox_height = int(output_width / input_aspect)
-                    else:
-                        # 元画像が出力より縦長の場合
-                        # 高さを出力高さに合わせる
-                        letterbox_height = output_height
-                        letterbox_width = int(output_height * input_aspect)
-                    
-                    # ズームを適用
-                    scaled_width = int(letterbox_width * scale)
-                    scaled_height = int(letterbox_height * scale)
-                    
-                    # アンカー位置を適用（-100〜100をピクセル単位に変換）
-                    # アンカーは拡大後の画像サイズに対する割合
-                    anchor_offset_x_px = anchor_x * scaled_width / 100
-                    anchor_offset_y_px = anchor_y * scaled_height / 100
-                    
-                    # 画像をリサイズ
-                    img_scaled = img.resize((scaled_width, scaled_height), Image.Resampling.LANCZOS)
-                    
-                    # 配置位置を計算（中央配置＋アンカーオフセット）
-                    paste_x = int((output_width - scaled_width) / 2 + anchor_offset_x_px)
-                    paste_y = int((output_height - scaled_height) / 2 + anchor_offset_y_px)
-                    
-                    # 画面内に収まる部分だけを貼り付け
-                    # ソース画像の切り取り範囲
-                    src_left = max(0, -paste_x)
-                    src_top = max(0, -paste_y)
-                    src_right = min(scaled_width, output_width - paste_x)
-                    src_bottom = min(scaled_height, output_height - paste_y)
-                    
-                    # 貼り付け先の範囲
-                    dst_left = max(0, paste_x)
-                    dst_top = max(0, paste_y)
-                    
-                    # 切り取りサイズが有効な場合のみ貼り付け
-                    if src_right > src_left and src_bottom > src_top:
-                        cropped_img = img_scaled.crop((src_left, src_top, src_right, src_bottom))
-                        preview.paste(cropped_img, (dst_left, dst_top))
-                
-                # 元画像も縦型/横型に合わせて表示
-                if orientation == "vertical":
-                    # 縦型の場合：横長動画を縦型フレームに収める（上下に黒帯）
-                    # 黒背景の縦型キャンバスを作成
-                    original_preview = Image.new('RGB', (output_width, output_height), (0, 0, 0))
-                    
-                    # 元画像を縦型フレームに収まるようにリサイズ
-                    # 横幅を1080に合わせる
-                    resize_width = output_width
-                    resize_height = int(height * (output_width / width))
-                    
-                    # リサイズ
-                    img_resized = img.resize((resize_width, resize_height), Image.Resampling.LANCZOS)
-                    
-                    # 縦中央に配置（上下に黒帯）
-                    paste_y = (output_height - resize_height) // 2
-                    original_preview.paste(img_resized, (0, paste_y))
-                else:
-                    # 横型の場合は元画像そのまま（必要に応じてリサイズ）
-                    if width > output_width or height > output_height:
-                        # アスペクト比を保持してリサイズ
-                        img.thumbnail((output_width, output_height), Image.Resampling.LANCZOS)
-                    original_preview = img
-                
-                # 画像表示
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    st.markdown("**元の画像**")
-                    st.image(original_preview, use_container_width=True)
-                
-                with col2:
-                    st.markdown("**調整後プレビュー**")
-                    st.image(preview, use_container_width=True)
-                    
-                # 情報表示
-                orientation_text = "縦型 (1080x1920)" if orientation == "vertical" else "横型 (1920x1080)"
-                st.caption(f"{orientation_text} | ズーム: {scale * 100:.0f}% | アンカー: ({anchor_x:.1f}, {anchor_y:.1f})")
-                
-        except Exception as e:
-            st.error(f"プレビュー生成エラー: {str(e)}")
-            import traceback
-            with st.expander("エラー詳細"):
-                st.code(traceback.format_exc())
     
     def _render_results(self) -> None:
         """結果表示"""

@@ -155,6 +155,7 @@ class OptimizedTranscriptionGatewayAdapter(TranscriptionGatewayAdapter):
                     self.config.transcription.compute_type = current_config['compute_type']
                     
                     # 基底クラスのtranscribeを実行
+                    # TranscriptionGatewayAdapterは内部でsave_cache=Trueを使用するので、ここでは指定不要
                     result = super().transcribe(
                         video_path=video_path,
                         model_size=model_size,
@@ -213,6 +214,15 @@ class OptimizedTranscriptionGatewayAdapter(TranscriptionGatewayAdapter):
         VADベースの文字起こし処理
         SmartBoundaryTranscriberのロジックをインフラ層に統合
         """
+        # キャッシュチェック
+        if use_cache:
+            cached_result = self.load_from_cache(video_path, model_size)
+            if cached_result:
+                logger.info("VADベース処理: キャッシュから読み込みました")
+                if progress_callback:
+                    progress_callback("キャッシュから読み込み完了 (100%)")
+                return cached_result
+        
         from infrastructure.external.ffmpeg_vad_processor import FFmpegVADProcessor
         from core.auto_optimizer import AutoOptimizer
         from core.memory_monitor import MemoryMonitor
@@ -294,6 +304,11 @@ class OptimizedTranscriptionGatewayAdapter(TranscriptionGatewayAdapter):
             
             if progress_callback:
                 progress_callback("処理完了 (100%)")
+            
+            # キャッシュに保存（新規文字起こしの場合）
+            # use_cacheがTrueでもキャッシュから読み込めなかった場合は新規実行なので保存する
+            self.save_to_cache(video_path, model_size, domain_result)
+            logger.info("VADベースの文字起こし結果をキャッシュに保存しました")
             
             # 成功を記録
             processing_time = (datetime.now() - start_time).total_seconds()
@@ -501,12 +516,32 @@ class OptimizedTranscriptionGatewayAdapter(TranscriptionGatewayAdapter):
             # セグメントを変換（オフセット適用）
             segments = []
             for seg in segments_data:
+                # words配列にオフセットを適用
+                words = seg.get("words")
+                if words:
+                    for word in words:
+                        if isinstance(word, dict):
+                            if "start" in word and word["start"] is not None:
+                                word["start"] += start
+                            if "end" in word and word["end"] is not None:
+                                word["end"] += start
+                
+                # chars配列にも同様にオフセットを適用
+                chars = seg.get("chars")
+                if chars:
+                    for char in chars:
+                        if isinstance(char, dict):
+                            if "start" in char and char["start"] is not None:
+                                char["start"] += start
+                            if "end" in char and char["end"] is not None:
+                                char["end"] += start
+                
                 segment = CoreSegment(
                     start=seg["start"] + start,
                     end=seg["end"] + start,
                     text=seg["text"],
-                    words=seg.get("words"),
-                    chars=seg.get("chars")
+                    words=words,
+                    chars=chars
                 )
                 segments.append(segment)
             

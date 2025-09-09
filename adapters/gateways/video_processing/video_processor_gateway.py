@@ -326,20 +326,33 @@ class VideoProcessorGatewayAdapter(IVideoProcessorGateway):
             残す部分の時間範囲リスト
         """
         try:
-            # レガシーメソッドを呼び出し
-            keep_ranges = self._legacy_processor.remove_silence_new(
-                input_path=str(video_path),
-                time_ranges=time_ranges,
-                output_dir="temp_silence_removal",  # 一時ディレクトリ
-                noise_threshold=silence_params.get("threshold", -35.0),
-                min_silence_duration=silence_params.get("min_duration", 0.3),
-                min_segment_duration=silence_params.get("min_duration", 0.3),
-                padding_start=silence_params.get("pad_start", 0.3),
-                padding_end=silence_params.get("pad_end", 0.3),
-                progress_callback=progress_callback,
-            )
-
-            return keep_ranges
+            import tempfile
+            import os
+            
+            # 一時ディレクトリを作成（Docker環境でも書き込み可能な場所）
+            temp_dir = tempfile.mkdtemp(prefix="silence_removal_")
+            logger.info(f"無音削除用一時ディレクトリ: {temp_dir}")
+            
+            try:
+                # レガシーメソッドを呼び出し
+                keep_ranges = self._legacy_processor.remove_silence_new(
+                    input_path=str(video_path),
+                    time_ranges=time_ranges,
+                    output_dir=temp_dir,  # 一時ディレクトリ
+                    noise_threshold=silence_params.get("threshold", -35.0),
+                    min_silence_duration=silence_params.get("min_duration", 0.3),
+                    min_segment_duration=silence_params.get("min_duration", 0.3),
+                    padding_start=silence_params.get("pad_start", 0.3),
+                    padding_end=silence_params.get("pad_end", 0.3),
+                    progress_callback=progress_callback,
+                )
+                return keep_ranges
+            finally:
+                # 一時ディレクトリをクリーンアップ
+                import shutil
+                if os.path.exists(temp_dir):
+                    shutil.rmtree(temp_dir, ignore_errors=True)
+                    logger.info(f"一時ディレクトリをクリーンアップしました: {temp_dir}")
 
         except Exception as e:
             logger.error(f"Failed to remove silence: {e}")

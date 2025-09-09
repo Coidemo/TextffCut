@@ -335,6 +335,15 @@ class ExportSettingsPresenter(BasePresenter[ExportSettingsViewModel]):
             anchor = fcpxml_settings.get("anchor", (0.0, 0.0))
             timeline_resolution = fcpxml_settings.get("timeline_resolution", "horizontal")
             
+            # オーバーレイ設定を取得
+            overlay_settings = st.session_state.get("fcpxml_overlay_settings", {})
+            
+            # BGM設定を取得
+            bgm_settings = st.session_state.get("fcpxml_bgm_settings", {})
+            
+            # 追加オーディオ設定を取得
+            additional_audio_settings = st.session_state.get("fcpxml_additional_audio_settings", {})
+            
             # FCPXMLを生成（隙間を詰めて配置）
             self.fcpxml_export_gateway.export(
                 FilePath(str(self.view_model.video_path)),
@@ -345,6 +354,9 @@ class ExportSettingsPresenter(BasePresenter[ExportSettingsViewModel]):
                 scale=scale,
                 anchor=anchor,
                 timeline_resolution=timeline_resolution,
+                overlay_settings=overlay_settings,  # オーバーレイ設定を追加
+                bgm_settings=bgm_settings,  # BGM設定を追加
+                additional_audio_settings=additional_audio_settings,  # 追加オーディオ設定を追加
             )
 
             progress_callback(1.0, "FCPXML出力完了", "complete")
