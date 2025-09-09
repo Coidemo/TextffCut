@@ -87,6 +87,7 @@ class TranscriptionGatewayAdapter(ITranscriptionGateway):
                 # progressパラメータ名の違いに注意
                 progress_callback=progress_callback,
                 use_cache=use_cache,  # use_cacheパラメータを追加
+                save_cache=True,  # キャッシュ保存を有効化
             )
 
             # 処理時間を計算

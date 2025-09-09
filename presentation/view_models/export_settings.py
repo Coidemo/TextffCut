@@ -22,6 +22,7 @@ class ExportSettingsViewModel(BaseViewModel):
 
     # 入力データ
     video_path: Path | None = None
+    video_duration: float | None = None  # 動画の長さ（秒）
     transcription_result: Any | None = None
     edited_text: str | None = None
     time_ranges: list[TimeRange] | None = None

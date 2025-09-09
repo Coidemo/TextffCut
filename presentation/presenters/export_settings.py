@@ -84,6 +84,15 @@ class ExportSettingsPresenter(BasePresenter[ExportSettingsViewModel]):
         self.view_model.video_path = (
             Path(self.session_manager.get_video_path()) if self.session_manager.get_video_path() else None
         )
+        
+        # 動画の長さを取得
+        if self.view_model.video_path:
+            try:
+                from core.video import VideoInfo
+                video_info = VideoInfo.from_file(str(self.view_model.video_path))
+                self.view_model.video_duration = video_info.duration
+            except Exception:
+                pass  # エラーは無視
         self.view_model.transcription_result = self.session_manager.get_transcription_result()
         self.view_model.edited_text = self.session_manager.get_edited_text()
 
@@ -318,12 +327,34 @@ class ExportSettingsPresenter(BasePresenter[ExportSettingsViewModel]):
                 for i, (start, end) in enumerate(keep_ranges):
                     logger.info(f"  削除後の範囲 {i+1}: {start:.2f}秒 - {end:.2f}秒 (長さ: {end-start:.2f}秒)")
 
+            # FCPXML設定を取得（セッション状態から）
+            import streamlit as st
+            fcpxml_settings = st.session_state.get("fcpxml_settings", {})
+            scale = fcpxml_settings.get("scale", (1.0, 1.0))
+            anchor = fcpxml_settings.get("anchor", (0.0, 0.0))
+            timeline_resolution = fcpxml_settings.get("timeline_resolution", "horizontal")
+            
+            # オーバーレイ設定を取得
+            overlay_settings = st.session_state.get("fcpxml_overlay_settings", {})
+            
+            # BGM設定を取得
+            bgm_settings = st.session_state.get("fcpxml_bgm_settings", {})
+            
+            # 追加オーディオ設定を取得
+            additional_audio_settings = st.session_state.get("fcpxml_additional_audio_settings", {})
+            
             # FCPXMLを生成（隙間を詰めて配置）
             self.fcpxml_export_gateway.export(
                 FilePath(str(self.view_model.video_path)),
                 legacy_ranges,
                 str(output_path),
                 with_gap_removal=True,  # 無音削除の有無に関わらず、常に隙間を詰める
+                scale=scale,
+                anchor=anchor,
+                timeline_resolution=timeline_resolution,
+                overlay_settings=overlay_settings,  # オーバーレイ設定を追加
+                bgm_settings=bgm_settings,  # BGM設定を追加
+                additional_audio_settings=additional_audio_settings,  # 追加オーディオ設定を追加
             )
 
             progress_callback(1.0, "FCPXML出力完了", "complete")

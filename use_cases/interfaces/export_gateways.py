@@ -55,6 +55,12 @@ class IFCPXMLExportGateway(ABC):
         time_ranges: list[tuple[float, float]],
         output_path: str,
         with_gap_removal: bool = False,
+        scale: tuple[float, float] = (1.0, 1.0),
+        anchor: tuple[float, float] = (0.0, 0.0),
+        timeline_resolution: str = "horizontal",
+        overlay_settings: dict | None = None,
+        bgm_settings: dict | None = None,
+        additional_audio_settings: dict | None = None,
     ) -> None:
         """
         FCPXMLファイルをエクスポート
@@ -64,6 +70,8 @@ class IFCPXMLExportGateway(ABC):
             time_ranges: クリップの時間範囲リスト
             output_path: 出力XMLファイルパス
             with_gap_removal: 隙間を詰めて配置するかどうか
+            scale: ズーム倍率（x, y）
+            anchor: アンカー位置（x, y）
         """
         pass
 
