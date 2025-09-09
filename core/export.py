@@ -148,7 +148,7 @@ class FCPXMLExporter:
                 source_width = first_video_info.width
                 source_height = first_video_info.height
         
-        # XMLヘッダー（速度変更なしと同じ形式）
+        # XMLヘッダー
         xml_content = f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE fcpxml>
 <fcpxml version="1.9">
@@ -157,7 +157,7 @@ class FCPXMLExporter:
 """
 
         # リソース（使用する動画ファイル）を追加
-        # 同じ動画ファイルは同じアセットIDを使用（速度変更なしと同じ方式）
+        # 同じ動画ファイルは同じアセットIDを使用
         resource_map = {}
         asset_counter = 1  # r1から開始（r0はタイムラインフォーマット）
         
@@ -201,7 +201,7 @@ class FCPXMLExporter:
                 file_url = f"file://{encoded_path}"
 
             # DaVinci Resolveの属性順序に従う
-            # 速度変更時もタイムラインフォーマット（r0）を使用
+            # タイムラインフォーマット（r0）を使用
             xml_content += (
                 f'        <asset duration="{duration_str}" id="{resource_id}" '
                 f'name="{Path(source_path_str).name}" start="0/1s" hasVideo="1" '
@@ -354,15 +354,15 @@ class FCPXMLExporter:
             # offsetは最適化された分数で
             offset_str = optimize_fraction(current_timeline_pos / timeline_fps, timeline_fps)
             
-            # durationの最適化（速度調整は削除）
+            # durationの最適化
             duration_str = optimize_fraction(seg.duration, timeline_fps)
             
-            # start値の最適化（速度調整は削除）
+            # start値の最適化
             source_fps = int(info.fps)
             start_str = optimize_fraction(seg.start_time, source_fps)
 
             # DaVinci Resolveの属性順序に従う
-            # 速度変更時もタイムラインフォーマット（r0）を使用
+            # タイムラインフォーマット（r0）を使用
             xml_content += (
                 f'{indent}<asset-clip duration="{duration_str}" '
                 f'name="{Path(source_path_str).name}" ref="{resource_id}" '
