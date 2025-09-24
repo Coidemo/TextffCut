@@ -179,8 +179,8 @@ class YouTubeDownloadGateway(IYouTubeDownloadGateway):
             return filename
 
         ydl_opts = {
-            # macOSと互換性の高いフォーマットを優先（H.264を強制）
-            "format": "bestvideo[vcodec^=avc][height<=1080]+bestaudio[ext=m4a]/bestvideo[vcodec^=h264][height<=1080]+bestaudio/best[vcodec^=avc]/best[vcodec^=h264]/best",
+            # より柔軟なフォーマット選択（H.264優先だがフォールバックあり）
+            "format": "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
             "outtmpl": str(self.output_dir / "%(title)s.%(ext)s"),
             "merge_output_format": "mp4",
             # YouTubeのボット検出を回避するオプション
