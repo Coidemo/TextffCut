@@ -34,6 +34,9 @@ class TranscriptionConfig:
     # VAD処理設定
     use_vad_processing: bool = True  # VADベースの処理を使用するか（デフォルトで有効）
 
+    # MLX設定（Apple Silicon Mac用）
+    use_mlx_whisper: bool = True  # MLXが利用可能なら自動的に使用（フォールバックあり）
+
     # 以下は全て自動最適化により動的に決定されるため削除
     # chunk_seconds, num_workers, batch_size, max_workers
     # local_align_chunk_seconds, force_separated_mode
@@ -54,6 +57,13 @@ class TranscriptionConfig:
             self.use_vad_processing = True
         elif vad_env == "false":
             self.use_vad_processing = False
+
+        # MLXフラグを環境変数から読み込み
+        mlx_env = os.getenv("TEXTFFCUT_USE_MLX_WHISPER", "").lower()
+        if mlx_env == "true":
+            self.use_mlx_whisper = True
+        elif mlx_env == "false":
+            self.use_mlx_whisper = False
 
 
 @dataclass

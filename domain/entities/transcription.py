@@ -31,7 +31,9 @@ class Word:
             logger.warning(f"End time < start time detected. Swapping values. start={self.start}, end={self.end}")
             self.start, self.end = self.end, self.start
         if self.confidence is not None and not 0 <= self.confidence <= 1:
-            raise ValueError("Confidence must be between 0 and 1")
+            # WhisperX/mlx-forced-alignerはlog-probabilityを返す（負の値）
+            # 0-1の範囲外の場合はNoneにリセット
+            self.confidence = None
 
     @property
     def duration(self) -> float:
@@ -77,7 +79,9 @@ class Char:
             logger.warning(f"End time < start time detected. Swapping values. start={self.start}, end={self.end}")
             self.start, self.end = self.end, self.start
         if self.confidence is not None and not 0 <= self.confidence <= 1:
-            raise ValueError("Confidence must be between 0 and 1")
+            # WhisperX/mlx-forced-alignerはlog-probabilityを返す（負の値）
+            # 0-1の範囲外の場合はNoneにリセット
+            self.confidence = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Char":

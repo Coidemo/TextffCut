@@ -71,6 +71,20 @@ class TranscriptionPresenter(BasePresenter[TranscriptionViewModel]):
             # フラグをクリア（一度だけ実行）
             self.session_manager.set("transcription_should_run", False)
 
+        # MLX利用可能性を設定
+        from utils.environment import MLX_AVAILABLE
+
+        self.view_model.mlx_whisper_available = MLX_AVAILABLE
+        if MLX_AVAILABLE:
+            self.view_model.available_models = ["large-v3", "large-v3-turbo", "medium", "small", "base"]
+        else:
+            self.view_model.available_models = ["medium", "small", "base"]
+
+        # 保存されたモデルサイズを復元
+        saved_model = self.session_manager.get("model_size", None)
+        if saved_model and saved_model in self.view_model.available_models:
+            self.view_model.model_size = saved_model
+
         # 保存されたAPIキーを読み込む
         from utils.api_key_manager import api_key_manager
 
@@ -165,7 +179,11 @@ class TranscriptionPresenter(BasePresenter[TranscriptionViewModel]):
                 self.view_model.api_key = None
                 logger.warning("保存されたAPIキーが見つかりません")
         else:
-            self.view_model.model_size = "medium"
+            saved = self.session_manager.get("model_size", None)
+            if saved and saved in self.view_model.available_models:
+                self.view_model.model_size = saved
+            else:
+                self.view_model.model_size = self.view_model.available_models[0]
 
         # SessionManagerに保存（DIコンテナが参照できるように）
         self.session_manager.set("use_api", use_api)
@@ -177,6 +195,13 @@ class TranscriptionPresenter(BasePresenter[TranscriptionViewModel]):
         # 料金を更新
         self._update_cost_estimation()
 
+        self.view_model.notify()
+
+    def set_model_size(self, model_size: str) -> None:
+        """モデルサイズを設定"""
+        logger.info(f"set_model_size: {model_size}")
+        self.view_model.model_size = model_size
+        self.session_manager.set("model_size", model_size)
         self.view_model.notify()
 
     def set_api_key(self, api_key: str) -> None:

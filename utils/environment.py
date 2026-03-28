@@ -3,10 +3,39 @@ Docker/ローカル環境統一のパス定義
 """
 
 import os
+import platform
 from pathlib import Path
 
 # 環境判定
 IS_DOCKER = os.path.exists("/.dockerenv")
+IS_APPLE_SILICON = platform.system() == "Darwin" and platform.machine() == "arm64"
+
+
+def _check_mlx_whisper() -> bool:
+    """mlx-whisperが利用可能か判定"""
+    if IS_DOCKER or not IS_APPLE_SILICON:
+        return False
+    try:
+        import mlx_whisper  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+def _check_mlx_aligner() -> bool:
+    """mlx-forced-alignerが利用可能か判定"""
+    if IS_DOCKER or not IS_APPLE_SILICON:
+        return False
+    try:
+        from mlx_forced_aligner import ForcedAligner  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+MLX_WHISPER_AVAILABLE = _check_mlx_whisper()
+MLX_ALIGNER_AVAILABLE = _check_mlx_aligner()
+MLX_AVAILABLE = MLX_WHISPER_AVAILABLE and MLX_ALIGNER_AVAILABLE
 
 # 基準パスの設定
 if IS_DOCKER:

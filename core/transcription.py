@@ -229,14 +229,23 @@ class Transcriber:
             self.device = None
             logger.info(f"APIモードで初期化完了: {self.config.transcription.api_provider}")
         else:
-            # ローカル版を使用
-            if not WHISPERX_AVAILABLE:
+            # ローカル版を使用（MLX優先、WhisperXフォールバック）
+            from utils.environment import MLX_AVAILABLE
+
+            self.use_mlx = MLX_AVAILABLE and config.transcription.use_mlx_whisper
+
+            if self.use_mlx:
+                self.device = None  # MLXはdevice指定不要
+                logger.info("MLXモードで初期化（Apple Silicon高速モード）")
+            elif WHISPERX_AVAILABLE:
+                self.device = "cuda" if torch.cuda.is_available() else "cpu"
+                logger.info(f"WhisperXモードで初期化: デバイス={self.device}")
+            else:
                 raise ImportError(
-                    "WhisperXが利用できません。API版を使用するか、WhisperXをインストールしてください。\n"
-                    "pip install whisperx"
+                    "WhisperXもMLXも利用できません。いずれかをインストールしてください。\n"
+                    "pip install whisperx  # または\n"
+                    "pip install mlx-whisper mlx-forced-aligner  # Apple Silicon Mac"
                 )
-            self.device = "cuda" if torch.cuda.is_available() else "cpu"
-            logger.info(f"ローカルモードで初期化: デバイス={self.device}")
 
     def get_cache_path(self, video_path: str | Path, model_size: str) -> Path:
         """キャッシュファイルのパスを取得（TextffCutフォルダ内のtranscriptions/）"""
@@ -404,8 +413,21 @@ class Transcriber:
         if self.config.transcription.use_api:
             logger.info("APIモードで処理開始 (_transcribe_api)")
             return self._transcribe_api(video_path, model_size, progress_callback, use_cache, save_cache)
+        elif getattr(self, 'use_mlx', False):
+            logger.info("MLXモードで処理開始 (_transcribe_mlx)")
+            try:
+                return self._transcribe_mlx(video_path, model_size, progress_callback, use_cache, save_cache)
+            except Exception as e:
+                logger.warning(f"MLXモードでエラー発生、WhisperXにフォールバック: {e}")
+                self.use_mlx = False
+                if WHISPERX_AVAILABLE:
+                    self.device = "cpu"
+                    return self._transcribe_local(
+                        video_path, model_size, progress_callback, use_cache, save_cache, skip_alignment
+                    )
+                raise
         else:
-            logger.info("ローカルモードで処理開始 (_transcribe_local)")
+            logger.info("WhisperXモードで処理開始 (_transcribe_local)")
             return self._transcribe_local(
                 video_path, model_size, progress_callback, use_cache, save_cache, skip_alignment
             )
@@ -449,6 +471,105 @@ class Transcriber:
             self.save_to_cache(result, cache_path)
 
         return result
+
+    # MLXモデル名マッピング
+    MLX_MODEL_MAP = {
+        "large-v3": "mlx-community/whisper-large-v3-mlx",
+        "large-v3-turbo": "mlx-community/whisper-large-v3-turbo",
+        "medium": "mlx-community/whisper-medium-mlx",
+        "small": "mlx-community/whisper-small-mlx",
+        "base": "mlx-community/whisper-base-mlx",
+    }
+
+    def _transcribe_mlx(
+        self,
+        video_path: str | Path,
+        model_size: str | None = None,
+        progress_callback: Callable[[float, str], None] | None = None,
+        use_cache: bool = True,
+        save_cache: bool = True,
+    ) -> TranscriptionResult:
+        """MLX版の文字起こし（mlx-whisper + mlx-forced-aligner）"""
+        import mlx_whisper
+        from mlx_forced_aligner import ForcedAligner
+
+        start_time = time.time()
+        model_size = model_size or self.config.transcription.model_size
+
+        # キャッシュ確認
+        cache_path = self.get_cache_path(video_path, model_size)
+        if use_cache:
+            cached_result = self.load_from_cache(cache_path)
+            if cached_result:
+                if progress_callback:
+                    progress_callback(1.0, "キャッシュから読み込み完了")
+                return cached_result
+
+        # MLXモデル名に変換
+        mlx_model = self.MLX_MODEL_MAP.get(model_size, f"mlx-community/whisper-{model_size}")
+
+        # 1. mlx-whisperで文字起こし
+        if progress_callback:
+            progress_callback(0.1, f"MLX文字起こし中 ({model_size})...")
+
+        logger.info(f"mlx-whisperで文字起こし開始: {mlx_model}")
+        whisper_result = mlx_whisper.transcribe(
+            str(video_path),
+            path_or_hf_repo=mlx_model,
+            language=self.config.transcription.language,
+        )
+        logger.info(f"mlx-whisper完了: {len(whisper_result.get('segments', []))}セグメント")
+
+        if progress_callback:
+            progress_callback(0.7, "アライメント処理中...")
+
+        # 2. mlx-forced-alignerでアライメント（words/chars付き）
+        logger.info("mlx-forced-alignerでアライメント開始")
+        aligner = ForcedAligner()
+        segments_for_align = [
+            {"start": s["start"], "end": s["end"], "text": s.get("text", "").strip()}
+            for s in whisper_result["segments"]
+            if s.get("text", "").strip()
+        ]
+
+        align_result = aligner.align(str(video_path), "", segments=segments_for_align)
+        logger.info(f"アライメント完了: {len(align_result.segments)}セグメント")
+
+        if progress_callback:
+            progress_callback(0.9, "アライメント完了")
+
+        # 3. TranscriptionResultに変換（_transcribe_localと同じ形式）
+        # mlx-forced-aligner v0.1.1+はscoreを0-1のconfidenceとして返す
+        transcription_segments = []
+        for seg in align_result.segments:
+            transcription_segments.append(
+                TranscriptionSegment(
+                    start=seg["start"],
+                    end=seg["end"],
+                    text=seg["text"],
+                    words=seg.get("words"),
+                    chars=seg.get("chars"),
+                )
+            )
+
+        processing_time = time.time() - start_time
+        transcription_result = TranscriptionResult(
+            segments=transcription_segments,
+            language=self.config.transcription.language,
+            processing_time=processing_time,
+            original_audio_path=str(video_path),
+            model_size=model_size,
+        )
+
+        # キャッシュに保存
+        if save_cache:
+            self.save_to_cache(transcription_result, cache_path)
+            if progress_callback:
+                progress_callback(1.0, "処理完了")
+
+        logger.info(f"MLX文字起こし完了: {len(transcription_segments)}セグメント, {processing_time:.1f}秒")
+
+        return transcription_result
 
     def _transcribe_local(
         self,

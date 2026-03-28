@@ -10,7 +10,11 @@ from datetime import datetime
 from typing import Any, Optional
 
 import psutil
-import torch
+
+try:
+    import torch
+except ImportError:
+    torch = None  # MLXモードではtorch不要
 
 from adapters.gateways.transcription.transcription_gateway import TranscriptionGatewayAdapter
 from application.interfaces.audio_optimizer_gateway import IAudioOptimizerGateway
@@ -78,9 +82,20 @@ class OptimizedTranscriptionGatewayAdapter(TranscriptionGatewayAdapter):
         """
         動画ファイルを文字起こし（適応的最適化付き）
         """
+        # MLXモードの場合、VAD/legacyをバイパスしてTranscriberに委譲
+        from utils.environment import MLX_AVAILABLE
+        if MLX_AVAILABLE and getattr(self.config.transcription, 'use_mlx_whisper', False):
+            logger.info("MLXモードで文字起こし（OptimizedGatewayからTranscriberに委譲）")
+            return self._transcribe_mlx(
+                video_path=video_path,
+                model_size=model_size,
+                use_cache=use_cache,
+                progress_callback=progress_callback,
+            )
+
         # VADベース処理を使用するかどうかのフラグ
         use_vad_processing = getattr(self.config.transcription, 'use_vad_processing', False)
-        
+
         if use_vad_processing and not self.config.transcription.use_api:
             # VADベースの処理を使用
             return self._transcribe_with_vad(
@@ -99,6 +114,55 @@ class OptimizedTranscriptionGatewayAdapter(TranscriptionGatewayAdapter):
                 use_cache=use_cache,
                 progress_callback=progress_callback
             )
+
+    def _transcribe_mlx(
+        self,
+        video_path: FilePath,
+        model_size: str = "large-v3",
+        use_cache: bool = True,
+        progress_callback: Callable[[float], None] | None = None,
+    ) -> TranscriptionResult:
+        """MLXモードの文字起こし（Transcriberに委譲）"""
+        from core.transcription import Transcriber as CoreTranscriber
+
+        transcriber = CoreTranscriber(self.config)
+
+        # progress_callbackをそのまま渡す（Presenterのwrapped_progressはfloat+strを受け取れる）
+        adapted_callback = progress_callback
+
+        core_result = transcriber.transcribe(
+            video_path=str(video_path),
+            model_size=model_size,
+            progress_callback=adapted_callback,
+            use_cache=use_cache,
+        )
+
+        # core.transcription.TranscriptionResult → domain.entities.TranscriptionResult に変換
+        import uuid
+        from domain.entities.transcription import TranscriptionResult as DomainResult
+        from domain.entities.transcription import TranscriptionSegment as DomainSegment
+
+        domain_segments = []
+        for seg in core_result.segments:
+            domain_segments.append(DomainSegment(
+                id=str(uuid.uuid4()),
+                start=seg.start,
+                end=seg.end,
+                text=seg.text,
+                words=seg.words,
+                chars=seg.chars,
+            ))
+
+        return DomainResult(
+            id=str(uuid.uuid4()),
+            video_id=str(video_path),
+            language=core_result.language,
+            segments=domain_segments,
+            duration=core_result.processing_time,
+            original_audio_path=str(video_path),
+            model_size=core_result.model_size,
+            processing_time=core_result.processing_time,
+        )
 
     def _transcribe_legacy(
         self,

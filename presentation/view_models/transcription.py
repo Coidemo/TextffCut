@@ -40,6 +40,8 @@ class TranscriptionViewModel(BaseViewModel):
     use_api: bool = False
     api_key: str | None = None
     model_size: str = "medium"  # ローカルモデルサイズ
+    available_models: list[str] = field(default_factory=lambda: ["medium", "small", "base"])
+    mlx_whisper_available: bool = False
 
     # 動画情報
     video_path: Path | None = None
