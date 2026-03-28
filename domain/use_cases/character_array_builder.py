@@ -130,8 +130,19 @@ class CharacterArrayBuilder:
         chars = []
         position = start_position
 
-        # セグメントにcharsがある場合（MLXアライメントの場合）
-        if hasattr(segment, "chars") and segment.chars:
+        # wordsが1文字ずつの場合（WhisperX日本語の通常ケース）
+        # wordsが1文字超の場合はcharsを使う（MLXアライメントの場合）
+        use_words = hasattr(segment, "words") and segment.words
+        use_chars_instead = False
+        if use_words:
+            # wordsの最初の要素が1文字超ならcharsパスを使う
+            first_word = segment.words[0]
+            word_text = first_word.word if hasattr(first_word, "word") else first_word.get("word", "")
+            if len(word_text) > 1:
+                use_chars_instead = True
+
+        if use_chars_instead and hasattr(segment, "chars") and segment.chars:
+            # charsベースの構築（MLXアライメント: wordsが単語単位の場合）
             for char_idx, char_obj in enumerate(segment.chars):
                 if hasattr(char_obj, "char"):
                     char_str = char_obj.char
@@ -157,8 +168,7 @@ class CharacterArrayBuilder:
                 )
                 chars.append(char_info)
                 position += 1
-        # セグメントにwordsがある場合（WhisperXの場合、wordが1文字）
-        elif hasattr(segment, "words") and segment.words:
+        elif use_words:
             for word_idx, word in enumerate(segment.words):
                 char_info = CharacterWithTimestamp(
                     char=word.word,

@@ -176,7 +176,10 @@ def compare(wx: TranscriptionResult, mlx: TranscriptionResult, max_segs: int = 1
         print(f"    WX:  [{wx.segments[i].start:.1f}-{wx.segments[i].end:.1f}s] {wx_text}")
         print(f"    MLX: [{mlx.segments[i].start:.1f}-{mlx.segments[i].end:.1f}s] {mlx_text}")
 
-    print(f"\n  テキスト一致率: {text_match}/{n} ({text_match/n*100:.0f}%)")
+    if n > 0:
+        print(f"\n  テキスト一致率: {text_match}/{n} ({text_match/n*100:.0f}%)")
+    else:
+        print("\n  比較可能なセグメントがありません")
 
     # words比較
     print(f"\n--- 単語タイムスタンプ比較（最初の3セグメント） ---")

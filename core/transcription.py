@@ -531,7 +531,10 @@ class Transcriber:
 
         # 2. mlx-forced-alignerでアライメント（words/chars付き）
         logger.info("mlx-forced-alignerでアライメント開始")
-        aligner = ForcedAligner()
+        # ForcedAlignerをキャッシュ（wav2vec2モデル1.2GBの再ロードを防止）
+        if not hasattr(self, '_mlx_aligner'):
+            self._mlx_aligner = ForcedAligner()
+        aligner = self._mlx_aligner
         segments_for_align = [
             {"start": s["start"], "end": s["end"], "text": s.get("text", "").strip()}
             for s in whisper_result["segments"]
@@ -545,7 +548,7 @@ class Transcriber:
             progress_callback(0.9, "アライメント完了")
 
         # 3. TranscriptionResultに変換（_transcribe_localと同じ形式）
-        # mlx-forced-aligner v0.1.1+はscoreを0-1のconfidenceとして返す
+        # mlx-forced-alignerのscoreはlog-probability（Domain層でNoneにリセットされる）
         transcription_segments = []
         for seg in align_result.segments:
             transcription_segments.append(
