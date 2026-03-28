@@ -81,30 +81,36 @@ class TranscriptionResult:
         )
 
     def get_full_text(self) -> str:
-        """全セグメントのテキストを結合（wordsベース必須）"""
+        """全セグメントのテキストを結合（words or charsベース）"""
         segment_texts = []
         for seg in self.segments:
-            # words が必須 - ない場合はエラー
-            if not seg.words or len(seg.words) == 0:
-                from utils.exceptions import VideoProcessingError
-
-                raise VideoProcessingError(
-                    "文字起こし結果に詳細な文字位置情報がありません。" "文字起こしを再実行してください。"
-                )
-            # wordsが辞書のリストかWordInfoオブジェクトのリストかを判定
-            if seg.words and len(seg.words) > 0:
-                if hasattr(seg.words[0], "word"):
-                    # WordInfoオブジェクトの場合
-                    text = "".join(word.word for word in seg.words)  # type: ignore
-                else:
-                    # 辞書の場合
-                    text = "".join(word["word"] for word in seg.words)
-            else:
-                text = ""
-            segment_texts.append(text)
+            # words または chars から文字列を構築
+            text = self._extract_text_from_segment(seg)
+            if text:
+                segment_texts.append(text)
+            elif seg.text:
+                # フォールバック: segmentのtextフィールドを使用
+                segment_texts.append(seg.text)
         # セグメント間にスペースを入れずに結合
         # 日本語のテキストでは通常スペースは不要
         return "".join(segment_texts)
+
+    @staticmethod
+    def _extract_text_from_segment(seg: "TranscriptionSegment") -> str:
+        """セグメントからwords/charsのテキストを抽出"""
+        # wordsから抽出（優先）
+        if seg.words and len(seg.words) > 0:
+            if hasattr(seg.words[0], "word"):
+                return "".join(word.word for word in seg.words)  # type: ignore
+            else:
+                return "".join(word["word"] for word in seg.words)
+        # charsから抽出（MLXモードのフォールバック）
+        if seg.chars and len(seg.chars) > 0:
+            if hasattr(seg.chars[0], "char"):
+                return "".join(c.char for c in seg.chars)  # type: ignore
+            else:
+                return "".join(c["char"] for c in seg.chars)
+        return ""
 
     def validate_has_words(self) -> tuple[bool, list[str]]:
         """

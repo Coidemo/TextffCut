@@ -89,14 +89,8 @@ def transcribe_mlx(
     import mlx_whisper
     from mlx_forced_aligner import ForcedAligner
 
-    mlx_model_map = {
-        "large-v3": "mlx-community/whisper-large-v3-mlx",
-        "large-v3-turbo": "mlx-community/whisper-large-v3-turbo",
-        "medium": "mlx-community/whisper-medium-mlx",
-        "small": "mlx-community/whisper-small-mlx",
-        "base": "mlx-community/whisper-base-mlx",
-    }
-    mlx_model = mlx_model_map.get(model_size, f"mlx-community/whisper-{model_size}")
+    from core.transcription import Transcriber
+    mlx_model = Transcriber.MLX_MODEL_MAP.get(model_size, f"mlx-community/whisper-{model_size}")
 
     print(f"\n{'='*60}")
     print(f"MLX (mlx-whisper {mlx_model} + mlx-forced-aligner)")

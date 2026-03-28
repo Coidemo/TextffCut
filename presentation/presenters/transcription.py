@@ -76,7 +76,8 @@ class TranscriptionPresenter(BasePresenter[TranscriptionViewModel]):
 
         self.view_model.mlx_whisper_available = MLX_AVAILABLE
         if MLX_AVAILABLE:
-            self.view_model.available_models = ["large-v3", "large-v3-turbo", "medium", "small", "base"]
+            # MLX利用可能時はlarge-v3も選択可能だが、デフォルトはmediumを維持
+            self.view_model.available_models = ["medium", "large-v3", "large-v3-turbo", "small", "base"]
         else:
             self.view_model.available_models = ["medium", "small", "base"]
 
