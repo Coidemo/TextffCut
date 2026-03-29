@@ -11,6 +11,7 @@ Apple Silicon Mac専用（MLX強制）。
 from __future__ import annotations
 
 import os
+import random
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -59,7 +60,7 @@ class BatchProgress:
     failed: int
     skipped: int
     current_file: str | None
-    current_status: str              # "processing" | "succeeded" | "failed" | "skipped"
+    current_status: str              # "processing" | "retrying" | "succeeded" | "failed" | "skipped"
     elapsed_seconds: float
     estimated_remaining_seconds: float | None
 
@@ -243,7 +244,8 @@ class BatchTranscribeUseCase(UseCase[BatchTranscribeRequest, BatchTranscribeResu
                     failed += 1
                     if request.fail_fast:
                         stop_flag = True
-                        # 未開始のタスクをキャンセル（実行中は止められないが最善を尽くす）
+                        # Future.cancel() はキュー待機中のタスクのみキャンセルできる。
+                        # 既に実行中のスレッドは最後まで走るが、新規タスクの開始は防げる。
                         for f in futures:
                             f.cancel()
                 else:
@@ -301,7 +303,25 @@ class BatchTranscribeUseCase(UseCase[BatchTranscribeRequest, BatchTranscribeResu
         for attempt in range(request.retry_count + 1):
             try:
                 if attempt > 0:
-                    self.logger.info(f"リトライ {attempt}/{request.retry_count}: {video_path}")
+                    # リトライ前に指数バックオフ（ 2^(attempt-1) + jitter 秒）
+                    wait = (2 ** (attempt - 1)) + random.uniform(0.0, 1.0)
+                    self.logger.info(
+                        f"リトライ {attempt}/{request.retry_count} ({wait:.1f}秒後): {video_path}"
+                    )
+                    self._notify(
+                        request,
+                        BatchProgress(
+                            total=len(request.video_paths),
+                            completed=0,
+                            failed=0,
+                            skipped=0,
+                            current_file=Path(str(video_path)).name,
+                            current_status="retrying",
+                            elapsed_seconds=time.time() - start,
+                            estimated_remaining_seconds=None,
+                        ),
+                    )
+                    time.sleep(wait)
 
                 transcription_request = TranscribeVideoRequest(
                     video_path=video_path,

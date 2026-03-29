@@ -12,7 +12,15 @@ requires-python = ">=3.11"
 textffcut = "textffcut_cli.command:main"
 
 [tool.setuptools.packages.find]
-include = ["textffcut_cli*"]
+# textffcut_cli に加え、CLI が依存するクリーンアーキテクチャの各層を含める
+include = [
+    "textffcut_cli*",
+    "domain*",
+    "use_cases*",
+    "adapters*",
+    "di*",
+    "utils*",
+]
 
 [tool.mypy]
 python_version = "3.11"

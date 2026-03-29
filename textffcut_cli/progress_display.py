@@ -7,7 +7,7 @@ rich ライブラリを使ってターミナルに進捗を表示する。
 """
 
 import json
-import sys
+import threading
 import time
 from datetime import datetime
 from typing import TYPE_CHECKING
@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from use_cases.transcription.batch_transcribe import BatchItemResult, BatchProgress
 
 console = Console(stderr=True)   # 進捗は stderr に出力（stdout はデータ用に空ける）
+_json_lock = threading.Lock()    # JSON Lines 出力をスレッドセーフにする
 
 
 class ProgressDisplay:
@@ -34,8 +35,6 @@ class ProgressDisplay:
         self._progress: Progress | None = None
         self._live: Live | None = None
         self._task_id: TaskID | None = None
-        self._file_statuses: list[dict] = []
-        self._start_time: float = time.time()
 
     def start(self, total: int, model: str) -> None:
         if self.json_progress:
@@ -96,6 +95,10 @@ class ProgressDisplay:
         self._progress.update(self._task_id, description=desc, completed=completed_total)
 
     def finish(self, result: "BatchTranscribeResult") -> None:  # type: ignore[name-defined]
+        # _live は常に先に止める（json/quiet モードでも起動していれば停止）
+        if self._live is not None:
+            self._live.stop()
+
         if self.json_progress:
             self._emit_json({
                 "type": "summary",
@@ -105,9 +108,6 @@ class ProgressDisplay:
                 "total_elapsed": round(result.total_processing_time, 1),
             })
             return
-
-        if self._live is not None:
-            self._live.stop()
 
         if self.quiet:
             return
@@ -138,4 +138,6 @@ class ProgressDisplay:
 
     @staticmethod
     def _emit_json(data: dict) -> None:
-        print(json.dumps(data, ensure_ascii=False), flush=True)
+        # 並列処理時に複数スレッドから呼ばれても行が混在しないようロックする
+        with _json_lock:
+            print(json.dumps(data, ensure_ascii=False), flush=True)

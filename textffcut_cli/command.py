@@ -64,7 +64,8 @@ def _collect_video_paths(inputs: list[str]) -> list[Path]:
 
     for inp in inputs:
         # グロブ展開（シェルが展開しなかった場合に備えて Python 側でも実行）
-        expanded = glob.glob(inp, recursive=False)
+        # recursive=True にすることで **/*.mp4 などの再帰パターンも機能する
+        expanded = glob.glob(inp, recursive=True)
         candidates = [Path(p) for p in expanded] if expanded else [Path(inp)]
 
         for candidate in candidates:

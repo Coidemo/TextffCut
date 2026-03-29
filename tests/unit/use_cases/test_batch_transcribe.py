@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from domain.entities import TranscriptionResult
+from domain.entities import TranscriptionResult, TranscriptionSegment
 from domain.value_objects import FilePath
 from use_cases.transcription.batch_transcribe import (
     BatchItemResult,
@@ -37,13 +37,28 @@ def mock_gateway():
 
 @pytest.fixture
 def mock_transcription_result():
-    """ダミーの TranscriptionResult"""
-    result = MagicMock(spec=TranscriptionResult)
-    result.language = "ja"
-    result.segments = []
-    result.model_size = "medium"
-    result.processing_time = 10.0
-    return result
+    """
+    ダミーの TranscriptionResult。
+
+    MagicMock(spec=TranscriptionResult) は __post_init__ を実行しないため、
+    空のセグメントリストでも通過してしまう。実際の TranscriptionResult では
+    segments が空だと ValueError になるので、本物のオブジェクトを使う。
+    """
+    segment = TranscriptionSegment(
+        id="seg-1",
+        text="テスト文字起こし",
+        start=0.0,
+        end=1.0,
+    )
+    return TranscriptionResult(
+        id="result-1",
+        video_id="test_video",
+        language="ja",
+        segments=[segment],
+        duration=1.0,
+        model_size="medium",
+        processing_time=10.0,
+    )
 
 
 @pytest.fixture
@@ -233,7 +248,8 @@ class TestBatchTranscribeErrorHandling:
         execute_mock = MagicMock(side_effect=[Exception("一時エラー"), mock_transcription_result])
 
         with patch.object(use_case._single_use_case, "execute", execute_mock), \
-             patch.object(use_case, "_cache_exists", return_value=False):
+             patch.object(use_case, "_cache_exists", return_value=False), \
+             patch("use_cases.transcription.batch_transcribe.time.sleep"):   # バックオフをスキップ
 
             request = BatchTranscribeRequest(
                 video_paths=[FilePath(str(tmp_video_files[0]))],
@@ -263,7 +279,8 @@ class TestBatchTranscribeErrorHandling:
             result = use_case(request)
 
         assert len(result.failed_items) == 1
-        assert "エラー詳細" in result.failed_items[0].error
+        # 完全一致で検証（"in" チェックは常に真になりうるため "==" で厳密に確認）
+        assert result.failed_items[0].error == "エラー詳細"
 
     def test_keyboard_interrupt_is_not_caught(self, mock_gateway, tmp_video_files):
         """KeyboardInterrupt は握りつぶさず再送出される"""
@@ -539,3 +556,17 @@ class TestCLIParser:
 
         paths = _collect_video_paths([str(f), str(f)])
         assert len(paths) == 1
+
+    def test_collect_video_paths_recursive_glob(self, tmp_path):
+        """再帰グロブ (**/*.mp4) でサブディレクトリの動画ファイルを収集できる"""
+        from textffcut_cli.command import _collect_video_paths
+
+        sub = tmp_path / "sub"
+        sub.mkdir()
+        (sub / "deep.mp4").write_bytes(b"x")
+
+        pattern = str(tmp_path / "**" / "*.mp4")
+        paths = _collect_video_paths([pattern])
+        names = {p.name for p in paths}
+
+        assert "deep.mp4" in names
