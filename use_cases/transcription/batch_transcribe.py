@@ -164,7 +164,7 @@ class BatchTranscribeUseCase(UseCase[BatchTranscribeRequest, BatchTranscribeResu
                     completed=completed,
                     failed=failed,
                     skipped=skipped,
-                    current_file=Path(str(video_path)).name,
+                    current_file=video_path.name,
                     current_status="processing",
                     elapsed_seconds=elapsed,
                     estimated_remaining_seconds=estimated,
@@ -191,7 +191,7 @@ class BatchTranscribeUseCase(UseCase[BatchTranscribeRequest, BatchTranscribeResu
                     completed=completed,
                     failed=failed,
                     skipped=skipped,
-                    current_file=Path(str(video_path)).name,
+                    current_file=video_path.name,
                     current_status=item.status,
                     elapsed_seconds=time.time() - batch_start,
                     estimated_remaining_seconds=None,
@@ -231,7 +231,7 @@ class BatchTranscribeUseCase(UseCase[BatchTranscribeRequest, BatchTranscribeResu
                 except Exception as e:
                     # スレッド内で捕捉されなかった例外を BatchItemResult に変換
                     item = BatchItemResult(
-                        video_path=Path(str(video_path)),
+                        video_path=video_path.to_path(),
                         status="failed",
                         error=str(e),
                     )
@@ -258,7 +258,7 @@ class BatchTranscribeUseCase(UseCase[BatchTranscribeRequest, BatchTranscribeResu
                         completed=completed,
                         failed=failed,
                         skipped=skipped,
-                        current_file=Path(str(video_path)).name,
+                        current_file=video_path.name,
                         current_status=item.status,
                         elapsed_seconds=time.time() - batch_start,
                         estimated_remaining_seconds=None,
@@ -294,7 +294,7 @@ class BatchTranscribeUseCase(UseCase[BatchTranscribeRequest, BatchTranscribeResu
         if request.use_cache and self._cache_exists(video_path, request.model_size):
             self.logger.info(f"キャッシュあり、スキップ: {video_path}")
             return BatchItemResult(
-                video_path=Path(str(video_path)),
+                video_path=video_path.to_path(),
                 status="skipped",
                 output_path=self._get_output_path(video_path, request.model_size),
             )
@@ -315,7 +315,7 @@ class BatchTranscribeUseCase(UseCase[BatchTranscribeRequest, BatchTranscribeResu
                             completed=0,
                             failed=0,
                             skipped=0,
-                            current_file=Path(str(video_path)).name,
+                            current_file=video_path.name,
                             current_status="retrying",
                             elapsed_seconds=time.time() - start,
                             estimated_remaining_seconds=None,
@@ -333,7 +333,7 @@ class BatchTranscribeUseCase(UseCase[BatchTranscribeRequest, BatchTranscribeResu
 
                 output_path = self._get_output_path(video_path, request.model_size)
                 return BatchItemResult(
-                    video_path=Path(str(video_path)),
+                    video_path=video_path.to_path(),
                     status="succeeded",
                     output_path=output_path,
                     processing_time=time.time() - start,
@@ -347,7 +347,7 @@ class BatchTranscribeUseCase(UseCase[BatchTranscribeRequest, BatchTranscribeResu
                 self.logger.warning(f"処理失敗 (attempt {attempt + 1}): {video_path} - {e}")
 
         return BatchItemResult(
-            video_path=Path(str(video_path)),
+            video_path=video_path.to_path(),
             status="failed",
             error=str(last_error),
             processing_time=time.time() - start,
@@ -365,7 +365,7 @@ class BatchTranscribeUseCase(UseCase[BatchTranscribeRequest, BatchTranscribeResu
             status = "skipped" if (request.use_cache and has_cache) else "pending"
             result.items.append(
                 BatchItemResult(
-                    video_path=Path(str(video_path)),
+                    video_path=video_path.to_path(),
                     status=status,
                     output_path=self._get_output_path(video_path, request.model_size),
                 )

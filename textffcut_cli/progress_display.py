@@ -20,7 +20,7 @@ from rich.table import Table
 from rich.text import Text
 
 if TYPE_CHECKING:
-    from use_cases.transcription.batch_transcribe import BatchItemResult, BatchProgress
+    from use_cases.transcription.batch_transcribe import BatchItemResult, BatchProgress, BatchTranscribeResult
 
 console = Console(stderr=True)   # 進捗は stderr に出力（stdout はデータ用に空ける）
 _json_lock = threading.Lock()    # JSON Lines 出力をスレッドセーフにする
@@ -94,7 +94,7 @@ class ProgressDisplay:
         )
         self._progress.update(self._task_id, description=desc, completed=completed_total)
 
-    def finish(self, result: "BatchTranscribeResult") -> None:  # type: ignore[name-defined]
+    def finish(self, result: "BatchTranscribeResult") -> None:
         # _live は常に先に止める（json/quiet モードでも起動していれば停止）
         if self._live is not None:
             self._live.stop()
@@ -114,7 +114,7 @@ class ProgressDisplay:
 
         self._print_summary(result)
 
-    def _print_summary(self, result: "BatchTranscribeResult") -> None:  # type: ignore[name-defined]
+    def _print_summary(self, result: "BatchTranscribeResult") -> None:
         console.print()
         console.rule("[bold]処理完了")
 

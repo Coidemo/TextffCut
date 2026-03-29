@@ -42,7 +42,7 @@ class TranscriptionGatewayAdapter(ITranscriptionGateway):
         model_size: str = "large-v3",
         language: str | None = None,
         use_cache: bool = True,
-        progress_callback: Callable[[float], None] | None = None,
+        progress_callback: Callable[[str], None] | None = None,
     ) -> TranscriptionResult:
         """
         動画ファイルを文字起こし
@@ -316,7 +316,7 @@ class TranscriptionGatewayAdapter(ITranscriptionGateway):
             video_path=video_path,
             model_size=model_size,
             language=language,
-            progress_callback=lambda p: progress_callback(f"Progress: {p:.0%}") if progress_callback else None,
+            progress_callback=progress_callback,
         )
 
     def is_api_mode(self) -> bool:
