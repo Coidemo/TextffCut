@@ -10,6 +10,12 @@ import glob
 import sys
 from pathlib import Path
 
+# プロジェクトルート（textffcut_cli の親ディレクトリ）を sys.path に追加
+# pip install -e . でインストールした場合でも di/ や use_cases/ を参照できるようにする
+_PROJECT_ROOT = Path(__file__).parent.parent
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
+
 
 # ---------------------------------------------------------------------------
 # 環境チェック（起動時に即座に確認）

@@ -11,6 +11,9 @@ requires-python = ">=3.11"
 [project.scripts]
 textffcut = "textffcut_cli.command:main"
 
+[tool.setuptools.packages.find]
+include = ["textffcut_cli*"]
+
 [tool.mypy]
 python_version = "3.11"
 warn_return_any = true
