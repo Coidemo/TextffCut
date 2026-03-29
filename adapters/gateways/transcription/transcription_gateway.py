@@ -331,6 +331,11 @@ class TranscriptionGatewayAdapter(ITranscriptionGateway):
             # ローカルモードでサポートされているモデル
             return ["tiny", "base", "small", "medium", "large", "large-v2", "large-v3"]
 
+    def get_cache_path(self, video_path: FilePath, model_size: str) -> "Path":
+        """キャッシュファイルのパスを取得（ITranscriptionGateway 実装）"""
+        from pathlib import Path
+        return Path(str(self._legacy_transcriber.get_cache_path(str(video_path), model_size)))
+
     def list_available_caches(self, video_path: FilePath) -> list[dict]:
         """
         利用可能なキャッシュの一覧を取得

@@ -8,6 +8,9 @@
 Apple Silicon Mac専用（MLX強制）。
 """
 
+from __future__ import annotations
+
+import os
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -34,14 +37,16 @@ class BatchTranscribeRequest:
     retry_count: int = 0
     fail_fast: bool = False
     dry_run: bool = False
-    progress_callback: "Callable[[BatchProgress], None] | None" = None
+    progress_callback: Callable[[BatchProgress], None] | None = None
 
     def __post_init__(self) -> None:
         self.video_paths = [
             FilePath(str(p)) if not isinstance(p, FilePath) else p
             for p in self.video_paths
         ]
-        self.max_workers = max(1, self.max_workers)
+        # 上限: CPUコア数またはファイル数のいずれか小さい方
+        cpu_count = os.cpu_count() or 1
+        self.max_workers = max(1, min(self.max_workers, cpu_count))
         self.retry_count = max(0, self.retry_count)
 
 
@@ -54,7 +59,7 @@ class BatchProgress:
     failed: int
     skipped: int
     current_file: str | None
-    current_status: str              # "processing" | "completed" | "failed" | "skipped"
+    current_status: str              # "processing" | "succeeded" | "failed" | "skipped"
     elapsed_seconds: float
     estimated_remaining_seconds: float | None
 
@@ -64,7 +69,7 @@ class BatchItemResult:
     """1ファイル分の処理結果"""
 
     video_path: Path
-    status: str                      # "succeeded" | "failed" | "skipped"
+    status: str                      # "succeeded" | "failed" | "skipped" | "pending"
     output_path: Path | None = None
     error: str | None = None
     processing_time: float = 0.0
@@ -121,7 +126,9 @@ class BatchTranscribeUseCase(UseCase[BatchTranscribeRequest, BatchTranscribeResu
         batch_start = time.time()
 
         if request.dry_run:
-            return self._dry_run(request)
+            result = self._dry_run(request)
+            result.total_processing_time = time.time() - batch_start
+            return result
 
         if request.max_workers > 1:
             self._execute_parallel(request, result, batch_start)
@@ -147,7 +154,7 @@ class BatchTranscribeUseCase(UseCase[BatchTranscribeRequest, BatchTranscribeResu
 
         for video_path in request.video_paths:
             elapsed = time.time() - batch_start
-            estimated = self._estimate_remaining(elapsed, completed, len(request.video_paths))
+            estimated = self._estimate_remaining(elapsed, completed + failed + skipped, len(request.video_paths))
 
             self._notify(
                 request,
@@ -200,31 +207,45 @@ class BatchTranscribeUseCase(UseCase[BatchTranscribeRequest, BatchTranscribeResu
         result: BatchTranscribeResult,
         batch_start: float,
     ) -> None:
-        items_map: dict[str, BatchItemResult] = {}
+        # 元の順序を保つため、入力順にインデックスを付ける
+        indexed_paths = list(enumerate(request.video_paths))
+        items_map: dict[int, BatchItemResult] = {}
+        stop_flag = False
+
+        completed = 0
+        failed = 0
+        skipped = 0
 
         with ThreadPoolExecutor(max_workers=request.max_workers) as executor:
             futures = {
-                executor.submit(self._process_one, request, vp): vp
-                for vp in request.video_paths
+                executor.submit(self._process_one, request, vp): (idx, vp)
+                for idx, vp in indexed_paths
             }
 
-            completed = 0
-            failed = 0
-            skipped = 0
-
             for future in as_completed(futures):
-                video_path = futures[future]
-                item = future.result()
-                items_map[str(video_path)] = item
+                idx, video_path = futures[future]
+
+                try:
+                    item = future.result()
+                except Exception as e:
+                    # スレッド内で捕捉されなかった例外を BatchItemResult に変換
+                    item = BatchItemResult(
+                        video_path=Path(str(video_path)),
+                        status="failed",
+                        error=str(e),
+                    )
+
+                items_map[idx] = item
 
                 if item.status == "succeeded":
                     completed += 1
                 elif item.status == "failed":
                     failed += 1
                     if request.fail_fast:
+                        stop_flag = True
+                        # 未開始のタスクをキャンセル（実行中は止められないが最善を尽くす）
                         for f in futures:
                             f.cancel()
-                        break
                 else:
                     skipped += 1
 
@@ -242,10 +263,21 @@ class BatchTranscribeUseCase(UseCase[BatchTranscribeRequest, BatchTranscribeResu
                     ),
                 )
 
-        # 元の順序を保って結果リストに追加
-        for vp in request.video_paths:
-            if str(vp) in items_map:
-                result.items.append(items_map[str(vp)])
+                if stop_flag:
+                    break
+
+        # 元の入力順序を保って結果リストに追加
+        # futures にあった全パスを網羅（処理されなかったものは "failed" として補完）
+        for idx, vp in indexed_paths:
+            if idx in items_map:
+                result.items.append(items_map[idx])
+            else:
+                # fail_fast でキャンセルされたファイルは failed として記録
+                result.items.append(BatchItemResult(
+                    video_path=Path(str(vp)),
+                    status="failed",
+                    error="キャンセルされました（fail_fast）",
+                ))
 
     # ------------------------------------------------------------------
     # 1ファイル処理（リトライ込み）
@@ -287,12 +319,15 @@ class BatchTranscribeUseCase(UseCase[BatchTranscribeRequest, BatchTranscribeResu
                     processing_time=time.time() - start,
                 )
 
+            except (KeyboardInterrupt, SystemExit):
+                # 中断シグナルは再送出（飲み込まない）
+                raise
             except Exception as e:
                 last_error = e
                 self.logger.warning(f"処理失敗 (attempt {attempt + 1}): {video_path} - {e}")
 
         return BatchItemResult(
-            video_path=video_path.path,
+            video_path=Path(str(video_path)),
             status="failed",
             error=str(last_error),
             processing_time=time.time() - start,
@@ -306,7 +341,8 @@ class BatchTranscribeUseCase(UseCase[BatchTranscribeRequest, BatchTranscribeResu
         result = BatchTranscribeResult()
         for video_path in request.video_paths:
             has_cache = self._cache_exists(video_path, request.model_size)
-            status = "skipped" if (request.use_cache and has_cache) else "succeeded"
+            # ドライランでは実際に処理しないため "pending"（キャッシュありは "skipped"）
+            status = "skipped" if (request.use_cache and has_cache) else "pending"
             result.items.append(
                 BatchItemResult(
                     video_path=Path(str(video_path)),
@@ -321,30 +357,32 @@ class BatchTranscribeUseCase(UseCase[BatchTranscribeRequest, BatchTranscribeResu
     # ------------------------------------------------------------------
 
     def _cache_exists(self, video_path: FilePath, model_size: str) -> bool:
-        output_path = self._get_output_path(video_path, model_size)
-        return output_path is not None and output_path.exists()
+        """ゲートウェイ経由でキャッシュの存在を確認する"""
+        try:
+            output_path = self.gateway.get_cache_path(video_path, model_size)
+            return output_path.exists()
+        except Exception:
+            return False
 
     def _get_output_path(self, video_path: FilePath, model_size: str) -> Path | None:
         """
-        Transcriber.get_cache_path() と同じロジックでパスを計算する。
-        （UIキャッシュと互換性を持たせるため）
+        ゲートウェイ経由でキャッシュパスを取得する。
+        （UIキャッシュと互換性を持たせるため、Transcriber.get_cache_path() と同一ロジック）
         """
         try:
-            from core.transcription import Transcriber
-            from config import Config
-            transcriber = Transcriber(Config())
-            return transcriber.get_cache_path(str(video_path), model_size)
-        except Exception:
+            return self.gateway.get_cache_path(video_path, model_size)
+        except Exception as e:
+            self.logger.warning(f"キャッシュパスの取得に失敗: {video_path} - {e}")
             return None
 
     @staticmethod
     def _estimate_remaining(
-        elapsed: float, completed: int, total: int
+        elapsed: float, processed: int, total: int
     ) -> float | None:
-        if completed == 0:
+        if processed == 0:
             return None
-        avg_per_item = elapsed / completed
-        remaining = total - completed
+        avg_per_item = elapsed / processed
+        remaining = total - processed
         return avg_per_item * remaining
 
     @staticmethod

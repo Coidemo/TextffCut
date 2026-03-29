@@ -227,6 +227,7 @@ def main() -> None:
     def on_progress(progress):
         display.update(progress)
 
+    # Path → FilePath の変換（二重変換を避けるため直接 FilePath に渡す）
     request = BatchTranscribeRequest(
         video_paths=[FilePath(str(p)) for p in video_paths_raw],
         model_size=args.model,

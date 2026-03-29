@@ -3,6 +3,7 @@
 """
 
 from collections.abc import Callable
+from pathlib import Path
 from typing import Protocol
 
 from domain.entities import TranscriptionResult
@@ -110,4 +111,17 @@ class ITranscriptionGateway(Protocol):
 
     def get_available_models(self) -> list[str]:
         """利用可能なモデルサイズのリストを取得"""
+        ...
+
+    def get_cache_path(self, video_path: FilePath, model_size: str) -> Path:
+        """
+        キャッシュファイルのパスを取得
+
+        Args:
+            video_path: 動画ファイルパス
+            model_size: モデルサイズ
+
+        Returns:
+            キャッシュファイルの Path（存在するかどうかは問わない）
+        """
         ...
