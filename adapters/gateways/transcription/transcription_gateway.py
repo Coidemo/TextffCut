@@ -6,6 +6,7 @@
 
 import time
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 from adapters.converters.transcription_converter import TranscriptionConverter
@@ -41,7 +42,7 @@ class TranscriptionGatewayAdapter(ITranscriptionGateway):
         model_size: str = "large-v3",
         language: str | None = None,
         use_cache: bool = True,
-        progress_callback: Callable[[float], None] | None = None,
+        progress_callback: Callable[[str], None] | None = None,
     ) -> TranscriptionResult:
         """
         動画ファイルを文字起こし
@@ -68,8 +69,8 @@ class TranscriptionGatewayAdapter(ITranscriptionGateway):
 
             # APIモードの設定を再確認（動的に設定が変更される可能性があるため）
             current_use_api = self.config.transcription.use_api
-            logger.info(f"TranscriptionGatewayAdapter.transcribe - APIモード: {current_use_api}")
-            logger.info(f"model_size: {model_size}, video_path: {legacy_path}")
+            logger.debug(f"TranscriptionGatewayAdapter.transcribe - APIモード: {current_use_api}")
+            logger.debug(f"model_size: {model_size}, video_path: {legacy_path}")
 
             # 現在の設定に基づいてTranscriberを再作成（設定が変更されている可能性があるため）
             if current_use_api != getattr(self._legacy_transcriber, "_last_use_api", None):
@@ -130,11 +131,11 @@ class TranscriptionGatewayAdapter(ITranscriptionGateway):
         """
         try:
             # キャッシュパスを取得
-            logger.info(f"キャッシュ読み込み開始: video_path={video_path}, model_size={model_size}")
-            logger.info(f"Gateway APIモード設定: {self.config.transcription.use_api}")
+            logger.debug(f"キャッシュ読み込み開始: video_path={video_path}, model_size={model_size}")
+            logger.debug(f"Gateway APIモード設定: {self.config.transcription.use_api}")
             cache_path = self._legacy_transcriber.get_cache_path(str(video_path), model_size)
-            logger.info(f"キャッシュパス: {cache_path}")
-            logger.info(f"キャッシュパス存在確認: {cache_path.exists()}")
+            logger.debug(f"キャッシュパス: {cache_path}")
+            logger.debug(f"キャッシュパス存在確認: {cache_path.exists()}")
 
             # キャッシュが存在しない場合の処理
             if not cache_path.exists():
@@ -145,14 +146,14 @@ class TranscriptionGatewayAdapter(ITranscriptionGateway):
                     alt_cache_path = cache_path.parent / f"{base_model_size}.json"
                     logger.info(f"代替キャッシュパスを確認: {alt_cache_path}")
                     if alt_cache_path.exists():
-                        logger.info("代替キャッシュが見つかりました。")
+                        logger.debug("代替キャッシュが見つかりました。")
                         cache_path = alt_cache_path
                 # ローカルモードの場合、_apiサフィックス付きのパスを試す
                 elif not self.config.transcription.use_api:
                     api_cache_path = cache_path.parent / f"{model_size}_api.json"
                     logger.info(f"APIモードキャッシュを確認: {api_cache_path}")
                     if api_cache_path.exists():
-                        logger.info("APIモードのキャッシュが見つかりました。これを使用します。")
+                        logger.debug("APIモードのキャッシュが見つかりました。これを使用します。")
                         cache_path = api_cache_path
 
             # キャッシュを読み込み
@@ -162,14 +163,14 @@ class TranscriptionGatewayAdapter(ITranscriptionGateway):
                 logger.warning("キャッシュファイルが見つからないか、読み込みに失敗しました")
                 return None
 
-            logger.info(f"レガシー結果を読み込みました: {type(legacy_result)}")
+            logger.debug(f"レガシー結果を読み込みました: {type(legacy_result)}")
 
             # ドメインエンティティに変換
             # video_idを動画パスから生成
             video_id = str(video_path).replace('/', '_').replace('\\', '_')
             domain_result = self._converter.legacy_to_domain(legacy_result, video_id=video_id)
 
-            logger.info(f"ドメインエンティティに変換しました: {cache_path}")
+            logger.debug(f"ドメインエンティティに変換しました: {cache_path}")
             return domain_result
 
         except Exception as e:
@@ -315,7 +316,7 @@ class TranscriptionGatewayAdapter(ITranscriptionGateway):
             video_path=video_path,
             model_size=model_size,
             language=language,
-            progress_callback=lambda p: progress_callback(f"Progress: {p:.0%}") if progress_callback else None,
+            progress_callback=progress_callback,
         )
 
     def is_api_mode(self) -> bool:
@@ -330,6 +331,10 @@ class TranscriptionGatewayAdapter(ITranscriptionGateway):
         else:
             # ローカルモードでサポートされているモデル
             return ["tiny", "base", "small", "medium", "large", "large-v2", "large-v3"]
+
+    def get_cache_path(self, video_path: FilePath, model_size: str) -> Path:
+        """キャッシュファイルのパスを取得（ITranscriptionGateway 実装）"""
+        return Path(str(self._legacy_transcriber.get_cache_path(str(video_path), model_size)))
 
     def list_available_caches(self, video_path: FilePath) -> list[dict]:
         """

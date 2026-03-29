@@ -1,3 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "textffcut"
+version = "0.1.0"
+description = "TextffCut CLI - Apple Silicon Mac用バッチ文字起こしツール"
+requires-python = ">=3.11"
+
+[project.scripts]
+textffcut = "textffcut_cli.command:main"
+
+[tool.setuptools.packages.find]
+# textffcut_cli に加え、CLI が依存するクリーンアーキテクチャの各層を含める
+include = [
+    "textffcut_cli*",
+    "domain*",
+    "use_cases*",
+    "adapters*",
+    "di*",
+    "utils*",
+]
+
 [tool.mypy]
 python_version = "3.11"
 warn_return_any = true
