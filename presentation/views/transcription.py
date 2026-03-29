@@ -177,7 +177,23 @@ class TranscriptionView:
 
             with model_col:
                 st.markdown("**🤖 モデル**")
-                st.markdown(self.view_model.model_text)
+                if self.view_model.use_api:
+                    st.markdown("whisper-1")
+                else:
+                    current_index = 0
+                    if self.view_model.model_size in self.view_model.available_models:
+                        current_index = self.view_model.available_models.index(self.view_model.model_size)
+                    selected = st.selectbox(
+                        "モデル選択",
+                        self.view_model.available_models,
+                        index=current_index,
+                        key="model_size_select",
+                        label_visibility="collapsed",
+                    )
+                    if selected != self.view_model.model_size:
+                        self.presenter.set_model_size(selected)
+                    if self.view_model.mlx_whisper_available:
+                        st.caption("⚡ mlx-whisper (Apple Silicon)")
 
             with time_col:
                 st.markdown("**📊 動画時間**")

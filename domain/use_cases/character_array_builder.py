@@ -130,11 +130,48 @@ class CharacterArrayBuilder:
         chars = []
         position = start_position
 
-        # セグメントにwordsがある場合（通常のケース）
-        if hasattr(segment, "words") and segment.words:
+        # wordsが1文字ずつの場合（WhisperX日本語の通常ケース）
+        # wordsが1文字超の場合はcharsを使う（MLXアライメントの場合）
+        use_words = hasattr(segment, "words") and segment.words
+        use_chars_instead = False
+        if use_words:
+            # wordsの最初の要素が1文字超ならcharsパスを使う
+            first_word = segment.words[0]
+            word_text = first_word.word if hasattr(first_word, "word") else first_word.get("word", "")
+            if len(word_text) > 1:
+                use_chars_instead = True
+
+        if use_chars_instead and hasattr(segment, "chars") and segment.chars:
+            # charsベースの構築（MLXアライメント: wordsが単語単位の場合）
+            for char_idx, char_obj in enumerate(segment.chars):
+                if hasattr(char_obj, "char"):
+                    char_str = char_obj.char
+                    char_start = char_obj.start
+                    char_end = char_obj.end
+                    char_conf = char_obj.confidence if hasattr(char_obj, "confidence") and char_obj.confidence is not None else 1.0
+                else:
+                    char_str = char_obj.get("char", "")
+                    char_start = char_obj.get("start", 0)
+                    char_end = char_obj.get("end", 0)
+                    char_conf = char_obj.get("confidence") or char_obj.get("score") or 1.0
+                    if isinstance(char_conf, (int, float)) and char_conf < 0:
+                        char_conf = 1.0
+
+                char_info = CharacterWithTimestamp(
+                    char=char_str,
+                    start=char_start,
+                    end=char_end,
+                    segment_id=segment.id,
+                    word_index=char_idx,
+                    original_position=position,
+                    confidence=char_conf,
+                )
+                chars.append(char_info)
+                position += 1
+        elif use_words:
             for word_idx, word in enumerate(segment.words):
                 char_info = CharacterWithTimestamp(
-                    char=word.word,  # Wordクラスは'word'フィールドを使用
+                    char=word.word,
                     start=word.start,
                     end=word.end,
                     segment_id=segment.id,
