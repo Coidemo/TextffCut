@@ -33,8 +33,8 @@ def _check_environment() -> None:
     except ImportError as e:
         print(
             f"エラー: MLX ライブラリが見つかりません: {e}\n"
-            "  インストール方法:\n"
-            "    pip install -r requirements-mlx.txt",
+            "  Homebrew でインストールした場合は再インストールをお試しください:\n"
+            "    brew reinstall textffcut",
             file=sys.stderr,
         )
         sys.exit(1)
