@@ -10,16 +10,6 @@ import glob
 import sys
 from pathlib import Path
 
-# プロジェクトルート（textffcut_cli の親ディレクトリ）を sys.path に追加
-# pip install -e . / Homebrew virtualenv どちらの環境でも di/ や use_cases/ を参照できるようにする
-# 注意: pyproject.toml の packages.find でこれらのパッケージを含めているため、
-#       正常にインストールされた環境では sys.path 操作は不要になるはず。
-#       Homebrew インストール後に ImportError が起きる場合はここを確認する。
-_PROJECT_ROOT = Path(__file__).parent.parent
-if str(_PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(_PROJECT_ROOT))
-
-
 # ---------------------------------------------------------------------------
 # 環境チェック（起動時に即座に確認）
 # ---------------------------------------------------------------------------
@@ -158,10 +148,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="ファイルを処理せず、対象ファイル一覧のみ表示",
     )
     parser.add_argument(
-        "-v", "--verbose",
+        "-q", "--quiet",
         action="store_true",
         default=False,
-        help="詳細ログを表示（デバッグ用）",
+        help="進捗出力を抑制する（デフォルト: 表示あり）",
     )
 
     return parser
@@ -340,7 +330,7 @@ def main() -> None:
     gateway = container.gateways.transcription_gateway()
     use_case = BatchTranscribeUseCase(gateway)
 
-    display = ProgressDisplay(quiet=False, json_progress=False)
+    display = ProgressDisplay(quiet=args.quiet, json_progress=False)
     display.start(total=len(video_paths_raw), model=args.model)
 
     def on_progress(progress):
