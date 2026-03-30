@@ -248,7 +248,8 @@ def _cmd_gui() -> None:
     except FileNotFoundError:
         print(
             "エラー: streamlit が見つかりません。\n"
-            "  インストール方法: pip install 'textffcut[ui]'",
+            "  Homebrew でインストールした場合: brew reinstall textffcut\n"
+            "  直接インストールした場合: pip install 'textffcut[ui]'",
             file=sys.stderr,
         )
         sys.exit(1)
