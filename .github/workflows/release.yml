@@ -1,0 +1,59 @@
+name: Release
+
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Calculate sha256 of source tarball
+        id: sha
+        run: |
+          TAG=${GITHUB_REF_NAME}
+          URL="https://github.com/${{ github.repository }}/archive/refs/tags/${TAG}.tar.gz"
+          # タグpush直後はGitHubのtarball生成が間に合わないためリトライ
+          # 空ファイルの SHA256: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+          EMPTY_SHA256="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          SHA=""
+          for i in 1 2 3 4 5; do
+            SHA=$(curl -sL --fail "$URL" | sha256sum | awk '{print $1}')
+            if [ -n "$SHA" ] && [ "$SHA" != "$EMPTY_SHA256" ]; then
+              break
+            fi
+            echo "リトライ ${i}/5 ..."
+            sleep 10
+          done
+          if [ -z "$SHA" ] || [ "$SHA" = "$EMPTY_SHA256" ]; then
+            echo "エラー: SHA256 の取得に失敗しました（tarball がまだ生成されていない可能性があります）" >&2
+            exit 1
+          fi
+          echo "sha256=$SHA" >> $GITHUB_OUTPUT
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "url=$URL" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          body: |
+            ## インストール
+            ```bash
+            brew tap coidemo/textffcut
+            brew install textffcut
+            ```
+
+            ## 初回セットアップ
+            ```bash
+            textffcut activate XXXXX-XXXXX-XXXXX-XXXXX  # Note購入後に届くキー
+            textffcut gui                                 # GUIを起動
+            ```
+
+            ## Homebrew Formula 更新用
+            - **URL**: `${{ steps.sha.outputs.url }}`
+            - **SHA256**: `${{ steps.sha.outputs.sha256 }}`
