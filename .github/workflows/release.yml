@@ -20,7 +20,7 @@ jobs:
           URL="https://github.com/${{ github.repository }}/archive/refs/tags/${TAG}.tar.gz"
           # タグpush直後はGitHubのtarball生成が間に合わないためリトライ
           for i in 1 2 3 4 5; do
-            SHA=$(curl -sL --fail "$URL" | shasum -a 256 | awk '{print $1}')
+            SHA=$(curl -sL --fail "$URL" | sha256sum | awk '{print $1}')
             if [ -n "$SHA" ] && [ "$SHA" != "da39a3ee5e6b4b0d3255bfef95601890afd80709" ]; then
               break
             fi

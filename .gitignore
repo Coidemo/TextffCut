@@ -238,3 +238,6 @@ quality_comparison_*.json
 
 # 内部ドキュメント（ローカル保持・非公開）
 docs/
+
+# ライセンスキー生成スクリプト（販売者専用・非公開）
+scripts/generate_license_key.py

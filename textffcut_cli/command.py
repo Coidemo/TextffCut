@@ -237,7 +237,12 @@ def _cmd_gui() -> None:
     print("停止するには Ctrl+C を押してください\n")
 
     try:
+        # subprocess.run はブロッキング呼び出し。
+        # Ctrl+C は子プロセス（streamlit）に直接 SIGINT が届くため、
+        # 通常は KeyboardInterrupt ではなく subprocess.run が正常に return する。
+        # どちらのケースでも停止メッセージを表示する。
         subprocess.run(["streamlit", "run", str(main_py)], check=False)
+        print("\n✓ GUIを停止しました")
     except KeyboardInterrupt:
         print("\n✓ GUIを停止しました")
     except FileNotFoundError:
@@ -267,7 +272,10 @@ def main() -> None:
         )
         sys.exit(0)
 
-    # activate / gui はサブコマンドとして事前ルーティング（argparse subparsers を使わない）
+    # activate / gui / models は argparse の前に手動ルーティング（subparsers を使わない理由:
+    # subparsers にすると positional argument としてのファイルパスと競合するため）。
+    # これらのサブコマンドは MLX ライブラリを使わないので _check_environment() は呼ばない。
+    # （gui は open / streamlit のみ使用、activate / models は純粋な入出力）
     if sys.argv[1] == "models":
         _cmd_models()
         return
