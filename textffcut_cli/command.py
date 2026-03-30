@@ -44,7 +44,7 @@ def _check_environment() -> None:
 # ファイル収集
 # ---------------------------------------------------------------------------
 
-SUPPORTED_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv", ".webm", ".mp3", ".wav", ".m4a"}
+SUPPORTED_EXTENSIONS = [".mp4", ".mov", ".avi", ".mkv", ".webm", ".mp3", ".wav", ".m4a"]
 
 
 def _collect_video_paths(inputs: list[str]) -> list[Path]:
@@ -277,10 +277,16 @@ def main() -> None:
     # これらのサブコマンドは MLX ライブラリを使わないので _check_environment() は呼ばない。
     # （gui は open / streamlit のみ使用、activate / models は純粋な入出力）
     if sys.argv[1] == "models":
+        if len(sys.argv) > 2 and sys.argv[2] in ("-h", "--help"):
+            print("使い方: textffcut models\n使用可能なモデル一覧を表示します。")
+            return
         _cmd_models()
         return
 
     if sys.argv[1] == "activate":
+        if len(sys.argv) > 2 and sys.argv[2] in ("-h", "--help"):
+            print("使い方: textffcut activate XXXXX-XXXXX-XXXXX-XXXXX\nライセンスキーを登録します。")
+            return
         key = sys.argv[2] if len(sys.argv) > 2 else ""
         if not key:
             print("使い方: textffcut activate XXXXX-XXXXX-XXXXX-XXXXX", file=sys.stderr)

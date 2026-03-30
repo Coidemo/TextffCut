@@ -19,14 +19,21 @@ jobs:
           TAG=${GITHUB_REF_NAME}
           URL="https://github.com/${{ github.repository }}/archive/refs/tags/${TAG}.tar.gz"
           # タグpush直後はGitHubのtarball生成が間に合わないためリトライ
+          # 空ファイルの SHA256: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+          EMPTY_SHA256="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          SHA=""
           for i in 1 2 3 4 5; do
             SHA=$(curl -sL --fail "$URL" | sha256sum | awk '{print $1}')
-            if [ -n "$SHA" ] && [ "$SHA" != "da39a3ee5e6b4b0d3255bfef95601890afd80709" ]; then
+            if [ -n "$SHA" ] && [ "$SHA" != "$EMPTY_SHA256" ]; then
               break
             fi
             echo "リトライ ${i}/5 ..."
             sleep 10
           done
+          if [ -z "$SHA" ] || [ "$SHA" = "$EMPTY_SHA256" ]; then
+            echo "エラー: SHA256 の取得に失敗しました（tarball がまだ生成されていない可能性があります）" >&2
+            exit 1
+          fi
           echo "sha256=$SHA" >> $GITHUB_OUTPUT
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "url=$URL" >> $GITHUB_OUTPUT
