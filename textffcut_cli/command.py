@@ -102,8 +102,13 @@ def build_parser() -> argparse.ArgumentParser:
         description=(
             "TextffCut CLIバッチ文字起こし\n"
             "Apple Silicon Mac専用（MLX高速モード）\n\n"
+            "コマンド:\n"
+            "  textffcut gui                        GUIを起動\n"
+            "  textffcut activate KEY               ライセンスキーを登録\n"
+            "  textffcut models                     使用可能なモデル一覧を表示\n"
+            "  textffcut [ファイル ...]              文字起こし（メイン機能）\n\n"
             "例:\n"
-            "  textffcut gui                        # GUIを起動\n"
+            "  textffcut gui\n"
             "  textffcut video1.mp4 video2.mp4\n"
             "  textffcut -m large-v3 ./videos/*.mp4\n"
             "  textffcut -s ./videos/               # シミュレート\n"
@@ -111,10 +116,15 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
+    try:
+        from importlib.metadata import version as _pkg_version
+        _version = _pkg_version("textffcut")
+    except Exception:
+        _version = "unknown"
     parser.add_argument(
         "-V", "--version",
         action="version",
-        version="%(prog)s 0.2.0",
+        version=f"%(prog)s {_version}",
     )
 
     parser.add_argument(
@@ -210,7 +220,7 @@ def _cmd_gui() -> None:
     print("停止するには Ctrl+C を押してください\n")
 
     try:
-        subprocess.run(["streamlit", "run", str(main_py)], check=True)
+        subprocess.run(["streamlit", "run", str(main_py)], check=False)
     except KeyboardInterrupt:
         print("\n✓ GUIを停止しました")
     except FileNotFoundError:
@@ -224,8 +234,6 @@ def _cmd_gui() -> None:
 
 def main() -> None:
     """CLI メインエントリーポイント"""
-    _check_environment()
-
     # 引数なし時のガイド表示（parse_args より先に確認）
     if len(sys.argv) == 1:
         print(
@@ -274,7 +282,8 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
 
-    # 通常コマンド: ライセンスチェック
+    # 通常コマンド: 環境チェック＋ライセンスチェック
+    _check_environment()
     from textffcut_cli.license import require_license
     require_license()
 

@@ -9,30 +9,23 @@ permissions:
 
 jobs:
   release:
-    runs-on: macos-14  # Apple Silicon
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Build distribution
-        run: |
-          pip install build
-          python -m build
-
-      - name: Calculate sha256
+      - name: Calculate sha256 of source tarball
         id: sha
         run: |
-          FILE=$(ls dist/*.tar.gz)
-          echo "sha256=$(shasum -a 256 $FILE | awk '{print $1}')" >> $GITHUB_OUTPUT
-          echo "file=$FILE" >> $GITHUB_OUTPUT
+          TAG=${GITHUB_REF_NAME}
+          URL="https://github.com/${{ github.repository }}/archive/refs/tags/${TAG}.tar.gz"
+          SHA=$(curl -sL "$URL" | shasum -a 256 | awk '{print $1}')
+          echo "sha256=$SHA" >> $GITHUB_OUTPUT
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "url=$URL" >> $GITHUB_OUTPUT
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/*
           body: |
             ## インストール
             ```bash
@@ -46,4 +39,6 @@ jobs:
             textffcut gui                                 # GUIを起動
             ```
 
-            **SHA256 (tar.gz):** `${{ steps.sha.outputs.sha256 }}`
+            ## Homebrew Formula 更新用
+            - **URL**: `${{ steps.sha.outputs.url }}`
+            - **SHA256**: `${{ steps.sha.outputs.sha256 }}`
