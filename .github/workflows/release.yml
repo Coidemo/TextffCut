@@ -1,0 +1,49 @@
+name: Release
+
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-14  # Apple Silicon
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build distribution
+        run: |
+          pip install build
+          python -m build
+
+      - name: Calculate sha256
+        id: sha
+        run: |
+          FILE=$(ls dist/*.tar.gz)
+          echo "sha256=$(shasum -a 256 $FILE | awk '{print $1}')" >> $GITHUB_OUTPUT
+          echo "file=$FILE" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          body: |
+            ## インストール
+            ```bash
+            brew tap coidemo/textffcut
+            brew install textffcut
+            ```
+
+            ## 初回セットアップ
+            ```bash
+            textffcut activate XXXXX-XXXXX-XXXXX-XXXXX  # Note購入後に届くキー
+            textffcut gui                                 # GUIを起動
+            ```
+
+            **SHA256 (tar.gz):** `${{ steps.sha.outputs.sha256 }}`

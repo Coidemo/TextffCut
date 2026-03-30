@@ -235,3 +235,6 @@ test_whisperx_*.py
 whisperx_performance_*.json
 quality_comparison_*.json
 .performance_profile_json_example
+
+# 内部ドキュメント（ローカル保持・非公開）
+docs/

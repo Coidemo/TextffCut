@@ -9,301 +9,125 @@
 
 # Text<span style="color: #fd444d; font-style: italic;">ff</span>Cut
 
-**動画の文字起こしと切り抜きを効率化するツール**
+**動画の文字起こしと切り抜き準備を効率化するツール**
+
+Apple Silicon Mac 専用（MLX 高速モード）
 
 </div>
 
-**TextffCut** = Text + diff + Cut（テキスト差分による動画切り抜き）
+## 概要
 
-## 📖 使い方ガイド
+TextffCut は長時間動画を高速に文字起こしし、切り抜き用の編集素材（FCPXML/EDL）を生成するツールです。
 
-詳しい使い方は note で公開予定です：
+- 🎙️ Apple Silicon の MLX を使った高速文字起こし
+- ✂️ テキストを編集するだけで切り抜き範囲を指定
+- 🔇 無音部分を自動削除してタイトな編集素材を生成
+- 🎬 Final Cut Pro / DaVinci Resolve 用 FCPXML を出力
+- 🖥️ GUI（ブラウザ）と CLI の両方に対応
 
-📖 **[Coidemo - note](https://note.com/coidemo)**
+## インストール
 
-## 🌟 最新バージョン
-
-**v1.1.0-dev** (2025-05-31) - 開発版
-- ✅ **API統合**: OpenAI Whisper API対応
-- ✅ **UI改善**: ブランドロゴ・サブタイトル追加
-- ✅ **料金確認**: モーダルによる事前確認
-- ✅ **出力改善**: 動画ごとの統一フォルダ管理
-- ✅ **処理中止**: モード変更時の安全な中止機能
-- ✅ **設定保存**: APIモード設定の永続化
-
-## 🚀 主な特徴
-
-### **2つの動作モード**
-- **🌐 APIモード**: OpenAI Whisper API（高速・安定）
-- **🖥️ ローカルモード**: WhisperX（無料・プライベート）
-
-### **高精度な文字起こし**
-- 日本語対応の高精度文字起こし
-- チャンク分割並列処理で大容量動画も対応
-
-### **直感的な切り抜き編集**
-- テキストベースで切り抜き箇所を選択
-- 複数セクション対応（区切り文字機能）
-- リアルタイムプレビュー
-- **🤖 AIバズクリップ生成**: GPT-4oが面白い切り抜き候補を自動提案
-
-### **多様な出力形式**
-- **動画ファイル**: MP4形式（検証済み）
-- **FCPXMLファイル**: Final Cut Pro/DaVinci Resolve用
-- **統一出力**: `{動画名}_TextffCut/` フォルダに整理
-
-## 📊 処理速度・料金比較
-
-| 環境 | 90分動画の処理時間 | 料金 | 特徴 |
-|------|-------------------|------|------|
-| **🌐 APIモード** | **約2-5分** | **約81円** | 最高速・GPU不要 |
-| 🖥️ GPU（NVIDIA RTX 40系） | 約5-10分 | 無料 | 高速・プライベート |
-| 🖥️ GPU（M1/M2 Mac） | 約10-15分 | 無料 | 高速・プライベート |
-| 🖥️ CPU（高性能） | 約30-60分 | 無料 | 時間がかかる |
-| 🖥️ CPU（一般的） | 約60-120分 | 無料 | 非常に時間がかかる |
-
-## ⚡ クイックスタート
-
-### Docker版（推奨）
 ```bash
-git clone https://github.com/Coidemo/TextffCut.git
-cd TextffCut
-
-# 方法1: ポート自動検出機能付き起動（推奨）
-./docker-compose-with-port-check.sh
-
-# 方法2: 通常のdocker-compose
-docker-compose up -d
-# ブラウザで http://localhost:8501 にアクセス
+brew tap coidemo/textffcut
+brew install textffcut
 ```
 
-#### 🔧 ポート自動検出機能
-ポート8501が使用中の場合、自動的に別のポート（8502-8510）を探して起動します。
+## 初回セットアップ
 
-**対応スクリプト:**
-- `./docker-compose-with-port-check.sh` (Mac/Linux)
-- `docker-compose-with-port-check.bat` (Windows)
-- `./scripts/start-dev.sh` (Mac/Linux開発用)
-- `scripts\start-dev.bat` (Windows開発用)
-- `./scripts/start-clean.sh` (Mac/Linuxクリーン起動)
-- `scripts\start-clean.bat` (Windowsクリーン起動)
+### 1. ライセンスキーを登録
 
-### ローカル版
+[note](https://note.com/coidemo) で購入後、届いたキーを登録します。
+
 ```bash
-git clone https://github.com/Coidemo/TextffCut.git
-cd TextffCut
-pip install -r requirements.txt
-streamlit run main.py
+textffcut activate XXXXX-XXXXX-XXXXX-XXXXX
 ```
 
-## 🌐 APIモード使用方法
+### 2. 使い始める
 
-### OpenAI API設定
-1. [OpenAI Platform](https://platform.openai.com/)でAPIキーを取得
-2. サイドバー → **「🔑 APIキー」** → **「APIモードを使用」をチェック**
-3. **OpenAI APIキーを入力**
+**GUI モード**（ブラウザで操作）
 
-### 料金シミュレーション
-
-**文字起こし（Whisper API）**
-```python
-# 計算式：動画時間（分） × $0.006 = 料金（USD）
-10分動画: 10 × $0.006 = $0.06（約9円）
-30分動画: 30 × $0.006 = $0.18（約27円）
-60分動画: 60 × $0.006 = $0.36（約54円）
-90分動画: 90 × $0.006 = $0.54（約81円）
-```
-
-**AIバズクリップ生成（GPT-4o）**
-```python
-# 平均的な料金（文字数により変動）
-10,000文字の文字起こし: 約15円
-30,000文字の文字起こし: 約30円
-60,000文字の文字起こし: 約50円
-```
-
-### 環境変数での設定
 ```bash
-# .envファイルを作成
-echo "TEXTFFCUT_USE_API=true" > .env
-echo "TEXTFFCUT_API_KEY=sk-your_api_key_here" >> .env
-streamlit run main.py
+textffcut gui
 ```
 
-## 📋 使用方法
+実行したディレクトリに `videos/` フォルダが自動作成されます。
+動画ファイルをそこに入れてブラウザで操作してください。
 
-### 1. 動画ファイルの選択
-- **Docker版**: `videos/`フォルダ内の動画をドロップダウンで選択
-- **ローカル版**: 動画ファイルのフルパスを入力
+**CLI モード**（ターミナルで操作）
 
-### 2. 文字起こし実行
-- **モデル選択**: `large-v3`推奨（高精度）
-- **APIキー**: APIモード使用時は必須
-
-### 3. 切り抜き編集
-- **テキスト編集**: 必要な部分をコピー＆ペースト
-- **区切り文字**: `---`で複数セクションに分割
-- **リアルタイムプレビュー**: 変更箇所をハイライト表示
-
-### 4. 無音削除（オプション）
-- **自動無音検出**: -35dB閾値、0.3秒最小長
-- **PAD設定**: セグメント前後の調整（0-0.5秒）
-
-### 5. 出力
-- **保存先**: `{動画名}_TextffCut/`フォルダ
-- **形式**: 動画ファイル（MP4）またはFCPXML
-
-## 🔧 高度な機能
-
-### 無音削除設定
-- **閾値**: -35dB（デフォルト）
-- **最小無音時間**: 0.3秒
-- **最小セグメント時間**: 0.3秒
-- **PAD設定**: 音の急激な切り替わりを緩和
-
-### FCPXML出力
-- Final Cut Pro/DaVinci Resolve対応
-- 隙間を詰めて配置
-- 正しいアセット参照
-
-### 設定の永続化
-- よく使う設定を自動保存
-- 前回使用した動画パスを記憶
-
-## 📁 出力ファイル例
-
-```
-/path/to/video/
-├── original_video.mp4                    # 元動画
-└── original_video_TextffCut/             # 出力フォルダ
-    ├── original_video_cut.mp4            # 切り抜き動画
-    ├── original_video_no_silence.mp4     # 無音削除版
-    ├── original_video.fcpxml             # FCPXML
-    └── transcriptions/                   # 文字起こしキャッシュ
-        ├── large-v3.json                 # ローカル版
-        └── whisper-1_api.json            # API版
-```
-
-## 🛠️ 推奨環境
-
-### システム要件
-- **Docker版**: 
-  - **検証済み**: macOS + Docker Desktop
-  - **未検証**: Windows + Docker Desktop（Dockerの仕組み上動作するはずです）
-- **ローカル版**: Python 3.8以上、FFmpeg
-
-### 対応動画形式
-- **検証済み**: MP4
-- **未検証**: MOV, AVI, MKV（FFmpegが対応しているため動作するはずです）
-
-### ローカルモードでの推奨環境
-**🚀 GPU利用可能な場合（推奨）**
-- **Mac（検証済み）**: M1/M2チップ（Metal Performance Shaders）
-- **Windows（未検証）**: NVIDIA GPU + CUDA 11.2以上
-- **Linux（未検証）**: NVIDIA GPU + CUDA
-
-**💻 CPU使用の場合**
-- 処理時間は大幅に増加（GPU比で3-6倍程度）
-
-## 🎯 推奨使用ケース
-
-### APIモードがおすすめ
-- 💻 ローカルGPUがない
-- ☁️ Streamlit Cloudで公開したい
-- 🚀 簡単セットアップ重視
-- 💸 たまに使用（料金許容範囲）
-
-### ローカルモードがおすすめ
-- 🖥️ 高性能GPUがある
-- 🔒 プライバシー重視
-- 💰 頻繁使用（料金節約）
-- 📁 大きなファイル処理（>25MB）
-
-## 🔍 トラブルシューティング
-
-### よくあるエラー
-
-#### APIキーエラー
-```
-OpenAI API key is required
-```
-**解決方法**: 正しいAPIキー（`sk-`で始まる）を設定
-
-#### ファイルサイズエラー
-```
-File too large for OpenAI API: XX.XMB (max 25MB)
-```
-**解決方法**: 
-1. 動画を圧縮
-2. より短い動画に分割
-3. ローカル版を使用
-
-#### 料金不足エラー
-```
-You exceeded your current quota
-```
-**解決方法**: OpenAI アカウントに料金をチャージ
-
-### Docker関連
-
-#### Docker起動しない
 ```bash
-# Docker Desktopが起動しているか確認
-docker --version
-
-# コンテナ再起動
-docker-compose restart
+textffcut 動画.mp4
 ```
 
-#### 動画が読み込めない
-- パスに日本語・スペースが含まれていないか確認
-- ファイル形式が対応しているか確認（MP4推奨）
+## CLI の使い方
 
-## 🏷️ バージョン履歴
+```
+textffcut [オプション] [ファイルまたはフォルダ ...]
+```
 
-### v1.1.0-dev (2025-05-31) - 開発版
-- API統合とUI改善
+### オプション
 
-### v1.01 (2025-05-30) ⭐ **最新安定版**
-- PAD設定機能（セグメント前後のパディング調整）
-- UI改善（ボタン配置最適化、レイアウト統一）
+| オプション | 省略形 | 説明 |
+|-----------|--------|------|
+| `--model MODEL` | `-m` | モデルサイズを指定（デフォルト: medium） |
+| `--no-cache` | `-n` | キャッシュを無視して再処理 |
+| `--simulate` | `-s` | 処理せずに対象ファイル一覧を表示 |
+| `--verbose` | `-v` | 詳細ログを表示 |
+| `--version` | `-V` | バージョンを表示 |
 
-### v1.0.0-stable (2024-05-28)
-- 効率的なWAVベース無音検出
-- FCPXMLエクスポート最適化
-- 字幕機能を削除してシンプル化
+### 使用例
 
-## 📚 ドキュメント
+```bash
+# 1ファイルを文字起こし
+textffcut 動画.mp4
 
-### はじめに
-- 🚀 [クイックスタート](docs/QUICKSTART.md) - 5分で始める
-- 📦 [インストールガイド](docs/INSTALL.md) - 詳細なセットアップ手順
-- 📖 [ユーザーガイド](docs/USER_GUIDE.md) - 完全な使用方法
+# 高精度モデルで処理
+textffcut -m large-v3-turbo 動画.mp4
 
-### 詳細情報
-- 🐳 [Docker ガイド](docs/DOCKER_GUIDE.md) - Docker版の使い方
-- 🔧 [トラブルシューティング](docs/TROUBLESHOOTING.md) - 問題解決ガイド
-- 🔄 [手動起動ガイド](docs/MANUAL_STARTUP_GUIDE.md) - 自動起動が失敗した場合の対処法
-- 📝 [開発者向け情報](CLAUDE.md) - 開発・カスタマイズ情報
+# フォルダ内の全動画を処理
+textffcut ./videos/
 
-## 📞 サポート
+# 処理前に対象ファイルを確認
+textffcut -s ./videos/
 
-- **Issues**: バグ報告・機能要望
-- **Discussions**: 使用方法の質問
+# キャッシュを無視して再処理
+textffcut -n 動画.mp4
+```
 
-## 📄 ライセンス
+## モデル一覧
 
-本ソフトウェアは**プロプライエタリライセンス**のもとで提供されています。
+```bash
+textffcut models
+```
 
-- ✅ **購入者のみ使用可能**
-- ❌ **商用利用不可**
-- ❌ **再配布禁止**
-- ❌ **転売禁止**
+| モデル名 | サイズ | 説明 |
+|---------|--------|------|
+| tiny | 39M | 最速・低精度。動作確認用 |
+| base | 74M | 高速・やや低精度 |
+| small | 244M | バランス型 |
+| **medium** | **769M** | **推奨。精度と速度のバランスが良い** |
+| large-v3 | 1.5G | 高精度・低速 |
+| large-v3-turbo | 809M | large-v3 の高速版（推奨） |
 
-詳細は [LICENSE](LICENSE) ファイルをご確認ください。
+## コマンド一覧
 
----
+| コマンド | 説明 |
+|---------|------|
+| `textffcut [ファイル]` | 文字起こし（メイン機能） |
+| `textffcut gui` | GUI を起動 |
+| `textffcut activate KEY` | ライセンスキーを登録 |
+| `textffcut models` | モデル一覧を表示 |
+| `textffcut -V` | バージョンを確認 |
 
-**TextffCut** - 効率的な動画切り抜きで、コンテンツ制作を加速しましょう！
+## 動作環境
 
-最終更新: 2025-06-01
+- macOS（Apple Silicon: M1 以降）
+- Python 3.11 以上
+- FFmpeg（`brew install ffmpeg` でインストール）
+
+## ライセンス
+
+本ソフトウェアはプロプライエタリライセンスのもとで提供されています。
+詳細は [LICENSE](LICENSE) をご確認ください。
+
+購入・お問い合わせ: https://note.com/coidemo
