@@ -11,7 +11,10 @@ import sys
 from pathlib import Path
 
 # プロジェクトルート（textffcut_cli の親ディレクトリ）を sys.path に追加
-# pip install -e . でインストールした場合でも di/ や use_cases/ を参照できるようにする
+# pip install -e . / Homebrew virtualenv どちらの環境でも di/ や use_cases/ を参照できるようにする
+# 注意: pyproject.toml の packages.find でこれらのパッケージを含めているため、
+#       正常にインストールされた環境では sys.path 操作は不要になるはず。
+#       Homebrew インストール後に ImportError が起きる場合はここを確認する。
 _PROJECT_ROOT = Path(__file__).parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
@@ -164,6 +167,30 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _print_dry_run(paths: list[Path], args: argparse.Namespace) -> None:
+    from rich.console import Console
+    from rich.table import Table
+
+    con = Console()
+    con.print("\n[bold]シミュレート[/] — 実際の処理は行いません\n")
+    con.print(f"モデル: [cyan]{args.model}[/]")
+    con.print()
+
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("#", style="dim", width=4)
+    table.add_column("ファイル")
+    table.add_column("パス", style="dim")
+
+    for i, p in enumerate(paths, 1):
+        table.add_row(str(i), p.name, str(p.parent))
+
+    con.print(table)
+    if paths:
+        con.print(f"\n合計: [bold]{len(paths)}[/] ファイル")
+    else:
+        con.print("\n[yellow]対象ファイルが見つかりませんでした[/]")
+
+
 def _cmd_models() -> None:
     """使用可能なモデル一覧を表示する。"""
     from rich.console import Console
@@ -276,27 +303,32 @@ def main() -> None:
         return
 
     if sys.argv[1] == "gui":
+        # --help フラグを確認してからGUIを起動
+        if len(sys.argv) > 2 and sys.argv[2] in ("-h", "--help"):
+            print("使い方: textffcut gui\nStreamlit GUIを起動します。カレントディレクトリに videos/ フォルダを作成します。")
+            return
         _cmd_gui()
         return
 
     parser = build_parser()
     args = parser.parse_args()
 
-    # 通常コマンド: 環境チェック＋ライセンスチェック
+    # 通常コマンド: 環境チェック → ライセンスチェックの順
     _check_environment()
     from textffcut_cli.license import require_license
     require_license()
 
     # ファイル収集
     video_paths_raw = _collect_video_paths(args.files)
-    if not video_paths_raw:
-        print("エラー: 処理対象の動画ファイルが見つかりませんでした。", file=sys.stderr)
-        sys.exit(1)
 
-    # ドライランは早期リターン
+    # シミュレートはファイルが0件でも表示（エラーにしない）
     if args.simulate:
         _print_dry_run(video_paths_raw, args)
         sys.exit(0)
+
+    if not video_paths_raw:
+        print("エラー: 処理対象の動画ファイルが見つかりませんでした。", file=sys.stderr)
+        sys.exit(1)
 
     # DIコンテナ・ユースケース初期化
     from di.bootstrap import bootstrap_di
@@ -308,7 +340,7 @@ def main() -> None:
     gateway = container.gateways.transcription_gateway()
     use_case = BatchTranscribeUseCase(gateway)
 
-    display = ProgressDisplay(quiet=not args.verbose, json_progress=False)
+    display = ProgressDisplay(quiet=False, json_progress=False)
     display.start(total=len(video_paths_raw), model=args.model)
 
     def on_progress(progress):
@@ -338,22 +370,3 @@ def main() -> None:
         sys.exit(1)
 
 
-def _print_dry_run(paths: list[Path], args: argparse.Namespace) -> None:
-    from rich.console import Console
-    from rich.table import Table
-
-    con = Console()
-    con.print(f"\n[bold]シミュレート[/] — 実際の処理は行いません\n")
-    con.print(f"モデル: [cyan]{args.model}[/]")
-    con.print()
-
-    table = Table(show_header=True, header_style="bold")
-    table.add_column("#", style="dim", width=4)
-    table.add_column("ファイル")
-    table.add_column("パス", style="dim")
-
-    for i, p in enumerate(paths, 1):
-        table.add_row(str(i), p.name, str(p.parent))
-
-    con.print(table)
-    con.print(f"\n合計: [bold]{len(paths)}[/] ファイル")

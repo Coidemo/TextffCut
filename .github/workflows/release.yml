@@ -18,7 +18,15 @@ jobs:
         run: |
           TAG=${GITHUB_REF_NAME}
           URL="https://github.com/${{ github.repository }}/archive/refs/tags/${TAG}.tar.gz"
-          SHA=$(curl -sL "$URL" | shasum -a 256 | awk '{print $1}')
+          # タグpush直後はGitHubのtarball生成が間に合わないためリトライ
+          for i in 1 2 3 4 5; do
+            SHA=$(curl -sL --fail "$URL" | shasum -a 256 | awk '{print $1}')
+            if [ -n "$SHA" ] && [ "$SHA" != "da39a3ee5e6b4b0d3255bfef95601890afd80709" ]; then
+              break
+            fi
+            echo "リトライ ${i}/5 ..."
+            sleep 10
+          done
           echo "sha256=$SHA" >> $GITHUB_OUTPUT
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "url=$URL" >> $GITHUB_OUTPUT
