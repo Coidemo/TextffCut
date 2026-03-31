@@ -72,7 +72,6 @@ class GatewayContainer(containers.DeclarativeContainer):
     transcription_gateway = providers.Factory(
         OptimizedTranscriptionGatewayAdapter,
         config=config.legacy_config,
-        audio_optimizer=audio_optimizer_gateway,
         profile_repository=performance_profile_repository
     )
 

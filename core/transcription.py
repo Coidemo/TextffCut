@@ -5,15 +5,12 @@
 import json
 import time
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from .models import TranscriptionResultV2
-
-import numpy as np
 
 from config import Config
 from utils.logging import get_logger
@@ -385,7 +382,6 @@ class Transcriber:
         progress_callback: Callable[[float, str], None] | None = None,
         use_cache: bool = True,
         save_cache: bool = True,
-        skip_alignment: bool = False,
     ) -> TranscriptionResult:
         """
         動画の文字起こしを実行（API/ローカル自動切り替え）
@@ -414,6 +410,11 @@ class Transcriber:
             except Exception as e:
                 logger.warning(f"MLXモードでエラー発生: {e}")
                 raise
+        else:
+            # __init__ でMLX未使用かつ非APIの場合は ImportError を投げるためここには到達しない
+            raise RuntimeError(
+                "不正な初期化状態です。APIモードまたはMLXモードを設定してください。"
+            )
 
     def _transcribe_api(
         self,

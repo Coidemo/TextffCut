@@ -4,26 +4,14 @@
 音声最適化とエラー回復機能を統合した文字起こしゲートウェイ
 """
 
-import time
 from collections.abc import Callable
-from datetime import datetime
-from typing import Any, Optional
-
-import psutil
-
-try:
-    import torch
-except ImportError:
-    torch = None  # MLXモードではtorch不要
 
 from adapters.gateways.transcription.transcription_gateway import TranscriptionGatewayAdapter
-from application.interfaces.audio_optimizer_gateway import IAudioOptimizerGateway
 from config import Config
-from domain.entities.performance_profile import PerformanceProfile, PerformanceMetrics
+from domain.entities.performance_profile import PerformanceProfile
 from domain.repositories.performance_profile_repository import IPerformanceProfileRepository
 from domain.value_objects import FilePath
 from domain.entities import TranscriptionResult
-from use_cases.interfaces import ITranscriptionGateway
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -39,15 +27,12 @@ class OptimizedTranscriptionGatewayAdapter(TranscriptionGatewayAdapter):
     def __init__(
         self,
         config: Config,
-        audio_optimizer: IAudioOptimizerGateway,
-        profile_repository: IPerformanceProfileRepository
+        profile_repository: IPerformanceProfileRepository,
     ):
         super().__init__(config)
-        self.audio_optimizer = audio_optimizer
         self.profile_repository = profile_repository
         self.profile = self._load_or_create_profile()
-        self.max_retries = 3
-        
+
     
     def _load_or_create_profile(self) -> PerformanceProfile:
         """プロファイルを読み込みまたは作成"""
@@ -154,6 +139,3 @@ class OptimizedTranscriptionGatewayAdapter(TranscriptionGatewayAdapter):
         self.profile = profile
         self.profile_repository.save(profile)
 
-    def __del__(self):
-        """デストラクタ"""
-        pass
