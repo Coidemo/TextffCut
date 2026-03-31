@@ -33,24 +33,6 @@ class VideoInputView:
         # ViewModelの変更を監視
         self.view_model.subscribe(self)
         
-        # メモリリーク対策: 古いYouTubeビューのクリーンアップ
-        self._cleanup_old_youtube_view()
-    
-    def _cleanup_old_youtube_view(self) -> None:
-        """古いYouTubeビューインスタンスをクリーンアップ"""
-        # セッションの有効期限を確認（1時間以上経過していたら削除）
-        if "youtube_view_created_at" in st.session_state:
-            import time
-            current_time = time.time()
-            created_time = st.session_state.get("youtube_view_created_at", 0)
-            
-            # 1時間以上経過していたらクリーンアップ
-            if current_time - created_time > 3600:
-                if "youtube_download_view" in st.session_state:
-                    del st.session_state.youtube_download_view
-                if "youtube_view_created_at" in st.session_state:
-                    del st.session_state.youtube_view_created_at
-
     def update(self, view_model: VideoInputViewModel) -> None:
         """
         ViewModelの変更通知を受け取る
@@ -83,88 +65,49 @@ class VideoInputView:
             st.info("🔍 動画ファイルを検索中...")
             st.spinner()
 
-        # ソースタイプの選択（タブ形式）
-        source_tab1, source_tab2 = st.tabs(["📁 ローカルファイル", "🎥 YouTubeからダウンロード"])
-        
-        with source_tab1:
-            # ローカルファイル選択セクション
-            # ファイル選択と更新ボタン（常に同じレイアウト）
-            col1, col2 = st.columns([4, 1])
+        # ローカルファイル選択セクション
+        col1, col2 = st.columns([4, 1])
 
-            with col1:
-                # オプションリストを作成
-                if self.view_model.video_files:
-                    options = ["-- 選択してください --"] + self.view_model.video_files
-                    # 現在の選択インデックス
-                    current_index = 0
-                    if self.view_model.selected_file in self.view_model.video_files:
-                        current_index = self.view_model.video_files.index(self.view_model.selected_file) + 1
-                else:
-                    options = ["動画ファイルがありません"]
-                    current_index = 0
-
-                # セレクトボックス（ラベルなし）
-                selected = st.selectbox(
-                    "", 
-                    options=options, 
-                    index=current_index, 
-                    key=TestIds.VIDEO_SELECT_DROPDOWN, 
-                    label_visibility="collapsed",
-                    disabled=(not self.view_model.video_files)  # ファイルがない場合は無効化
-                )
-
-            with col2:
-                # 更新ボタン（常に表示）
-                if st.button("🔄 更新", help="動画ファイル一覧を更新", use_container_width=True):
-                    self.presenter.refresh_video_list()
-
-            # 選択が変更された場合（動画ファイルがある場合のみ）
+        with col1:
+            # オプションリストを作成
             if self.view_model.video_files:
-                if selected != "-- 選択してください --":
-                    if selected != self.view_model.selected_file:
-                        self.presenter.select_video(selected)
-                else:
-                    if self.view_model.selected_file is not None:
-                        self.presenter.select_video(None)
-            
-            # 動画フォルダのパス表示（常に表示）
-            st.caption(f"📁 動画フォルダのパス: {self.view_model.video_directory}")
-            
-            # 動画ファイルがない場合のメッセージ
-            if not self.view_model.video_files:
-                st.info("動画ファイルが見つかりません。上記のフォルダに動画ファイルを配置してください。")
-                st.caption("対応形式: MP4, MOV, AVI, MKV, WebM")
-        
-        with source_tab2:
-            # YouTubeダウンロードセクション
-            # YouTubeダウンロードビューを初期化
-            if "youtube_download_view" not in st.session_state:
-                try:
-                    # DIコンテナを取得
-                    from di.containers import ApplicationContainer
-                    container = ApplicationContainer()
-                    container.wire(modules=[__name__])
-                    
-                    # プレゼンターを作成
-                    youtube_presenter = container.presentation.youtube_download_presenter()
-                    youtube_presenter.initialize()
-                    from presentation.views.youtube_download import YouTubeDownloadView
-                    
-                    st.session_state.youtube_download_view = YouTubeDownloadView(youtube_presenter)
-                    
-                    # 作成時刻を記録（メモリリーク対策）
-                    import time
-                    st.session_state.youtube_view_created_at = time.time()
-                except Exception as e:
-                    st.error(f"YouTube機能の初期化エラー: {e}")
-                    st.info("ページをリロードしてもう一度お試しください。")
-                    return self.presenter.get_selected_video_path()
-            
-            # ビューをレンダリング
-            if "youtube_download_view" in st.session_state:
-                st.session_state.youtube_download_view.render()
+                options = ["-- 選択してください --"] + self.view_model.video_files
+                current_index = 0
+                if self.view_model.selected_file in self.view_model.video_files:
+                    current_index = self.view_model.video_files.index(self.view_model.selected_file) + 1
             else:
-                st.warning("YouTube機能が利用できません。")
+                options = ["動画ファイルがありません"]
+                current_index = 0
+
+            selected = st.selectbox(
+                "",
+                options=options,
+                index=current_index,
+                key=TestIds.VIDEO_SELECT_DROPDOWN,
+                label_visibility="collapsed",
+                disabled=(not self.view_model.video_files),
+            )
+
+        with col2:
+            if st.button("🔄 更新", help="動画ファイル一覧を更新", use_container_width=True):
+                self.presenter.refresh_video_list()
+
+        # 選択が変更された場合
+        if self.view_model.video_files:
+            if selected != "-- 選択してください --":
+                if selected != self.view_model.selected_file:
+                    self.presenter.select_video(selected)
+            else:
+                if self.view_model.selected_file is not None:
+                    self.presenter.select_video(None)
+
+        # 動画フォルダのパス表示
+        st.caption(f"📁 動画フォルダのパス: {self.view_model.video_directory}")
+
+        # 動画ファイルがない場合のメッセージ
+        if not self.view_model.video_files:
+            st.info("動画ファイルが見つかりません。上記のフォルダに動画ファイルを配置してください。")
+            st.caption("対応形式: MP4, MOV, AVI, MKV, WebM")
 
         # 動画情報表示（mainブランチのようにシンプルに）
         if self.view_model.is_loading:
