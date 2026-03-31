@@ -241,3 +241,7 @@ docs/
 
 # ライセンスキー生成スクリプト（販売者専用・非公開）
 scripts/generate_license_key.py
+
+# Claude Code worktrees and settings
+.claude/
+.mcp.json
