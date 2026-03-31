@@ -23,11 +23,11 @@ class IntelligentAudioOptimizer:
     
     def __init__(self):
         # サンプルレートを設定（16kHz固定）
-        self.target_sample_rate = self._verify_whisperx_requirements()
+        self.target_sample_rate = self._get_target_sample_rate()
         self.optimization_stats = []
-        
-    def _verify_whisperx_requirements(self) -> int:
-        """音声処理のサンプルレートを返す"""
+
+    def _get_target_sample_rate(self) -> int:
+        """音声処理のサンプルレートを返す（16kHz固定）"""
         return 16000
     
     def prepare_audio(
