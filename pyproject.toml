@@ -34,7 +34,6 @@ ui = [
     "openai>=1.12.0",
     "requests>=2.31.0",
     "pandas>=2.0.0",
-    "yt-dlp>=2025.1.0",
 ]
 
 [project.scripts]

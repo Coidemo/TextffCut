@@ -20,7 +20,6 @@ from adapters.gateways.text_processing.sequence_matcher_gateway import SequenceM
 from adapters.gateways.transcription.transcription_gateway import TranscriptionGatewayAdapter
 from adapters.gateways.transcription.optimized_transcription_gateway import OptimizedTranscriptionGatewayAdapter
 from adapters.gateways.video_processing.video_processor_gateway import VideoProcessorGatewayAdapter
-from adapters.gateways.youtube.youtube_download_gateway import YouTubeDownloadGateway
 from di.config import DIConfig
 from di.providers import StreamlitSessionProvider
 from infrastructure.gateways.audio_optimizer_gateway_adapter import AudioOptimizerGatewayAdapter
@@ -95,9 +94,6 @@ class GatewayContainer(containers.DeclarativeContainer):
     # 動画エクスポートゲートウェイ
     video_export_gateway = providers.Singleton(VideoExportGatewayAdapter, config=config.legacy_config)
 
-    # YouTubeダウンロードゲートウェイ
-    youtube_download_gateway = providers.Singleton(YouTubeDownloadGateway, output_dir=Path("./videos"))
-
     # 注: AI ゲートウェイは実行時にAPIキーを必要とするため、main.pyで直接作成する
 
 
@@ -137,14 +133,6 @@ class UseCaseContainer(containers.DeclarativeContainer):
     # SRT字幕エクスポートユースケース
     export_srt = providers.Factory(
         ExportSRTUseCase, srt_gateway=gateways.srt_export_gateway, file_gateway=gateways.file_gateway
-    )
-
-    # YouTubeダウンロードユースケース
-    download_youtube_video = providers.Factory(
-        providers.Callable(
-            lambda gw: __import__("use_cases.youtube", fromlist=["DownloadYouTubeVideo"]).DownloadYouTubeVideo(gw),
-            gateways.youtube_download_gateway,
-        )
     )
 
     # 音声最適化ユースケース

@@ -17,13 +17,6 @@ class TestIds:
     VIDEO_REFRESH_BUTTON = "video_refresh_button"
     VIDEO_PATH_CAPTION = "video_path_caption"
     
-    # YouTube動画ダウンロード
-    YOUTUBE_URL_INPUT = "youtube_url_input"
-    YOUTUBE_INFO_BUTTON = "youtube_info_button"
-    YOUTUBE_FORMAT_SELECT = "youtube_format_select"
-    YOUTUBE_DOWNLOAD_BUTTON = "youtube_download_button"
-    YOUTUBE_DOWNLOAD_PROGRESS = "youtube_download_progress"
-    
     # ===================
     # 文字起こしセクション
     # ===================
