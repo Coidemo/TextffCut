@@ -53,22 +53,14 @@ class TestBasicFlow:
         mock_config.transcription.compute_type = "int8"
         mock_config.transcription.language = "ja"
         
-        with patch('core.transcription.whisperx') as mock_whisperx:
-            with patch('core.transcription.torch') as mock_torch:
-                # GPUが利用できない設定
-                mock_torch.cuda.is_available.return_value = False
-                
-                # WhisperXのモック設定
-                mock_model = Mock()
-                mock_whisperx.load_model.return_value = mock_model
-                mock_model.transcribe.return_value = {
-                    'segments': mock_transcription_result.segments
-                }
-                
+        with patch('utils.environment.MLX_AVAILABLE', True):
+            with patch.object(Transcriber, '_transcribe_mlx') as mock_mlx:
+                mock_mlx.return_value = mock_transcription_result
+
                 # Transcriberのテスト
                 transcriber = Transcriber(mock_config)
                 result = transcriber.transcribe(str(mock_video_path))
-                
+
                 # 結果の検証
                 assert result is not None
                 assert hasattr(result, 'segments')
@@ -178,30 +170,26 @@ class TestBasicFlow:
         
         optimizer = IntelligentAudioOptimizer()
         
-        with patch('core.audio_optimizer.whisperx') as mock_whisperx:
-            # WhisperXが利用可能な場合のモック
-            mock_whisperx.load_audio.return_value = np.zeros((16000 * 60,), dtype=np.float32)
-            
-            with patch.object(optimizer, '_analyze_audio_streams') as mock_analyze:
-                mock_analyze.return_value = {
-                    'sample_rate': 48000,
-                    'channels': 2,
-                    'duration': 60.0,
-                    'codec': 'aac',
-                    'bit_rate': 192000
-                }
-                
-                with patch.object(optimizer, '_optimize_audio') as mock_optimize:
-                    mock_optimize.return_value = (
-                        np.zeros((16000 * 60,), dtype=np.float32),
-                        {'optimized': True, 'reduction_percent': 80}
-                    )
-                    
-                    # 音声準備のテスト
-                    audio_data, info = optimizer.prepare_audio(mock_video_path)
-                    
-                    assert audio_data is not None
-                    assert info['optimized'] is True
+        with patch.object(optimizer, '_analyze_audio_streams') as mock_analyze:
+            mock_analyze.return_value = {
+                'sample_rate': 48000,
+                'channels': 2,
+                'duration': 60.0,
+                'codec': 'aac',
+                'bit_rate': 192000
+            }
+
+            with patch.object(optimizer, '_optimize_audio') as mock_optimize:
+                mock_optimize.return_value = (
+                    np.zeros((16000 * 60,), dtype=np.float32),
+                    {'optimized': True, 'reduction_percent': 80}
+                )
+
+                # 音声準備のテスト
+                audio_data, info = optimizer.prepare_audio(mock_video_path)
+
+                assert audio_data is not None
+                assert info['optimized'] is True
     
     @pytest.mark.integration
     def test_di_container_integration(self):

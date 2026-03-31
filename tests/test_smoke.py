@@ -96,12 +96,11 @@ class TestSmoke:
             pytest.fail(f"utilsモジュールのインポートに失敗: {e}")
     
     @pytest.mark.slow
-    def test_whisperx_availability(self):
-        """WhisperXが利用可能かどうかを確認"""
+    def test_mlx_availability(self):
+        """MLXが利用可能かどうかを確認（Apple Silicon必須）"""
         try:
-            import whisperx
-            assert whisperx is not None
-            pytest.skip("WhisperXは利用可能です（GPU環境でのみ実行）")
+            import mlx_whisper
+            assert mlx_whisper is not None
+            pytest.skip("MLX Whisperは利用可能です（Apple Silicon環境）")
         except ImportError:
-            # WhisperXが利用できない場合は警告のみ
-            pytest.skip("WhisperXが利用できません（API版を使用してください）")
+            pytest.skip("MLX Whisperが利用できません（Apple Silicon Mac が必要です）")
