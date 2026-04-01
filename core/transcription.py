@@ -202,13 +202,9 @@ class TranscriptionResult:
 class Transcriber:
     """文字起こし処理クラス（ローカル/API統合版）"""
 
-    # デフォルト値（自動最適化で動的に変更される）
-    DEFAULT_BATCH_SIZE = 8
-
     def __init__(self, config: Config) -> None:
         self.config = config
         self.api_transcriber: Any | None = None
-        self.device: str | None = None
 
         logger.info(f"Transcriber初期化開始 - use_api: {self.config.transcription.use_api}")
         logger.info(f"api_key: {'設定済み' if self.config.transcription.api_key else '未設定'}")
@@ -221,7 +217,6 @@ class Transcriber:
 
             logger.info("APITranscriberインスタンスを作成")
             self.api_transcriber = APITranscriber(config)
-            self.device = None
             logger.info(f"APIモードで初期化完了: {self.config.transcription.api_provider}")
         else:
             # ローカル版を使用（MLX / Apple Silicon）
@@ -230,7 +225,6 @@ class Transcriber:
             self.use_mlx = MLX_AVAILABLE and config.transcription.use_mlx_whisper
 
             if self.use_mlx:
-                self.device = None  # MLXはdevice指定不要
                 logger.info("MLXモードで初期化（Apple Silicon高速モード）")
             else:
                 raise ImportError(

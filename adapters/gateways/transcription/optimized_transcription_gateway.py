@@ -20,8 +20,8 @@ logger = get_logger(__name__)
 class OptimizedTranscriptionGatewayAdapter(TranscriptionGatewayAdapter):
     """
     最適化された文字起こしゲートウェイ
-    
-    音声最適化、エラー回復、パフォーマンスプロファイルを統合
+
+    パフォーマンスプロファイルを活用したMLXベースの文字起こし実装
     """
     
     def __init__(
