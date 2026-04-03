@@ -589,11 +589,6 @@ class APITranscriber:
             return segments
 
 
-
-
-
-
-
     def _detect_silence_in_range(
         self, audio: np.ndarray, start: float, end: float, sample_rate: int
     ) -> list[dict[str, float]]:
