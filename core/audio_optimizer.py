@@ -13,12 +13,6 @@ from typing import Any, Dict, Optional, Tuple
 import numpy as np
 import psutil
 
-try:
-    import whisperx
-    WHISPERX_AVAILABLE = True
-except ImportError:
-    WHISPERX_AVAILABLE = False
-
 from utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -28,20 +22,12 @@ class IntelligentAudioOptimizer:
     """状況に応じた適応的音声最適化"""
     
     def __init__(self):
-        # WhisperXの要求仕様を動的に確認
-        self.target_sample_rate = self._verify_whisperx_requirements()
+        # サンプルレートを設定（16kHz固定）
+        self.target_sample_rate = self._get_target_sample_rate()
         self.optimization_stats = []
-        
-    def _verify_whisperx_requirements(self) -> int:
-        """WhisperXの実際の要求仕様を確認"""
-        try:
-            if WHISPERX_AVAILABLE:
-                # 実際のSAMPLE_RATEを取得
-                return getattr(whisperx.audio, 'SAMPLE_RATE', 16000)
-        except Exception:
-            pass
-        
-        # デフォルト値にフォールバック
+
+    def _get_target_sample_rate(self) -> int:
+        """音声処理のサンプルレートを返す（16kHz固定）"""
         return 16000
     
     def prepare_audio(
@@ -76,10 +62,8 @@ class IntelligentAudioOptimizer:
         except Exception as e:
             logger.warning(f"最適化失敗、フォールバック: {e}")
             # フォールバック
-            if WHISPERX_AVAILABLE:
-                audio = whisperx.load_audio(str(video_path))
-            else:
-                raise RuntimeError("WhisperXが利用できません")
+            import librosa
+            audio, _ = librosa.load(str(video_path), sr=16000, mono=True)
             return audio, {'optimized': False, 'reason': str(e)}
     
     def _analyze_audio_streams(self, video_path: Path) -> Dict[str, Any]:
@@ -173,10 +157,8 @@ class IntelligentAudioOptimizer:
             )
             
             # 最適化後の音声を読み込み
-            if WHISPERX_AVAILABLE:
-                audio = whisperx.load_audio(str(temp_path))
-            else:
-                raise RuntimeError("WhisperXが利用できません")
+            import librosa
+            audio, _ = librosa.load(str(temp_path), sr=16000, mono=True)
             
             # 統計情報
             optimized_size = temp_path.stat().st_size

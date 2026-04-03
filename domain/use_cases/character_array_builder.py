@@ -1,7 +1,7 @@
 """
 文字配列構築ユースケース
 
-WhisperXの文字起こし結果から、タイムスタンプ付き文字配列を構築する。
+文字起こし結果から、タイムスタンプ付き文字配列を構築する。
 """
 
 from typing import List, Tuple, Dict, Any
@@ -18,7 +18,7 @@ class CharacterArrayBuilder:
     """
     文字配列構築ユースケース
 
-    WhisperXのセグメントとwords配列から、タイムスタンプ付き文字配列を構築する。
+    セグメントとwords配列から、タイムスタンプ付き文字配列を構築する。
     """
 
     def build_from_transcription(
@@ -130,7 +130,7 @@ class CharacterArrayBuilder:
         chars = []
         position = start_position
 
-        # wordsが1文字ずつの場合（WhisperX日本語の通常ケース）
+        # wordsが1文字ずつの場合（日本語の通常ケース）
         # wordsが1文字超の場合はcharsを使う（MLXアライメントの場合）
         use_words = hasattr(segment, "words") and segment.words
         use_chars_instead = False

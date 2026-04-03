@@ -87,7 +87,7 @@ class FlexiblePerformanceProfile:
         """処理設定の取得"""
         
         base_config = {
-            'use_manual_chunks': False,  # 常にFalse（WhisperXに委譲）
+            'use_manual_chunks': False,
             'batch_size': self.batch_size or self._get_default_batch_size(),
             'compute_type': self.compute_type or 'int8',
         }

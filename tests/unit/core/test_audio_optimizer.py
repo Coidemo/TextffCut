@@ -79,19 +79,18 @@ class TestIntelligentAudioOptimizer:
                 # 最適化で例外を発生させる
                 mock_optimize.side_effect = Exception("Optimization failed")
                 
-                # WhisperXのモック
-                with patch('core.audio_optimizer.WHISPERX_AVAILABLE', True):
-                    with patch('core.audio_optimizer.whisperx') as mock_whisperx:
-                        fallback_audio = np.zeros((48000 * 60,), dtype=np.float32)
-                        mock_whisperx.load_audio.return_value = fallback_audio
-                        
-                        # 実行
-                        audio_data, info = optimizer.prepare_audio(mock_video_path)
-                        
-                        # 検証
-                        assert audio_data.shape[0] == 48000 * 60
-                        assert info['optimized'] is False
-                        assert 'Optimization failed' in info['reason']
+                # librosaフォールバックのモック
+                fallback_audio = np.zeros((16000 * 60,), dtype=np.float32)
+                with patch('core.audio_optimizer.librosa') as mock_librosa:
+                    mock_librosa.load.return_value = (fallback_audio, 16000)
+
+                    # 実行
+                    audio_data, info = optimizer.prepare_audio(mock_video_path)
+
+                    # 検証
+                    assert audio_data.shape[0] == 16000 * 60
+                    assert info['optimized'] is False
+                    assert 'Optimization failed' in info['reason']
     
     def test_analyze_audio_streams(self, optimizer, mock_video_path):
         """音声ストリーム分析のテスト"""

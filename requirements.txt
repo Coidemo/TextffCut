@@ -8,8 +8,6 @@ streamlit==1.45.1  # Latest version with st.dialog support
 # Audio/Video processing
 ffmpeg-python==0.2.0
 pydub==0.25.1
-yt-dlp>=2025.9.23  # YouTube download support (最新版が必要)
-
 # Data processing
 numpy==1.26.4  # streamlit 1.28.2 requires numpy<2
 pandas==2.0.3
@@ -34,9 +32,3 @@ librosa==0.10.1  # Audio processing for waveform extraction
 openai==1.12.0
 httpx==0.23.3  # OpenAI 1.12.0との互換性のため
 requests==2.31.0
-
-# Whisper support (required for both modes)
-torch>=2.2.0
-torchaudio>=2.2.0
-openai-whisper>=20230918
-whisperx>=3.1.0

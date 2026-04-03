@@ -1,7 +1,7 @@
 # Apple Silicon Mac用 追加依存関係（オプション）
 # pip install -r requirements-mlx.txt
 #
-# MLXバックエンドを有効にすると、WhisperXの約7倍の速度で文字起こしが可能
+# MLXバックエンドを有効にすると高速な文字起こしが可能
 # large-v3モデルも実用的な速度で使用可能
 mlx-whisper>=0.4.0
 mlx-forced-aligner>=0.1.0

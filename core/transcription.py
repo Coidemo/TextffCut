@@ -5,23 +5,12 @@
 import json
 import time
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from .models import TranscriptionResultV2
-
-import numpy as np
-
-try:
-    import torch
-    import whisperx
-
-    WHISPERX_AVAILABLE = True
-except ImportError:
-    WHISPERX_AVAILABLE = False
 
 from config import Config
 from utils.logging import get_logger
@@ -213,13 +202,9 @@ class TranscriptionResult:
 class Transcriber:
     """文字起こし処理クラス（ローカル/API統合版）"""
 
-    # デフォルト値（自動最適化で動的に変更される）
-    DEFAULT_BATCH_SIZE = 8
-
     def __init__(self, config: Config) -> None:
         self.config = config
         self.api_transcriber: Any | None = None
-        self.device: str | None = None
 
         logger.info(f"Transcriber初期化開始 - use_api: {self.config.transcription.use_api}")
         logger.info(f"api_key: {'設定済み' if self.config.transcription.api_key else '未設定'}")
@@ -232,25 +217,19 @@ class Transcriber:
 
             logger.info("APITranscriberインスタンスを作成")
             self.api_transcriber = APITranscriber(config)
-            self.device = None
             logger.info(f"APIモードで初期化完了: {self.config.transcription.api_provider}")
         else:
-            # ローカル版を使用（MLX優先、WhisperXフォールバック）
+            # ローカル版を使用（MLX / Apple Silicon）
             from utils.environment import MLX_AVAILABLE
 
             self.use_mlx = MLX_AVAILABLE and config.transcription.use_mlx_whisper
 
             if self.use_mlx:
-                self.device = None  # MLXはdevice指定不要
                 logger.info("MLXモードで初期化（Apple Silicon高速モード）")
-            elif WHISPERX_AVAILABLE:
-                self.device = "cuda" if torch.cuda.is_available() else "cpu"
-                logger.info(f"WhisperXモードで初期化: デバイス={self.device}")
             else:
                 raise ImportError(
-                    "WhisperXもMLXも利用できません。いずれかをインストールしてください。\n"
-                    "pip install whisperx  # または\n"
-                    "pip install mlx-whisper mlx-forced-aligner  # Apple Silicon Mac"
+                    "MLXが利用できません。mlx-whisperをインストールしてください。\n"
+                    "pip install mlx-whisper mlx-forced-aligner"
                 )
 
     def get_cache_path(self, video_path: str | Path, model_size: str) -> Path:
@@ -397,7 +376,6 @@ class Transcriber:
         progress_callback: Callable[[float, str], None] | None = None,
         use_cache: bool = True,
         save_cache: bool = True,
-        skip_alignment: bool = False,
     ) -> TranscriptionResult:
         """
         動画の文字起こしを実行（API/ローカル自動切り替え）
@@ -424,18 +402,12 @@ class Transcriber:
             try:
                 return self._transcribe_mlx(video_path, model_size, progress_callback, use_cache, save_cache)
             except Exception as e:
-                logger.warning(f"MLXモードでエラー発生、WhisperXにフォールバック: {e}")
-                self.use_mlx = False
-                if WHISPERX_AVAILABLE:
-                    self.device = "cpu"
-                    return self._transcribe_local(
-                        video_path, model_size, progress_callback, use_cache, save_cache, skip_alignment
-                    )
+                logger.warning(f"MLXモードでエラー発生: {e}")
                 raise
         else:
-            logger.info("WhisperXモードで処理開始 (_transcribe_local)")
-            return self._transcribe_local(
-                video_path, model_size, progress_callback, use_cache, save_cache, skip_alignment
+            # __init__ でMLX未使用かつ非APIの場合は ImportError を投げるためここには到達しない
+            raise RuntimeError(
+                "不正な初期化状態です。APIモードまたはMLXモードを設定してください。"
             )
 
     def _transcribe_api(
@@ -580,123 +552,3 @@ class Transcriber:
 
         return transcription_result
 
-    def _transcribe_local(
-        self,
-        video_path: str | Path,
-        model_size: str | None = None,
-        progress_callback: Callable[[float, str], None] | None = None,
-        use_cache: bool = True,
-        save_cache: bool = True,
-        skip_alignment: bool = False,
-    ) -> TranscriptionResult:
-        """ローカル版の文字起こし（WhisperXに処理を任せる）"""
-        start_time = time.time()
-        model_size = model_size or self.config.transcription.model_size
-
-        # キャッシュ確認
-        cache_path = self.get_cache_path(video_path, model_size)
-        if use_cache:
-            cached_result = self.load_from_cache(cache_path)
-            if cached_result:
-                if progress_callback:
-                    progress_callback(1.0, "キャッシュから読み込み完了")
-                return cached_result
-
-        # 音声を読み込み
-        if progress_callback:
-            progress_callback(0.0, "音声を読み込み中...")
-
-        audio = whisperx.load_audio(video_path)
-
-        # モデルを読み込み
-        if progress_callback:
-            progress_callback(0.05, "モデルを読み込み中...")
-
-        asr_model = whisperx.load_model(
-            model_size,
-            self.device,
-            compute_type=self.config.transcription.compute_type,
-            language=self.config.transcription.language,
-        )
-
-        # WhisperXに処理を任せる（手動チャンク分割なし）
-        if progress_callback:
-            progress_callback(0.1, "文字起こしを開始中...")
-        
-        logger.info("WhisperXで音声全体を処理（内部VADベースチャンク処理）")
-        
-        # バッチサイズの設定（レガシー処理用のデフォルト値）
-        # 注：OptimizedTranscriptionGatewayAdapterではAutoOptimizerが動的に決定
-        batch_size = getattr(self, 'DEFAULT_BATCH_SIZE', 8)
-        
-        # WhisperXのtranscribeメソッドを直接呼び出し
-        result = asr_model.transcribe(
-            audio,
-            batch_size=batch_size,
-            language=self.config.transcription.language,
-            task="transcribe",
-        )
-        
-        if progress_callback:
-            progress_callback(0.7, "文字起こし完了、アライメント処理中...")
-        
-        # アライメント処理
-        if not skip_alignment:
-            try:
-                align_model, align_meta = whisperx.load_align_model(
-                    language_code=self.config.transcription.language,
-                    device=self.device
-                )
-                
-                result = whisperx.align(
-                    result["segments"],
-                    align_model,
-                    align_meta,
-                    audio,
-                    self.device,
-                    return_char_alignments=True
-                )
-                
-                if progress_callback:
-                    progress_callback(0.9, "アライメント完了")
-                    
-            except Exception as e:
-                logger.warning(f"アライメント処理でエラー: {e}")
-                # アライメントエラーは致命的ではないので続行
-        
-        # 結果を整形
-        segments = result.get("segments", [])
-        
-        # TranscriptionResultに変換
-        processing_time = time.time() - start_time
-        
-        # セグメントをTranscriptionSegmentオブジェクトに変換
-        transcription_segments = []
-        for seg in segments:
-            transcription_segments.append(
-                TranscriptionSegment(
-                    start=seg.get("start", 0),
-                    end=seg.get("end", 0),
-                    text=seg.get("text", ""),
-                    words=seg.get("words"),
-                    chars=seg.get("chars")
-                )
-            )
-        
-        transcription_result = TranscriptionResult(
-            segments=transcription_segments,
-            language=self.config.transcription.language,
-            processing_time=processing_time,
-            original_audio_path=str(video_path),  # 必須引数を追加
-            model_size=model_size,  # 必須引数を追加
-        )
-        
-        # キャッシュに保存
-        if save_cache:
-            self.save_to_cache(transcription_result, cache_path)
-            if progress_callback:
-                progress_callback(1.0, "処理完了")
-        
-        logger.info(f"文字起こし完了: {len(segments)}セグメント, {processing_time:.1f}秒")
-        
-        return transcription_result
