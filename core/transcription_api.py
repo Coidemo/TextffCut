@@ -156,7 +156,7 @@ class APITranscriber:
                 progress_callback(0.1, f"音声圧縮完了（{original_size:.1f}MB → {compressed_size:.1f}MB）")
             
             try:
-                # 圧縮された音声ファイルで文字起こし（チャンク処理でアライメントも実行）
+                # 圧縮された音声ファイルで文字起こし
                 import librosa
                 audio, _ = librosa.load(str(compressed_path), sr=16000, mono=True)
                 
@@ -412,7 +412,13 @@ class APITranscriber:
             # セグメントをソート
             validated_segments.sort(key=lambda x: x.start)
 
-            aligned_segments = validated_segments
+            # mlx-forced-alignerでアライメント（words/chars付与）
+            if progress_callback:
+                progress_callback(0.92, "アライメント処理中...")
+
+            aligned_segments = self._align_with_mlx(
+                validated_segments, original_audio_path, progress_callback
+            )
 
             if progress_callback:
                 progress_callback(1.0, "チャンク並列処理完了")
@@ -483,14 +489,14 @@ class APITranscriber:
                             start=seg["start"] + start_offset,
                             end=seg["end"] + start_offset,
                             text=seg["text"],
-                            words=None,  # アライメント処理なしの場合は None に設定
+                            words=None,  # アライメントは後続の_align_with_mlxで付与
                         )
                     else:
                         segment = TranscriptionSegment(
                             start=seg.start + start_offset,
                             end=seg.end + start_offset,
                             text=seg.text,
-                            words=None,  # アライメント処理なしの場合は None に設定
+                            words=None,  # アライメントは後続の_align_with_mlxで付与
                         )
                     segments.append(segment)
             elif response.text.strip():
@@ -503,8 +509,6 @@ class APITranscriber:
                     words=None,  # アライメント処理なしの場合は None に設定
                 )
                 segments.append(segment)
-
-            # アライメント処理（WhisperX削除済み - スキップ）
 
             logger.info(f"[完了] チャンク[{chunk_idx}] 処理完了: {len(segments)}セグメント")
             if segments:
@@ -529,7 +533,60 @@ class APITranscriber:
             logger.error(f"トレースバック:\n{traceback.format_exc()}")
             raise
 
+    def _align_with_mlx(
+        self,
+        segments: list[TranscriptionSegment],
+        audio_path: str | Path,
+        progress_callback: Callable[[float, str], None] | None = None,
+    ) -> list[TranscriptionSegment]:
+        """mlx-forced-alignerでセグメントにwords/charsを付与する"""
+        try:
+            from mlx_forced_aligner import ForcedAligner
+        except ImportError:
+            logger.warning("mlx-forced-alignerが利用できないため、アライメントをスキップします")
+            return segments
 
+        if not segments:
+            return segments
+
+        logger.info(f"mlx-forced-alignerでアライメント開始: {len(segments)}セグメント")
+
+        # ForcedAlignerをキャッシュ（wav2vec2モデル1.2GBの再ロードを防止）
+        if not hasattr(self, '_mlx_aligner'):
+            self._mlx_aligner = ForcedAligner()
+        aligner = self._mlx_aligner
+
+        segments_for_align = [
+            {"start": seg.start, "end": seg.end, "text": seg.text.strip()}
+            for seg in segments
+            if seg.text.strip()
+        ]
+
+        try:
+            align_result = aligner.align(str(audio_path), "", segments=segments_for_align)
+            logger.info(f"アライメント完了: {len(align_result.segments)}セグメント")
+
+            if progress_callback:
+                progress_callback(0.97, "アライメント完了")
+
+            # アライメント結果をTranscriptionSegmentに変換
+            aligned_segments = []
+            for seg in align_result.segments:
+                aligned_segments.append(
+                    TranscriptionSegment(
+                        start=seg["start"],
+                        end=seg["end"],
+                        text=seg["text"],
+                        words=seg.get("words"),
+                        chars=seg.get("chars"),
+                    )
+                )
+
+            return aligned_segments
+
+        except Exception as e:
+            logger.warning(f"アライメント処理でエラーが発生しました。元のセグメントを使用します: {e}")
+            return segments
 
 
 
