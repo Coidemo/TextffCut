@@ -63,8 +63,8 @@ def generate_srt(
     # Phase 2: 11文字以下の1行にまとめる
     lines = _phase2_merge_to_lines(micro_blocks, max_chars_per_line, seg_bounds)
 
-    # Phase 3: 2行ブロックにまとめるかAIに判断させる
-    entries = _phase3_ai_group(lines, char_times, max_chars_per_line)
+    # Phase 3: 2行ブロックにまとめるかDPで判断（文末パターンで切る）
+    entries = _phase3_dp_group(lines, char_times, max_chars_per_line)
 
     if not entries:
         return None
@@ -242,143 +242,125 @@ def _phase2_merge_to_lines(
 
 
 # =============================================
-# Phase 3: 隣接1行を2行ブロックにまとめるかAIに判断
+# Phase 3: 隣接1行を2行ブロックにまとめるかDPで判断
 # =============================================
 
-def _phase3_ai_group(
+# 文の区切りパターン（これで終わる行は次の行と結合しない）
+SENTENCE_ENDINGS = [
+    "です", "ですよ", "ですね", "ですけど", "ですか", "ですかね",
+    "ます", "ました", "ません",
+    "のか", "のかとか",
+    "いいな", "だな", "かな",
+    "んですけど", "んですが",
+    "ないので", "ないので",
+    "ですよね", "ますよね",
+    "しょう", "ください",
+]
+
+
+def _phase3_dp_group(
     lines: list[TextBlock],
     char_times: list[tuple[float, float]],
     max_chars_per_line: int,
 ) -> list[SRTEntry]:
+    """DPで隣接行を2行にまとめるかどうかを最適化する。"""
     max_total = max_chars_per_line * 2
     n = len(lines)
+    if n == 0:
+        return []
 
-    # AI判断
-    groups = _ai_group_lines(lines, max_total)
+    # dp[i] = (score, entries)
+    dp = {0: (0.0, [])}
 
-    # グループからSRTEntryを生成
-    entries = []
-    for group in groups:
-        if not group:
+    for i in range(n):
+        if i not in dp:
             continue
-        group_lines = [lines[i] for i in group if i < n]
-        if not group_lines:
-            continue
+        prev_score, prev_entries = dp[i]
 
-        if len(group_lines) == 1:
-            text = group_lines[0].text
-        else:
-            text = "\n".join(gl.text for gl in group_lines)
-
-        start_pos = group_lines[0].start_pos
-        end_pos = group_lines[-1].end_pos
-        tl_start = _char_time(start_pos, char_times, True)
-        tl_end = _char_time(end_pos - 1, char_times, False)
-
-        entries.append(SRTEntry(
-            index=len(entries) + 1,
-            start_time=tl_start,
-            end_time=tl_end,
-            text=text,
-        ))
-
-    return entries
-
-
-def _ai_group_lines(lines: list[TextBlock], max_total: int) -> list[list[int]]:
-    try:
-        from dotenv import load_dotenv
-        load_dotenv()
-    except ImportError:
-        pass
-
-    api_key = os.environ.get("OPENAI_API_KEY") or os.environ.get("TEXTFFCUT_API_KEY")
-    if not api_key:
-        return _fallback_group(lines, max_total)
-
-    line_list = "\n".join(f"[{i}] ({len(l.text)}字) {l.text}" for i, l in enumerate(lines))
-
-    try:
-        from openai import OpenAI
-        client = OpenAI(api_key=api_key)
-
-        response = client.chat.completions.create(
-            model="gpt-4.1-mini",
-            messages=[
-                {"role": "system", "content": "字幕レイアウト担当。JSON形式で回答。"},
-                {"role": "user", "content": f"""以下はショート動画の字幕（1行ずつ）です。
-これを字幕エントリにグループ化してください。
-
-ルール:
-- 1エントリは最大2行。2行にする場合は合計{max_total}文字以下
-- **1つの文の中で意味が連続しているなら結合する**
-  OK: 「なりたい状態から」+「逆算するのは」（1文の前半と後半）
-  OK: 「やる前から商社の」+「営業がいいか」（1文の中の一部）
-  OK: 「めちゃくちゃ良く」+「ないので」（1つのフレーズが分かれている）
-  OK: 「ITスタート」+「アップのエンジニアが」（1つの単語が分かれている）
-- **別の文・別の話題は絶対に結合しない**
-  NG: 「僕の主張です」+「なりたい状態から」（別の文）
-  NG: 「いいのか」+「ITスタート」（「のか」で文が終わり、次は別の話題）
-  NG: 「いいな」+「はいいんですけど」（「いいな」で一区切り）
-- **「のか」「です」「ですよ」「ですね」「ですけど」で終わる行は文の終わり。次の行とは結合しない**
-- 1行のままでも構わない
-
-行一覧:
-{line_list}
-
-JSON: {{"groups": [[0,1], [2], [3,4], [5,6], ...]}}"""},
-            ],
-            temperature=0.2,
-            max_tokens=500,
-            response_format={"type": "json_object"},
+        # 選択肢A: 行iを単独エントリ
+        entry_a = _make_srt_entry(
+            len(prev_entries) + 1, [lines[i]], char_times
         )
-        result = json.loads(response.choices[0].message.content)
-        groups = result.get("groups", [])
+        score_a = prev_score + _line_group_score(lines[i].text, None)
+        next_a = i + 1
+        if next_a not in dp or score_a > dp[next_a][0]:
+            dp[next_a] = (score_a, prev_entries + [entry_a])
 
-        # バリデーション
-        if _validate_groups(groups, len(lines), max_total, lines):
-            logger.info(f"AI字幕グループ: {len(groups)}エントリ ({len(lines)}行から)")
-            return groups
+        # 選択肢B: 行iとi+1を結合
+        if i + 1 < n:
+            combined_len = len(lines[i].text) + len(lines[i + 1].text)
+            if combined_len <= max_total:
+                # 文末パターンで終わる場合は結合しない
+                if _ends_with_sentence(lines[i].text):
+                    pass  # 結合スキップ
+                else:
+                    entry_b = _make_srt_entry(
+                        len(prev_entries) + 1,
+                        [lines[i], lines[i + 1]],
+                        char_times,
+                    )
+                    score_b = prev_score + _line_group_score(
+                        lines[i].text, lines[i + 1].text
+                    )
+                    next_b = i + 2
+                    if next_b not in dp or score_b > dp[next_b][0]:
+                        dp[next_b] = (score_b, prev_entries + [entry_b])
 
-    except Exception as e:
-        logger.warning(f"AI字幕グループ失敗: {e}")
+    if n not in dp:
+        return []
 
-    return _fallback_group(lines, max_total)
-
-
-def _validate_groups(groups, n, max_total, lines):
-    if not groups:
-        return False
-    used = set()
-    for g in groups:
-        if not isinstance(g, list):
-            return False
-        for idx in g:
-            if not isinstance(idx, int) or idx < 0 or idx >= n:
-                return False
-            if idx in used:
-                return False
-            used.add(idx)
-        if len(g) > 2:
-            return False
-        if len(g) == 2:
-            total = sum(len(lines[i].text) for i in g)
-            if total > max_total:
-                return False
-    return len(used) == n
+    _, best = dp[n]
+    for idx, e in enumerate(best, 1):
+        e.index = idx
+    return best
 
 
-def _fallback_group(lines, max_total):
-    groups = []
-    i = 0
-    while i < len(lines):
-        if i + 1 < len(lines) and len(lines[i].text) + len(lines[i + 1].text) <= max_total:
-            groups.append([i, i + 1])
-            i += 2
-        else:
-            groups.append([i])
-            i += 1
-    return groups
+def _ends_with_sentence(text: str) -> bool:
+    """行が文の区切りで終わるかチェック。"""
+    for ending in SENTENCE_ENDINGS:
+        if text.endswith(ending):
+            return True
+    return False
+
+
+def _line_group_score(line1: str, line2: str | None) -> float:
+    """1エントリのスコア。"""
+    score = 0.0
+
+    if line2 is None:
+        # 単独行
+        duration_proxy = len(line1)
+        if duration_proxy >= 6:
+            score += 3
+        return score
+
+    # 2行結合
+    score += 5  # 結合ボーナス（字幕数を減らす）
+
+    # バランス
+    balance = 1.0 - abs(len(line1) - len(line2)) / max(len(line1) + len(line2), 1)
+    score += balance * 3
+
+    # 表示文字数が多い = 表示時間が長い = 読みやすい
+    total = len(line1) + len(line2)
+    if total >= 15:
+        score += 2
+
+    return score
+
+
+def _make_srt_entry(index, line_blocks, char_times):
+    if len(line_blocks) == 1:
+        text = line_blocks[0].text
+    else:
+        text = "\n".join(lb.text for lb in line_blocks)
+
+    start_pos = line_blocks[0].start_pos
+    end_pos = line_blocks[-1].end_pos
+    tl_start = _char_time(start_pos, char_times, True)
+    tl_end = _char_time(end_pos - 1, char_times, False)
+
+    return SRTEntry(index=index, start_time=tl_start, end_time=tl_end, text=text)
 
 
 # =============================================
