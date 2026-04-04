@@ -60,7 +60,7 @@ def run_quality_loop(
         total = suggestion.total_duration
         if total > max_duration:
             logger.info(f"duration_over ({total:.0f}s > {max_duration:.0f}s): {suggestion.title}")
-            _trim_duration(suggestion, transcription, max_duration)
+            _trim_duration(suggestion, transcription, max_duration, gateway, video_path)
             continue
         if total < min_duration:
             logger.info(f"duration_under ({total:.0f}s < {min_duration:.0f}s): {suggestion.title}")
@@ -82,7 +82,7 @@ def run_quality_loop(
 
         # AI修正提案に基づいて修正
         modified = _apply_ai_fixes(
-            suggestion, transcription, result, gateway, video_path
+            suggestion, transcription, result, gateway, video_path, max_duration
         )
         if not modified:
             logger.info(f"修正不可 → 終了: {suggestion.title}")
@@ -213,13 +213,25 @@ def _apply_ai_fixes(
     check_result: QualityCheckResult,
     gateway: ClipSuggestionGatewayInterface,
     video_path: Path,
+    max_duration: float = 60.0,
 ) -> bool:
     """AI判定の問題に基づいて修正する。"""
     issues_str = " ".join(check_result.issues).lower()
 
-    # 末尾の問題 → 末尾クリップを削除
-    if any(w in issues_str for w in ["末尾", "途中で切れ", "続きそう", "とか"]):
-        if len(suggestion.time_ranges) > 2:
+    has_ending_issue = any(w in issues_str for w in ["末尾", "途中で切れ", "続きそう"])
+    has_start_issue = any(w in issues_str for w in ["冒頭", "前の話題", "無関係"])
+    has_conclusion_issue = any(w in issues_str for w in ["結論", "前置き", "incomplete"])
+
+    # 結論がない or 末尾で切れている → まず延長を試みる（max_duration以内で）
+    if has_conclusion_issue or has_ending_issue:
+        target = min(suggestion.total_duration + 15, max_duration)
+        extended = _extend_range(suggestion, transcription, target)
+        if extended:
+            logger.info(f"  延長: → {suggestion.total_duration:.0f}s")
+            return True
+
+        # 延長できなかった場合のみ末尾トリム
+        if has_ending_issue and len(suggestion.time_ranges) > 2:
             old = len(suggestion.time_ranges)
             suggestion.time_ranges = suggestion.time_ranges[:-1]
             suggestion.total_duration = sum(e - s for s, e in suggestion.time_ranges)
@@ -227,20 +239,12 @@ def _apply_ai_fixes(
             return True
 
     # 冒頭の問題 → 冒頭クリップを削除
-    if any(w in issues_str for w in ["冒頭", "前の話題", "無関係"]):
-        if len(suggestion.time_ranges) > 2:
-            old = len(suggestion.time_ranges)
-            suggestion.time_ranges = suggestion.time_ranges[1:]
-            suggestion.total_duration = sum(e - s for s, e in suggestion.time_ranges)
-            logger.info(f"  冒頭トリム: {old}→{len(suggestion.time_ranges)}クリップ")
-            return True
-
-    # 内容不完結 → 範囲を延長して結論を含める
-    if any(w in issues_str for w in ["結論", "前置き", "incomplete"]):
-        extended = _extend_range(suggestion, transcription, suggestion.total_duration + 10)
-        if extended:
-            logger.info(f"  結論延長: {suggestion.total_duration:.0f}s")
-            return True
+    if has_start_issue and len(suggestion.time_ranges) > 2:
+        old = len(suggestion.time_ranges)
+        suggestion.time_ranges = suggestion.time_ranges[1:]
+        suggestion.total_duration = sum(e - s for s, e in suggestion.time_ranges)
+        logger.info(f"  冒頭トリム: {old}→{len(suggestion.time_ranges)}クリップ")
+        return True
 
     return False
 
@@ -249,8 +253,88 @@ def _trim_duration(
     suggestion: ClipSuggestion,
     transcription: TranscriptionResult,
     max_duration: float,
+    gateway: ClipSuggestionGatewayInterface | None = None,
+    video_path: Path | None = None,
 ) -> None:
-    """max_durationに収まるように末尾からクリップを削除する。"""
+    """max_durationに収まるように中間の不要クリップを選択的に削除する。
+
+    末尾から単純に削除するのではなく、AIに「主張と結論を残しつつ
+    どのクリップを飛ばすか」を判断させる。
+    """
+    if not gateway or not video_path or len(suggestion.time_ranges) <= 3:
+        # フォールバック: 末尾削除
+        while suggestion.total_duration > max_duration and len(suggestion.time_ranges) > 1:
+            suggestion.time_ranges = suggestion.time_ranges[:-1]
+            suggestion.total_duration = sum(e - s for s, e in suggestion.time_ranges)
+        return
+
+    # 出来上がり音声を文字起こし
+    transcribed = _transcribe_output(suggestion, video_path)
+    if not transcribed:
+        # フォールバック
+        while suggestion.total_duration > max_duration and len(suggestion.time_ranges) > 1:
+            suggestion.time_ranges = suggestion.time_ranges[:-1]
+            suggestion.total_duration = sum(e - s for s, e in suggestion.time_ranges)
+        return
+
+    # 各クリップのテキストを取得
+    clip_texts = []
+    for i, (tr_start, tr_end) in enumerate(suggestion.time_ranges):
+        texts = [seg.text for seg in transcription.segments
+                 if seg.end > tr_start and seg.start < tr_end]
+        clip_texts.append(f"[{i}] ({tr_end - tr_start:.1f}s) {''.join(texts)[:80]}")
+
+    excess = suggestion.total_duration - max_duration
+
+    try:
+        prompt = f"""以下はショート動画のクリップ一覧です。
+合計{suggestion.total_duration:.0f}秒ありますが、{max_duration:.0f}秒以内にする必要があります（{excess:.0f}秒超過）。
+
+**主張と結論は必ず残してください。** 削除すべきは:
+- 繰り返し・冗長な説明
+- 本筋と関係ない例え話・脱線
+- なくても主張が伝わる補足
+- 質問の読み上げ部分（回答だけ残す）
+
+冒頭（話の導入）と末尾（結論）は原則残してください。中間から削除するのが理想です。
+
+クリップ:
+{chr(10).join(clip_texts)}
+
+出来上がりテキスト:
+{transcribed[:400]}
+
+JSON: {{"remove": [削除するクリップのindex番号], "reason": "理由"}}"""
+
+        response = gateway.client.chat.completions.create(
+            model=gateway.model,
+            messages=[
+                {"role": "system", "content": "動画編集の中間カット担当。主張と結論を残して不要部分を大胆に削除。JSON形式で回答。"},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.2,
+            max_tokens=300,
+            response_format={"type": "json_object"},
+        )
+        result = json.loads(response.choices[0].message.content)
+        remove_indices = set(result.get("remove", []))
+
+        if remove_indices:
+            new_ranges = [r for i, r in enumerate(suggestion.time_ranges) if i not in remove_indices]
+            if new_ranges:
+                old_dur = suggestion.total_duration
+                suggestion.time_ranges = new_ranges
+                suggestion.total_duration = sum(e - s for s, e in new_ranges)
+                logger.info(
+                    f"  中間カット: {old_dur:.0f}s→{suggestion.total_duration:.0f}s "
+                    f"({len(remove_indices)}クリップ削除) reason: {result.get('reason','')}"
+                )
+                return
+
+    except Exception as e:
+        logger.warning(f"中間カット判定失敗: {e}")
+
+    # フォールバック: 末尾削除
     while suggestion.total_duration > max_duration and len(suggestion.time_ranges) > 1:
         suggestion.time_ranges = suggestion.time_ranges[:-1]
         suggestion.total_duration = sum(e - s for s, e in suggestion.time_ranges)
@@ -261,27 +345,35 @@ def _extend_range(
     transcription: TranscriptionResult,
     target_duration: float,
 ) -> bool:
-    """トピック範囲外の隣接セグメントを追加して延長する。"""
+    """トピック範囲外の隣接セグメントを追加して延長する。
+
+    time_rangesの末尾ではなく、全time_rangesの最大endの後にある
+    セグメントを探す（フィラー削除で細かく分割されていても正しく延長できる）。
+    """
     if not suggestion.time_ranges:
         return False
 
-    last_end = suggestion.time_ranges[-1][1]
+    # 全rangesの最大end
+    max_end = max(e for _, e in suggestion.time_ranges)
 
-    # 現在の最後のtime_rangeの後にあるセグメントを探す
+    # max_endの後にあるセグメントを探して追加
     added = False
+    added_count = 0
     for seg in transcription.segments:
-        if seg.start >= last_end - 0.5 and seg.start < last_end + 30:
-            if seg.start > last_end + 0.5:
-                # ギャップが大きい場合は追加しない
-                break
-            suggestion.time_ranges.append((seg.start, seg.end))
-            suggestion.total_duration = sum(e - s for s, e in suggestion.time_ranges)
-            added = True
-            if suggestion.total_duration >= target_duration:
-                break
+        if seg.start < max_end - 0.1:
+            continue
+        if seg.start > max_end + 5:
+            # 5秒以上のギャップがあれば話題が変わったとみなす
+            break
+        if added_count >= 15:
+            break
 
-    if added:
-        # 最大10セグメントまでの延長に制限
-        logger.info(f"  延長: → {suggestion.total_duration:.0f}s")
+        suggestion.time_ranges.append((seg.start, seg.end))
+        max_end = seg.end
+        added = True
+        added_count += 1
+        suggestion.total_duration = sum(e - s for s, e in suggestion.time_ranges)
+        if suggestion.total_duration >= target_duration:
+            break
 
     return added
