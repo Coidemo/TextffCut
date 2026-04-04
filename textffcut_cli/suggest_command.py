@@ -1,0 +1,320 @@
+"""
+textffcut suggest サブコマンド
+
+文字起こし → AI切り抜き候補生成 → FCPXML出力を一気通貫で実行する。
+"""
+
+import argparse
+import json
+import os
+import sys
+from pathlib import Path
+
+from rich.console import Console
+from rich.table import Table
+
+console = Console(stderr=True)
+
+
+def build_suggest_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="textffcut suggest",
+        description="AI切り抜き候補を生成しFCPXMLを出力する",
+    )
+    parser.add_argument(
+        "files",
+        nargs="+",
+        metavar="FILE_OR_DIR",
+        help="処理する動画ファイルまたはフォルダのパス",
+    )
+    parser.add_argument(
+        "-m", "--model",
+        default="medium",
+        choices=["tiny", "base", "small", "medium", "large-v3", "large-v3-turbo"],
+        metavar="MODEL",
+        help="文字起こしモデル（デフォルト: medium）",
+    )
+    parser.add_argument(
+        "--ai-model",
+        default="gpt-4.1-mini",
+        choices=["gpt-4.1-mini", "gpt-4.1"],
+        metavar="AI_MODEL",
+        help="AIモデル（デフォルト: gpt-4.1-mini）",
+    )
+    parser.add_argument(
+        "--num",
+        type=int,
+        default=5,
+        help="生成する候補数（デフォルト: 5）",
+    )
+    parser.add_argument(
+        "--min-duration",
+        type=int,
+        default=30,
+        help="最小秒数（デフォルト: 30）",
+    )
+    parser.add_argument(
+        "--max-duration",
+        type=int,
+        default=60,
+        help="最大秒数（デフォルト: 60）",
+    )
+    parser.add_argument(
+        "--no-silence-removal",
+        dest="remove_silence",
+        action="store_false",
+        default=True,
+        help="無音削除を無効にする（デフォルト: 有効）",
+    )
+    parser.add_argument(
+        "--prompt",
+        default=None,
+        help="カスタムプロンプトファイルのパス",
+    )
+    parser.add_argument(
+        "-n", "--no-cache",
+        dest="use_cache",
+        action="store_false",
+        default=True,
+        help="キャッシュを無視して再処理",
+    )
+    parser.add_argument(
+        "-s", "--simulate",
+        action="store_true",
+        default=False,
+        help="ファイルを処理せず、対象ファイル一覧のみ表示",
+    )
+    parser.add_argument(
+        "-q", "--quiet",
+        action="store_true",
+        default=False,
+        help="進捗出力を抑制する",
+    )
+    return parser
+
+
+def run_suggest(argv: list[str]) -> None:
+    """suggestサブコマンドを実行する"""
+    parser = build_suggest_parser()
+    args = parser.parse_args(argv)
+
+    # ファイル収集
+    from textffcut_cli.command import _collect_video_paths
+    video_paths = _collect_video_paths(args.files)
+
+    if args.simulate:
+        _print_simulate(video_paths, args)
+        return
+
+    if not video_paths:
+        console.print("[red]エラー: 対象ファイルが見つかりませんでした[/]")
+        sys.exit(1)
+
+    # .envファイルから環境変数を読み込み
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except ImportError:
+        pass
+
+    # APIキーチェック
+    api_key = os.environ.get("OPENAI_API_KEY") or os.environ.get("TEXTFFCUT_API_KEY")
+    if not api_key:
+        console.print(
+            "[red]エラー: OpenAI APIキーが設定されていません[/]\n"
+            "  環境変数 OPENAI_API_KEY または TEXTFFCUT_API_KEY を設定してください:\n"
+            "  [cyan]export OPENAI_API_KEY=sk-...[/]"
+        )
+        sys.exit(1)
+
+    # 注: suggestコマンドではMLX環境チェックとライセンスチェックをスキップ
+    # 文字起こしキャッシュがあればMLXなしでも動作する。
+    # キャッシュがなく文字起こしが必要な場合は、transcribe時にエラーになる。
+
+    # DIコンテナは文字起こしキャッシュがない場合にのみ必要
+    # （suggestコマンドはOpenAI API呼び出しがメインで、streamlit不要）
+    container = None
+
+    # 各動画を処理
+    total_cost = 0.0
+    total_exported = 0
+
+    for video_path in video_paths:
+        cost, exported = _process_single_video(
+            video_path=video_path,
+            container=container,
+            api_key=api_key,
+            args=args,
+        )
+        total_cost += cost
+        total_exported += exported
+
+    # サマリー
+    if len(video_paths) > 1:
+        console.print()
+        console.print(
+            f"[bold]合計: {total_exported}件のFCPXML | "
+            f"APIコスト: 約{total_cost * 150:.1f}円[/]"
+        )
+
+
+def _process_single_video(
+    video_path: Path,
+    container,
+    api_key: str,
+    args: argparse.Namespace,
+) -> tuple[float, int]:
+    """1つの動画を処理し、(cost, exported_count) を返す"""
+    console.print(f"\n[bold]📝 文字起こし...[/] {video_path.name}")
+
+    # 文字起こし（キャッシュ優先）
+    transcription = _transcribe(video_path, container, args)
+    if transcription is None:
+        return 0.0, 0
+
+    # AI候補生成→FCPXML出力
+    console.print(f"\n[bold]🤖 AI切り抜き候補を生成中...[/]")
+    console.print(f"  モデル: {args.ai_model} | 候補数: {args.num}")
+
+    from infrastructure.external.gateways.openai_clip_suggestion_gateway import (
+        OpenAIClipSuggestionGateway,
+    )
+    from use_cases.ai.suggest_and_export import (
+        SuggestAndExportRequest,
+        SuggestAndExportUseCase,
+    )
+
+    gateway = OpenAIClipSuggestionGateway(api_key=api_key, model=args.ai_model)
+    use_case = SuggestAndExportUseCase(gateway=gateway)
+
+    request = SuggestAndExportRequest(
+        video_path=video_path.resolve(),
+        transcription=transcription,
+        ai_model=args.ai_model,
+        num_candidates=args.num,
+        min_duration=args.min_duration,
+        max_duration=args.max_duration,
+        prompt_path=args.prompt,
+        remove_silence=args.remove_silence,
+    )
+
+    result = use_case.execute(request)
+
+    cost_jpy = result.detection_cost_usd * 150
+    console.print(
+        f"  ✓ 話題{len(result.suggestions)}件検出"
+        f"（{result.detection_processing_time:.1f}秒、約{cost_jpy:.1f}円）"
+    )
+
+    # 各候補の情報表示
+    if not args.quiet and result.suggestions:
+        console.print(f"\n[bold]🔧 機械的編集 → AI選定...[/]")
+        for i, s in enumerate(result.suggestions, 1):
+            console.print(
+                f"  候補{i}: {s.title}（{s.total_duration:.0f}秒、{s.variant_label}）"
+            )
+
+    # FCPXML出力結果
+    if result.exported_files:
+        console.print(f"\n[bold]🎬 FCPXML生成完了[/]")
+        for path in result.exported_files:
+            console.print(f"  ✓ {path.name}")
+        console.print(f"\n📁 出力: {result.output_dir}/ （{len(result.exported_files)}件）")
+    else:
+        console.print("[yellow]⚠ FCPXML生成候補がありませんでした[/]")
+
+    return result.detection_cost_usd, len(result.exported_files)
+
+
+def _transcribe(video_path: Path, container, args) -> "TranscriptionResult | None":
+    """文字起こしを実行する（キャッシュ優先）"""
+    # まずキャッシュから読み込みを試みる
+    cached = _load_transcription_cache(video_path, args.model)
+    if cached is not None:
+        console.print(f"  モデル: {args.model} | ✓ キャッシュから読み込み")
+        return cached
+
+    # キャッシュがなければDI経由で文字起こし実行
+    try:
+        from domain.value_objects import FilePath
+        from use_cases.transcription.transcribe_video import TranscribeVideoRequest, TranscribeVideoUseCase
+
+        gateway = container.gateways.transcription_gateway()
+        use_case = TranscribeVideoUseCase(gateway)
+
+        request = TranscribeVideoRequest(
+            video_path=FilePath(str(video_path)),
+            model_size=args.model,
+            language=None,
+            use_cache=args.use_cache,
+        )
+
+        result = use_case(request)
+        return result.transcription
+    except Exception as e:
+        console.print(f"  [red]✗ 文字起こし失敗: {e}[/]")
+        console.print(f"  [dim]ヒント: 先に textffcut {video_path.name} で文字起こしを実行してください[/]")
+        return None
+
+
+def _load_transcription_cache(video_path: Path, model: str) -> "TranscriptionResult | None":
+    """文字起こしキャッシュから直接読み込む"""
+    cache_dir = video_path.parent / f"{video_path.stem}_TextffCut" / "transcriptions"
+    cache_file = cache_dir / f"{model}.json"
+
+    if not cache_file.exists():
+        # 別モデルのキャッシュがあるか確認
+        if cache_dir.exists():
+            available = [f.stem for f in cache_dir.glob("*.json")]
+            if available:
+                console.print(
+                    f"  [yellow]モデル '{model}' のキャッシュなし。"
+                    f"利用可能: {', '.join(available)}[/]"
+                )
+                # 最初に見つかったキャッシュを使う
+                cache_file = cache_dir / f"{available[0]}.json"
+                console.print(f"  → {available[0]} のキャッシュを使用")
+            else:
+                return None
+        else:
+            return None
+
+    try:
+        data = json.loads(cache_file.read_text(encoding="utf-8"))
+        from domain.entities.transcription import TranscriptionResult
+
+        return TranscriptionResult(
+            id=f"cache_{video_path.stem}",
+            video_id=str(video_path),
+            language=data.get("language", "ja"),
+            segments=data["segments"],
+            duration=data["segments"][-1]["end"] if data["segments"] else 0.0,
+            original_audio_path=data.get("original_audio_path", ""),
+            model_size=data.get("model_size", model),
+            processing_time=data.get("processing_time", 0.0),
+        )
+    except Exception as e:
+        console.print(f"  [yellow]キャッシュ読み込みエラー: {e}[/]")
+        return None
+
+
+def _print_simulate(paths: list[Path], args: argparse.Namespace) -> None:
+    console.print("\n[bold]シミュレート[/] — 実際の処理は行いません\n")
+    console.print(f"文字起こしモデル: [cyan]{args.model}[/]")
+    console.print(f"AIモデル: [cyan]{args.ai_model}[/]")
+    console.print(f"候補数: {args.num} | {args.min_duration}-{args.max_duration}秒")
+    console.print()
+
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("#", style="dim", width=4)
+    table.add_column("ファイル")
+    table.add_column("パス", style="dim")
+
+    for i, p in enumerate(paths, 1):
+        table.add_row(str(i), p.name, str(p.parent))
+
+    console.print(table)
+    if paths:
+        console.print(f"\n合計: [bold]{len(paths)}[/] ファイル")
+    else:
+        console.print("\n[yellow]対象ファイルが見つかりませんでした[/]")

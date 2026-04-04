@@ -8,7 +8,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-import streamlit as st
+try:
+    import streamlit as st
+except ImportError:
+    st = None
 
 
 class TextffCutLogger:

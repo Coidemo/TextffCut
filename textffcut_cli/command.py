@@ -97,6 +97,7 @@ def build_parser() -> argparse.ArgumentParser:
             "Apple Silicon Mac専用（MLX高速モード）\n\n"
             "コマンド:\n"
             "  textffcut gui                        GUIを起動\n"
+            "  textffcut suggest [ファイル ...]      AI切り抜き候補→FCPXML出力\n"
             "  textffcut activate KEY               ライセンスキーを登録\n"
             "  textffcut models                     使用可能なモデル一覧を表示\n"
             "  textffcut [ファイル ...]              文字起こし（メイン機能）\n\n"
@@ -261,13 +262,15 @@ def main() -> None:
     if len(sys.argv) == 1:
         print(
             "使い方:\n"
-            "  GUI モード:  textffcut gui          # ブラウザで操作\n"
-            "  CLIモード:   textffcut [動画ファイル ...]\n"
+            "  GUI モード:  textffcut gui                    # ブラウザで操作\n"
+            "  CLIモード:   textffcut [動画ファイル ...]       # 文字起こし\n"
+            "  AI候補生成:  textffcut suggest [動画ファイル ...] # 切り抜き候補→FCPXML\n"
             "\n"
             "例:\n"
             "  textffcut gui\n"
             "  textffcut ./動画.mp4\n"
-            "  textffcut -m large-v3 ./videos/*.mp4\n"
+            "  textffcut suggest ./動画.mp4\n"
+            "  textffcut suggest -m large-v3 --ai-model gpt-4.1 ./videos/*.mp4\n"
             "\n"
             "詳しくは: textffcut --help"
         )
@@ -305,6 +308,11 @@ def main() -> None:
         else:
             print("エラー: 無効なキーです。", file=sys.stderr)
             sys.exit(1)
+        return
+
+    if sys.argv[1] == "suggest":
+        from textffcut_cli.suggest_command import run_suggest
+        run_suggest(sys.argv[2:])
         return
 
     if sys.argv[1] == "gui":

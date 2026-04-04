@@ -6,8 +6,12 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
-import streamlit as st
-from streamlit.delta_generator import DeltaGenerator
+try:
+    import streamlit as st
+    from streamlit.delta_generator import DeltaGenerator
+except ImportError:
+    st = None
+    DeltaGenerator = None
 
 
 @dataclass
