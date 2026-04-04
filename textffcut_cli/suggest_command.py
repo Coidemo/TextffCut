@@ -60,6 +60,25 @@ def build_suggest_parser() -> argparse.ArgumentParser:
         help="最大秒数（デフォルト: 60）",
     )
     parser.add_argument(
+        "--no-srt",
+        dest="generate_srt",
+        action="store_false",
+        default=True,
+        help="SRT字幕ファイルを生成しない（デフォルト: 生成する）",
+    )
+    parser.add_argument(
+        "--srt-max-chars",
+        type=int,
+        default=11,
+        help="SRT字幕の1行あたり最大文字数（デフォルト: 11）",
+    )
+    parser.add_argument(
+        "--srt-max-lines",
+        type=int,
+        default=2,
+        help="SRT字幕の最大行数（デフォルト: 2）",
+    )
+    parser.add_argument(
         "--no-silence-removal",
         dest="remove_silence",
         action="store_false",
@@ -196,6 +215,9 @@ def _process_single_video(
         max_duration=args.max_duration,
         prompt_path=args.prompt,
         remove_silence=args.remove_silence,
+        generate_srt=args.generate_srt,
+        srt_max_chars=args.srt_max_chars,
+        srt_max_lines=args.srt_max_lines,
     )
 
     result = use_case.execute(request)
@@ -216,9 +238,13 @@ def _process_single_video(
 
     # FCPXML出力結果
     if result.exported_files:
-        console.print(f"\n[bold]🎬 FCPXML生成完了[/]")
+        console.print(f"\n[bold]🎬 生成完了[/]")
         for path in result.exported_files:
             console.print(f"  ✓ {path.name}")
+            # 対応するSRTファイルがあれば表示
+            srt_path = path.with_suffix(".srt")
+            if srt_path.exists():
+                console.print(f"  ✓ {srt_path.name} [dim](字幕)[/]")
         console.print(f"\n📁 出力: {result.output_dir}/ （{len(result.exported_files)}件）")
     else:
         console.print("[yellow]⚠ FCPXML生成候補がありませんでした[/]")

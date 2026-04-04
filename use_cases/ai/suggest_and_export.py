@@ -40,6 +40,9 @@ class SuggestAndExportRequest:
     max_duration: int = 60
     prompt_path: str | None = None
     remove_silence: bool = True
+    generate_srt: bool = True
+    srt_max_chars: int = 11
+    srt_max_lines: int = 2
 
 
 @dataclass
@@ -93,15 +96,28 @@ class SuggestAndExportUseCase:
         cache_dir.mkdir(parents=True, exist_ok=True)
         self._save_cache(suggestions, detection, cache_dir / f"{detection.model_used}.json")
 
-        # Phase 6: FCPXML生成
+        # Phase 6: FCPXML + SRT生成
         exported_files: list[Path] = []
         for i, suggestion in enumerate(suggestions, 1):
-            filename = f"{i:02d}_{_sanitize_filename(suggestion.title)}.fcpxml"
-            output_path = fcpxml_dir / filename
+            sanitized = _sanitize_filename(suggestion.title)
 
-            success = self._export_fcpxml(suggestion, request.video_path, output_path)
+            # FCPXML
+            fcpxml_path = fcpxml_dir / f"{i:02d}_{sanitized}.fcpxml"
+            success = self._export_fcpxml(suggestion, request.video_path, fcpxml_path)
             if success:
-                exported_files.append(output_path)
+                exported_files.append(fcpxml_path)
+
+            # SRT字幕
+            if request.generate_srt:
+                from use_cases.ai.srt_subtitle_generator import generate_srt
+                srt_path = fcpxml_dir / f"{i:02d}_{sanitized}.srt"
+                generate_srt(
+                    suggestion=suggestion,
+                    transcription=request.transcription,
+                    output_path=srt_path,
+                    max_chars_per_line=request.srt_max_chars,
+                    max_lines=request.srt_max_lines,
+                )
 
         return SuggestAndExportResult(
             suggestions=suggestions,
