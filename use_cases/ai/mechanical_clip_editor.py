@@ -27,18 +27,33 @@ FILLER_ONLY_TEXTS = {
     "なんかその", "あれなんですけれども", "なのでね",
 }
 
-# フィラー語彙（wordsタイムスタンプでスキップする対象）
+# フィラー・冗長表現（wordsタイムスタンプでスキップする対象）
 # テキスト内の任意の位置でマッチさせる
 # 長い順にマッチさせる（「まあまあ」→「まあ」の順）
 FILLER_WORDS = sorted([
+    # 純粋なフィラー
     "えーっと", "えっとね", "えっと", "えーと", "あのー", "まあまあ",
     "まあその", "まあね", "なんかその", "なんかこう", "なんか",
     "そうですね", "あのね",
     "えー", "あの", "まあ", "まぁ", "うーん", "んー",
     "でまあ", "でなんか", "であの", "でその",
     "やっぱ", "やっぱり",
-    "みたいな",
+    # 冗長な接続・修飾（なくても意味が通る）
+    "みたいなことが", "みたいなのが", "みたいな",
+    "っていうのが", "っていうのは",
+    "というふうに", "という風に",
+    "なんかちょっと",
+    "ちょっとした",
+    "結構",
 ], key=len, reverse=True)
+
+# セグメント全体が独り言・前置きで丸ごと不要なパターン
+SKIP_SEGMENT_PATTERNS = [
+    "はいここから本編です",
+    "ここから本編です",
+    "これ自分で書いておきたいのから",
+    "これ何話そうと思ったんだっけな",
+]
 
 
 def generate_clip_variants(
@@ -232,11 +247,17 @@ def _build_ranges_skipping_fillers(
 
 
 def _is_filler_only(text: str) -> bool:
-    """セグメント全体がフィラーのみかを判定する"""
+    """セグメント全体がフィラー/不要な独り言かを判定する"""
     text = text.strip()
     if not text:
         return True
-    return text in FILLER_ONLY_TEXTS
+    if text in FILLER_ONLY_TEXTS:
+        return True
+    # 独り言・前置きパターン
+    for pattern in SKIP_SEGMENT_PATTERNS:
+        if text.startswith(pattern):
+            return True
+    return False
 
 
 def _build_variant(
