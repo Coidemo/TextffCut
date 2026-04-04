@@ -6,8 +6,12 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
-import streamlit as st
-from streamlit.delta_generator import DeltaGenerator
+try:
+    import streamlit as st
+    from streamlit.delta_generator import DeltaGenerator
+except ImportError:
+    st = None
+    DeltaGenerator = None
 
 
 @dataclass
@@ -160,6 +164,11 @@ class ProgressTracker:
 
 def create_simple_progress(message: str = "処理中...") -> Callable[[float, str], None]:
     """シンプルなプログレス表示を作成"""
+    if st is None:
+        # CLI環境（Streamlitなし）ではダミーのコールバックを返す
+        def _noop(progress: float, status: str = "") -> None:
+            pass
+        return _noop
     progress_bar = st.progress(0.0)
     status_text = st.empty()
     time_info = st.empty()

@@ -8,7 +8,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-import streamlit as st
+try:
+    import streamlit as st
+except ImportError:
+    st = None
 
 
 class TextffCutLogger:
@@ -114,6 +117,8 @@ def log_function_call(func):
 
 def show_log_info() -> None:
     """Streamlit UIでログ情報を表示"""
+    if st is None:
+        return
     with st.expander("📋 デバッグ情報", expanded=False):
         st.info(f"ログファイル: {logger.log_file}")
         if st.button("最新のログを表示"):
