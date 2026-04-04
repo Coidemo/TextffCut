@@ -2,20 +2,14 @@
 SRT字幕自動生成
 
 方式:
-1. 全テキスト結合 + 文字→タイムライン時間マッピング
-2. スライディングウィンドウ探索: 先頭40文字の全単語境界から最良22文字ブロックを確定
-   → 確定末尾から次の40文字で同様に → 繰り返し
-3. 各ブロックを11文字×2行以内でフォーマット
-4. SRT出力
-
-テキストの改変は行わない。フィラーはセグメント単位でのみスキップ。
+Phase 1: 全テキストを11文字以下のブロックに分割（全単語境界探索）
+Phase 2: 隣接ブロックを結合して2行にするか1行のままにするかのパターンを生成
+Phase 3: スコアリングで最良パターンを選出
 """
 
 from __future__ import annotations
 
-import json
 import logging
-import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -26,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_CHARS_PER_LINE = 11
 DEFAULT_MAX_LINES = 2
-SEARCH_WINDOW = 40  # 探索窓の文字数
+SEARCH_WINDOW = 40
 
 
 @dataclass
@@ -47,22 +41,20 @@ def generate_srt(
     if not suggestion.time_ranges:
         return None
 
-    timeline_map = _build_timeline_map(suggestion.time_ranges)
-    parts = _collect_parts(suggestion.time_ranges, timeline_map, transcription)
+    tmap = _build_timeline_map(suggestion.time_ranges)
+    parts = _collect_parts(suggestion.time_ranges, tmap, transcription)
     if not parts:
         return None
 
-    full_text, char_times, seg_boundaries = _build_char_time_map(parts)
+    full_text, char_times, seg_bounds = _build_char_time_map(parts)
     if not full_text:
         return None
 
-    max_block = max_chars_per_line * max_lines
+    # Phase 1: 11文字以下のブロックに分割
+    blocks = _split_into_lines(full_text, max_chars_per_line, seg_bounds)
 
-    # スライディングウィンドウ探索（セグメント境界を優先候補にする）
-    entries = _sliding_window_split(
-        full_text, char_times, max_block, max_chars_per_line, max_lines,
-        seg_boundaries,
-    )
+    # Phase 2: 隣接ブロック結合パターンを生成→スコアリング
+    entries = _merge_and_score(blocks, char_times, full_text, max_chars_per_line, max_lines, seg_bounds)
 
     if not entries:
         return None
@@ -72,21 +64,20 @@ def generate_srt(
     return output_path
 
 
-def _sliding_window_split(
-    full_text: str,
-    char_times: list[tuple[float, float]],
-    max_block: int,
-    max_chars_per_line: int,
-    max_lines: int,
-    seg_boundaries: set[int] | None = None,
-) -> list[SRTEntry]:
-    """スライディングウィンドウで全テキストを最適ブロックに分割する。
+# --- Phase 1: 11文字以下に分割 ---
 
-    pos=0から:
-      1. pos〜pos+SEARCH_WINDOW の範囲で全単語境界を取得
-      2. 各境界を「ここでブロックを切る」候補として品詞スコアで評価
-      3. 最良の切断点を選んでブロック確定
-      4. posを切断点に進めて繰り返し
+@dataclass
+class TextBlock:
+    text: str
+    start_pos: int  # full_text内の開始位置
+    end_pos: int    # full_text内の終了位置
+
+
+def _split_into_lines(full_text: str, max_chars: int, seg_bounds: set[int]) -> list[TextBlock]:
+    """全テキストをmax_chars以下のブロックに分割する。
+
+    スライディングウィンドウで先頭から探索し、
+    セグメント境界と助詞の後を優先して切断する。
     """
     try:
         from core.japanese_line_break import JapaneseLineBreakRules
@@ -94,95 +85,220 @@ def _sliding_window_split(
     except ImportError:
         has_janome = False
 
-    entries = []
+    blocks = []
     pos = 0
     n = len(full_text)
 
     while pos < n:
         remaining = n - pos
-
-        # 残りがmax_block以下ならそのまま最後のブロック
-        if remaining <= max_block:
-            entries.append(_make_entry(
-                len(entries) + 1, pos, n,
-                full_text, char_times, max_chars_per_line, max_lines,
-            ))
+        if remaining <= max_chars:
+            blocks.append(TextBlock(full_text[pos:n], pos, n))
             break
 
         # 探索窓
-        window_end = min(pos + SEARCH_WINDOW, n)
-        window_text = full_text[pos:window_end]
+        window = full_text[pos:min(pos + SEARCH_WINDOW, n)]
 
         if has_janome:
-            # 窓内の全単語境界+品詞情報を取得
-            bp = JapaneseLineBreakRules.get_word_boundaries_with_pos(window_text)
-            boundaries = [b for b, _, _ in bp]
+            bp = JapaneseLineBreakRules.get_word_boundaries_with_pos(window)
         else:
-            boundaries = list(range(1, len(window_text)))
             bp = []
 
-        # max_block以下の切断点候補を評価
         best_cut = None
         best_score = -999
 
-        for b in boundaries:
-            if b < 3:  # 短すぎるブロックは除外
+        # 全単語境界を候補として評価
+        candidates = [b for b, _, _ in bp] if bp else list(range(1, len(window)))
+
+        for b in candidates:
+            if b < 3 or b > max_chars:
                 continue
-            if b > max_block:
-                break
 
             score = 0.0
 
-            # セグメント境界ボーナス（話者の自然な間で切るのが最も良い）
-            abs_pos = pos + b
-            if seg_boundaries and abs_pos in seg_boundaries:
-                score += 30
+            # セグメント境界ボーナス（最優先）
+            if (pos + b) in seg_bounds:
+                score += 50
 
-            # 品詞スコア（助詞の後で切るのが良い）
+            # 品詞スコア
             if bp:
-                score += JapaneseLineBreakRules.evaluate_break_position(bp, b) * 10
+                for boundary, surface, pos_tag in bp:
+                    if boundary == b:
+                        if pos_tag == "助詞":
+                            score += 30
+                        elif pos_tag in ("動詞", "形容詞"):
+                            score += 15
+                        elif pos_tag == "名詞":
+                            score += 8
+                        break
 
-            # 適度な長さのボーナス（短い方が読みやすい）
-            if max_chars_per_line <= b <= max_block:
-                score += 5  # 1-2行の理想的な長さ
-            elif 6 <= b < max_chars_per_line:
-                score += 2  # 1行に収まる短めのブロック
+            # max_charsに近いほどボーナス（無駄に短くしない）
+            score += b * 0.5
 
-            # 短すぎペナルティ
-            if b <= 3:
+            # 2文字以下ペナルティ
+            if b <= 2:
                 score -= 30
-            elif b <= 5:
-                score -= 10
 
             if score > best_score:
                 best_score = score
                 best_cut = b
 
         if best_cut is None:
-            # フォールバック: max_blockで切る
-            best_cut = min(max_block, remaining)
+            best_cut = min(max_chars, remaining)
 
-        # ブロック確定
         abs_cut = pos + best_cut
-        entries.append(_make_entry(
-            len(entries) + 1, pos, abs_cut,
-            full_text, char_times, max_chars_per_line, max_lines,
-        ))
+        blocks.append(TextBlock(full_text[pos:abs_cut], pos, abs_cut))
         pos = abs_cut
+
+    return blocks
+
+
+# --- Phase 2: 結合パターン生成→スコアリング ---
+
+def _merge_and_score(
+    blocks: list[TextBlock],
+    char_times: list[tuple[float, float]],
+    full_text: str,
+    max_chars_per_line: int,
+    max_lines: int,
+    seg_bounds: set[int] | None = None,
+) -> list[SRTEntry]:
+    """AIに隣接ブロックの結合判断を依頼し、SRTEntryを生成する。"""
+    max_total = max_chars_per_line * max_lines
+    n = len(blocks)
+    if n == 0:
+        return []
+
+    # AIに結合パターンを判断させる
+    merge_decisions = _ai_merge_blocks(blocks, max_total)
+
+    # 結合判断に従ってSRTEntryを生成
+    entries = []
+    i = 0
+    idx = 1
+    while i < n:
+        block = blocks[i]
+
+        if i in merge_decisions and i + 1 < n:
+            # 結合
+            next_block = blocks[i + 1]
+            text = f"{block.text}\n{next_block.text}"
+            tl_start = _char_to_time(block.start_pos, char_times, True)
+            tl_end = _char_to_time(next_block.end_pos - 1, char_times, False)
+            entries.append(SRTEntry(idx, tl_start, tl_end, text))
+            idx += 1
+            i += 2
+        else:
+            # 単独
+            tl_start = _char_to_time(block.start_pos, char_times, True)
+            tl_end = _char_to_time(block.end_pos - 1, char_times, False)
+            entries.append(SRTEntry(idx, tl_start, tl_end, block.text))
+            idx += 1
+            i += 1
 
     return entries
 
 
-def _make_entry(index, start_pos, end_pos, full_text, char_times, max_chars_per_line, max_lines):
-    text = full_text[start_pos:end_pos]
-    if not text.strip():
-        return None
+def _ai_merge_blocks(blocks: list[TextBlock], max_total: int) -> set[int]:
+    """AIに「どの隣接ブロックを2行にまとめるか」を判断させる。
 
-    tl_start = char_times[start_pos][0] if start_pos < len(char_times) else 0
-    tl_end = char_times[min(end_pos - 1, len(char_times) - 1)][1] if end_pos > 0 else 0
+    Returns:
+        結合するブロックのインデックスのset。
+        {3}なら blocks[3]とblocks[4]を結合。
+    """
+    import os
 
-    formatted = _format_text(text, max_chars_per_line, max_lines)
-    return SRTEntry(index=index, start_time=tl_start, end_time=tl_end, text=formatted)
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except ImportError:
+        pass
+
+    api_key = os.environ.get("OPENAI_API_KEY") or os.environ.get("TEXTFFCUT_API_KEY")
+    if not api_key:
+        # フォールバック: 貪欲結合
+        return _greedy_merge_decisions(blocks, max_total)
+
+    # ブロック一覧を作成
+    block_list = "\n".join(
+        f"[{i}] {b.text}" for i, b in enumerate(blocks)
+    )
+
+    # 結合可能なペアを列挙
+    mergeable = []
+    for i in range(len(blocks) - 1):
+        if len(blocks[i].text) + len(blocks[i + 1].text) <= max_total:
+            mergeable.append(i)
+
+    if not mergeable:
+        return set()
+
+    try:
+        from openai import OpenAI
+        client = OpenAI(api_key=api_key)
+
+        response = client.chat.completions.create(
+            model="gpt-4.1-mini",
+            messages=[
+                {"role": "system", "content": "字幕レイアウト担当。JSON形式で回答。"},
+                {"role": "user", "content": f"""以下はショート動画の字幕ブロック（各行11文字以下）です。
+隣接する2つのブロックを「1つの字幕（2行表示）」にまとめるべきペアを選んでください。
+
+判断基準:
+- 意味のまとまりが同じなら結合する（例: 「やる前から」+「商社の営業がいいか」→ 結合しない。別の意味）
+- 1つの文の前半と後半なら結合する（例: 「なりたい状態から」+「逆算するのは」→ 結合する）
+- 結合しても合計{max_total}文字以下であること
+- 結合可能なペア: {mergeable}
+
+ブロック:
+{block_list}
+
+JSON: {{"merge": [結合するブロックのindex番号]}}
+例: {{"merge": [2, 5, 8]}} → [2]+[3]を結合、[5]+[6]を結合、[8]+[9]を結合
+結合不要なら {{"merge": []}}"""},
+            ],
+            temperature=0.2,
+            max_tokens=200,
+            response_format={"type": "json_object"},
+        )
+        result = json.loads(response.choices[0].message.content)
+        merge_indices = set(result.get("merge", []))
+
+        # 重複回避（[3]と[4]を結合したら[4]と[5]は結合できない）
+        cleaned = set()
+        skip = set()
+        for idx in sorted(merge_indices):
+            if idx in skip or idx not in mergeable:
+                continue
+            cleaned.add(idx)
+            skip.add(idx + 1)
+
+        logger.info(f"AI字幕結合: {len(cleaned)}ペア結合 ({len(blocks)}→{len(blocks) - len(cleaned)}エントリ)")
+        return cleaned
+
+    except Exception as e:
+        logger.warning(f"AI字幕結合失敗: {e}")
+        return _greedy_merge_decisions(blocks, max_total)
+
+
+def _greedy_merge_decisions(blocks: list[TextBlock], max_total: int) -> set[int]:
+    """フォールバック: 貪欲に結合する。"""
+    merge = set()
+    i = 0
+    while i < len(blocks) - 1:
+        if len(blocks[i].text) + len(blocks[i + 1].text) <= max_total:
+            merge.add(i)
+            i += 2
+        else:
+            i += 1
+    return merge
+
+
+def _char_to_time(char_pos: int, char_times: list[tuple[float, float]], start: bool) -> float:
+    if char_pos < 0:
+        char_pos = 0
+    if char_pos >= len(char_times):
+        char_pos = len(char_times) - 1
+    return char_times[char_pos][0] if start else char_times[char_pos][1]
 
 
 # --- タイムライン ---
@@ -221,47 +337,24 @@ def _collect_parts(time_ranges, tmap, transcription):
 def _build_char_time_map(parts):
     full = ""
     ctimes = []
-    seg_boundaries = set()  # セグメント境界の文字位置
+    seg_bounds = set()
     for text, tl_s, tl_e in parts:
-        seg_boundaries.add(len(full))  # セグメント開始位置
+        seg_bounds.add(len(full))
         dur = tl_e - tl_s
         n = max(len(text), 1)
         for i in range(len(text)):
             ctimes.append((tl_s + dur * i / n, tl_s + dur * (i + 1) / n))
         full += text
-    seg_boundaries.add(len(full))  # 最後
-    seg_boundaries.discard(0)  # 0は除外
-    return full, ctimes, seg_boundaries
-
-
-# --- テキストフォーマット ---
-
-def _format_text(text, max_chars_per_line, max_lines):
-    if len(text) <= max_chars_per_line:
-        return text
-    try:
-        from core.japanese_line_break import JapaneseLineBreakRules
-        lines = []
-        remaining = text
-        for _ in range(max_lines):
-            if not remaining:
-                break
-            if len(remaining) <= max_chars_per_line:
-                lines.append(remaining)
-                break
-            line, remaining = JapaneseLineBreakRules.extract_line(remaining, max_chars_per_line)
-            lines.append(line)
-        return "\n".join(lines)
-    except ImportError:
-        return text[:max_chars_per_line] + "\n" + text[max_chars_per_line:max_chars_per_line * 2]
+    seg_bounds.add(len(full))
+    seg_bounds.discard(0)
+    return full, ctimes, seg_bounds
 
 
 # --- SRT出力 ---
 
 def _write_srt(entries, output_path):
-    items = [e for e in entries if e]
     lines = []
-    for e in items:
+    for e in entries:
         lines.append(str(e.index))
         lines.append(f"{_fmt(e.start_time)} --> {_fmt(e.end_time)}")
         lines.append(e.text)
