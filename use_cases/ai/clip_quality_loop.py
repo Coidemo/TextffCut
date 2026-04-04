@@ -59,7 +59,7 @@ def run_quality_loop(
     for iteration in range(MAX_ITERATIONS):
         # 全品質チェック
         result = _run_all_checks(
-            suggestion, video_path, transcription, min_duration, max_duration
+            suggestion, video_path, transcription, min_duration, max_duration, gateway
         )
 
         if result.is_ok:
@@ -106,6 +106,7 @@ def _run_all_checks(
     transcription: TranscriptionResult,
     min_duration: float,
     max_duration: float,
+    gateway: ClipSuggestionGatewayInterface | None = None,
 ) -> QualityCheckResult:
     """全品質チェックを実行する"""
     issues = []
@@ -175,6 +176,19 @@ def _run_all_checks(
                         clip_index=0,
                     ))
                     break
+
+    # 4. 内容の完結性チェック（AIに判定させる）
+    # time_rangesに対応する実際のテキストで判定する
+    if gateway and transcription and suggestion.time_ranges:
+        actual_texts = _get_text_for_ranges(suggestion, transcription)
+        actual_text = " ".join(
+            t.split(") ", 1)[-1] if ") " in t else t for t in actual_texts
+        )
+        completeness_issue = _check_content_completeness(
+            actual_text, suggestion.title, gateway
+        )
+        if completeness_issue:
+            issues.append(completeness_issue)
 
     return QualityCheckResult(
         is_ok=len(issues) == 0,
@@ -276,6 +290,10 @@ def _apply_fixes(
         modified = True
         logger.info(f"  bad_start fix: 冒頭クリップ削除")
 
+    # (A4) 内容が完結していない → 修正不可（スキップされる）
+    # incomplete_contentは構造的に修正できないため、何もしない
+    # （ループが終了し、final_checkで不合格→Noneが返る）
+
     # (B) デュレーション超過 → 不要な文を削除
     duration_over = [i for i in issues if i.type == "duration_over"]
     if duration_over:
@@ -363,6 +381,58 @@ JSON: {{"remove_indices": [省略するクリップの番号(0始まり)]}}"""
         return True
 
     return False
+
+
+def _check_content_completeness(
+    text: str,
+    title: str,
+    gateway: ClipSuggestionGatewayInterface,
+) -> QualityIssue | None:
+    """テキストが内容として完結しているかAIに判定させる。
+
+    前置きだけで結論がない、途中で切れている等を検出。
+    """
+    import json
+
+    try:
+        prompt = f"""以下はショート動画「{title}」の書き起こしテキストです。
+この動画を見た視聴者が「学びがあった」「保存したい」と思える内容かどうか厳しく判定してください。
+
+テキスト:
+{text[:500]}
+
+以下のいずれかに該当する場合はfalse（不合格）としてください：
+- テーマの紹介や前置きだけで、具体的な主張・結論・アドバイスがない
+- 「〜とか」「〜ですよね」で終わって話が続きそうな印象がある
+- 質問の読み上げが大部分を占め、回答が途中で切れている
+- 例え話や脱線で終わっていて本題の結論に到達していない
+- 視聴者が見終わった後に「で、結論は？」と思う
+
+JSON: {{"complete": true/false, "reason": "理由"}}"""
+
+        response = gateway.client.chat.completions.create(
+            model=gateway.model,
+            messages=[
+                {"role": "system", "content": "動画コンテンツの品質評価担当。JSON形式で回答。"},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.2,
+            max_tokens=200,
+            response_format={"type": "json_object"},
+        )
+        result = json.loads(response.choices[0].message.content)
+
+        if not result.get("complete", True):
+            reason = result.get("reason", "内容が完結していない")
+            logger.info(f"  内容不完結: {reason}")
+            return QualityIssue(
+                type="incomplete_content",
+                detail=reason,
+            )
+    except Exception as e:
+        logger.warning(f"完結性チェック失敗: {e}")
+
+    return None
 
 
 def _truncate_to_natural_end(
