@@ -283,7 +283,7 @@ JSON: {{"ok": true/false, "issues": ["問題1", "問題2"], "fix_suggestions": [
             return json.loads(response.choices[0].message.content)
         except Exception as e:
             logger.warning(f"AI quality check failed: {e}")
-            return {"ok": True, "issues": [], "fix_suggestions": []}
+            return {"ok": False, "issues": ["quality check failed"], "fix_suggestions": []}
 
     def select_best_clip(
         self,

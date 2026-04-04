@@ -148,7 +148,8 @@ def _transcribe_output(
                     capture_output=True, timeout=15,
                 )
                 if proc.returncode != 0:
-                    logger.warning(f"ffmpeg extract failed (part {i}): {proc.stderr[:200]}")
+                    stderr = proc.stderr.decode(errors="replace")[:200] if isinstance(proc.stderr, bytes) else str(proc.stderr)[:200]
+                    logger.warning(f"ffmpeg extract failed (part {i}): {stderr}")
                     return None
                 parts.append(part_path)
 
@@ -164,7 +165,8 @@ def _transcribe_output(
                 capture_output=True, timeout=15,
             )
             if proc.returncode != 0:
-                logger.warning(f"ffmpeg concat failed: {proc.stderr[:200]}")
+                stderr = proc.stderr.decode(errors="replace")[:200] if isinstance(proc.stderr, bytes) else str(proc.stderr)[:200]
+                logger.warning(f"ffmpeg concat failed: {stderr}")
                 return None
 
             with open(combined_path, "rb") as f:

@@ -191,7 +191,8 @@ class GenerateClipSuggestionsUseCase:
                         capture_output=True, timeout=15,
                     )
                     if proc.returncode != 0:
-                        logger.debug(f"ffmpeg extract failed (part {i}): {proc.stderr[:200]}")
+                        stderr = proc.stderr.decode(errors="replace")[:200] if isinstance(proc.stderr, bytes) else str(proc.stderr)[:200]
+                        logger.debug(f"ffmpeg extract failed (part {i}): {stderr}")
                         return None
                     parts.append(p)
 
@@ -204,7 +205,8 @@ class GenerateClipSuggestionsUseCase:
                     capture_output=True, timeout=15,
                 )
                 if proc.returncode != 0:
-                    logger.debug(f"ffmpeg concat failed: {proc.stderr[:200]}")
+                    stderr = proc.stderr.decode(errors="replace")[:200] if isinstance(proc.stderr, bytes) else str(proc.stderr)[:200]
+                    logger.debug(f"ffmpeg concat failed: {stderr}")
                     return None
 
                 with open(f"{tmpdir}/out.wav", "rb") as f:
