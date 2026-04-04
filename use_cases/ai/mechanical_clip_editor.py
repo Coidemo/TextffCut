@@ -47,13 +47,8 @@ FILLER_WORDS = sorted([
     "結構",
 ], key=len, reverse=True)
 
-# セグメント全体が独り言・前置きで丸ごと不要なパターン
-SKIP_SEGMENT_PATTERNS = [
-    "はいここから本編です",
-    "ここから本編です",
-    "これ自分で書いておきたいのから",
-    "これ何話そうと思ったんだっけな",
-]
+# 廃止: ハードコードパターンの代わりにAI判定を使用する（suggest_and_export.pyで実行）
+# SKIP_SEGMENT_PATTERNS は削除済み
 
 
 def generate_clip_variants(
@@ -247,17 +242,13 @@ def _build_ranges_skipping_fillers(
 
 
 def _is_filler_only(text: str) -> bool:
-    """セグメント全体がフィラー/不要な独り言かを判定する"""
+    """セグメント全体が純粋なフィラーかを判定する。
+    文脈依存の判定（独り言・前置き等）はAI判定に任せる。
+    """
     text = text.strip()
     if not text:
         return True
-    if text in FILLER_ONLY_TEXTS:
-        return True
-    # 独り言・前置きパターン
-    for pattern in SKIP_SEGMENT_PATTERNS:
-        if text.startswith(pattern):
-            return True
-    return False
+    return text in FILLER_ONLY_TEXTS
 
 
 def _build_variant(

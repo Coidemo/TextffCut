@@ -34,6 +34,23 @@ class ClipSuggestionGatewayInterface(ABC):
         pass
 
     @abstractmethod
+    def judge_segment_relevance(
+        self,
+        title: str,
+        segments: list[dict],
+    ) -> list[int]:
+        """各セグメントが切り抜きに必要かAIに判定させる。
+
+        Args:
+            title: 話題のタイトル
+            segments: [{"index": int, "text": str, "start": float, "end": float}]
+
+        Returns:
+            除外すべきセグメントのインデックスリスト
+        """
+        pass
+
+    @abstractmethod
     def review_naturalness(
         self,
         title: str,

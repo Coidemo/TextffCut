@@ -145,6 +145,53 @@ class OpenAIClipSuggestionGateway(ClipSuggestionGatewayInterface):
             logger.warning(f"AI variant selection failed: {e}, using first variant")
             return 0
 
+    def judge_segment_relevance(
+        self, title: str, segments: list[dict]
+    ) -> list[int]:
+        if not segments:
+            return []
+
+        segs_desc = "\n".join(
+            f"[{s['index']}] ({s['start']:.0f}s) {s['text']}"
+            for s in segments[:30]  # 最大30セグメント
+        )
+
+        prompt = f"""「{title}」というショート動画の素材として、以下のセグメントがあります。
+切り抜き動画に**不要な**セグメントを選んでください。
+
+不要の基準:
+- 独り言（「何話そうと思ったんだっけ」「自分で書いておきたい」等）
+- 挨拶・定型句（「ここから本編です」「はいどうも」等）
+- 前の話題の残り（このトピックと無関係な内容）
+- 読み上げの繰り返し（同じ質問を2回読む等）
+
+必要な場合は空リストを返してください。
+
+セグメント:
+{segs_desc}
+
+JSON: {{"remove": [不要なセグメントのindex番号]}}"""
+
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": "動画編集のセグメント選別担当。JSON形式で回答。"},
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.2,
+                max_tokens=300,
+                response_format={"type": "json_object"},
+            )
+            result = json.loads(response.choices[0].message.content)
+            remove_indices = result.get("remove", [])
+            if remove_indices:
+                logger.info(f"AI segment judge: {len(remove_indices)} segments to remove")
+            return remove_indices
+        except Exception as e:
+            logger.warning(f"Segment relevance judge failed: {e}")
+            return []
+
     def review_naturalness(
         self,
         title: str,

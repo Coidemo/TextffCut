@@ -69,21 +69,30 @@ class SuggestAndExportUseCase:
         cache_path = cache_dir / f"{detection.model_used}.json"
 
         # 処理順序:
-        # 1. 音声フィラー検出（Whisper API）
-        # 2. テキストフィラー削除（wordsベース）
-        # 3. 品質ループ（ピッチ分析+AI自然さ+デュレーション調整）
-        # 4. 無音削除（WAVベース、最終ステップ — 品質ループで結合されないように最後）
+        # 1. AI不要セグメント判定（独り言・挨拶等の文脈依存判定）
+        # 2. テキストフィラー削除（wordsレベル、機械的）
+        # 3. 音声フィラー検出（Whisper API）
+        # 4. 品質ループ（出来上がり音声を文字起こし→AI判定、範囲延長可能）
+        # 5. 無音削除（FCPXML直前、最終ステップ。この後のフィラー削除は行わない）
+
+        # Phase 1: AI不要セグメント判定
+        suggestions = self._apply_ai_segment_filter(
+            suggestions, request.transcription
+        )
+
+        # Phase 2: テキストフィラー削除
+        suggestions = self._apply_text_filler_removal(
+            suggestions, request.transcription
+        )
+
+        # Phase 3: 音声フィラー検出
         api_key = self._get_api_key()
         if api_key:
             suggestions = self._apply_audio_filler_removal(
                 suggestions, request.video_path, api_key, request.transcription
             )
 
-        suggestions = self._apply_text_filler_removal(
-            suggestions, request.transcription
-        )
-
-        # 品質ループ（無音削除の前に実行）
+        # Phase 4: 品質ループ（出来上がり音声の文字起こし→AI判定）
         from use_cases.ai.clip_quality_loop import run_quality_loop
 
         quality_passed = []
@@ -102,17 +111,11 @@ class SuggestAndExportUseCase:
                 logger.info(f"スキップ: {suggestion.title}")
         suggestions = quality_passed
 
-        # 無音削除
+        # Phase 5: 無音削除（FCPXML直前、最終ステップ）
         if request.remove_silence:
             suggestions = self._apply_silence_removal(
                 suggestions, request.video_path, base_dir
             )
-
-        # テキストフィラー削除を再適用（無音削除がフィラーカットの境界をまたいで
-        # rangeを生成するため、再度フィラー部分を除去する必要がある）
-        suggestions = self._apply_text_filler_removal(
-            suggestions, request.transcription
-        )
 
         # キャッシュ保存（全処理完了後）
         self._save_cache(suggestions, detection, cache_path)
@@ -231,6 +234,67 @@ class SuggestAndExportUseCase:
 
         output_path.write_text(xml, encoding="utf-8")
         return True
+
+    def _apply_ai_segment_filter(
+        self,
+        suggestions: list[ClipSuggestion],
+        transcription: TranscriptionResult,
+    ) -> list[ClipSuggestion]:
+        """AIに各セグメントの必要性を判定させ、不要セグメントのtime_rangesを除外する。"""
+        for suggestion in suggestions:
+            if not suggestion.time_ranges:
+                continue
+
+            # time_ranges内のセグメントを収集
+            segments_info = []
+            for seg in transcription.segments:
+                for tr_start, tr_end in suggestion.time_ranges:
+                    if seg.end > tr_start and seg.start < tr_end:
+                        segments_info.append({
+                            "index": len(segments_info),
+                            "text": seg.text,
+                            "start": seg.start,
+                            "end": seg.end,
+                        })
+                        break
+
+            if not segments_info:
+                continue
+
+            # AIに不要セグメントを判定させる
+            remove_indices = self.gateway.judge_segment_relevance(
+                suggestion.title, segments_info
+            )
+
+            if remove_indices:
+                # 除外するセグメントの時間帯を収集
+                remove_times = set()
+                for idx in remove_indices:
+                    if 0 <= idx < len(segments_info):
+                        seg = segments_info[idx]
+                        remove_times.add((seg["start"], seg["end"]))
+
+                # time_rangesから除外時間帯を引く
+                new_ranges = []
+                for tr_start, tr_end in suggestion.time_ranges:
+                    # この範囲が除外対象に完全に含まれるか
+                    should_remove = any(
+                        rs <= tr_start and re >= tr_end
+                        for rs, re in remove_times
+                    )
+                    if not should_remove:
+                        new_ranges.append((tr_start, tr_end))
+
+                if new_ranges:
+                    old_dur = suggestion.total_duration
+                    suggestion.time_ranges = new_ranges
+                    suggestion.total_duration = sum(e - s for s, e in new_ranges)
+                    logger.info(
+                        f"AIセグメントフィルタ: {suggestion.title} "
+                        f"{old_dur:.1f}s → {suggestion.total_duration:.1f}s"
+                    )
+
+        return suggestions
 
     def _apply_text_filler_removal(
         self,
