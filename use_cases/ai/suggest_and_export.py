@@ -75,7 +75,14 @@ class SuggestAndExportUseCase:
         fcpxml_dir = base_dir / "fcpxml"
         fcpxml_dir.mkdir(parents=True, exist_ok=True)
 
-        # Phase 4: 無音削除（最終候補にのみ適用）
+        # Phase 4: wordsレベルフィラー仕上げ（音響チェック付き）
+        from use_cases.ai.word_level_filler_polish import polish_fillers
+        for i, suggestion in enumerate(suggestions):
+            suggestions[i] = polish_fillers(
+                suggestion, request.transcription, request.video_path
+            )
+
+        # Phase 5: 無音削除（最終候補にのみ適用）
         if request.remove_silence:
             for suggestion in suggestions:
                 self._apply_silence_removal(suggestion, request.video_path, base_dir)
