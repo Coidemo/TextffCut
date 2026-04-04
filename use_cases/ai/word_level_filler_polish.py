@@ -23,14 +23,7 @@ from domain.entities.transcription import TranscriptionResult, TranscriptionSegm
 
 logger = logging.getLogger(__name__)
 
-# 純粋なフィラーのみ（冗長表現は含めない）
-PURE_FILLERS = [
-    "えーっと", "えっと", "えーと", "あのー",
-    "えー", "あの", "まあ", "まぁ", "なんか",
-    "うーん", "んー",
-]
-# 長い順にマッチ
-PURE_FILLERS.sort(key=len, reverse=True)
+from use_cases.ai.filler_constants import FILLER_WORDS as PURE_FILLERS  # noqa: F401
 
 # 音響チェックの閾値
 MAX_RMS_DIFF_DB = 10.0   # この差以上は不自然

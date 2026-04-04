@@ -241,6 +241,127 @@ JSON: {{"reviews": [{{"index": 0, "action": "extend", "reason": "理由"}}]}}"""
             logger.warning(f"Naturalness review failed: {e}")
             return []
 
+    def evaluate_clip_quality(
+        self,
+        title: str,
+        transcribed_text: str,
+        audio_issues: list[str] | None = None,
+    ) -> dict:
+        prompt = f"""以下はショート動画「{title}」の出来上がり音声を文字起こししたテキストです。
+品質を厳しく判定してください。
+
+テキスト:
+{transcribed_text}
+
+以下の問題がある場合は不合格です:
+1. 末尾が途中で切れている（「〜とか」「〜ので」「〜けど」で終わって話が続きそう）
+2. 冒頭に文脈がなく何の話かわからない（質問の途中から始まっている等）
+3. 内容が前置きだけで結論がない（視聴者が「で、結論は？」と思う）
+4. 独り言や脱線が残っている（「何話そうと思ったんだっけ」等）
+5. 冗長なやり取りがある（同じことの繰り返し、なくても伝わる補足説明、回りくどい言い回し）
+
+特に5について: たとえ時間内に収まっていても、もっとシンプルにできる部分があれば指摘してください。
+言いたいことがわかる部分だけ残して、それ以外はバッサリ切るべきです。
+
+6. 音声の不自然なカット（音圧やピッチが急変するつなぎ目がある）
+{chr(10).join(f'  - {issue}' for issue in (audio_issues or [])) or '  音響分析: 問題なし'}
+
+JSON: {{"ok": true/false, "issues": ["問題1", "問題2"], "fix_suggestions": ["末尾を○○の後で切る", "冒頭の○○を削除", "中間の○○は冗長なので削除"]}}
+問題がなければ {{"ok": true, "issues": [], "fix_suggestions": []}}"""
+
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": "ショート動画の品質管理担当。厳しく判定。JSON形式で回答。"},
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.2,
+                max_tokens=300,
+                response_format={"type": "json_object"},
+            )
+            return json.loads(response.choices[0].message.content)
+        except Exception as e:
+            logger.warning(f"AI quality check failed: {e}")
+            return {"ok": True, "issues": [], "fix_suggestions": []}
+
+    def select_best_clip(
+        self,
+        title: str,
+        candidates_text: str,
+    ) -> int:
+        prompt = f"""「{title}」のショート動画候補があります。
+視聴者が「保存したい」「誰かに教えたい」と思える候補を1つ選んでください。
+
+選定基準:
+- 冒頭が引きになっている（いきなり本題に入る）
+- 結論・主張が明確にある
+- 途中で切れていない
+- 冗長な繰り返しがない
+- 自然な流れで話が完結している
+
+{candidates_text}
+
+JSON: {{"selected": 候補番号(1始まり), "reason": "選定理由"}}"""
+
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": "ショート動画の最終選定担当。JSON形式で回答。"},
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.2,
+                max_tokens=200,
+                response_format={"type": "json_object"},
+            )
+            result = json.loads(response.choices[0].message.content)
+            return result.get("selected", 1)
+        except Exception as e:
+            logger.warning(f"AI clip selection failed: {e}")
+            return 1
+
+    def trim_clips(
+        self,
+        title: str,
+        clips_text: str,
+        max_duration: float,
+    ) -> list[int]:
+        prompt = f"""以下はショート動画のクリップ一覧です。
+{max_duration:.0f}秒以内にする必要があります。
+
+**主張と結論は必ず残してください。** 削除すべきは:
+- 繰り返し・冗長な説明
+- 本筋と関係ない例え話・脱線
+- なくても主張が伝わる補足
+- 質問の読み上げ部分（回答だけ残す）
+
+冒頭（話の導入）と末尾（結論）は原則残してください。中間から削除するのが理想です。
+
+{clips_text}
+
+JSON: {{"remove": [削除するクリップのindex番号], "reason": "理由"}}"""
+
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": "動画編集の中間カット担当。主張と結論を残して不要部分を大胆に削除。JSON形式で回答。"},
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.2,
+                max_tokens=300,
+                response_format={"type": "json_object"},
+            )
+            result = json.loads(response.choices[0].message.content)
+            remove_indices = result.get("remove", [])
+            if remove_indices:
+                logger.info(f"trim_clips: {len(remove_indices)} clips to remove, reason: {result.get('reason', '')}")
+            return remove_indices
+        except Exception as e:
+            logger.warning(f"trim_clips failed: {e}")
+            return []
+
     def check_connection(self) -> bool:
         try:
             self.client.models.list()

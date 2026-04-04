@@ -70,6 +70,61 @@ class ClipSuggestionGatewayInterface(ABC):
         pass
 
     @abstractmethod
+    def evaluate_clip_quality(
+        self,
+        title: str,
+        transcribed_text: str,
+        audio_issues: list[str] | None = None,
+    ) -> dict:
+        """出来上がり音声の品質をAIに判定させる。
+
+        Args:
+            title: クリップのタイトル
+            transcribed_text: 出来上がり音声の文字起こしテキスト
+            audio_issues: 音響分析で検出された問題のリスト
+
+        Returns:
+            {"ok": bool, "issues": list[str], "fix_suggestions": list[str]}
+        """
+        pass
+
+    @abstractmethod
+    def select_best_clip(
+        self,
+        title: str,
+        candidates_text: str,
+    ) -> int:
+        """複数候補の出来上がりテキストから最良を選定する。
+
+        Args:
+            title: 話題のタイトル
+            candidates_text: 候補一覧のフォーマット済みテキスト
+
+        Returns:
+            選定された候補番号（1始まり）
+        """
+        pass
+
+    @abstractmethod
+    def trim_clips(
+        self,
+        title: str,
+        clips_text: str,
+        max_duration: float,
+    ) -> list[int]:
+        """デュレーション超過時に削除すべきクリップを選定する。
+
+        Args:
+            title: クリップのタイトル
+            clips_text: クリップ一覧と出来上がりテキストのフォーマット済み文字列
+            max_duration: 目標最大秒数
+
+        Returns:
+            削除すべきクリップのインデックスリスト
+        """
+        pass
+
+    @abstractmethod
     def check_connection(self) -> bool:
         pass
 

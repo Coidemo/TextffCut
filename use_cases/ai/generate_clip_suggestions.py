@@ -8,7 +8,6 @@ AI切り抜き候補生成ユースケース
 
 from __future__ import annotations
 
-import json
 import logging
 import subprocess
 import tempfile
@@ -148,37 +147,15 @@ class GenerateClipSuggestionsUseCase:
             )
 
         try:
-            prompt = f"""「{title}」のショート動画候補が{len(options)}パターンあります。
-視聴者が「保存したい」「誰かに教えたい」と思える候補を1つ選んでください。
-
-選定基準:
-- 冒頭が引きになっている（いきなり本題に入る）
-- 結論・主張が明確にある
-- 途中で切れていない
-- 冗長な繰り返しがない
-- 自然な流れで話が完結している
-
-{chr(10).join(options)}
-
-JSON: {{"selected": 候補番号(1始まり), "reason": "選定理由"}}"""
-
-            response = self.gateway.client.chat.completions.create(
-                model=self.gateway.model,
-                messages=[
-                    {"role": "system", "content": "ショート動画の最終選定担当。JSON形式で回答。"},
-                    {"role": "user", "content": prompt},
-                ],
-                temperature=0.2,
-                max_tokens=200,
-                response_format={"type": "json_object"},
+            candidates_text = chr(10).join(options)
+            selected_num = self.gateway.select_best_clip(
+                title=title,
+                candidates_text=candidates_text,
             )
-            result = json.loads(response.choices[0].message.content)
-            selected = result.get("selected", 1) - 1
-            selected = max(0, min(selected, len(candidates) - 1))
+            selected = max(0, min(selected_num - 1, len(candidates) - 1))
             logger.info(
                 f"AI選定: 候補{selected+1} "
-                f"({candidates[selected].total_duration:.0f}s) "
-                f"reason: {result.get('reason','')}"
+                f"({candidates[selected].total_duration:.0f}s)"
             )
             return candidates[selected]
 
@@ -208,21 +185,27 @@ JSON: {{"selected": 候補番号(1始まり), "reason": "選定理由"}}"""
                 parts = []
                 for i, (start, end) in enumerate(candidate.time_ranges):
                     p = f"{tmpdir}/p{i}.wav"
-                    subprocess.run(
+                    proc = subprocess.run(
                         ["ffmpeg", "-y", "-ss", str(start), "-t", str(end - start),
                          "-i", str(video_path), "-vn", "-ar", "16000", "-ac", "1", p],
                         capture_output=True, timeout=15,
                     )
+                    if proc.returncode != 0:
+                        logger.debug(f"ffmpeg extract failed (part {i}): {proc.stderr[:200]}")
+                        return None
                     parts.append(p)
 
                 with open(f"{tmpdir}/list.txt", "w") as f:
                     for p in parts:
                         f.write(f"file '{p}'\n")
-                subprocess.run(
+                proc = subprocess.run(
                     ["ffmpeg", "-y", "-f", "concat", "-safe", "0",
                      "-i", f"{tmpdir}/list.txt", "-c", "copy", f"{tmpdir}/out.wav"],
                     capture_output=True, timeout=15,
                 )
+                if proc.returncode != 0:
+                    logger.debug(f"ffmpeg concat failed: {proc.stderr[:200]}")
+                    return None
 
                 with open(f"{tmpdir}/out.wav", "rb") as f:
                     resp = client.audio.transcriptions.create(

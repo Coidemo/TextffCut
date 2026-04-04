@@ -15,7 +15,7 @@ from dataclasses import dataclass
 
 from domain.entities.clip_suggestion import TopicRange
 from domain.entities.transcription import TranscriptionResult, TranscriptionSegment
-from use_cases.ai.mechanical_clip_editor import FILLER_ONLY_TEXTS
+from use_cases.ai.filler_constants import FILLER_ONLY_TEXTS
 
 logger = logging.getLogger(__name__)
 

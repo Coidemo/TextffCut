@@ -5,8 +5,9 @@
 1. AI: 話題の時間範囲を検出
 2. 機械: セグメント組み合わせで数百パターン生成 → 機械スコアで上位5件
 3. AI: 出来上がり音声を文字起こしして最良を選定
-4. 機械: 無音削除（最終候補にのみ適用）
-5. 機械: FCPXML生成
+4. 機械: wordsレベルフィラー仕上げ（音響チェック付き）
+5. 機械: 無音削除（最終候補にのみ適用）
+6. 機械: FCPXML生成
 
 フィラー削除は行わない。フィラーセグメントを含むパターンは機械スコアで自然に
 淘汰される（フィラーセグメントが多いほどスコアが下がるため）。
@@ -92,7 +93,7 @@ class SuggestAndExportUseCase:
         cache_dir.mkdir(parents=True, exist_ok=True)
         self._save_cache(suggestions, detection, cache_dir / f"{detection.model_used}.json")
 
-        # Phase 5: FCPXML生成
+        # Phase 6: FCPXML生成
         exported_files: list[Path] = []
         for i, suggestion in enumerate(suggestions, 1):
             filename = f"{i:02d}_{_sanitize_filename(suggestion.title)}.fcpxml"
@@ -194,7 +195,6 @@ class SuggestAndExportUseCase:
                 return "0/1s"
             return f"{frac.numerator}/{frac.denominator}s"
 
-        total_dur = sum(s.end_time - s.start_time for s in [])  # unused
         video_name = video_path.name
         encoded_path = quote(str(video_path), safe="/:")
         video_url = f"file://{encoded_path}"
