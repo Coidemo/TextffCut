@@ -145,8 +145,36 @@ def _run_all_checks(
         except Exception as e:
             logger.debug(f"ピッチ分析スキップ: {e}")
 
-    # 3. テキスト自然さチェック（AIに判定させる）
-    # → _apply_fixesの中で実行（API呼び出しなので問題がある場合のみ）
+    # 3. 冒頭・末尾のテキスト自然さチェック（機械的）
+    if transcription:
+        texts_per_range = _get_text_for_ranges(suggestion, transcription)
+        # 末尾チェック
+        if texts_per_range:
+            last_text = texts_per_range[-1]
+            BAD_ENDINGS = ["ので", "けど", "から", "って", "のが", "みたいな",
+                           "けれども", "とか", "んですけど", "ですけど", "んですが"]
+            for bad in BAD_ENDINGS:
+                if last_text.rstrip("。、 ").endswith(bad):
+                    issues.append(QualityIssue(
+                        type="bad_ending",
+                        detail=f"末尾が「{bad}」で終わっている",
+                        clip_index=len(suggestion.time_ranges) - 1,
+                    ))
+                    break
+        # 冒頭チェック
+        if texts_per_range:
+            first_text = texts_per_range[0]
+            # 時間情報を除去してテキスト部分だけ取得
+            text_part = first_text.split(") ", 1)[-1] if ") " in first_text else first_text
+            BAD_STARTS = ["なのかな", "ちょっとわかんない", "まあ、"]
+            for bad in BAD_STARTS:
+                if text_part.startswith(bad):
+                    issues.append(QualityIssue(
+                        type="bad_start",
+                        detail=f"冒頭が「{bad}」で始まっている（前の話題の混入）",
+                        clip_index=0,
+                    ))
+                    break
 
     return QualityCheckResult(
         is_ok=len(issues) == 0,
@@ -168,10 +196,9 @@ def _apply_fixes(
 
     # 優先度順に処理
 
-    # (A) 不自然なカット点 → AIにテキスト含めてレビューさせてextend
+    # (A) 不自然なカット点 → AIレビューでextend or truncate
     unnatural_cuts = [i for i in issues if i.type == "unnatural_cut"]
     if unnatural_cuts or len(suggestion.time_ranges) >= 2:
-        # 不自然カットがなくてもテキスト自然さをAIレビュー
         cut_issues = [
             {"index": i.clip_index, "direction": i.detail}
             for i in unnatural_cuts
@@ -183,15 +210,71 @@ def _apply_fixes(
         )
 
         old_count = len(suggestion.time_ranges)
+        old_ranges = list(suggestion.time_ranges)
+
+        # extend適用
         suggestion.time_ranges = _apply_extend_reviews(
             suggestion.time_ranges, reviews
         )
+
+        # remove適用（不要クリップ削除）
+        remove_indices = {r.get("index") for r in reviews if r.get("action") == "remove"}
+        if remove_indices:
+            suggestion.time_ranges = [
+                r for i, r in enumerate(suggestion.time_ranges)
+                if i not in remove_indices
+            ]
+
         if len(suggestion.time_ranges) != old_count:
             modified = True
             suggestion.total_duration = sum(
                 e - s for s, e in suggestion.time_ranges
             )
-            logger.info(f"  extend: {old_count}→{len(suggestion.time_ranges)}クリップ")
+            logger.info(f"  extend/remove: {old_count}→{len(suggestion.time_ranges)}クリップ")
+
+        # extend後もunnatural_cutが残る場合、末尾を大胆にカット
+        # （伸ばしてダメなら短くする）
+        if not modified and unnatural_cuts:
+            truncated = _truncate_to_natural_end(
+                suggestion, transcription, gateway
+            )
+            if truncated:
+                modified = True
+
+    # (A2) 末尾が不自然 → 末尾クリップを削除して自然な文末まで戻す
+    bad_endings = [i for i in issues if i.type == "bad_ending"]
+    if bad_endings and len(suggestion.time_ranges) > 1:
+        # 末尾から「です」「ます」「よね」等で終わるクリップを探す
+        GOOD_ENDINGS = ["です", "ます", "ですね", "ますね", "ですよね", "ますよね",
+                        "ました", "思います", "よね", "んですよ", "んです",
+                        "ください", "しょう", "ません", "ないです"]
+        texts = _get_text_for_ranges(suggestion, transcription)
+        good_end_idx = None
+        for idx in range(len(texts) - 2, -1, -1):
+            text_part = texts[idx].split(") ", 1)[-1] if ") " in texts[idx] else texts[idx]
+            if any(text_part.rstrip("。、 ").endswith(g) for g in GOOD_ENDINGS):
+                good_end_idx = idx
+                break
+        if good_end_idx is not None and good_end_idx < len(suggestion.time_ranges) - 1:
+            candidate_ranges = suggestion.time_ranges[:good_end_idx + 1]
+            candidate_dur = sum(e - s for s, e in candidate_ranges)
+            # 短くなりすぎないようにガード（min_durationの80%以上）
+            if candidate_dur >= min_duration * 0.8:
+                old = len(suggestion.time_ranges)
+                suggestion.time_ranges = candidate_ranges
+                suggestion.total_duration = candidate_dur
+                modified = True
+                logger.info(f"  bad_ending fix: {old}→{len(suggestion.time_ranges)}クリップ ({suggestion.total_duration:.0f}s)")
+            else:
+                logger.info(f"  bad_ending: 切り詰めると{candidate_dur:.0f}sで短すぎるためスキップ")
+
+    # (A3) 冒頭が不自然 → 冒頭クリップを削除
+    bad_starts = [i for i in issues if i.type == "bad_start"]
+    if bad_starts and len(suggestion.time_ranges) > 1:
+        suggestion.time_ranges = suggestion.time_ranges[1:]
+        suggestion.total_duration = sum(e - s for s, e in suggestion.time_ranges)
+        modified = True
+        logger.info(f"  bad_start fix: 冒頭クリップ削除")
 
     # (B) デュレーション超過 → 不要な文を削除
     duration_over = [i for i in issues if i.type == "duration_over"]
@@ -278,6 +361,100 @@ JSON: {{"remove_indices": [省略するクリップの番号(0始まり)]}}"""
             e - s for s, e in suggestion.time_ranges
         )
         return True
+
+    return False
+
+
+def _truncate_to_natural_end(
+    suggestion: ClipSuggestion,
+    transcription: TranscriptionResult,
+    gateway: ClipSuggestionGatewayInterface,
+) -> bool:
+    """末尾のクリップを自然な文末まで短縮する。
+
+    「〜とか」「〜ので」「〜けど」等で終わっている場合、
+    その前の自然な文末（「〜です」「〜ます」「〜よね」等）まで戻る。
+    """
+    if not suggestion.time_ranges:
+        return False
+
+    segments_text = _get_text_for_ranges(suggestion, transcription)
+
+    import json
+    try:
+        prompt = f"""以下のクリップで構成される切り抜き動画があります。
+末尾が不自然に切れている場合、どのクリップまでで終わるべきか判断してください。
+
+{chr(10).join(f'クリップ{i+1}: {t}' for i, t in enumerate(segments_text))}
+
+自然な終わり方の例: 「〜です」「〜ます」「〜ですね」「〜ますよね」「〜と思います」
+不自然な終わり方の例: 「〜とか」「〜ので」「〜けど」「〜って」「〜のが」
+
+JSON: {{"end_at_clip": 最後に含めるクリップ番号(1始まり), "reason": "理由"}}
+全クリップで問題ない場合は現在のクリップ数をそのまま返してください。"""
+
+        response = gateway.client.chat.completions.create(
+            model=gateway.model,
+            messages=[
+                {"role": "system", "content": "動画編集の品質管理担当。JSON形式で回答。"},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.2,
+            max_tokens=200,
+            response_format={"type": "json_object"},
+        )
+        result = json.loads(response.choices[0].message.content)
+        end_at = result.get("end_at_clip", len(suggestion.time_ranges))
+
+        if end_at < len(suggestion.time_ranges):
+            old = len(suggestion.time_ranges)
+            suggestion.time_ranges = suggestion.time_ranges[:end_at]
+            suggestion.total_duration = sum(
+                e - s for s, e in suggestion.time_ranges
+            )
+            logger.info(
+                f"  truncate: {old}→{len(suggestion.time_ranges)}クリップ "
+                f"({suggestion.total_duration:.0f}s) reason: {result.get('reason','')}"
+            )
+            return True
+    except Exception as e:
+        logger.warning(f"Truncate判定失敗: {e}")
+
+    # 同様に冒頭もチェック
+    try:
+        prompt2 = f"""以下のクリップで構成される切り抜き動画の冒頭をチェックしてください。
+最初のクリップが前の話題の末尾で始まっている場合、何番目のクリップから始めるべきか判断してください。
+
+{chr(10).join(f'クリップ{i+1}: {t}' for i, t in enumerate(segments_text[:5]))}
+
+JSON: {{"start_at_clip": 最初に含めるクリップ番号(1始まり), "reason": "理由"}}"""
+
+        response = gateway.client.chat.completions.create(
+            model=gateway.model,
+            messages=[
+                {"role": "system", "content": "動画編集の品質管理担当。JSON形式で回答。"},
+                {"role": "user", "content": prompt2},
+            ],
+            temperature=0.2,
+            max_tokens=200,
+            response_format={"type": "json_object"},
+        )
+        result = json.loads(response.choices[0].message.content)
+        start_at = result.get("start_at_clip", 1)
+
+        if start_at > 1 and start_at <= len(suggestion.time_ranges):
+            old = len(suggestion.time_ranges)
+            suggestion.time_ranges = suggestion.time_ranges[start_at - 1:]
+            suggestion.total_duration = sum(
+                e - s for s, e in suggestion.time_ranges
+            )
+            logger.info(
+                f"  trim_start: clip{start_at}から開始 "
+                f"({suggestion.total_duration:.0f}s) reason: {result.get('reason','')}"
+            )
+            return True
+    except Exception as e:
+        logger.warning(f"冒頭トリム判定失敗: {e}")
 
     return False
 
