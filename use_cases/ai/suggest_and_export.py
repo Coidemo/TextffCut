@@ -102,11 +102,17 @@ class SuggestAndExportUseCase:
                 logger.info(f"スキップ: {suggestion.title}")
         suggestions = quality_passed
 
-        # 無音削除（最終ステップ — 品質ループのextendで結合されないように最後に実行）
+        # 無音削除
         if request.remove_silence:
             suggestions = self._apply_silence_removal(
                 suggestions, request.video_path, base_dir
             )
+
+        # テキストフィラー削除を再適用（無音削除がフィラーカットの境界をまたいで
+        # rangeを生成するため、再度フィラー部分を除去する必要がある）
+        suggestions = self._apply_text_filler_removal(
+            suggestions, request.transcription
+        )
 
         # キャッシュ保存（全処理完了後）
         self._save_cache(suggestions, detection, cache_path)

@@ -208,7 +208,42 @@ def _apply_fixes(
     """問題の種類に応じた修正を適用する。修正があればTrue。"""
     modified = False
 
-    # 優先度順に処理
+    # 優先度順に処理（末尾/冒頭の修正を先に、unnatural_cutは後）
+
+    # (A0) 末尾が不自然 → 最優先で修正
+    bad_endings = [i for i in issues if i.type == "bad_ending"]
+    if bad_endings and len(suggestion.time_ranges) > 1:
+        GOOD_ENDINGS = ["です", "ます", "ですね", "ますね", "ですよね", "ますよね",
+                        "ました", "思います", "よね", "んですよ", "んです",
+                        "ください", "しょう", "ません", "ないです", "なりました",
+                        "ですかね", "ですよ", "ですか", "ましょう", "ないですか",
+                        "んですよね", "思いますね", "しれません"]
+        texts = _get_text_for_ranges(suggestion, transcription)
+        good_end_idx = None
+        for idx in range(len(texts) - 2, -1, -1):
+            text_part = texts[idx].split(") ", 1)[-1] if ") " in texts[idx] else texts[idx]
+            if any(text_part.rstrip("。、 ").endswith(g) for g in GOOD_ENDINGS):
+                good_end_idx = idx
+                break
+        if good_end_idx is not None and good_end_idx < len(suggestion.time_ranges) - 1:
+            candidate_ranges = suggestion.time_ranges[:good_end_idx + 1]
+            candidate_dur = sum(e - s for s, e in candidate_ranges)
+            if candidate_dur >= min_duration * 0.8:
+                old = len(suggestion.time_ranges)
+                suggestion.time_ranges = candidate_ranges
+                suggestion.total_duration = candidate_dur
+                modified = True
+                logger.info(f"  bad_ending fix: {old}→{len(suggestion.time_ranges)}クリップ ({suggestion.total_duration:.0f}s)")
+                return modified  # 修正後はすぐに再チェック
+
+    # (A0.5) 冒頭が不自然 → 先に修正
+    bad_starts = [i for i in issues if i.type == "bad_start"]
+    if bad_starts and len(suggestion.time_ranges) > 1:
+        suggestion.time_ranges = suggestion.time_ranges[1:]
+        suggestion.total_duration = sum(e - s for s, e in suggestion.time_ranges)
+        modified = True
+        logger.info(f"  bad_start fix: 冒頭クリップ削除")
+        return modified
 
     # (A) 不自然なカット点 → AIレビューでextend or truncate
     unnatural_cuts = [i for i in issues if i.type == "unnatural_cut"]
@@ -254,45 +289,6 @@ def _apply_fixes(
             )
             if truncated:
                 modified = True
-
-    # (A2) 末尾が不自然 → 末尾クリップを削除して自然な文末まで戻す
-    bad_endings = [i for i in issues if i.type == "bad_ending"]
-    if bad_endings and len(suggestion.time_ranges) > 1:
-        # 末尾から「です」「ます」「よね」等で終わるクリップを探す
-        GOOD_ENDINGS = ["です", "ます", "ですね", "ますね", "ですよね", "ますよね",
-                        "ました", "思います", "よね", "んですよ", "んです",
-                        "ください", "しょう", "ません", "ないです"]
-        texts = _get_text_for_ranges(suggestion, transcription)
-        good_end_idx = None
-        for idx in range(len(texts) - 2, -1, -1):
-            text_part = texts[idx].split(") ", 1)[-1] if ") " in texts[idx] else texts[idx]
-            if any(text_part.rstrip("。、 ").endswith(g) for g in GOOD_ENDINGS):
-                good_end_idx = idx
-                break
-        if good_end_idx is not None and good_end_idx < len(suggestion.time_ranges) - 1:
-            candidate_ranges = suggestion.time_ranges[:good_end_idx + 1]
-            candidate_dur = sum(e - s for s, e in candidate_ranges)
-            # 短くなりすぎないようにガード（min_durationの80%以上）
-            if candidate_dur >= min_duration * 0.8:
-                old = len(suggestion.time_ranges)
-                suggestion.time_ranges = candidate_ranges
-                suggestion.total_duration = candidate_dur
-                modified = True
-                logger.info(f"  bad_ending fix: {old}→{len(suggestion.time_ranges)}クリップ ({suggestion.total_duration:.0f}s)")
-            else:
-                logger.info(f"  bad_ending: 切り詰めると{candidate_dur:.0f}sで短すぎるためスキップ")
-
-    # (A3) 冒頭が不自然 → 冒頭クリップを削除
-    bad_starts = [i for i in issues if i.type == "bad_start"]
-    if bad_starts and len(suggestion.time_ranges) > 1:
-        suggestion.time_ranges = suggestion.time_ranges[1:]
-        suggestion.total_duration = sum(e - s for s, e in suggestion.time_ranges)
-        modified = True
-        logger.info(f"  bad_start fix: 冒頭クリップ削除")
-
-    # (A4) 内容が完結していない → 修正不可（スキップされる）
-    # incomplete_contentは構造的に修正できないため、何もしない
-    # （ループが終了し、final_checkで不合格→Noneが返る）
 
     # (B) デュレーション超過 → 不要な文を削除
     duration_over = [i for i in issues if i.type == "duration_over"]
