@@ -18,8 +18,8 @@ console = Console(stderr=True)
 
 def build_suggest_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="textffcut suggest",
-        description="AI切り抜き候補を生成しFCPXMLを出力する",
+        prog="textffcut clip",
+        description="AI自動切り抜き — 話題検出→最適カット→FCPXML出力",
     )
     parser.add_argument(
         "files",
