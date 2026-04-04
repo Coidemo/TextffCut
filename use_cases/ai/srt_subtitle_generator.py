@@ -74,80 +74,96 @@ class TextBlock:
 
 
 def _split_into_lines(full_text: str, max_chars: int, seg_bounds: set[int]) -> list[TextBlock]:
-    """全テキストをmax_chars以下のブロックに分割する。
+    """DPで全テキストの最適分割を見つける。
 
-    スライディングウィンドウで先頭から探索し、
-    セグメント境界と助詞の後を優先して切断する。
+    後続ブロックの品質も考慮して、全体最適な分割を選ぶ。
     """
+    n = len(full_text)
+    if n <= max_chars:
+        return [TextBlock(full_text, 0, n)]
+
     try:
         from core.japanese_line_break import JapaneseLineBreakRules
-        has_janome = True
+        bp = JapaneseLineBreakRules.get_word_boundaries_with_pos(full_text)
+        boundaries = sorted(set([b for b, _, _ in bp if 0 < b < n]))
     except ImportError:
-        has_janome = False
+        bp = []
+        boundaries = list(range(1, n))
 
-    blocks = []
-    pos = 0
-    n = len(full_text)
+    # 各分割点のスコアを事前計算
+    cut_scores = {}
+    for b in boundaries:
+        score = 0.0
+        if b in seg_bounds:
+            score += 50
+        for boundary_pos, surface, pos_tag in bp:
+            if boundary_pos == b:
+                if pos_tag == "助詞":
+                    score += 30
+                elif pos_tag in ("動詞", "形容詞"):
+                    score += 15
+                elif pos_tag == "名詞":
+                    score += 8
+                break
+        cut_scores[b] = score
 
-    while pos < n:
-        remaining = n - pos
-        if remaining <= max_chars:
-            blocks.append(TextBlock(full_text[pos:n], pos, n))
-            break
+    # DP: dp[i] = (best_total_score, prev_position)
+    dp = {0: (0.0, -1)}
 
-        # 探索窓
-        window = full_text[pos:min(pos + SEARCH_WINDOW, n)]
+    # 全ての有効な開始位置 = 0 + 全境界位置
+    all_positions = sorted(set([0] + boundaries))
 
-        if has_janome:
-            bp = JapaneseLineBreakRules.get_word_boundaries_with_pos(window)
-        else:
-            bp = []
+    for i in all_positions:
+        if i not in dp or i >= n:
+            continue
+        current_score = dp[i][0]
 
-        best_cut = None
-        best_score = -999
-
-        # 全単語境界を候補として評価
-        candidates = [b for b, _, _ in bp] if bp else list(range(1, len(window)))
-
-        for b in candidates:
-            if b < 3 or b > max_chars:
+        for b in boundaries:
+            if b <= i:
+                continue
+            block_len = b - i
+            if block_len > max_chars:
+                break
+            if block_len < 2:
                 continue
 
-            score = 0.0
+            new_score = current_score + cut_scores.get(b, 0)
+            if block_len <= 2:
+                new_score -= 20
 
-            # セグメント境界ボーナス（最優先）
-            if (pos + b) in seg_bounds:
-                score += 50
+            if b not in dp or new_score > dp[b][0]:
+                dp[b] = (new_score, i)
 
-            # 品詞スコア
-            if bp:
-                for boundary, surface, pos_tag in bp:
-                    if boundary == b:
-                        if pos_tag == "助詞":
-                            score += 30
-                        elif pos_tag in ("動詞", "形容詞"):
-                            score += 15
-                        elif pos_tag == "名詞":
-                            score += 8
-                        break
+        # 末尾ブロック
+        remaining = n - i
+        if 2 <= remaining <= max_chars:
+            if n not in dp or current_score > dp[n][0]:
+                dp[n] = (current_score, i)
 
-            # max_charsに近いほどボーナス（無駄に短くしない）
-            score += b * 0.5
+    if n not in dp:
+        # フォールバック
+        blocks = []
+        pos = 0
+        while pos < n:
+            end = min(pos + max_chars, n)
+            blocks.append(TextBlock(full_text[pos:end], pos, end))
+            pos = end
+        return blocks
 
-            # 2文字以下ペナルティ
-            if b <= 2:
-                score -= 30
+    # 分割点を逆順に復元
+    points = []
+    pos = n
+    while pos > 0:
+        points.append(pos)
+        pos = dp[pos][1]
+    points.reverse()
 
-            if score > best_score:
-                best_score = score
-                best_cut = b
-
-        if best_cut is None:
-            best_cut = min(max_chars, remaining)
-
-        abs_cut = pos + best_cut
-        blocks.append(TextBlock(full_text[pos:abs_cut], pos, abs_cut))
-        pos = abs_cut
+    blocks = []
+    prev = 0
+    for sp in points:
+        if sp > prev:
+            blocks.append(TextBlock(full_text[prev:sp], prev, sp))
+        prev = sp
 
     return blocks
 
