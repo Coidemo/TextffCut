@@ -178,11 +178,15 @@ def _ai_quality_check(
 
 以下の問題がある場合は不合格です:
 1. 末尾が途中で切れている（「〜とか」「〜ので」「〜けど」で終わって話が続きそう）
-2. 冒頭が前の話題の残りで始まっている（本題と無関係な内容で始まる）
+2. 冒頭に文脈がなく何の話かわからない（質問の途中から始まっている等）
 3. 内容が前置きだけで結論がない（視聴者が「で、結論は？」と思う）
 4. 独り言や脱線が残っている（「何話そうと思ったんだっけ」等）
+5. 冗長なやり取りがある（同じことの繰り返し、なくても伝わる補足説明、回りくどい言い回し）
 
-JSON: {{"ok": true/false, "issues": ["問題1", "問題2"], "fix_suggestions": ["末尾を○○の後で切る", "冒頭の○○を削除"]}}
+特に5について: たとえ時間内に収まっていても、もっとシンプルにできる部分があれば指摘してください。
+言いたいことがわかる部分だけ残して、それ以外はバッサリ切るべきです。
+
+JSON: {{"ok": true/false, "issues": ["問題1", "問題2"], "fix_suggestions": ["末尾を○○の後で切る", "冒頭の○○を削除", "中間の○○は冗長なので削除"]}}
 問題がなければ {{"ok": true, "issues": [], "fix_suggestions": []}}"""
 
         response = gateway.client.chat.completions.create(
@@ -219,15 +223,23 @@ def _apply_ai_fixes(
     issues_str = " ".join(check_result.issues).lower()
 
     has_ending_issue = any(w in issues_str for w in ["末尾", "途中で切れ", "続きそう"])
-    has_start_issue = any(w in issues_str for w in ["冒頭", "前の話題", "無関係"])
+    has_start_issue = any(w in issues_str for w in ["冒頭", "文脈", "何の話", "わからない"])
     has_conclusion_issue = any(w in issues_str for w in ["結論", "前置き", "incomplete"])
+    has_redundancy = any(w in issues_str for w in ["冗長", "繰り返し", "シンプル", "回りくどい", "不要", "削除"])
 
-    # 結論がない or 末尾で切れている → まず延長を試みる（max_duration以内で）
+    # 冒頭に文脈がない → 前方に延長
+    if has_start_issue:
+        extended = _extend_range_backward(suggestion, transcription)
+        if extended:
+            logger.info(f"  前方延長: → {suggestion.total_duration:.0f}s")
+            return True
+
+    # 結論がない or 末尾で切れている → 後方に延長
     if has_conclusion_issue or has_ending_issue:
         target = min(suggestion.total_duration + 15, max_duration)
         extended = _extend_range(suggestion, transcription, target)
         if extended:
-            logger.info(f"  延長: → {suggestion.total_duration:.0f}s")
+            logger.info(f"  後方延長: → {suggestion.total_duration:.0f}s")
             return True
 
         # 延長できなかった場合のみ末尾トリム
@@ -238,13 +250,13 @@ def _apply_ai_fixes(
             logger.info(f"  末尾トリム: {old}→{len(suggestion.time_ranges)}クリップ")
             return True
 
-    # 冒頭の問題 → 冒頭クリップを削除
-    if has_start_issue and len(suggestion.time_ranges) > 2:
-        old = len(suggestion.time_ranges)
-        suggestion.time_ranges = suggestion.time_ranges[1:]
-        suggestion.total_duration = sum(e - s for s, e in suggestion.time_ranges)
-        logger.info(f"  冒頭トリム: {old}→{len(suggestion.time_ranges)}クリップ")
-        return True
+    # 冗長 → 中間カット（duration内でもシンプルにする）
+    if has_redundancy and len(suggestion.time_ranges) > 3:
+        _trim_duration(suggestion, transcription,
+                       suggestion.total_duration,  # 現在のdurationをtargetに
+                       gateway, video_path)
+        # 実際にクリップ数が減ったか確認
+        return True  # 常にTrue（AIが何も削除しなくても再チェックは行う）
 
     return False
 
@@ -338,6 +350,36 @@ JSON: {{"remove": [削除するクリップのindex番号], "reason": "理由"}}
     while suggestion.total_duration > max_duration and len(suggestion.time_ranges) > 1:
         suggestion.time_ranges = suggestion.time_ranges[:-1]
         suggestion.total_duration = sum(e - s for s, e in suggestion.time_ranges)
+
+
+def _extend_range_backward(
+    suggestion: ClipSuggestion,
+    transcription: TranscriptionResult,
+    max_segments: int = 5,
+) -> bool:
+    """冒頭の前のセグメントを追加して文脈を補完する。"""
+    if not suggestion.time_ranges:
+        return False
+
+    min_start = min(s for s, _ in suggestion.time_ranges)
+
+    # min_startの前にあるセグメントを逆順で追加
+    prepend = []
+    for seg in reversed(transcription.segments):
+        if seg.end > min_start + 0.1:
+            continue
+        if min_start - seg.start > 30:
+            break
+        prepend.insert(0, (seg.start, seg.end))
+        if len(prepend) >= max_segments:
+            break
+
+    if prepend:
+        suggestion.time_ranges = prepend + suggestion.time_ranges
+        suggestion.total_duration = sum(e - s for s, e in suggestion.time_ranges)
+        return True
+
+    return False
 
 
 def _extend_range(
