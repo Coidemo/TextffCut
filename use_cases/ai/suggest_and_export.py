@@ -1,5 +1,15 @@
 """
-一気通貫ユースケース: AI話題検出 → 機械的編集 → AI選定 → FCPXML出力
+一気通貫ユースケース: AI話題検出 → 力任せ候補生成 → AI選定 → 無音削除 → FCPXML
+
+シンプルなパイプライン:
+1. AI: 話題の時間範囲を検出
+2. 機械: セグメント組み合わせで数百パターン生成 → 機械スコアで上位5件
+3. AI: 出来上がり音声を文字起こしして最良を選定
+4. 機械: 無音削除（最終候補にのみ適用）
+5. 機械: FCPXML生成
+
+フィラー削除は行わない。フィラーセグメントを含むパターンは機械スコアで自然に
+淘汰される（フィラーセグメントが多いほどスコアが下がるため）。
 """
 
 from __future__ import annotations
@@ -28,7 +38,7 @@ class SuggestAndExportRequest:
     min_duration: int = 30
     max_duration: int = 60
     prompt_path: str | None = None
-    remove_silence: bool = False
+    remove_silence: bool = True
 
 
 @dataclass
@@ -46,9 +56,11 @@ class SuggestAndExportUseCase:
         self.gateway = gateway
 
     def execute(self, request: SuggestAndExportRequest) -> SuggestAndExportResult:
+        # Phase 1-3: AI話題検出 → 力任せ候補生成 → AI選定
         use_case = GenerateClipSuggestionsUseCase(self.gateway)
         suggestions = use_case.execute(
             transcription=request.transcription,
+            video_path=request.video_path,
             num_candidates=request.num_candidates,
             min_duration=request.min_duration,
             max_duration=request.max_duration,
@@ -63,64 +75,17 @@ class SuggestAndExportUseCase:
         fcpxml_dir = base_dir / "fcpxml"
         fcpxml_dir.mkdir(parents=True, exist_ok=True)
 
-        # キャッシュ保存は全処理完了後（無音削除後）に行う
+        # Phase 4: 無音削除（最終候補にのみ適用）
+        if request.remove_silence:
+            for suggestion in suggestions:
+                self._apply_silence_removal(suggestion, request.video_path, base_dir)
+
+        # キャッシュ保存
         cache_dir = base_dir / "clip_suggestions"
         cache_dir.mkdir(parents=True, exist_ok=True)
-        cache_path = cache_dir / f"{detection.model_used}.json"
+        self._save_cache(suggestions, detection, cache_dir / f"{detection.model_used}.json")
 
-        # 処理順序:
-        # 1. AI不要セグメント判定（独り言・挨拶等の文脈依存判定）
-        # 2. テキストフィラー削除（wordsレベル、機械的）
-        # 3. 音声フィラー検出（Whisper API）
-        # 4. 品質ループ（出来上がり音声を文字起こし→AI判定、範囲延長可能）
-        # 5. 無音削除（FCPXML直前、最終ステップ。この後のフィラー削除は行わない）
-
-        # Phase 1: AI不要セグメント判定
-        suggestions = self._apply_ai_segment_filter(
-            suggestions, request.transcription
-        )
-
-        # Phase 2: テキストフィラー削除
-        suggestions = self._apply_text_filler_removal(
-            suggestions, request.transcription
-        )
-
-        # Phase 3: 音声フィラー検出
-        api_key = self._get_api_key()
-        if api_key:
-            suggestions = self._apply_audio_filler_removal(
-                suggestions, request.video_path, api_key, request.transcription
-            )
-
-        # Phase 4: 品質ループ（出来上がり音声の文字起こし→AI判定）
-        from use_cases.ai.clip_quality_loop import run_quality_loop
-
-        quality_passed = []
-        for suggestion in suggestions:
-            result_or_none = run_quality_loop(
-                suggestion=suggestion,
-                video_path=request.video_path,
-                transcription=request.transcription,
-                gateway=self.gateway,
-                min_duration=request.min_duration,
-                max_duration=request.max_duration,
-            )
-            if result_or_none is not None:
-                quality_passed.append(result_or_none)
-            else:
-                logger.info(f"スキップ: {suggestion.title}")
-        suggestions = quality_passed
-
-        # Phase 5: 無音削除（FCPXML直前、最終ステップ）
-        if request.remove_silence:
-            suggestions = self._apply_silence_removal(
-                suggestions, request.video_path, base_dir
-            )
-
-        # キャッシュ保存（全処理完了後）
-        self._save_cache(suggestions, detection, cache_path)
-
-        # FCPXML生成
+        # Phase 5: FCPXML生成
         exported_files: list[Path] = []
         for i, suggestion in enumerate(suggestions, 1):
             filename = f"{i:02d}_{_sanitize_filename(suggestion.title)}.fcpxml"
@@ -138,30 +103,63 @@ class SuggestAndExportUseCase:
             detection_cost_usd=detection.estimated_cost_usd,
         )
 
+    def _apply_silence_removal(
+        self, suggestion: ClipSuggestion, video_path: Path, base_dir: Path
+    ) -> None:
+        """1つの候補に無音削除を適用する。"""
+        try:
+            from config import Config
+            from core.video import VideoProcessor
+
+            vp = VideoProcessor(Config())
+            temp_dir = str(base_dir / "temp_wav")
+
+            new_ranges = vp.remove_silence_new(
+                input_path=str(video_path),
+                time_ranges=suggestion.time_ranges,
+                output_dir=temp_dir,
+            )
+            if new_ranges:
+                old_dur = suggestion.total_duration
+                suggestion.time_ranges = new_ranges
+                suggestion.total_duration = sum(e - s for s, e in new_ranges)
+                logger.info(
+                    f"無音削除: {suggestion.title} "
+                    f"{old_dur:.1f}s → {suggestion.total_duration:.1f}s "
+                    f"({len(new_ranges)}クリップ)"
+                )
+
+            # temp_wav クリーンアップ
+            import shutil
+            temp_path = base_dir / "temp_wav"
+            if temp_path.exists():
+                shutil.rmtree(temp_path, ignore_errors=True)
+
+        except Exception as e:
+            logger.warning(f"無音削除失敗 ({suggestion.title}): {e}")
+
     def _export_fcpxml(
         self, suggestion: ClipSuggestion, video_path: Path, output_path: Path
     ) -> bool:
         if not suggestion.time_ranges:
             return False
 
-        from core.export import ExportSegment
-
-        segments = []
-        timeline_pos = 0.0
-        for start, end in suggestion.time_ranges:
-            segments.append(
-                ExportSegment(
-                    source_path=str(video_path),
-                    start_time=start,
-                    end_time=end,
-                    timeline_start=timeline_pos,
-                )
-            )
-            timeline_pos += end - start
-
         try:
             from config import Config
-            from core.export import FCPXMLExporter
+            from core.export import ExportSegment, FCPXMLExporter
+
+            segments = []
+            timeline_pos = 0.0
+            for start, end in suggestion.time_ranges:
+                segments.append(
+                    ExportSegment(
+                        source_path=str(video_path),
+                        start_time=start,
+                        end_time=end,
+                        timeline_start=timeline_pos,
+                    )
+                )
+                timeline_pos += end - start
 
             exporter = FCPXMLExporter(Config())
             return exporter.export(
@@ -170,12 +168,13 @@ class SuggestAndExportUseCase:
                 project_name=suggestion.title,
             )
         except Exception as e:
-            # ffprobeがない等の場合は簡易FCPXML生成にフォールバック
             logger.warning(f"FCPXMLExporter failed ({e}), using simple FCPXML")
-            return self._export_simple_fcpxml(segments, video_path, output_path, suggestion.title)
+            return self._export_simple_fcpxml(
+                suggestion, video_path, output_path
+            )
 
     def _export_simple_fcpxml(
-        self, segments, video_path: Path, output_path: Path, title: str
+        self, suggestion: ClipSuggestion, video_path: Path, output_path: Path
     ) -> bool:
         """ffprobeなしで簡易FCPXMLを生成する（DaVinci Resolve互換）"""
         from fractions import Fraction
@@ -188,15 +187,23 @@ class SuggestAndExportUseCase:
                 return "0/1s"
             return f"{frac.numerator}/{frac.denominator}s"
 
-        total_dur = sum(s.end_time - s.start_time for s in segments)
+        total_dur = sum(s.end_time - s.start_time for s in [])  # unused
         video_name = video_path.name
-
-        # URLエンコード（日本語パス対応）
-        path_str = str(video_path)
-        encoded_path = quote(path_str, safe="/:")
+        encoded_path = quote(str(video_path), safe="/:")
         video_url = f"file://{encoded_path}"
 
-        # asset-clips生成
+        from core.export import ExportSegment
+        segments = []
+        timeline_pos = 0.0
+        for start, end in suggestion.time_ranges:
+            segments.append(ExportSegment(
+                source_path=str(video_path),
+                start_time=start, end_time=end, timeline_start=timeline_pos,
+            ))
+            timeline_pos += end - start
+
+        total_dur = timeline_pos
+
         clips_xml = ""
         for seg in segments:
             dur = seg.end_time - seg.start_time
@@ -222,7 +229,7 @@ class SuggestAndExportUseCase:
     </resources>
     <library>
         <event name="TextffCut">
-            <project name="{title}">
+            <project name="{suggestion.title}">
                 <sequence duration="{to_frac(total_dur)}" tcStart="0/1s" format="r0" tcFormat="NDF">
                     <spine>
 {clips_xml}                    </spine>
@@ -234,344 +241,6 @@ class SuggestAndExportUseCase:
 
         output_path.write_text(xml, encoding="utf-8")
         return True
-
-    def _apply_ai_segment_filter(
-        self,
-        suggestions: list[ClipSuggestion],
-        transcription: TranscriptionResult,
-    ) -> list[ClipSuggestion]:
-        """AIに各セグメントの必要性を判定させ、不要セグメントのtime_rangesを除外する。"""
-        for suggestion in suggestions:
-            if not suggestion.time_ranges:
-                continue
-
-            # time_ranges内のセグメントを収集
-            segments_info = []
-            for seg in transcription.segments:
-                for tr_start, tr_end in suggestion.time_ranges:
-                    if seg.end > tr_start and seg.start < tr_end:
-                        segments_info.append({
-                            "index": len(segments_info),
-                            "text": seg.text,
-                            "start": seg.start,
-                            "end": seg.end,
-                        })
-                        break
-
-            if not segments_info:
-                continue
-
-            # AIに不要セグメントを判定させる
-            remove_indices = self.gateway.judge_segment_relevance(
-                suggestion.title, segments_info
-            )
-
-            if remove_indices:
-                # 除外するセグメントの時間帯を収集
-                remove_times = set()
-                for idx in remove_indices:
-                    if 0 <= idx < len(segments_info):
-                        seg = segments_info[idx]
-                        remove_times.add((seg["start"], seg["end"]))
-
-                # time_rangesから除外時間帯を引く
-                new_ranges = []
-                for tr_start, tr_end in suggestion.time_ranges:
-                    # この範囲が除外対象に完全に含まれるか
-                    should_remove = any(
-                        rs <= tr_start and re >= tr_end
-                        for rs, re in remove_times
-                    )
-                    if not should_remove:
-                        new_ranges.append((tr_start, tr_end))
-
-                if new_ranges:
-                    old_dur = suggestion.total_duration
-                    suggestion.time_ranges = new_ranges
-                    suggestion.total_duration = sum(e - s for s, e in new_ranges)
-                    logger.info(
-                        f"AIセグメントフィルタ: {suggestion.title} "
-                        f"{old_dur:.1f}s → {suggestion.total_duration:.1f}s"
-                    )
-
-        return suggestions
-
-    def _apply_text_filler_removal(
-        self,
-        suggestions: list[ClipSuggestion],
-        transcription: TranscriptionResult,
-    ) -> list[ClipSuggestion]:
-        """無音削除後のtime_rangesに対してwordsレベルでフィラーを除去する"""
-        from use_cases.ai.mechanical_clip_editor import (
-            FILLER_ONLY_TEXTS,
-            _build_ranges_skipping_fillers,
-        )
-
-        for suggestion in suggestions:
-            if not suggestion.time_ranges:
-                continue
-
-            new_ranges = []
-            for tr_start, tr_end in suggestion.time_ranges:
-                # このtime_range内のセグメントを探す
-                for seg in transcription.segments:
-                    if seg.end <= tr_start or seg.start >= tr_end:
-                        continue
-
-                    # セグメント全体がフィラーなら除外
-                    if seg.text.strip() in FILLER_ONLY_TEXTS:
-                        continue
-
-                    # wordsレベルでフィラーをスキップ
-                    sub_ranges = _build_ranges_skipping_fillers(seg)
-                    for sr_start, sr_end, _ in sub_ranges:
-                        # time_rangeとの重なり部分だけ採用
-                        clipped_start = max(sr_start, tr_start)
-                        clipped_end = min(sr_end, tr_end)
-                        if clipped_start < clipped_end - 0.05:
-                            new_ranges.append((clipped_start, clipped_end))
-
-            if new_ranges:
-                # 短すぎるクリップ（0.3秒未満）を除去
-                new_ranges = [(s, e) for s, e in new_ranges if e - s >= 0.3]
-
-                # 近接するクリップをマージ（0.15秒以内のギャップ）
-                if new_ranges:
-                    merged = [new_ranges[0]]
-                    for s, e in new_ranges[1:]:
-                        prev_s, prev_e = merged[-1]
-                        if s - prev_e <= 0.15:
-                            merged[-1] = (prev_s, e)
-                        else:
-                            merged.append((s, e))
-                    new_ranges = merged
-
-                old_dur = suggestion.total_duration
-                suggestion.time_ranges = new_ranges
-                suggestion.total_duration = sum(e - s for s, e in new_ranges)
-                logger.info(
-                    f"テキストフィラー削除: {suggestion.title} "
-                    f"{old_dur:.1f}s → {suggestion.total_duration:.1f}s "
-                    f"({len(new_ranges)}クリップ)"
-                )
-
-        return suggestions
-
-    def _get_api_key(self) -> str:
-        """APIキーを取得する"""
-        import os
-        return os.environ.get("OPENAI_API_KEY") or os.environ.get("TEXTFFCUT_API_KEY") or ""
-
-    def _apply_audio_filler_removal(
-        self,
-        suggestions: list[ClipSuggestion],
-        video_path: Path,
-        api_key: str,
-        transcription: TranscriptionResult | None = None,
-    ) -> list[ClipSuggestion]:
-        """Whisper APIで音声フィラーを検出し除去する"""
-        if not api_key:
-            logger.warning("APIキー未設定のため音声フィラー検出をスキップ")
-            return suggestions
-
-        try:
-            from use_cases.ai.audio_filler_detector import (
-                apply_filler_removal,
-                detect_fillers_with_whisper,
-            )
-
-            for suggestion in suggestions:
-                if not suggestion.time_ranges:
-                    continue
-                try:
-                    fillers = detect_fillers_with_whisper(
-                        video_path, suggestion.time_ranges, api_key
-                    )
-                    if fillers:
-                        old_ranges = len(suggestion.time_ranges)
-                        suggestion.time_ranges = apply_filler_removal(
-                            suggestion.time_ranges, fillers, transcription
-                        )
-                        suggestion.total_duration = sum(
-                            e - s for s, e in suggestion.time_ranges
-                        )
-                        logger.info(
-                            f"音声フィラー{len(fillers)}個除去: {suggestion.title} "
-                            f"({old_ranges}→{len(suggestion.time_ranges)}クリップ)"
-                        )
-                except Exception as e:
-                    logger.warning(f"音声フィラー検出失敗 ({suggestion.title}): {e}")
-        except ImportError as e:
-            logger.warning(f"音声フィラー検出モジュール読み込み失敗: {e}")
-
-        return suggestions
-
-    def _check_and_fix_naturalness(
-        self,
-        suggestions: list[ClipSuggestion],
-        video_path: Path,
-        transcription: TranscriptionResult | None = None,
-    ) -> tuple[list[ClipSuggestion], int]:
-        """ピッチ分析 + AIレビューでカットの自然さをチェック・修正する。
-
-        Returns:
-            (suggestions, fixed_count) fixed_countが0なら修正不要
-        """
-        total_fixed = 0
-        try:
-            from use_cases.ai.audio_filler_detector import check_cut_naturalness
-
-            for suggestion in suggestions:
-                if not suggestion.time_ranges or len(suggestion.time_ranges) < 2:
-                    continue
-
-                # 各クリップの終端でピッチ分析
-                cut_points = [end for _, end in suggestion.time_ranges[:-1]]
-                naturalness = check_cut_naturalness(video_path, cut_points)
-
-                # ピッチに問題があるカット点を収集
-                cut_issues = []
-                for i, nat in enumerate(naturalness):
-                    if not nat.is_natural and nat.confidence > 0.3:
-                        cut_issues.append({
-                            "index": i,
-                            "direction": nat.pitch_direction,
-                            "text": suggestion.text[i * 50 : (i + 1) * 50] if suggestion.text else "",
-                        })
-
-                if cut_issues:
-                    logger.info(
-                        f"ピッチ問題{len(cut_issues)}個検出: {suggestion.title}"
-                    )
-
-                # 常にAIレビューを実行（ピッチ問題がなくても文章の自然さをチェック）
-                segments_text = self._get_text_for_ranges(
-                    suggestion, transcription
-                )
-
-                reviews = self.gateway.review_naturalness(
-                    suggestion.title, segments_text, cut_issues
-                )
-
-                # "extend"アクションを適用（隣接クリップを結合）
-                old_count = len(suggestion.time_ranges)
-                suggestion.time_ranges = self._apply_reviews(
-                    suggestion.time_ranges, reviews
-                )
-                suggestion.total_duration = sum(
-                    e - s for s, e in suggestion.time_ranges
-                )
-                if len(suggestion.time_ranges) != old_count:
-                    total_fixed += old_count - len(suggestion.time_ranges)
-
-        except ImportError as e:
-            logger.warning(f"ピッチ分析モジュール読み込み失敗: {e}")
-        except Exception as e:
-            logger.warning(f"自然さチェック失敗: {e}")
-
-        return suggestions, total_fixed
-
-    def _get_text_for_ranges(
-        self,
-        suggestion: ClipSuggestion,
-        transcription: TranscriptionResult | None,
-    ) -> list[str]:
-        """各time_rangeに対応するテキストを取得する"""
-        if not transcription or not suggestion.time_ranges:
-            return [f"({s:.1f}s-{e:.1f}s)" for s, e in suggestion.time_ranges]
-
-        result = []
-        for tr_start, tr_end in suggestion.time_ranges:
-            texts = []
-            for seg in transcription.segments:
-                # セグメントがtime_rangeと重なるか
-                if seg.end > tr_start and seg.start < tr_end:
-                    texts.append(seg.text)
-            clip_text = "".join(texts) if texts else ""
-            result.append(f"({tr_start:.1f}s-{tr_end:.1f}s) {clip_text[:150]}")
-        return result
-
-    def _apply_reviews(
-        self,
-        time_ranges: list[tuple[float, float]],
-        reviews: list[dict],
-    ) -> list[tuple[float, float]]:
-        """AIレビューの"extend"アクションを適用する（隣接クリップを結合）"""
-        if not reviews:
-            return time_ranges
-
-        # extend対象のインデックスを収集
-        extend_indices = set()
-        for review in reviews:
-            if review.get("action") == "extend":
-                idx = review.get("index", -1)
-                if 0 <= idx < len(time_ranges) - 1:
-                    extend_indices.add(idx)
-
-        if not extend_indices:
-            return time_ranges
-
-        # 結合処理
-        merged = []
-        i = 0
-        while i < len(time_ranges):
-            start, end = time_ranges[i]
-            # extendなら次のクリップと結合
-            while i in extend_indices and i + 1 < len(time_ranges):
-                i += 1
-                _, end = time_ranges[i]
-            merged.append((start, end))
-            i += 1
-
-        return merged
-
-    def _apply_silence_removal(
-        self,
-        suggestions: list[ClipSuggestion],
-        video_path: Path,
-        base_dir: Path,
-    ) -> list[ClipSuggestion]:
-        """各候補のtime_rangesに無音削除を適用する"""
-        try:
-            from config import Config
-            from core.video import VideoProcessor
-
-            vp = VideoProcessor(Config())
-            temp_dir = str(base_dir / "temp_wav")
-
-            for suggestion in suggestions:
-                if not suggestion.time_ranges:
-                    continue
-                try:
-                    new_ranges = vp.remove_silence_new(
-                        input_path=str(video_path),
-                        time_ranges=suggestion.time_ranges,
-                        output_dir=temp_dir,
-                    )
-                    if new_ranges:
-                        old_dur = suggestion.total_duration
-                        suggestion.time_ranges = new_ranges
-                        suggestion.total_duration = sum(
-                            e - s for s, e in new_ranges
-                        )
-                        logger.info(
-                            f"無音削除: {suggestion.title} "
-                            f"{old_dur:.1f}s → {suggestion.total_duration:.1f}s "
-                            f"({len(new_ranges)}クリップ)"
-                        )
-                except Exception as e:
-                    logger.warning(f"無音削除失敗 ({suggestion.title}): {e}")
-
-            # temp_wav クリーンアップ
-            import shutil
-            temp_path = base_dir / "temp_wav"
-            if temp_path.exists():
-                shutil.rmtree(temp_path, ignore_errors=True)
-
-        except ImportError as e:
-            logger.warning(f"無音削除に必要なモジュールが見つかりません: {e}")
-
-        return suggestions
 
     def _save_cache(self, suggestions, detection, path: Path) -> None:
         cache_data = {
