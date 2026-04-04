@@ -63,17 +63,16 @@ class SuggestAndExportUseCase:
         fcpxml_dir = base_dir / "fcpxml"
         fcpxml_dir.mkdir(parents=True, exist_ok=True)
 
-        # キャッシュ保存
+        # キャッシュ保存は全処理完了後（無音削除後）に行う
         cache_dir = base_dir / "clip_suggestions"
         cache_dir.mkdir(parents=True, exist_ok=True)
-        self._save_cache(suggestions, detection, cache_dir / f"{detection.model_used}.json")
+        cache_path = cache_dir / f"{detection.model_used}.json"
 
         # 処理順序:
-        # 1. 音声フィラー検出（Whisper API、大きめrangesに対して）
+        # 1. 音声フィラー検出（Whisper API）
         # 2. テキストフィラー削除（wordsベース）
-        # 3. 無音削除（WAVベース、最後に間を詰める）
-        # フィラー = 発話を消す → 先にやる
-        # 無音 = 間を詰める → 最後にやる
+        # 3. 品質ループ（ピッチ分析+AI自然さ+デュレーション調整）
+        # 4. 無音削除（WAVベース、最終ステップ — 品質ループで結合されないように最後）
         api_key = self._get_api_key()
         if api_key:
             suggestions = self._apply_audio_filler_removal(
@@ -84,13 +83,7 @@ class SuggestAndExportUseCase:
             suggestions, request.transcription
         )
 
-        if request.remove_silence:
-            suggestions = self._apply_silence_removal(
-                suggestions, request.video_path, base_dir
-            )
-
-        # 統合品質チェック→修正ループ
-        # （全チェック→種類別修正→再チェック を繰り返す）
+        # 品質ループ（無音削除の前に実行）
         from use_cases.ai.clip_quality_loop import run_quality_loop
 
         quality_passed = []
@@ -108,6 +101,15 @@ class SuggestAndExportUseCase:
             else:
                 logger.info(f"スキップ: {suggestion.title}")
         suggestions = quality_passed
+
+        # 無音削除（最終ステップ — 品質ループのextendで結合されないように最後に実行）
+        if request.remove_silence:
+            suggestions = self._apply_silence_removal(
+                suggestions, request.video_path, base_dir
+            )
+
+        # キャッシュ保存（全処理完了後）
+        self._save_cache(suggestions, detection, cache_path)
 
         # FCPXML生成
         exported_files: list[Path] = []
