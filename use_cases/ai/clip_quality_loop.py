@@ -69,9 +69,21 @@ def run_quality_loop(
                 break
             continue
 
-        # AI品質判定（出来上がりテキストで判断）
+        # 音響分析（クリップ結合部の自然さ）
+        audio_issues = []
+        try:
+            from use_cases.ai.audio_naturalness import analyze_join_naturalness
+            joins = analyze_join_naturalness(video_path, suggestion.time_ranges)
+            audio_issues = [
+                f"クリップ{j.index+1}→{j.index+2}の結合部: {j.detail}"
+                for j in joins if not j.is_natural
+            ]
+        except Exception as e:
+            logger.debug(f"音響分析スキップ: {e}")
+
+        # AI品質判定（出来上がりテキスト + 音響分析結果）
         result = _ai_quality_check(
-            suggestion.title, transcribed, gateway
+            suggestion.title, transcribed, gateway, audio_issues
         )
 
         if result.is_ok:
@@ -167,6 +179,7 @@ def _ai_quality_check(
     title: str,
     transcribed_text: str,
     gateway: ClipSuggestionGatewayInterface,
+    audio_issues: list[str] | None = None,
 ) -> QualityCheckResult:
     """出来上がりテキストをAIに判定させる。"""
     try:
@@ -185,6 +198,9 @@ def _ai_quality_check(
 
 特に5について: たとえ時間内に収まっていても、もっとシンプルにできる部分があれば指摘してください。
 言いたいことがわかる部分だけ残して、それ以外はバッサリ切るべきです。
+
+6. 音声の不自然なカット（音圧やピッチが急変するつなぎ目がある）
+{chr(10).join(f'  - {issue}' for issue in (audio_issues or [])) or '  音響分析: 問題なし'}
 
 JSON: {{"ok": true/false, "issues": ["問題1", "問題2"], "fix_suggestions": ["末尾を○○の後で切る", "冒頭の○○を削除", "中間の○○は冗長なので削除"]}}
 問題がなければ {{"ok": true, "issues": [], "fix_suggestions": []}}"""
@@ -226,6 +242,7 @@ def _apply_ai_fixes(
     has_start_issue = any(w in issues_str for w in ["冒頭", "文脈", "何の話", "わからない"])
     has_conclusion_issue = any(w in issues_str for w in ["結論", "前置き", "incomplete"])
     has_redundancy = any(w in issues_str for w in ["冗長", "繰り返し", "シンプル", "回りくどい", "不要", "削除"])
+    has_audio_issue = any(w in issues_str for w in ["音圧", "ピッチ", "音響", "カット"])
 
     # 冒頭に文脈がない → 前方に延長（AIに必要なセグメントを判断させる）
     if has_start_issue:
@@ -250,13 +267,12 @@ def _apply_ai_fixes(
             logger.info(f"  末尾トリム: {old}→{len(suggestion.time_ranges)}クリップ")
             return True
 
-    # 冗長 → 中間カット（duration内でもシンプルにする）
-    if has_redundancy and len(suggestion.time_ranges) > 3:
+    # 冗長 or 音響不自然 → 中間カット
+    if (has_redundancy or has_audio_issue) and len(suggestion.time_ranges) > 3:
         _trim_duration(suggestion, transcription,
-                       suggestion.total_duration,  # 現在のdurationをtargetに
+                       suggestion.total_duration,
                        gateway, video_path)
-        # 実際にクリップ数が減ったか確認
-        return True  # 常にTrue（AIが何も削除しなくても再チェックは行う）
+        return True
 
     return False
 
