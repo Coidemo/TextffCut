@@ -111,7 +111,11 @@ def _create_entries(
     max_chars_per_line: int,
     max_lines: int,
 ) -> list[SRTEntry]:
-    """time_ranges内のセグメントからSRTエントリを生成する。"""
+    """time_ranges内のセグメントからSRTエントリを生成する。
+
+    セグメントを積極的にマージし、max_chars_totalに収まる意味の塊にする。
+    2行目に短い接続詞だけ残る場合は省略する。
+    """
     # time_ranges内のセグメントを収集
     raw_segments = []
     for seg in transcription.segments:
@@ -123,61 +127,210 @@ def _create_entries(
     if not raw_segments:
         return []
 
-    # セグメントをグループ化（隣接するものをまとめて字幕ブロックにする）
-    entries = []
-    max_chars_total = max_chars_per_line * max_lines
-
-    current_text = ""
-    current_start = None
-    current_end = None
-
+    # 全セグメントのテキストをフィラー除去してタイムライン時間付きで収集
+    cleaned_parts: list[tuple[str, float, float]] = []  # (text, tl_start, tl_end)
     for seg in raw_segments:
-        # フィラーのみのセグメントはスキップ
         if seg.text.strip() in FILLER_ONLY_TEXTS:
             continue
-
-        # テキストからフィラーを除去
         cleaned = _remove_fillers(seg.text)
         if not cleaned:
             continue
-
         tl_start = _to_timeline_time(seg.start, timeline_map)
         tl_end = _to_timeline_time(seg.end, timeline_map)
         if tl_start is None or tl_end is None:
             continue
+        cleaned_parts.append((cleaned, tl_start, tl_end))
 
-        # 現在のブロックに追加できるか
-        if current_start is not None:
-            combined = current_text + cleaned
-            if len(combined) <= max_chars_total and tl_start - current_end < 0.5:
-                # 同じブロックに追加
-                current_text = combined
-                current_end = tl_end
-                continue
-            else:
-                # 現在のブロックを確定
-                entry = _finalize_entry(
-                    len(entries) + 1, current_start, current_end,
-                    current_text, max_chars_per_line, max_lines,
-                )
-                if entry:
-                    entries.append(entry)
+    if not cleaned_parts:
+        return []
 
-        # 新しいブロック開始
-        current_text = cleaned
-        current_start = tl_start
-        current_end = tl_end
+    # 全テキストを結合 + 文字位置→時間マッピング
+    full_text = ""
+    char_times: list[float] = []  # 各文字の開始時間
 
-    # 最後のブロックを確定
-    if current_start is not None:
-        entry = _finalize_entry(
-            len(entries) + 1, current_start, current_end,
-            current_text, max_chars_per_line, max_lines,
+    for text, tl_start, tl_end in cleaned_parts:
+        char_dur = (tl_end - tl_start) / max(len(text), 1)
+        for i in range(len(text)):
+            char_times.append(tl_start + i * char_dur)
+        full_text += text
+
+    if not full_text:
+        return []
+
+    # AIに字幕分割を依頼
+    blocks = _ai_split_subtitles(full_text, max_chars_per_line, max_lines)
+
+    if not blocks:
+        return []
+
+    # 各ブロックのタイムスタンプを計算（全テキスト内での位置から逆算）
+    entries = []
+    search_pos = 0
+    for block_text in blocks:
+        # full_text内でのblock_textの位置を探す
+        # （AIがフィラー省略等で元テキストと完全一致しない場合に備えてfuzzy検索）
+        start_idx = _find_block_position(full_text, block_text, search_pos)
+        if start_idx < 0:
+            continue
+
+        end_idx = start_idx + len(block_text) - 1
+        if end_idx >= len(char_times):
+            end_idx = len(char_times) - 1
+
+        tl_start = char_times[start_idx]
+        tl_end = char_times[end_idx] + (char_times[1] - char_times[0] if len(char_times) > 1 else 0.1)
+
+        # 改行処理（AIが改行を入れていなければ自動改行）
+        formatted = block_text
+        if "\n" not in formatted and len(formatted) > max_chars_per_line:
+            formatted = _format_text(formatted, max_chars_per_line, max_lines)
+
+        entry = SRTEntry(
+            index=len(entries) + 1,
+            start_time=max(0, tl_start),
+            end_time=tl_end,
+            text=formatted,
         )
-        if entry:
-            entries.append(entry)
+        entries.append(entry)
+        search_pos = start_idx + 1
 
     return entries
+
+
+def _ai_split_subtitles(
+    full_text: str,
+    max_chars_per_line: int,
+    max_lines: int,
+) -> list[str]:
+    """AIにテキストを字幕ブロックに分割させる。"""
+    import json
+    import os
+
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except ImportError:
+        pass
+
+    api_key = os.environ.get("OPENAI_API_KEY") or os.environ.get("TEXTFFCUT_API_KEY")
+    if not api_key:
+        return _fallback_split(full_text, max_chars_per_line * max_lines)
+
+    max_chars_total = max_chars_per_line * max_lines
+
+    try:
+        from openai import OpenAI
+        client = OpenAI(api_key=api_key)
+
+        prompt = f"""以下のテキストをショート動画の字幕用に分割してください。
+
+ルール:
+- 1ブロックは最大{max_chars_total}文字（{max_chars_per_line}文字×{max_lines}行）
+- 意味のまとまりで区切る（文の途中で切らない）
+- フィラー（「あの」「まあ」「えー」「なんか」等）は省略してよい
+- 「ので」「けど」「から」等の接続詞だけで1ブロックにしない
+- 省略しても意味が通じる口語表現は簡潔にしてよい
+- 句読点は使わない
+- 改行が必要な場合は\\nで入れる（{max_chars_per_line}文字を超える場合）
+- 改行位置は助詞の後や文節の切れ目など自然な位置で
+
+テキスト:
+{full_text}
+
+JSON: {{"blocks": ["ブロック1", "ブロック2", ...]}}"""
+
+        response = client.chat.completions.create(
+            model="gpt-4.1-mini",
+            messages=[
+                {"role": "system", "content": "ショート動画の字幕分割担当。JSON形式で回答。"},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.2,
+            max_tokens=2000,
+            response_format={"type": "json_object"},
+        )
+        result = json.loads(response.choices[0].message.content)
+        blocks = result.get("blocks", [])
+        if blocks:
+            logger.info(f"AI字幕分割: {len(blocks)}ブロック")
+            return blocks
+    except Exception as e:
+        logger.warning(f"AI字幕分割失敗: {e}")
+
+    return _fallback_split(full_text, max_chars_total)
+
+
+def _fallback_split(text: str, max_chars: int) -> list[str]:
+    """AIが使えない場合のフォールバック分割。"""
+    blocks = []
+    remaining = text
+    while remaining:
+        if len(remaining) <= max_chars:
+            blocks.append(remaining)
+            break
+        blocks.append(remaining[:max_chars])
+        remaining = remaining[max_chars:]
+    return blocks
+
+
+def _find_block_position(full_text: str, block_text: str, search_from: int) -> int:
+    """full_text内でblock_textの開始位置を探す。
+
+    AIがフィラー省略等でテキストを変更している場合、
+    ブロックの最初の数文字で部分一致検索する。
+    """
+    # 改行を除去して検索
+    clean_block = block_text.replace("\n", "")
+
+    # 完全一致
+    pos = full_text.find(clean_block, search_from)
+    if pos >= 0:
+        return pos
+
+    # 先頭5文字で部分一致
+    prefix = clean_block[:5]
+    if prefix:
+        pos = full_text.find(prefix, search_from)
+        if pos >= 0:
+            return pos
+
+    # 先頭3文字で部分一致
+    prefix = clean_block[:3]
+    if prefix:
+        pos = full_text.find(prefix, search_from)
+        if pos >= 0:
+            return pos
+
+    return -1
+
+
+# 2行目に残ると不格好な末尾パターン
+TRAILING_CONNECTORS = [
+    "ので", "けど", "から", "のは", "のが", "って",
+    "けれども", "ですが", "ですけど", "んですけど",
+]
+
+
+LEADING_FRAGMENTS = [
+    "のは", "のが", "って", "ですよ", "よね", "ですけど",
+    "んですけど", "んですが", "はいいんですけど",
+]
+
+
+def _trim_leading_fragments(text: str) -> str:
+    """先頭の接続詞残骸を除去する（前のブロックの続きが残った場合）。"""
+    for frag in sorted(LEADING_FRAGMENTS, key=len, reverse=True):
+        if text.startswith(frag) and len(text) > len(frag) + 3:
+            return text[len(frag):]
+    return text
+
+
+def _trim_trailing_connectors(text: str) -> str:
+    """末尾の接続詞を省略する（省略しても意味が通じる場合）。"""
+    for conn in sorted(TRAILING_CONNECTORS, key=len, reverse=True):
+        if text.endswith(conn) and len(text) > len(conn) + 3:
+            return text[: -len(conn)]
+    return text
 
 
 def _remove_fillers(text: str) -> str:
