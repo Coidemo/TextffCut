@@ -45,6 +45,7 @@ def polish_fillers(
     """最終候補のtime_ranges内に残ったフィラーをwordsレベルで除去する。
 
     各フィラーカットを個別に適用し、音響チェックに通らなければ取り消す。
+    transcriptionにwordsがない場合は、候補範囲だけアライメントを実行する。
     """
     if not suggestion.time_ranges:
         return suggestion
