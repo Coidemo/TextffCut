@@ -1,15 +1,16 @@
 """
 SRT字幕自動生成
 
-方式:
-Phase 1: 全テキストを11文字以下のブロックに分割（全単語境界探索）
-Phase 2: 隣接ブロックを結合して2行にするか1行のままにするかのパターンを生成
-Phase 3: スコアリングで最良パターンを選出
+Phase 1: 全テキストをDP探索で最小ブロックに分割（全単語境界）
+Phase 2: 隣接ブロックをDPで結合して11文字以下の1行にまとめる
+Phase 3: 隣接する1行を2行ブロックにまとめるかAIに判断させる
 """
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -20,7 +21,13 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_CHARS_PER_LINE = 11
 DEFAULT_MAX_LINES = 2
-SEARCH_WINDOW = 40
+
+
+@dataclass
+class TextBlock:
+    text: str
+    start_pos: int
+    end_pos: int
 
 
 @dataclass
@@ -50,11 +57,14 @@ def generate_srt(
     if not full_text:
         return None
 
-    # Phase 1: 11文字以下のブロックに分割
-    blocks = _split_into_lines(full_text, max_chars_per_line, seg_bounds)
+    # Phase 1: 最小ブロックに分割
+    micro_blocks = _phase1_split(full_text, seg_bounds)
 
-    # Phase 2: 隣接ブロック結合パターンを生成→スコアリング
-    entries = _merge_and_score(blocks, char_times, full_text, max_chars_per_line, max_lines, seg_bounds)
+    # Phase 2: 11文字以下の1行にまとめる
+    lines = _phase2_merge_to_lines(micro_blocks, max_chars_per_line, seg_bounds)
+
+    # Phase 3: 2行ブロックにまとめるかAIに判断させる
+    entries = _phase3_ai_group(lines, char_times, max_chars_per_line)
 
     if not entries:
         return None
@@ -64,40 +74,31 @@ def generate_srt(
     return output_path
 
 
-# --- Phase 1: 11文字以下に分割 ---
+# =============================================
+# Phase 1: 全テキストをDP探索で最小ブロックに分割
+# =============================================
 
-@dataclass
-class TextBlock:
-    text: str
-    start_pos: int  # full_text内の開始位置
-    end_pos: int    # full_text内の終了位置
-
-
-def _split_into_lines(full_text: str, max_chars: int, seg_bounds: set[int]) -> list[TextBlock]:
-    """DPで全テキストの最適分割を見つける。
-
-    後続ブロックの品質も考慮して、全体最適な分割を選ぶ。
-    """
+def _phase1_split(full_text: str, seg_bounds: set[int]) -> list[TextBlock]:
     n = len(full_text)
-    if n <= max_chars:
-        return [TextBlock(full_text, 0, n)]
+    if n == 0:
+        return []
 
     try:
         from core.japanese_line_break import JapaneseLineBreakRules
         bp = JapaneseLineBreakRules.get_word_boundaries_with_pos(full_text)
         boundaries = sorted(set([b for b, _, _ in bp if 0 < b < n]))
     except ImportError:
-        bp = []
         boundaries = list(range(1, n))
+        bp = []
 
-    # 各分割点のスコアを事前計算
+    # 分割点スコア
     cut_scores = {}
     for b in boundaries:
         score = 0.0
         if b in seg_bounds:
             score += 50
-        for boundary_pos, surface, pos_tag in bp:
-            if boundary_pos == b:
+        for pos, surface, pos_tag in bp:
+            if pos == b:
                 if pos_tag == "助詞":
                     score += 30
                 elif pos_tag in ("動詞", "形容詞"):
@@ -107,50 +108,35 @@ def _split_into_lines(full_text: str, max_chars: int, seg_bounds: set[int]) -> l
                 break
         cut_scores[b] = score
 
-    # DP: dp[i] = (best_total_score, prev_position)
+    # DP（11文字以下で分割）
+    MAX_BLOCK = 11
     dp = {0: (0.0, -1)}
-
-    # 全ての有効な開始位置 = 0 + 全境界位置
     all_positions = sorted(set([0] + boundaries))
 
     for i in all_positions:
         if i not in dp or i >= n:
             continue
-        current_score = dp[i][0]
-
         for b in boundaries:
             if b <= i:
                 continue
-            block_len = b - i
-            if block_len > max_chars:
+            if b - i > MAX_BLOCK:
                 break
-            if block_len < 2:
+            if b - i < 2:
                 continue
-
-            new_score = current_score + cut_scores.get(b, 0)
-            if block_len <= 2:
+            new_score = dp[i][0] + cut_scores.get(b, 0)
+            if b - i <= 2:
                 new_score -= 20
-
             if b not in dp or new_score > dp[b][0]:
                 dp[b] = (new_score, i)
 
-        # 末尾ブロック
         remaining = n - i
-        if 2 <= remaining <= max_chars:
-            if n not in dp or current_score > dp[n][0]:
-                dp[n] = (current_score, i)
+        if 2 <= remaining <= MAX_BLOCK:
+            if n not in dp or dp[i][0] > dp.get(n, (-999, -1))[0]:
+                dp[n] = (dp[i][0], i)
 
     if n not in dp:
-        # フォールバック
-        blocks = []
-        pos = 0
-        while pos < n:
-            end = min(pos + max_chars, n)
-            blocks.append(TextBlock(full_text[pos:end], pos, end))
-            pos = end
-        return blocks
+        return [TextBlock(full_text, 0, n)]
 
-    # 分割点を逆順に復元
     points = []
     pos = n
     while pos > 0:
@@ -168,61 +154,128 @@ def _split_into_lines(full_text: str, max_chars: int, seg_bounds: set[int]) -> l
     return blocks
 
 
-# --- Phase 2: 結合パターン生成→スコアリング ---
+# =============================================
+# Phase 2: 隣接ブロックをDPで結合して11文字以下の1行に
+# =============================================
 
-def _merge_and_score(
+def _phase2_merge_to_lines(
     blocks: list[TextBlock],
-    char_times: list[tuple[float, float]],
-    full_text: str,
-    max_chars_per_line: int,
-    max_lines: int,
-    seg_bounds: set[int] | None = None,
-) -> list[SRTEntry]:
-    """AIに隣接ブロックの結合判断を依頼し、SRTEntryを生成する。"""
-    max_total = max_chars_per_line * max_lines
+    max_chars: int,
+    seg_bounds: set[int],
+) -> list[TextBlock]:
+    """隣接するmicro_blocksを結合して、各行がmax_chars以下になるようにする。
+
+    DPで全体最適な結合を見つける。
+    セグメント境界をまたぐ結合はペナルティ。
+    """
     n = len(blocks)
     if n == 0:
         return []
 
-    # AIに結合パターンを判断させる
-    merge_decisions = _ai_merge_blocks(blocks, max_total)
+    # dp[i] = (score, prev_group_start)
+    # i = 次のグループの開始ブロックindex
+    dp = {0: (0.0, -1)}
 
-    # 結合判断に従ってSRTEntryを生成
+    for i in range(n):
+        if i not in dp:
+            continue
+        current_score = dp[i][0]
+
+        # i から j までのブロックを1行に結合
+        combined_len = 0
+        for j in range(i, n):
+            combined_len += len(blocks[j].text)
+            if combined_len > max_chars:
+                break
+
+            # セグメント境界をまたぐ結合はペナルティ
+            crosses = False
+            if j > i:
+                for k in range(i + 1, j + 1):
+                    if blocks[k].start_pos in seg_bounds:
+                        crosses = True
+                        break
+
+            score = current_score
+            # 適度な長さにボーナス
+            if combined_len >= 6:
+                score += 5
+            if combined_len >= 9:
+                score += 3
+            if crosses:
+                score -= 10
+
+            next_i = j + 1
+            if next_i not in dp or score > dp[next_i][0]:
+                dp[next_i] = (score, i)
+
+    if n not in dp:
+        return blocks
+
+    # 逆順に復元
+    group_starts = []
+    pos = n
+    while pos > 0:
+        start = dp[pos][1]
+        group_starts.append(start)
+        pos = start
+    group_starts.reverse()
+
+    # グループからTextBlockを生成
+    lines = []
+    for idx, gs in enumerate(group_starts):
+        ge = group_starts[idx + 1] if idx + 1 < len(group_starts) else n
+        text = "".join(blocks[k].text for k in range(gs, ge))
+        lines.append(TextBlock(text, blocks[gs].start_pos, blocks[ge - 1].end_pos))
+
+    return lines
+
+
+# =============================================
+# Phase 3: 隣接1行を2行ブロックにまとめるかAIに判断
+# =============================================
+
+def _phase3_ai_group(
+    lines: list[TextBlock],
+    char_times: list[tuple[float, float]],
+    max_chars_per_line: int,
+) -> list[SRTEntry]:
+    max_total = max_chars_per_line * 2
+    n = len(lines)
+
+    # AI判断
+    groups = _ai_group_lines(lines, max_total)
+
+    # グループからSRTEntryを生成
     entries = []
-    i = 0
-    idx = 1
-    while i < n:
-        block = blocks[i]
+    for group in groups:
+        if not group:
+            continue
+        group_lines = [lines[i] for i in group if i < n]
+        if not group_lines:
+            continue
 
-        if i in merge_decisions and i + 1 < n:
-            # 結合
-            next_block = blocks[i + 1]
-            text = f"{block.text}\n{next_block.text}"
-            tl_start = _char_to_time(block.start_pos, char_times, True)
-            tl_end = _char_to_time(next_block.end_pos - 1, char_times, False)
-            entries.append(SRTEntry(idx, tl_start, tl_end, text))
-            idx += 1
-            i += 2
+        if len(group_lines) == 1:
+            text = group_lines[0].text
         else:
-            # 単独
-            tl_start = _char_to_time(block.start_pos, char_times, True)
-            tl_end = _char_to_time(block.end_pos - 1, char_times, False)
-            entries.append(SRTEntry(idx, tl_start, tl_end, block.text))
-            idx += 1
-            i += 1
+            text = "\n".join(gl.text for gl in group_lines)
+
+        start_pos = group_lines[0].start_pos
+        end_pos = group_lines[-1].end_pos
+        tl_start = _char_time(start_pos, char_times, True)
+        tl_end = _char_time(end_pos - 1, char_times, False)
+
+        entries.append(SRTEntry(
+            index=len(entries) + 1,
+            start_time=tl_start,
+            end_time=tl_end,
+            text=text,
+        ))
 
     return entries
 
 
-def _ai_merge_blocks(blocks: list[TextBlock], max_total: int) -> set[int]:
-    """AIに「どの隣接ブロックを2行にまとめるか」を判断させる。
-
-    Returns:
-        結合するブロックのインデックスのset。
-        {3}なら blocks[3]とblocks[4]を結合。
-    """
-    import os
-
+def _ai_group_lines(lines: list[TextBlock], max_total: int) -> list[list[int]]:
     try:
         from dotenv import load_dotenv
         load_dotenv()
@@ -231,22 +284,9 @@ def _ai_merge_blocks(blocks: list[TextBlock], max_total: int) -> set[int]:
 
     api_key = os.environ.get("OPENAI_API_KEY") or os.environ.get("TEXTFFCUT_API_KEY")
     if not api_key:
-        # フォールバック: 貪欲結合
-        return _greedy_merge_decisions(blocks, max_total)
+        return _fallback_group(lines, max_total)
 
-    # ブロック一覧を作成
-    block_list = "\n".join(
-        f"[{i}] {b.text}" for i, b in enumerate(blocks)
-    )
-
-    # 結合可能なペアを列挙
-    mergeable = []
-    for i in range(len(blocks) - 1):
-        if len(blocks[i].text) + len(blocks[i + 1].text) <= max_total:
-            mergeable.append(i)
-
-    if not mergeable:
-        return set()
+    line_list = "\n".join(f"[{i}] ({len(l.text)}字) {l.text}" for i, l in enumerate(lines))
 
     try:
         from openai import OpenAI
@@ -256,68 +296,88 @@ def _ai_merge_blocks(blocks: list[TextBlock], max_total: int) -> set[int]:
             model="gpt-4.1-mini",
             messages=[
                 {"role": "system", "content": "字幕レイアウト担当。JSON形式で回答。"},
-                {"role": "user", "content": f"""以下はショート動画の字幕ブロック（各行11文字以下）です。
-隣接する2つのブロックを「1つの字幕（2行表示）」にまとめるべきペアを選んでください。
+                {"role": "user", "content": f"""以下はショート動画の字幕（1行ずつ）です。
+これを字幕エントリにグループ化してください。
 
-判断基準:
-- 意味のまとまりが同じなら結合する（例: 「やる前から」+「商社の営業がいいか」→ 結合しない。別の意味）
-- 1つの文の前半と後半なら結合する（例: 「なりたい状態から」+「逆算するのは」→ 結合する）
-- 結合しても合計{max_total}文字以下であること
-- 結合可能なペア: {mergeable}
+ルール:
+- 1エントリは最大2行
+- 2行にする場合は合計{max_total}文字以下
+- 意味のまとまりが同じなら2行にまとめる
+  例: 「なりたい状態から」+「逆算するのは」→ 1エントリ2行
+- 異なる文・異なる意味なら別エントリにする
+  例: 「僕の主張です」+「なりたい状態から」→ 別エントリ
+- 1行のままでも構わない
 
-ブロック:
-{block_list}
+行一覧:
+{line_list}
 
-JSON: {{"merge": [結合するブロックのindex番号]}}
-例: {{"merge": [2, 5, 8]}} → [2]+[3]を結合、[5]+[6]を結合、[8]+[9]を結合
-結合不要なら {{"merge": []}}"""},
+JSON: {{"groups": [[0,1], [2], [3,4], [5,6], ...]}}
+各グループに含める行番号の配列。"""},
             ],
             temperature=0.2,
-            max_tokens=200,
+            max_tokens=500,
             response_format={"type": "json_object"},
         )
         result = json.loads(response.choices[0].message.content)
-        merge_indices = set(result.get("merge", []))
+        groups = result.get("groups", [])
 
-        # 重複回避（[3]と[4]を結合したら[4]と[5]は結合できない）
-        cleaned = set()
-        skip = set()
-        for idx in sorted(merge_indices):
-            if idx in skip or idx not in mergeable:
-                continue
-            cleaned.add(idx)
-            skip.add(idx + 1)
-
-        logger.info(f"AI字幕結合: {len(cleaned)}ペア結合 ({len(blocks)}→{len(blocks) - len(cleaned)}エントリ)")
-        return cleaned
+        # バリデーション
+        if _validate_groups(groups, len(lines), max_total, lines):
+            logger.info(f"AI字幕グループ: {len(groups)}エントリ ({len(lines)}行から)")
+            return groups
 
     except Exception as e:
-        logger.warning(f"AI字幕結合失敗: {e}")
-        return _greedy_merge_decisions(blocks, max_total)
+        logger.warning(f"AI字幕グループ失敗: {e}")
+
+    return _fallback_group(lines, max_total)
 
 
-def _greedy_merge_decisions(blocks: list[TextBlock], max_total: int) -> set[int]:
-    """フォールバック: 貪欲に結合する。"""
-    merge = set()
+def _validate_groups(groups, n, max_total, lines):
+    if not groups:
+        return False
+    used = set()
+    for g in groups:
+        if not isinstance(g, list):
+            return False
+        for idx in g:
+            if not isinstance(idx, int) or idx < 0 or idx >= n:
+                return False
+            if idx in used:
+                return False
+            used.add(idx)
+        if len(g) > 2:
+            return False
+        if len(g) == 2:
+            total = sum(len(lines[i].text) for i in g)
+            if total > max_total:
+                return False
+    return len(used) == n
+
+
+def _fallback_group(lines, max_total):
+    groups = []
     i = 0
-    while i < len(blocks) - 1:
-        if len(blocks[i].text) + len(blocks[i + 1].text) <= max_total:
-            merge.add(i)
+    while i < len(lines):
+        if i + 1 < len(lines) and len(lines[i].text) + len(lines[i + 1].text) <= max_total:
+            groups.append([i, i + 1])
             i += 2
         else:
+            groups.append([i])
             i += 1
-    return merge
+    return groups
 
 
-def _char_to_time(char_pos: int, char_times: list[tuple[float, float]], start: bool) -> float:
-    if char_pos < 0:
-        char_pos = 0
-    if char_pos >= len(char_times):
-        char_pos = len(char_times) - 1
-    return char_times[char_pos][0] if start else char_times[char_pos][1]
+# =============================================
+# ユーティリティ
+# =============================================
 
+def _char_time(pos, char_times, start):
+    if pos < 0:
+        pos = 0
+    if pos >= len(char_times):
+        pos = len(char_times) - 1
+    return char_times[pos][0] if start else char_times[pos][1]
 
-# --- タイムライン ---
 
 def _build_timeline_map(time_ranges):
     m = []
@@ -365,8 +425,6 @@ def _build_char_time_map(parts):
     seg_bounds.discard(0)
     return full, ctimes, seg_bounds
 
-
-# --- SRT出力 ---
 
 def _write_srt(entries, output_path):
     lines = []
