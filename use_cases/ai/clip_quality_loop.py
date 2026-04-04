@@ -227,9 +227,9 @@ def _apply_ai_fixes(
     has_conclusion_issue = any(w in issues_str for w in ["結論", "前置き", "incomplete"])
     has_redundancy = any(w in issues_str for w in ["冗長", "繰り返し", "シンプル", "回りくどい", "不要", "削除"])
 
-    # 冒頭に文脈がない → 前方に延長
+    # 冒頭に文脈がない → 前方に延長（AIに必要なセグメントを判断させる）
     if has_start_issue:
-        extended = _extend_range_backward(suggestion, transcription)
+        extended = _extend_range_backward(suggestion, transcription, gateway)
         if extended:
             logger.info(f"  前方延長: → {suggestion.total_duration:.0f}s")
             return True
@@ -355,29 +355,102 @@ JSON: {{"remove": [削除するクリップのindex番号], "reason": "理由"}}
 def _extend_range_backward(
     suggestion: ClipSuggestion,
     transcription: TranscriptionResult,
-    max_segments: int = 5,
+    gateway: ClipSuggestionGatewayInterface | None = None,
+    max_segments: int = 8,
 ) -> bool:
-    """冒頭の前のセグメントを追加して文脈を補完する。"""
+    """冒頭の前のセグメントを追加して文脈を補完する。
+
+    前のセグメントの中から、この話題の文脈に必要なものだけをAIに選ばせる。
+    前の話題のセグメントは追加しない。
+    """
     if not suggestion.time_ranges:
         return False
 
     min_start = min(s for s, _ in suggestion.time_ranges)
 
-    # min_startの前にあるセグメントを逆順で追加
-    prepend = []
+    # 前のセグメント候補を収集
+    candidates = []
     for seg in reversed(transcription.segments):
         if seg.end > min_start + 0.1:
             continue
         if min_start - seg.start > 30:
             break
-        prepend.insert(0, (seg.start, seg.end))
-        if len(prepend) >= max_segments:
+        candidates.insert(0, seg)
+        if len(candidates) >= max_segments:
             break
 
-    if prepend:
+    if not candidates:
+        return False
+
+    if not gateway:
+        # フォールバック: 最初の2セグメントだけ追加
+        prepend = [(seg.start, seg.end) for seg in candidates[-2:]]
         suggestion.time_ranges = prepend + suggestion.time_ranges
         suggestion.total_duration = sum(e - s for s, e in suggestion.time_ranges)
         return True
+
+    # AIに「この話題の文脈として必要なセグメントはどれか」を判断させる
+    # 現在の冒頭テキストも含めて判断材料にする
+    current_start_texts = []
+    for seg in transcription.segments:
+        for s, e in suggestion.time_ranges[:3]:
+            if seg.end > s and seg.start < e:
+                current_start_texts.append(seg.text)
+                break
+    current_start = "".join(current_start_texts)[:150]
+
+    import json
+    try:
+        cand_desc = "\n".join(
+            f"[{i}] ({seg.start:.0f}s) {seg.text}"
+            for i, seg in enumerate(candidates)
+        )
+
+        prompt = f"""ショート動画「{suggestion.title}」の冒頭に文脈が足りません。
+現在の冒頭: 「{current_start}」
+
+以下は現在の冒頭の前にあるセグメントです。
+この話題の文脈を理解するために必要なセグメントだけを選んでください。
+**前の別の話題のセグメントは選ばないでください。**
+
+候補セグメント:
+{cand_desc}
+
+JSON: {{"include": [含めるべきセグメントのindex番号], "reason": "理由"}}
+全部不要なら {{"include": [], "reason": "理由"}}"""
+
+        response = gateway.client.chat.completions.create(
+            model=gateway.model,
+            messages=[
+                {"role": "system", "content": "動画編集の文脈判断担当。JSON形式で回答。"},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.2,
+            max_tokens=200,
+            response_format={"type": "json_object"},
+        )
+        result = json.loads(response.choices[0].message.content)
+        include_indices = result.get("include", [])
+
+        if include_indices:
+            prepend = [
+                (candidates[i].start, candidates[i].end)
+                for i in include_indices
+                if 0 <= i < len(candidates)
+            ]
+            if prepend:
+                suggestion.time_ranges = prepend + suggestion.time_ranges
+                suggestion.total_duration = sum(
+                    e - s for s, e in suggestion.time_ranges
+                )
+                logger.info(
+                    f"  前方延長: {len(prepend)}セグメント追加 "
+                    f"reason: {result.get('reason','')}"
+                )
+                return True
+
+    except Exception as e:
+        logger.warning(f"前方延長AI判定失敗: {e}")
 
     return False
 
