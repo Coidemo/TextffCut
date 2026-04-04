@@ -93,19 +93,29 @@ def _phase1_split(full_text: str, seg_bounds: set[int]) -> list[TextBlock]:
 
     # 分割点スコア
     cut_scores = {}
+    bp_dict = {pos: (surface, pos_tag) for pos, surface, pos_tag in bp}
+
     for b in boundaries:
         score = 0.0
         if b in seg_bounds:
             score += 50
-        for pos, surface, pos_tag in bp:
-            if pos == b:
-                if pos_tag == "助詞":
-                    score += 30
-                elif pos_tag in ("動詞", "形容詞"):
-                    score += 15
-                elif pos_tag == "名詞":
-                    score += 8
-                break
+        surface, pos_tag = bp_dict.get(b, ("", ""))
+        if pos_tag == "助詞":
+            score += 30
+        elif pos_tag in ("動詞", "形容詞"):
+            score += 15
+        elif pos_tag == "名詞":
+            # 名詞の後に名詞が続く場合は切りにくい（複合語の可能性）
+            # 次の単語も名詞なら切るスコアを下げる
+            next_tag = ""
+            for pos2, _, tag2 in bp:
+                if pos2 > b:
+                    next_tag = tag2
+                    break
+            if next_tag == "名詞":
+                score -= 10  # 名詞+名詞の間で切るのはペナルティ
+            else:
+                score += 8
         cut_scores[b] = score
 
     # DP（11文字以下で分割）
