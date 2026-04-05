@@ -69,6 +69,29 @@ def generate_srt(
     if not entries:
         return None
 
+    # 短すぎるエントリ（0.5秒未満）を前と結合（前が1行の場合のみ）
+    merged_entries = []
+    for entry in entries:
+        dur = entry.end_time - entry.start_time
+        if dur < 0.5 and merged_entries:
+            prev = merged_entries[-1]
+            prev_lines = prev.text.count("\n") + 1
+            entry_lines = entry.text.count("\n") + 1
+            if prev_lines + entry_lines <= 2:
+                prev.text = prev.text + "\n" + entry.text
+                prev.end_time = entry.end_time
+                continue
+        merged_entries.append(entry)
+    entries = merged_entries
+
+    for i, e in enumerate(entries, 1):
+        e.index = i
+
+    # 隣接エントリ間の隙間を埋める
+    for i in range(len(entries) - 1):
+        if entries[i + 1].start_time > entries[i].end_time:
+            entries[i].end_time = entries[i + 1].start_time
+
     _write_srt(entries, output_path)
     logger.info(f"SRT生成: {len(entries)}エントリ → {output_path.name}")
     return output_path
@@ -79,33 +102,18 @@ def generate_srt(
 # =============================================
 
 def _tokenize(text: str) -> list[tuple[int, str, str]]:
-    """SudachiPy C-mode（最長一致）で形態素解析。フォールバックはjanome。
+    """janomeで形態素解析。
 
     Returns:
         [(boundary_pos, surface, pos_tag), ...]
     """
-    # SudachiPy C-mode を優先
-    try:
-        from sudachipy import Dictionary
-        tokenizer = Dictionary().create()
-        tokens = tokenizer.tokenize(text, mode=tokenizer.SplitMode.C)
-        result = []
-        pos = 0
-        for t in tokens:
-            pos += len(t.surface())
-            result.append((pos, t.surface(), t.part_of_speech()[0]))
-        return result
-    except ImportError:
-        pass
-
-    # フォールバック: janome
     try:
         from core.japanese_line_break import JapaneseLineBreakRules
         return JapaneseLineBreakRules.get_word_boundaries_with_pos(text)
     except ImportError:
         pass
 
-    # 最終フォールバック: 1文字ずつ
+    # フォールバック: 1文字ずつ
     return [(i + 1, text[i], "") for i in range(len(text))]
 
 
