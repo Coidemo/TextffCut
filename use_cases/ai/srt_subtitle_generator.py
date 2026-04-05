@@ -87,6 +87,18 @@ def _phase1_split(full_text: str, seg_bounds: set[int]) -> list[TextBlock]:
         from core.japanese_line_break import JapaneseLineBreakRules
         bp = JapaneseLineBreakRules.get_word_boundaries_with_pos(full_text)
         boundaries = sorted(set([b for b, _, _ in bp if 0 < b < n]))
+
+        # janomeが長すぎるトークンを返す場合（11文字超のギャップ）、
+        # その範囲に1文字ずつの境界をフォールバックとして追加
+        MAX_BLOCK = 11
+        all_b = sorted(set([0] + boundaries + [n]))
+        for idx in range(len(all_b) - 1):
+            gap = all_b[idx + 1] - all_b[idx]
+            if gap > MAX_BLOCK:
+                for fill in range(all_b[idx] + 1, all_b[idx + 1]):
+                    boundaries.append(fill)
+        boundaries = sorted(set(boundaries))
+
     except ImportError:
         boundaries = list(range(1, n))
         bp = []
