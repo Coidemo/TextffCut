@@ -111,21 +111,32 @@ def _phase1_split(full_text: str, seg_bounds: set[int]) -> list[TextBlock]:
         score = 0.0
         if b in seg_bounds:
             score += 50
+        # 次の単語の品詞を取得
+        next_tag = ""
+        for pos2, _, tag2 in bp:
+            if pos2 > b:
+                next_tag = tag2
+                break
+
         surface, pos_tag = bp_dict.get(b, ("", ""))
         if pos_tag == "助詞":
             score += 30
         elif pos_tag in ("動詞", "形容詞"):
-            score += 15
+            # 動詞/形容詞の後に動詞・助動詞が続く場合は切りにくい（活用形の途中）
+            if next_tag in ("動詞", "助動詞"):
+                score -= 15
+            else:
+                score += 15
+        elif pos_tag == "助動詞":
+            # 助動詞の後に助動詞が続く場合も切りにくい
+            if next_tag == "助動詞":
+                score -= 15
+            else:
+                score += 10
         elif pos_tag == "名詞":
-            # 名詞の後に名詞が続く場合は切りにくい（複合語の可能性）
-            # 次の単語も名詞なら切るスコアを下げる
-            next_tag = ""
-            for pos2, _, tag2 in bp:
-                if pos2 > b:
-                    next_tag = tag2
-                    break
+            # 名詞+名詞の間で切るのはペナルティ（複合語）
             if next_tag == "名詞":
-                score -= 10  # 名詞+名詞の間で切るのはペナルティ
+                score -= 10
             else:
                 score += 8
         cut_scores[b] = score
