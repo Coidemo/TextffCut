@@ -448,8 +448,11 @@ def _collect_parts(time_ranges, tmap, transcription):
         for tr_s, tr_e in time_ranges:
             if seg.end > tr_s and seg.start < tr_e:
                 if seg.text.strip() not in FILLER_ONLY_TEXTS:
-                    tl_s = _to_tl(seg.start, tmap)
-                    tl_e = _to_tl(seg.end, tmap)
+                    # セグメントがtime_rangeの端からはみ出す場合はクリップ
+                    clipped_start = max(seg.start, tr_s)
+                    clipped_end = min(seg.end, tr_e)
+                    tl_s = _to_tl(clipped_start, tmap)
+                    tl_e = _to_tl(clipped_end, tmap)
                     if tl_s is not None and tl_e is not None:
                         parts.append((seg.text, tl_s, tl_e))
                 break
