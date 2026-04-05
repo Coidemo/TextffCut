@@ -192,9 +192,10 @@ def _phase2_merge_to_lines(
         current_score = dp[i][0]
 
         # i から j までのブロックを1行に結合
-        combined_len = 0
+        combined_text = ""
         for j in range(i, n):
-            combined_len += len(blocks[j].text)
+            combined_text += blocks[j].text
+            combined_len = len(combined_text)
             if combined_len > max_chars:
                 break
 
@@ -329,24 +330,50 @@ def _line_group_score(line1: str, line2: str | None) -> float:
 
     if line2 is None:
         # 単独行
-        duration_proxy = len(line1)
-        if duration_proxy >= 6:
+        if len(line1) >= 8:
             score += 3
+
+        # 短い単独行はペナルティ（結合して2行にした方が読みやすい）
+        if len(line1) <= 7:
+            score -= 5
+
+        # 助詞で終わる単独行は強ペナルティ
+        if _ends_with_particle(line1):
+            score -= 10
+
         return score
 
     # 2行結合
-    score += 5  # 結合ボーナス（字幕数を減らす）
+    score += 5  # 結合ボーナス
+
+    # 1行目が助詞で終わる場合は結合を推奨（主語の途中）
+    if _ends_with_particle(line1):
+        score += 10
+
+    # 2行目が「は」「が」等で終わる場合は強く結合（文頭〜主語が1ブロックに収まる）
+    if line2.endswith(("のは", "には", "では", "とは", "は", "が")):
+        score += 15
 
     # バランス
     balance = 1.0 - abs(len(line1) - len(line2)) / max(len(line1) + len(line2), 1)
     score += balance * 3
 
-    # 表示文字数が多い = 表示時間が長い = 読みやすい
+    # 表示文字数
     total = len(line1) + len(line2)
     if total >= 15:
         score += 2
 
     return score
+
+
+def _ends_with_particle(text: str) -> bool:
+    """行が助詞（は、が、を、に、で、から、の等）で終わるか。"""
+    particles = ["のは", "には", "では", "とは", "から", "まで",
+                 "は", "が", "を", "に", "で", "と", "も", "の"]
+    for p in particles:
+        if text.endswith(p):
+            return True
+    return False
 
 
 def _make_srt_entry(index, line_blocks, char_times):
