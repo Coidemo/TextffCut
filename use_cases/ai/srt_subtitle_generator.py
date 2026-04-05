@@ -78,30 +78,57 @@ def generate_srt(
 # Phase 1: 全テキストをDP探索で最小ブロックに分割
 # =============================================
 
+def _tokenize(text: str) -> list[tuple[int, str, str]]:
+    """SudachiPy C-mode（最長一致）で形態素解析。フォールバックはjanome。
+
+    Returns:
+        [(boundary_pos, surface, pos_tag), ...]
+    """
+    # SudachiPy C-mode を優先
+    try:
+        from sudachipy import Dictionary
+        tokenizer = Dictionary().create()
+        tokens = tokenizer.tokenize(text, mode=tokenizer.SplitMode.C)
+        result = []
+        pos = 0
+        for t in tokens:
+            pos += len(t.surface())
+            result.append((pos, t.surface(), t.part_of_speech()[0]))
+        return result
+    except ImportError:
+        pass
+
+    # フォールバック: janome
+    try:
+        from core.japanese_line_break import JapaneseLineBreakRules
+        return JapaneseLineBreakRules.get_word_boundaries_with_pos(text)
+    except ImportError:
+        pass
+
+    # 最終フォールバック: 1文字ずつ
+    return [(i + 1, text[i], "") for i in range(len(text))]
+
+
 def _phase1_split(full_text: str, seg_bounds: set[int]) -> list[TextBlock]:
     n = len(full_text)
     if n == 0:
         return []
 
-    try:
-        from core.japanese_line_break import JapaneseLineBreakRules
-        bp = JapaneseLineBreakRules.get_word_boundaries_with_pos(full_text)
-        boundaries = sorted(set([b for b, _, _ in bp if 0 < b < n]))
+    bp = _tokenize(full_text)
+    boundaries = sorted(set([b for b, _, _ in bp if 0 < b < n]))
 
-        # janomeが長すぎるトークンを返す場合（11文字超のギャップ）、
-        # その範囲に1文字ずつの境界をフォールバックとして追加
-        MAX_BLOCK = 11
-        all_b = sorted(set([0] + boundaries + [n]))
-        for idx in range(len(all_b) - 1):
-            gap = all_b[idx + 1] - all_b[idx]
-            if gap > MAX_BLOCK:
-                for fill in range(all_b[idx] + 1, all_b[idx + 1]):
-                    boundaries.append(fill)
-        boundaries = sorted(set(boundaries))
-
-    except ImportError:
+    if not boundaries:
         boundaries = list(range(1, n))
-        bp = []
+
+    # 長すぎるギャップ（11文字超）にフォールバック境界を追加
+    MAX_BLOCK = 11
+    all_b = sorted(set([0] + boundaries + [n]))
+    for idx in range(len(all_b) - 1):
+        gap = all_b[idx + 1] - all_b[idx]
+        if gap > MAX_BLOCK:
+            for fill in range(all_b[idx] + 1, all_b[idx + 1]):
+                boundaries.append(fill)
+    boundaries = sorted(set(boundaries))
 
     # 分割点スコア
     cut_scores = {}
