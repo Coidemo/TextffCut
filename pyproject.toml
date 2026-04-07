@@ -40,7 +40,7 @@ ui = [
 textffcut = "textffcut_cli.command:main"
 
 [tool.setuptools]
-py-modules = ["main"]
+py-modules = ["main", "config"]
 
 [tool.setuptools.packages.find]
 # textffcut_cli に加え、CLI が依存するクリーンアーキテクチャの各層を含める
@@ -53,6 +53,8 @@ include = [
     "utils*",
     "infrastructure*",
     "application*",
+    "core*",
+    "presentation*",
 ]
 
 [tool.mypy]
