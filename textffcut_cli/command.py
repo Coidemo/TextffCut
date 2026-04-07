@@ -222,10 +222,34 @@ def _cmd_models() -> None:
     con.print("\n使い方: [cyan]textffcut -m large-v3-turbo 動画.mp4[/]\n")
 
 
+def _ensure_ui_deps() -> None:
+    """UI依存パッケージが未インストールなら自動インストールする。"""
+    import importlib.util
+    import subprocess
+
+    if importlib.util.find_spec("streamlit") is not None:
+        return
+
+    print("GUI に必要なパッケージ (streamlit 等) をインストールしています...")
+    result = subprocess.run(
+        [sys.executable, "-m", "pip", "install", "textffcut[ui]"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        print("エラー: UI パッケージのインストールに失敗しました。", file=sys.stderr)
+        print(result.stderr, file=sys.stderr)
+        sys.exit(1)
+    print("✓ インストール完了\n")
+
+
 def _cmd_gui() -> None:
     """Streamlit GUIを起動する。カレントディレクトリに videos/ を作成してFinderで開く。"""
     import subprocess
     import importlib.util
+
+    # UI 依存の自動インストール
+    _ensure_ui_deps()
 
     # videos/ フォルダをカレントディレクトリに作成
     videos_dir = Path.cwd() / "videos"
@@ -258,13 +282,6 @@ def _cmd_gui() -> None:
         print("\n✓ GUIを停止しました")
     except KeyboardInterrupt:
         print("\n✓ GUIを停止しました")
-    except FileNotFoundError:
-        print(
-            "エラー: streamlit が見つかりません。\n"
-            "  pip install 'textffcut[ui]'",
-            file=sys.stderr,
-        )
-        sys.exit(1)
 
 
 def main() -> None:
