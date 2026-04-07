@@ -42,12 +42,22 @@ def generate_srt(
     suggestion: ClipSuggestion,
     transcription: TranscriptionResult,
     output_path: Path,
+    video_path: Path | None = None,
     max_chars_per_line: int = DEFAULT_MAX_CHARS_PER_LINE,
     max_lines: int = DEFAULT_MAX_LINES,
 ) -> Path | None:
     if not suggestion.time_ranges:
         return None
 
+    # 切り抜き後の音声を結合して再文字起こし→正確なタイムスタンプを取得
+    if video_path:
+        segments = _transcribe_output_audio(suggestion.time_ranges, video_path)
+        if segments:
+            return _generate_from_segments(
+                segments, output_path, max_chars_per_line, max_lines
+            )
+
+    # フォールバック: 元の文字起こしを使用
     tmap = _build_timeline_map(suggestion.time_ranges)
     parts = _collect_parts(suggestion.time_ranges, tmap, transcription)
     if not parts:
@@ -57,19 +67,144 @@ def generate_srt(
     if not full_text:
         return None
 
-    # Phase 1: 最小ブロックに分割
+    return _generate_from_char_times(
+        full_text, char_times, seg_bounds, output_path,
+        max_chars_per_line, max_lines,
+    )
+
+
+def _transcribe_output_audio(
+    time_ranges: list[tuple[float, float]],
+    video_path: Path,
+) -> list[dict] | None:
+    """切り抜き後の音声を結合し、Whisper APIで文字起こしする。
+
+    Returns:
+        [{"text": str, "start": float, "end": float}, ...] セグメントリスト
+        タイムスタンプは結合後の音声の時間（0始まり）
+    """
+    import subprocess
+    import tempfile
+
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except ImportError:
+        pass
+
+    api_key = os.environ.get("OPENAI_API_KEY") or os.environ.get("TEXTFFCUT_API_KEY")
+    if not api_key:
+        return None
+
+    try:
+        from openai import OpenAI
+        client = OpenAI(api_key=api_key)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # 各rangeの音声を抽出
+            parts = []
+            for i, (start, end) in enumerate(time_ranges):
+                p = f"{tmpdir}/p{i}.wav"
+                subprocess.run(
+                    ["ffmpeg", "-y", "-ss", str(start), "-t", str(end - start),
+                     "-i", str(video_path), "-vn", "-ar", "16000", "-ac", "1", p],
+                    capture_output=True, timeout=15,
+                )
+                parts.append(p)
+
+            # 結合
+            with open(f"{tmpdir}/list.txt", "w") as f:
+                for p in parts:
+                    f.write(f"file '{p}'\n")
+            subprocess.run(
+                ["ffmpeg", "-y", "-f", "concat", "-safe", "0",
+                 "-i", f"{tmpdir}/list.txt", "-c", "copy", f"{tmpdir}/out.wav"],
+                capture_output=True, timeout=15,
+            )
+
+            # Whisper APIでsegment-levelタイムスタンプ付き文字起こし
+            with open(f"{tmpdir}/out.wav", "rb") as f:
+                resp = client.audio.transcriptions.create(
+                    model="whisper-1",
+                    file=f,
+                    language="ja",
+                    response_format="verbose_json",
+                    timestamp_granularities=["segment"],
+                )
+
+            segments = []
+            for seg in resp.segments:
+                segments.append({
+                    "text": seg.text.strip() if hasattr(seg, "text") else seg.get("text", "").strip(),
+                    "start": seg.start if hasattr(seg, "start") else seg.get("start", 0),
+                    "end": seg.end if hasattr(seg, "end") else seg.get("end", 0),
+                })
+
+            logger.info(f"出力音声文字起こし: {len(segments)}セグメント")
+            return segments
+
+    except Exception as e:
+        logger.warning(f"出力音声文字起こし失敗: {e}")
+        return None
+
+
+def _generate_from_segments(
+    segments: list[dict],
+    output_path: Path,
+    max_chars_per_line: int,
+    max_lines: int,
+) -> Path | None:
+    """Whisperセグメントから字幕を生成する。"""
+    if not segments:
+        return None
+
+    # 全テキスト結合 + セグメントベースのchar_times
+    full_text = ""
+    char_times = []
+    seg_bounds = set()
+
+    for seg in segments:
+        text = seg["text"]
+        if not text:
+            continue
+        seg_bounds.add(len(full_text))
+        start = seg["start"]
+        end = seg["end"]
+        dur = end - start
+        n = max(len(text), 1)
+        for i in range(len(text)):
+            char_times.append((start + dur * i / n, start + dur * (i + 1) / n))
+        full_text += text
+
+    seg_bounds.add(len(full_text))
+    seg_bounds.discard(0)
+
+    if not full_text:
+        return None
+
+    return _generate_from_char_times(
+        full_text, char_times, seg_bounds, output_path,
+        max_chars_per_line, max_lines,
+    )
+
+
+def _generate_from_char_times(
+    full_text: str,
+    char_times: list[tuple[float, float]],
+    seg_bounds: set[int],
+    output_path: Path,
+    max_chars_per_line: int,
+    max_lines: int,
+) -> Path | None:
+    """char_timesベースで字幕を生成する（共通処理）。"""
     micro_blocks = _phase1_split(full_text, seg_bounds)
-
-    # Phase 2: 11文字以下の1行にまとめる
     lines = _phase2_merge_to_lines(micro_blocks, max_chars_per_line, seg_bounds)
-
-    # Phase 3: 2行ブロックにまとめるかDPで判断（文末パターンで切る）
     entries = _phase3_dp_group(lines, char_times, max_chars_per_line)
 
     if not entries:
         return None
 
-    # 隣接エントリ間の隙間を埋める（前のend_timeを次のstart_timeまで延長）
+    # 隣接エントリ間の隙間を埋める
     for i in range(len(entries) - 1):
         if entries[i + 1].start_time > entries[i].end_time:
             entries[i].end_time = entries[i + 1].start_time

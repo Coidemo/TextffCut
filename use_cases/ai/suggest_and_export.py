@@ -115,6 +115,7 @@ class SuggestAndExportUseCase:
                     suggestion=suggestion,
                     transcription=request.transcription,
                     output_path=srt_path,
+                    video_path=request.video_path,
                     max_chars_per_line=request.srt_max_chars,
                     max_lines=request.srt_max_lines,
                 )
