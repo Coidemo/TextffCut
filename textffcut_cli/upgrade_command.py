@@ -39,7 +39,8 @@ def _check_latest_version() -> str | None:
             timeout=10,
         )
         if result.returncode == 0 and result.stdout.strip():
-            return result.stdout.strip().lstrip("v")
+            tag = result.stdout.strip()
+            return tag[1:] if tag.startswith("v") else tag
     except (FileNotFoundError, subprocess.TimeoutExpired):
         pass
 
@@ -54,8 +55,8 @@ def _check_latest_version() -> str | None:
         if result.returncode == 0:
             data = json.loads(result.stdout)
             tag = data.get("tag_name", "")
-            return tag.lstrip("v") if tag else None
-    except Exception:
+            return tag[1:] if tag.startswith("v") else tag if tag else None
+    except (FileNotFoundError, subprocess.TimeoutExpired, json.JSONDecodeError, KeyError):
         pass
 
     return None

@@ -618,10 +618,14 @@ class TextEditorView:
         with col_opts2:
             remove_silence = st.checkbox("無音削除", value=True, key="ai_clip_silence")
 
+        # 入力検証
+        if int(min_duration) > int(max_duration):
+            st.warning("⚠️ 最小秒数が最大秒数より大きくなっています")
+
         st.caption("💰 コスト目安: 約2-5円/回（GPT-4.1-mini使用）")
 
         # 実行ボタン
-        if st.button("🚀 AI自動切り抜きを実行", type="primary", use_container_width=True, key="run_ai_clip"):
+        if st.button("🚀 AI自動切り抜きを実行", type="primary", use_container_width=True, key="run_ai_clip", disabled=int(min_duration) > int(max_duration)):
             self._execute_ai_clip(
                 api_key=api_key,
                 video_path=video_path,
@@ -701,6 +705,8 @@ class TextEditorView:
 
             gateway = OpenAIClipSuggestionGateway(api_key=api_key, model="gpt-4.1-mini")
 
+            use_case = SuggestAndExportUseCase(gateway=gateway)
+
             with st.status("AI自動切り抜きを実行中...", expanded=True) as status:
                 # Phase 1: 話題検出
                 st.write("🔍 話題を検出中...")
@@ -714,41 +720,43 @@ class TextEditorView:
                 )
                 detection = gen_use_case.last_detection_result
                 total = len(suggestions)
+
+                if total == 0:
+                    status.update(label="⚠️ 切り抜き候補が見つかりませんでした", state="error", expanded=False)
+                    return
+
                 st.write(f"✅ {total}件の話題を検出")
 
                 # Phase 2: フィラー仕上げ
-                st.write(f"🧹 フィラー除去中... (0/{total})")
                 for i, suggestion in enumerate(suggestions):
+                    st.write(f"🧹 フィラー除去中... ({i + 1}/{total})")
                     suggestions[i] = polish_fillers(
                         suggestion, actual_result, video_path_obj
                     )
-                    st.write(f"🧹 フィラー除去中... ({i + 1}/{total})")
 
                 # Phase 3: 無音削除
                 if remove_silence:
-                    st.write(f"🔇 無音削除中... (0/{total})")
                     video_name = video_path_obj.stem
                     base_dir = video_path_obj.parent / f"{video_name}_TextffCut"
-                    use_case_full = SuggestAndExportUseCase(gateway=gateway)
                     for i, suggestion in enumerate(suggestions):
-                        use_case_full._apply_silence_removal(suggestion, video_path_obj, base_dir)
                         st.write(f"🔇 無音削除中... ({i + 1}/{total})")
+                        use_case._apply_silence_removal(suggestion, video_path_obj, base_dir)
 
                 # Phase 4: FCPXML + SRT 生成
-                st.write(f"📄 FCPXML生成中... (0/{total})")
                 video_name = video_path_obj.stem
                 base_dir = video_path_obj.parent / f"{video_name}_TextffCut"
                 fcpxml_dir = base_dir / "fcpxml"
                 fcpxml_dir.mkdir(parents=True, exist_ok=True)
 
-                use_case_export = SuggestAndExportUseCase(gateway=gateway)
+                from use_cases.ai.suggest_and_export import _sanitize_filename
+
                 exported_files: list[Path] = []
                 for i, suggestion in enumerate(suggestions, 1):
-                    from use_cases.ai.suggest_and_export import _sanitize_filename
+                    st.write(f"📄 FCPXML生成中... ({i}/{total})")
                     sanitized = _sanitize_filename(suggestion.title)
 
                     fcpxml_path = fcpxml_dir / f"{i:02d}_{sanitized}.fcpxml"
-                    success = use_case_export._export_fcpxml(suggestion, video_path_obj, fcpxml_path)
+                    success = use_case._export_fcpxml(suggestion, video_path_obj, fcpxml_path)
                     if success:
                         exported_files.append(fcpxml_path)
 
@@ -761,12 +769,11 @@ class TextEditorView:
                             output_path=srt_path,
                             video_path=video_path_obj,
                         )
-                    st.write(f"📄 FCPXML生成中... ({i}/{total})")
 
                 # キャッシュ保存
                 cache_dir = base_dir / "clip_suggestions"
                 cache_dir.mkdir(parents=True, exist_ok=True)
-                use_case_export._save_cache(suggestions, detection, cache_dir / f"{detection.model_used}.json")
+                use_case._save_cache(suggestions, detection, cache_dir / f"{detection.model_used}.json")
 
                 status.update(label=f"✅ {total}件の切り抜きを生成完了", state="complete", expanded=False)
 

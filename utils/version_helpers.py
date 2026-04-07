@@ -27,10 +27,12 @@ def get_app_version(default_version: str = "2.0.0") -> str:
     """
     # 1. importlib.metadata から取得（pip install済みの場合）
     try:
+        from importlib.metadata import PackageNotFoundError
         from importlib.metadata import version as _pkg_version
 
         return _pkg_version("textffcut")
-    except Exception:
+    except (ImportError, Exception):
+        # PackageNotFoundError は Exception のサブクラス
         pass
 
     # 2. pyproject.toml を直接パース（開発環境）
@@ -50,7 +52,7 @@ def get_app_version(default_version: str = "2.0.0") -> str:
 
             if hasattr(__main__, "__file__") and __main__.__file__:
                 candidates.append(Path(__main__.__file__).parent / "pyproject.toml")
-        except Exception:
+        except (ImportError, AttributeError):
             pass
 
         import re
@@ -68,7 +70,7 @@ def get_app_version(default_version: str = "2.0.0") -> str:
                     match = re.search(r'^version\s*=\s*"([^"]+)"', content, re.MULTILINE)
                     if match:
                         return match.group(1)
-    except Exception:
+    except (OSError, UnicodeDecodeError, KeyError):
         pass
 
     return default_version
@@ -110,7 +112,7 @@ def parse_version(version_string: str) -> tuple[int, int, int]:
     Raises:
         ValueError: バージョン文字列が不正な形式の場合
     """
-    version = version_string.lstrip("v")
+    version = version_string[1:] if version_string.startswith("v") else version_string
 
     try:
         parts = version.split(".")
