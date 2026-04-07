@@ -233,11 +233,11 @@ class TestGUIClipIntegration:
         assert "_execute_ai_clip" in content
         assert "AI自動切り抜き" in content
 
-    def test_sidebar_has_config_status(self):
-        """sidebar.pyに設定状態表示が存在する"""
+    def test_sidebar_has_model_selector(self):
+        """sidebar.pyにモデル選択UIが存在する"""
         content = (PROJECT_ROOT / "presentation" / "views" / "sidebar.py").read_text(encoding="utf-8")
-        assert "_render_config_status" in content
-        assert "設定状態" in content
+        assert "default_model" in content
+        assert "sidebar_default_model" in content
 
 
 # ===== suggest_command テスト =====

@@ -45,11 +45,6 @@ class SidebarView(BaseView[SidebarViewModel]):
 
     def _render_settings_tab(self) -> None:
         """設定タブの内容"""
-        # config.json設定状態
-        self._render_config_status()
-
-        st.markdown("---")
-
         # 無音削除の詳細設定
         st.markdown("#### 🔇 無音削除の詳細設定")
 
@@ -138,15 +133,14 @@ class SidebarView(BaseView[SidebarViewModel]):
         self._render_api_settings()
 
     def _render_api_settings(self) -> None:
-        """API設定"""
-        st.markdown("#### 🔑 APIキー設定")
+        """API設定 + デフォルトモデル"""
+        st.markdown("#### 🔑 API・モデル設定")
 
         # 保存されたAPIキーがあるかチェック
         if self.view_model.api_key:
             # マスクされたキーを表示
             masked_key = self._mask_api_key(self.view_model.api_key)
-            st.success(f"✅ 保存されたAPIキー: {masked_key}")
-            st.caption("🔒 APIキーは暗号化して保存されています")
+            st.success(f"✅ APIキー: {masked_key}")
 
             # 削除ボタン
             if st.button("🗑️ 保存済みキーを削除", use_container_width=True, key=TestIds.SIDEBAR_API_KEY_DELETE):
@@ -170,29 +164,35 @@ class SidebarView(BaseView[SidebarViewModel]):
                     st.success("✅ APIキーを暗号化保存しました")
                     st.rerun()
 
+        # デフォルトモデル選択
+        try:
+            from textffcut_cli.setup_command import get_config_value, _load_config, _save_config
+
+            models = ["tiny", "base", "small", "medium", "large-v3", "large-v3-turbo"]
+            current_model = get_config_value("default_model", "medium")
+            current_index = models.index(current_model) if current_model in models else 3
+
+            selected_model = st.selectbox(
+                "デフォルトモデル",
+                options=models,
+                index=current_index,
+                key="sidebar_default_model",
+                help="文字起こしに使用するモデル",
+            )
+
+            if selected_model != current_model:
+                config = _load_config()
+                config["default_model"] = selected_model
+                _save_config(config)
+                st.toast(f"モデルを {selected_model} に変更しました")
+        except Exception:
+            pass
+
     def _mask_api_key(self, api_key: str) -> str:
         """APIキーをマスク表示"""
         if len(api_key) > 8:
             return api_key[:4] + "*" * (len(api_key) - 8) + api_key[-4:]
         return "*" * len(api_key)
-
-    def _render_config_status(self) -> None:
-        """config.json設定状態を表示"""
-        try:
-            from textffcut_cli.setup_command import get_config_value
-            api_key = get_config_value("openai_api_key")
-            model = get_config_value("default_model", "medium")
-
-            st.markdown("#### 📋 設定状態")
-            if api_key:
-                st.markdown(f"OpenAI API: ✅ 設定済み")
-            else:
-                st.markdown("OpenAI API: ❌ 未設定")
-                st.caption("clipコマンド: 約2-5円/回")
-
-            st.markdown(f"モデル: `{model}`")
-        except Exception:
-            pass
 
     def _render_help_tab(self) -> None:
         """ヘルプタブの内容"""
