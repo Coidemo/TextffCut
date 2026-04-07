@@ -212,7 +212,9 @@ class SuggestAndExportUseCase:
                 return "0/1s"
             return f"{frac.numerator}/{frac.denominator}s"
 
-        video_name = video_path.name
+        from xml.sax.saxutils import escape, quoteattr
+        video_name = escape(video_path.name)
+        title_escaped = escape(suggestion.title)
         encoded_path = quote(str(video_path), safe="/:")
         video_url = f"file://{encoded_path}"
 
@@ -253,7 +255,7 @@ class SuggestAndExportUseCase:
     </resources>
     <library>
         <event name="TextffCut">
-            <project name="{suggestion.title}">
+            <project name="{title_escaped}">
                 <sequence duration="{to_frac(total_dur)}" tcStart="0/1s" format="r0" tcFormat="NDF">
                     <spine>
 {clips_xml}                    </spine>

@@ -150,10 +150,11 @@ def _transcribe_output_audio(
 
             segments = []
             for seg in raw_segments:
-                text = seg.text.strip() if hasattr(seg, "text") else seg.get("text", "").strip()
+                text = seg.text if hasattr(seg, "text") else seg.get("text", "")
+                text = (text or "").strip()
                 start = seg.start if hasattr(seg, "start") else seg.get("start", 0)
                 end = seg.end if hasattr(seg, "end") else seg.get("end", 0)
-                if text:
+                if text and end > start:
                     segments.append({"text": text, "start": start, "end": end})
 
             logger.info(f"出力音声文字起こし: {len(segments)}セグメント")
@@ -661,7 +662,8 @@ def _write_srt(entries, output_path):
         lines.append(f"{_fmt(e.start_time)} --> {_fmt(e.end_time)}")
         lines.append(e.text)
         lines.append("")
-    output_path.write_bytes(b"\xef\xbb\xbf" + "\r\n".join(lines).encode("utf-8"))
+    # BOMなし + LF改行（macOS + DaVinci Resolve推奨）
+    output_path.write_text("\n".join(lines), encoding="utf-8")
 
 
 def _fmt(s):
