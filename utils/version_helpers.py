@@ -2,57 +2,78 @@
 バージョン情報関連のヘルパー関数
 
 アプリケーションのバージョン情報を管理するユーティリティ関数を提供。
+pyproject.tomlのversionフィールドを単一ソースとする。
 """
+
+from __future__ import annotations
 
 from pathlib import Path
 
 
-def get_app_version(version_file_path: Path | None = None, default_version: str = "v1.0.0") -> str:
+def get_app_version(default_version: str = "2.0.0") -> str:
     """
     アプリケーションのバージョン情報を取得
 
-    VERSION.txtファイルからバージョン情報を読み込む。
-    ファイルが存在しない場合やエラーが発生した場合は、
-    デフォルトバージョンを返す。
+    優先順位:
+    1. importlib.metadata（パッケージインストール済みの場合）
+    2. pyproject.tomlを直接パース（開発環境等）
+    3. デフォルトバージョン
 
     Args:
-        version_file_path: バージョンファイルのパス（省略時はメインファイルと同じディレクトリ）
-        default_version: ファイルが読めない場合のデフォルトバージョン
+        default_version: 取得できない場合のデフォルトバージョン
 
     Returns:
-        str: バージョン文字列（例: "v1.0.0"）
-
-    Examples:
-        >>> version = get_app_version()
-        >>> print(version)
-        "v1.0.0"
-
-        >>> custom_path = Path("/path/to/VERSION.txt")
-        >>> version = get_app_version(custom_path, "v2.0.0")
-        >>> print(version)
-        "v2.0.0"  # ファイルが存在しない場合
+        str: バージョン文字列（例: "2.0.0"）
     """
+    # 1. importlib.metadata から取得（pip install済みの場合）
     try:
-        if version_file_path is None:
-            # デフォルトパス: メインファイルと同じディレクトリのVERSION.txt
+        from importlib.metadata import PackageNotFoundError
+        from importlib.metadata import version as _pkg_version
+
+        return _pkg_version("textffcut")
+    except (ImportError, Exception):
+        # PackageNotFoundError は Exception のサブクラス
+        pass
+
+    # 2. pyproject.toml を直接パース（開発環境）
+    try:
+        # Python 3.11+ は tomllib、それ以前は正規表現フォールバック
+        try:
+            import tomllib
+        except ModuleNotFoundError:
+            tomllib = None  # type: ignore[assignment]
+
+        # プロジェクトルートのpyproject.tomlを探す
+        candidates = [
+            Path(__file__).parent.parent / "pyproject.toml",
+        ]
+        try:
             import __main__
 
-            if hasattr(__main__, "__file__"):
-                version_file_path = Path(__main__.__file__).parent / "VERSION.txt"
-            else:
-                # __main__.__file__が存在しない場合（インタープリタ等）
-                return default_version
+            if hasattr(__main__, "__file__") and __main__.__file__:
+                candidates.append(Path(__main__.__file__).parent / "pyproject.toml")
+        except (ImportError, AttributeError):
+            pass
 
-        if version_file_path.exists():
-            version = version_file_path.read_text().strip()
-            # 空文字の場合はデフォルトを返す
-            return version if version else default_version
-        else:
-            return default_version
+        import re
 
-    except (OSError, AttributeError):
-        # ファイル読み込みエラーやその他のエラー
-        return default_version
+        for toml_path in candidates:
+            if toml_path.exists():
+                content = toml_path.read_text(encoding="utf-8")
+                if tomllib is not None:
+                    data = tomllib.loads(content)
+                    ver = data.get("project", {}).get("version")
+                    if ver:
+                        return ver
+                else:
+                    # 正規表現フォールバック（Python < 3.11）
+                    match = re.search(r'^version\s*=\s*"([^"]+)"', content, re.MULTILINE)
+                    if match:
+                        return match.group(1)
+    except (OSError, UnicodeDecodeError, KeyError):
+        pass
+
+    return default_version
 
 
 def format_version_display(version: str, include_prefix: bool = True) -> str:
@@ -65,15 +86,7 @@ def format_version_display(version: str, include_prefix: bool = True) -> str:
 
     Returns:
         str: フォーマットされたバージョン文字列
-
-    Examples:
-        >>> format_version_display("1.0.0")
-        "v1.0.0"
-
-        >>> format_version_display("v1.0.0", include_prefix=False)
-        "1.0.0"
     """
-    # すでに"v"で始まっている場合の処理
     if version.startswith("v"):
         if include_prefix:
             return version
@@ -98,16 +111,8 @@ def parse_version(version_string: str) -> tuple[int, int, int]:
 
     Raises:
         ValueError: バージョン文字列が不正な形式の場合
-
-    Examples:
-        >>> parse_version("v1.2.3")
-        (1, 2, 3)
-
-        >>> parse_version("2.0.0")
-        (2, 0, 0)
     """
-    # "v"プレフィックスを除去
-    version = version_string.lstrip("v")
+    version = version_string[1:] if version_string.startswith("v") else version_string
 
     try:
         parts = version.split(".")

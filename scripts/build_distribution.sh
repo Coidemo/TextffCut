@@ -7,7 +7,7 @@
 set -e
 
 # バージョンを取得
-VERSION=${1:-$(cat VERSION.txt 2>/dev/null || echo "1.0.0")}
+VERSION=${1:-$(python3 -c "import re; m=re.search(r'^version\s*=\s*\"([^\"]+)\"', open('pyproject.toml').read(), re.MULTILINE); print(m.group(1) if m else '2.0.0')" 2>/dev/null || echo "2.0.0")}
 RELEASE_NAME="TextffCut_v${VERSION}"
 RELEASE_DIR="release/${RELEASE_NAME}"
 

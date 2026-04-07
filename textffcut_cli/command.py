@@ -98,6 +98,8 @@ def build_parser() -> argparse.ArgumentParser:
             "コマンド:\n"
             "  textffcut gui                        GUIを起動\n"
             "  textffcut clip [ファイル ...]          AI自動切り抜き→FCPXML出力\n"
+            "  textffcut setup                      初期設定ウィザード\n"
+            "  textffcut upgrade                    最新版に更新\n"
             "  textffcut activate KEY               ライセンスキーを登録\n"
             "  textffcut models                     使用可能なモデル一覧を表示\n"
             "  textffcut [ファイル ...]              文字起こし（メイン機能）\n\n"
@@ -265,6 +267,8 @@ def main() -> None:
             "  GUI モード:  textffcut gui                    # ブラウザで操作\n"
             "  CLIモード:   textffcut [動画ファイル ...]       # 文字起こし\n"
             "  AI切り抜き:  textffcut clip [動画ファイル ...]    # AI自動切り抜き→FCPXML\n"
+            "  初期設定:    textffcut setup                   # 対話型初期設定\n"
+            "  更新:        textffcut upgrade                 # 最新版に更新\n"
             "\n"
             "例:\n"
             "  textffcut gui\n"
@@ -275,6 +279,13 @@ def main() -> None:
             "詳しくは: textffcut --help"
         )
         sys.exit(0)
+
+    # 起動時の更新チェック（24時間ごと、バックグラウンドで通知のみ）
+    try:
+        from textffcut_cli.upgrade_command import check_for_updates_on_startup
+        check_for_updates_on_startup()
+    except Exception:
+        pass
 
     # activate / gui / models は argparse の前に手動ルーティング（subparsers を使わない理由:
     # subparsers にすると positional argument としてのファイルパスと競合するため）。
@@ -308,6 +319,16 @@ def main() -> None:
         else:
             print("エラー: 無効なキーです。", file=sys.stderr)
             sys.exit(1)
+        return
+
+    if sys.argv[1] == "setup":
+        from textffcut_cli.setup_command import run_setup
+        run_setup()
+        return
+
+    if sys.argv[1] == "upgrade":
+        from textffcut_cli.upgrade_command import run_upgrade
+        run_upgrade(sys.argv[2:])
         return
 
     if sys.argv[1] in ("clip", "suggest"):

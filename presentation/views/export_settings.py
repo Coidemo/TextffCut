@@ -96,8 +96,6 @@ class ExportSettingsView:
             from utils import settings_manager
             
             with st.expander("🎥 FCPXML詳細設定", expanded=True):
-                # DaVinci Resolveの制限についての説明
-                st.info("ℹ️ 速度変更機能は削除されました。DaVinci Resolveでは速度変更を含むFCPXMLをインポートすると、複数のコンパウンドクリップとして読み込まれる仕様のためです。速度変更はDaVinci Resolve内で行ってください。")
                 # タイムライン解像度選択
                 saved_timeline_resolution = settings_manager.get("fcpxml_timeline_resolution", "horizontal")
                 timeline_resolution = st.radio(

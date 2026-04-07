@@ -139,6 +139,9 @@ class TextEditorView:
             for error in marker_errors:
                 st.error(f"❌ {error}")
 
+        # AI自動切り抜きセクション
+        self._render_ai_clip_section()
+
         # 処理データを返す
         return self.presenter.get_processed_data()
 
@@ -562,6 +565,237 @@ class TextEditorView:
                 
                 # 両方のプロンプトに対する説明を中央に配置
                 st.caption("上記のプロンプトをChatGPT/Claude/Geminiなどにコピー&ペーストして使用してください")
+
+    def _render_ai_clip_section(self) -> None:
+        """AI自動切り抜きセクションを表示"""
+        from textffcut_cli.setup_command import get_config_value
+        from infrastructure.ui.session_manager import SessionManager
+
+        st.markdown("---")
+        st.markdown("### 🤖 AI自動切り抜き")
+        st.caption("AIが話題を検出し、最適な切り抜きを自動生成します（FCPXML+SRT出力）")
+
+        # APIキーチェック
+        api_key = get_config_value("openai_api_key")
+        if not api_key:
+            import os
+            api_key = os.environ.get("OPENAI_API_KEY") or os.environ.get("TEXTFFCUT_API_KEY")
+
+        if not api_key:
+            st.warning(
+                "⚠️ OpenAI APIキーが必要です。\n\n"
+                "CLIで設定: `textffcut setup`\n"
+                "またはサイドバーのAPIキー設定から入力してください。"
+            )
+            return
+
+        session_manager = SessionManager()
+        video_path = session_manager.get_video_path()
+        transcription_result = session_manager.get_transcription_result()
+
+        if not video_path or not transcription_result:
+            st.info("動画の文字起こしが完了してから使用できます。")
+            return
+
+        # 設定UI
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            num_candidates = st.number_input(
+                "候補数", min_value=1, max_value=10, value=5, key="ai_clip_num"
+            )
+        with col2:
+            min_duration = st.number_input(
+                "最小秒数", min_value=10, max_value=120, value=30, key="ai_clip_min"
+            )
+        with col3:
+            max_duration = st.number_input(
+                "最大秒数", min_value=10, max_value=120, value=60, key="ai_clip_max"
+            )
+
+        col_opts1, col_opts2 = st.columns(2)
+        with col_opts1:
+            generate_srt = st.checkbox("SRT字幕を生成", value=True, key="ai_clip_srt")
+        with col_opts2:
+            remove_silence = st.checkbox("無音削除", value=True, key="ai_clip_silence")
+
+        # 入力検証
+        if int(min_duration) > int(max_duration):
+            st.warning("⚠️ 最小秒数が最大秒数より大きくなっています")
+
+        st.caption("💰 コスト目安: 約2-5円/回（GPT-4.1-mini使用）")
+
+        # 実行ボタン
+        if st.button("🚀 AI自動切り抜きを実行", type="primary", use_container_width=True, key="run_ai_clip", disabled=int(min_duration) > int(max_duration)):
+            self._execute_ai_clip(
+                api_key=api_key,
+                video_path=video_path,
+                transcription_result=transcription_result,
+                num_candidates=int(num_candidates),
+                min_duration=int(min_duration),
+                max_duration=int(max_duration),
+                generate_srt=generate_srt,
+                remove_silence=remove_silence,
+            )
+
+        # 結果表示
+        if "ai_clip_result" in st.session_state and st.session_state["ai_clip_result"]:
+            result = st.session_state["ai_clip_result"]
+
+            for i, s in enumerate(result["suggestions"], 1):
+                st.markdown(f"**{i}. {s['title']}**　{s['duration']:.0f}秒")
+
+            st.caption(f"📁 {result['output_dir']}")
+
+    def _execute_ai_clip(
+        self,
+        api_key: str,
+        video_path: str,
+        transcription_result,
+        num_candidates: int,
+        min_duration: int,
+        max_duration: int,
+        generate_srt: bool,
+        remove_silence: bool,
+    ) -> None:
+        """AI自動切り抜きを実行"""
+        from pathlib import Path
+        from presentation.adapters.transcription_result_adapter import TranscriptionResultAdapter
+
+        # TranscriptionResultAdapterの処理
+        if isinstance(transcription_result, TranscriptionResultAdapter):
+            actual_result = transcription_result.domain_result
+        else:
+            actual_result = transcription_result
+
+        # TranscriptionResult（ドメインエンティティ）に変換
+        from domain.entities.transcription import TranscriptionResult as DomainTranscriptionResult
+
+        if not isinstance(actual_result, DomainTranscriptionResult):
+            # レガシー形式からドメインエンティティに変換
+            segments = []
+            if hasattr(actual_result, "segments"):
+                for seg in actual_result.segments:
+                    if isinstance(seg, dict):
+                        segments.append(seg)
+                    else:
+                        segments.append({"text": seg.text, "start": seg.start, "end": seg.end})
+            actual_result = DomainTranscriptionResult(
+                id=f"gui_{Path(video_path).stem}",
+                video_id=video_path,
+                language="ja",
+                segments=segments,
+                duration=segments[-1]["end"] if segments else 0.0,
+                original_audio_path="",
+                model_size=getattr(actual_result, "model_size", "unknown"),
+                processing_time=0.0,
+            )
+
+        video_path_obj = Path(video_path).resolve()
+
+        try:
+            from infrastructure.external.gateways.openai_clip_suggestion_gateway import (
+                OpenAIClipSuggestionGateway,
+            )
+            from use_cases.ai.suggest_and_export import (
+                SuggestAndExportRequest,
+                SuggestAndExportUseCase,
+            )
+            from use_cases.ai.generate_clip_suggestions import GenerateClipSuggestionsUseCase
+            from use_cases.ai.word_level_filler_polish import polish_fillers
+
+            gateway = OpenAIClipSuggestionGateway(api_key=api_key, model="gpt-4.1-mini")
+
+            use_case = SuggestAndExportUseCase(gateway=gateway)
+
+            with st.status("AI自動切り抜きを実行中...", expanded=True) as status:
+                # Phase 1: 話題検出
+                st.write("🔍 話題を検出中...")
+                gen_use_case = GenerateClipSuggestionsUseCase(gateway)
+                suggestions = gen_use_case.execute(
+                    transcription=actual_result,
+                    video_path=video_path_obj,
+                    num_candidates=num_candidates,
+                    min_duration=min_duration,
+                    max_duration=max_duration,
+                )
+                detection = gen_use_case.last_detection_result
+                total = len(suggestions)
+
+                if total == 0:
+                    status.update(label="⚠️ 切り抜き候補が見つかりませんでした", state="error", expanded=False)
+                    return
+
+                st.write(f"✅ {total}件の話題を検出")
+
+                # Phase 2: フィラー仕上げ
+                for i, suggestion in enumerate(suggestions):
+                    st.write(f"🧹 フィラー除去中... ({i + 1}/{total})")
+                    suggestions[i] = polish_fillers(
+                        suggestion, actual_result, video_path_obj
+                    )
+
+                # Phase 3: 無音削除
+                if remove_silence:
+                    video_name = video_path_obj.stem
+                    base_dir = video_path_obj.parent / f"{video_name}_TextffCut"
+                    for i, suggestion in enumerate(suggestions):
+                        st.write(f"🔇 無音削除中... ({i + 1}/{total})")
+                        use_case._apply_silence_removal(suggestion, video_path_obj, base_dir)
+
+                # Phase 4: FCPXML + SRT 生成
+                video_name = video_path_obj.stem
+                base_dir = video_path_obj.parent / f"{video_name}_TextffCut"
+                fcpxml_dir = base_dir / "fcpxml"
+                fcpxml_dir.mkdir(parents=True, exist_ok=True)
+
+                from use_cases.ai.suggest_and_export import _sanitize_filename
+
+                exported_files: list[Path] = []
+                for i, suggestion in enumerate(suggestions, 1):
+                    st.write(f"📄 FCPXML生成中... ({i}/{total})")
+                    sanitized = _sanitize_filename(suggestion.title)
+
+                    fcpxml_path = fcpxml_dir / f"{i:02d}_{sanitized}.fcpxml"
+                    success = use_case._export_fcpxml(suggestion, video_path_obj, fcpxml_path)
+                    if success:
+                        exported_files.append(fcpxml_path)
+
+                    if generate_srt:
+                        from use_cases.ai.srt_subtitle_generator import generate_srt as gen_srt
+                        srt_path = fcpxml_dir / f"{i:02d}_{sanitized}.srt"
+                        gen_srt(
+                            suggestion=suggestion,
+                            transcription=actual_result,
+                            output_path=srt_path,
+                            video_path=video_path_obj,
+                        )
+
+                # キャッシュ保存
+                cache_dir = base_dir / "clip_suggestions"
+                cache_dir.mkdir(parents=True, exist_ok=True)
+                use_case._save_cache(suggestions, detection, cache_dir / f"{detection.model_used}.json")
+
+                status.update(label=f"✅ {total}件の切り抜きを生成完了", state="complete", expanded=False)
+
+            # 結果をセッションに保存
+            cost_jpy = detection.estimated_cost_usd * 150
+            st.session_state["ai_clip_result"] = {
+                "suggestions": [
+                    {
+                        "title": s.title,
+                        "duration": s.total_duration,
+                    }
+                    for s in suggestions
+                ],
+                "output_dir": str(fcpxml_dir),
+            }
+            st.rerun()
+
+        except Exception as e:
+            logger.error(f"AI clip generation error: {e}", exc_info=True)
+            # エラー時はセッションの古い結果をクリア
+            st.session_state.pop("ai_clip_result", None)
+            st.error(f"❌ AI切り抜き生成中にエラーが発生しました: {e}")
 
     def _render_text_stats(self) -> None:
         """文字数と時間の統計を表示"""
