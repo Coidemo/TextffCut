@@ -106,12 +106,14 @@ def _prompt_choice(prompt: str, choices: list[str], default: str = "") -> str:
 def run_setup() -> None:
     """setupサブコマンドを実行する"""
     console.print()
-    console.print(Panel.fit(
-        "[bold]TextffCut 初期設定[/]\n"
-        "設定は ~/.textffcut/config.json に保存されます。\n"
-        "何度でも再実行できます。",
-        border_style="blue",
-    ))
+    console.print(
+        Panel.fit(
+            "[bold]TextffCut 初期設定[/]\n"
+            "設定は ~/.textffcut/config.json に保存されます。\n"
+            "何度でも再実行できます。",
+            border_style="blue",
+        )
+    )
 
     config = _load_config()
     changed = False
@@ -126,6 +128,7 @@ def run_setup() -> None:
             if new_key:
                 # ライセンス検証
                 from textffcut_cli.license import activate
+
                 if activate(new_key):
                     config["license_key"] = new_key
                     changed = True
@@ -137,6 +140,7 @@ def run_setup() -> None:
         new_key = _prompt_input("  ライセンスキー（スキップ: Enter）")
         if new_key:
             from textffcut_cli.license import activate
+
             if activate(new_key):
                 config["license_key"] = new_key
                 changed = True
@@ -147,22 +151,25 @@ def run_setup() -> None:
     # --- 2. OpenAI APIキー ---
     console.print("\n[bold]2. OpenAI APIキー[/]")
     console.print("  [dim]clipコマンド: 約2-5円/回、API文字起こし: 約$0.006/分[/]")
-    current_api_key = config.get("openai_api_key", "")
+    from utils.api_key_manager import api_key_manager
+    current_api_key = api_key_manager.load_api_key() or config.get("openai_api_key", "")
     if current_api_key:
         console.print(f"  現在の設定: [green]{_mask_key(current_api_key)}[/]")
         if _prompt_yes_no("  変更しますか？", default=False):
             new_api_key = _prompt_input("  OpenAI APIキー (sk-...)")
             if new_api_key:
-                config["openai_api_key"] = new_api_key
+                api_key_manager.save_api_key(new_api_key)
+                config.pop("openai_api_key", None)
                 changed = True
-                console.print("  [green]✓ APIキーを更新しました[/]")
+                console.print("  [green]✓ APIキーを更新しました（暗号化保存）[/]")
     else:
         console.print("  [dim]未設定[/]")
         new_api_key = _prompt_input("  OpenAI APIキー (sk-..., スキップ: Enter)")
         if new_api_key:
-            config["openai_api_key"] = new_api_key
+            api_key_manager.save_api_key(new_api_key)
+            config.pop("openai_api_key", None)
             changed = True
-            console.print("  [green]✓ APIキーを登録しました[/]")
+            console.print("  [green]✓ APIキーを登録しました（暗号化保存）[/]")
 
     # --- 3. デフォルト文字起こしモデル ---
     console.print("\n[bold]3. デフォルト文字起こしモデル[/]")
@@ -194,11 +201,13 @@ def run_setup() -> None:
 
     # --- サマリー ---
     console.print()
-    console.print(Panel.fit(
-        _format_summary(config),
-        title="設定サマリー",
-        border_style="green",
-    ))
+    console.print(
+        Panel.fit(
+            _format_summary(config),
+            title="設定サマリー",
+            border_style="green",
+        )
+    )
 
     console.print("\n[bold]次のステップ:[/]")
     console.print("  textffcut gui                    GUIで操作")
@@ -218,8 +227,9 @@ def _format_summary(config: dict) -> str:
     else:
         lines.append("ライセンス: [yellow]未設定[/]")
 
-    # APIキー
-    api_key = config.get("openai_api_key", "")
+    # APIキー（暗号化ファイル → config.json）
+    from utils.api_key_manager import api_key_manager as _akm
+    api_key = _akm.load_api_key() or config.get("openai_api_key", "")
     if api_key:
         lines.append(f"OpenAI API: [green]{_mask_key(api_key)}[/]")
     else:
@@ -244,6 +254,7 @@ def get_config_value(key: str, default: str = "") -> str:
     # 2. .env（dotenvがあれば）
     try:
         from dotenv import load_dotenv
+
         load_dotenv()
     except ImportError:
         pass
