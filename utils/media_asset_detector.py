@@ -46,8 +46,14 @@ class MediaAssetConfig:
 def _resolve_preset_dir(video_path: Path) -> Path:
     """videos/ と並列の preset/ フォルダパスを返す。
 
-    video_path が videos/ 配下なら videos/../preset/ を返す。
+    video_path のパスから videos/ ディレクトリを探し、その親に preset/ を解決する。
+    サブディレクトリ（videos/subfolder/demo.mp4）にも対応。
     """
+    parts = video_path.resolve().parts
+    for i in range(len(parts) - 1, -1, -1):
+        if parts[i] == "videos":
+            return Path(*parts[:i]) / PRESET_DIR_NAME
+    # videos/ が見つからない場合は親の親にフォールバック
     return video_path.parent.parent / PRESET_DIR_NAME
 
 
