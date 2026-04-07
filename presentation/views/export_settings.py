@@ -173,7 +173,8 @@ class ExportSettingsView:
             # 画像オーバーレイ設定
             with st.expander("🖼️ 画像オーバーレイ（オプション）", expanded=False):
                 st.info(
-                    "💡 videosフォルダ内にoverlaysフォルダを作成し、frame.png（透過背景）を配置すると自動的に読み込まれます。"
+                    "💡 videosと並列の preset/ フォルダに"
+                    " frame.png（透過背景）を配置すると自動的に読み込まれます。"
                 )
 
                 overlay_settings = {}
@@ -184,21 +185,24 @@ class ExportSettingsView:
                     logger.info(f"オーバーレイ設定 - frame_path: {overlay_settings['frame_path']}")
                     st.info("💡 ロゴなどの要素は背景フレーム画像に含めてください。")
                 elif self.view_model.video_path:
-                    overlay_dir = self.view_model.video_path.parent / "overlays"
-                    if overlay_dir.exists():
+                    from utils.media_asset_detector import _resolve_preset_dir
+                    preset_dir = _resolve_preset_dir(self.view_model.video_path)
+                    if preset_dir.exists():
                         st.info(
-                            "frame.png が見つかりません。透過背景を使用する場合は overlays/frame.png を配置してください。"
+                            "frame.png が見つかりません。"
+                            " preset/frame.png を配置してください。"
                         )
                     else:
                         st.info(
-                            "overlaysフォルダが見つかりません。画像オーバーレイを使用する場合は、videosフォルダ内に overlays フォルダを作成してください。"
+                            "preset/ フォルダが見つかりません。"
+                            " videos/ と並列に preset/ フォルダを作成してください。"
                         )
 
                 st.session_state.fcpxml_overlay_settings = overlay_settings
 
             # BGM設定
             with st.expander("🎵 BGM（オプション）", expanded=False):
-                st.info("💡 videosフォルダ内にoverlaysフォルダを作成し、bgm.mp3を配置すると自動的に読み込まれます。")
+                st.info("💡 preset/ フォルダに bgm.mp3 を配置すると自動的に読み込まれます。")
 
                 bgm_settings = {}
                 if detected_config and detected_config.bgm_settings:
@@ -234,14 +238,15 @@ class ExportSettingsView:
                     if bgm_loop != saved_bgm_loop:
                         settings_manager.set("bgm_loop", bgm_loop)
                 else:
-                    st.info("bgm.mp3 が見つかりません。BGMを使用する場合は overlays/bgm.mp3 を配置してください。")
+                    st.info("bgm.mp3 が見つかりません。BGMを使用する場合は preset/bgm.mp3 を配置してください。")
 
                 st.session_state.fcpxml_bgm_settings = bgm_settings
 
             # 追加オーディオ設定
             with st.expander("🎶 追加オーディオ（オプション）", expanded=False):
                 st.info(
-                    "💡 overlaysフォルダ内のbgm.mp3以外のMP3ファイルを自動的に検出し、BGMの下のレーンに並べて配置します。"
+                    "💡 preset/ フォルダ内の bgm.mp3 以外のMP3ファイルを"
+                    " 自動的に検出し、BGMの下のレーンに並べて配置します。"
                 )
 
                 additional_audio_settings = {}
@@ -272,13 +277,15 @@ class ExportSettingsView:
                     additional_audio_settings["volume"] = additional_audio_volume
                     additional_audio_settings["muted"] = False
                 elif self.view_model.video_path:
-                    overlay_dir = self.view_model.video_path.parent / "overlays"
-                    if overlay_dir.exists():
+                    from utils.media_asset_detector import _resolve_preset_dir as _rpd
+                    preset_dir_2 = _rpd(self.view_model.video_path)
+                    if preset_dir_2.exists():
                         st.info(
-                            "追加のMP3ファイルが見つかりません。overlaysフォルダ内にMP3ファイルを配置してください。"
+                            "追加のMP3ファイルが見つかりません。"
+                            " preset/ フォルダ内にMP3ファイルを配置してください。"
                         )
                     else:
-                        st.info("overlaysフォルダが見つかりません。")
+                        st.info("preset/ フォルダが見つかりません。")
 
                 st.session_state.fcpxml_additional_audio_settings = additional_audio_settings
 

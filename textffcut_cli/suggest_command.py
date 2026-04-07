@@ -100,10 +100,10 @@ def build_suggest_parser() -> argparse.ArgumentParser:
         help="キャッシュを無視して再処理",
     )
     parser.add_argument(
-        "--asset-dir",
+        "--preset-dir",
         default=None,
         metavar="DIR",
-        help="メディア素材のディレクトリ（デフォルト: 動画親の overlays/）",
+        help="プリセット素材のディレクトリ（デフォルト: videos/と並列の preset/）",
     )
     parser.add_argument(
         "--no-frame",
@@ -247,10 +247,10 @@ def _process_single_video(
     # メディア素材検出サマリー
     from utils.media_asset_detector import detect_media_assets
 
-    asset_dir = Path(args.asset_dir) if args.asset_dir else None
+    preset_dir = Path(args.preset_dir) if args.preset_dir else None
     media_preview = detect_media_assets(
         video_path.resolve(),
-        asset_dir,
+        preset_dir,
         enable_frame=not args.no_frame,
         enable_bgm=not args.no_bgm,
         enable_se=not args.no_se,
@@ -270,7 +270,7 @@ def _process_single_video(
         generate_srt=args.generate_srt,
         srt_max_chars=args.srt_max_chars,
         srt_max_lines=args.srt_max_lines,
-        asset_dir=asset_dir,
+        preset_dir=preset_dir,
         enable_frame=not args.no_frame,
         enable_bgm=not args.no_bgm,
         enable_se=not args.no_se,

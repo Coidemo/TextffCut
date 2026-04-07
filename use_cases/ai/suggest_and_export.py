@@ -43,7 +43,7 @@ class SuggestAndExportRequest:
     generate_srt: bool = True
     srt_max_chars: int = 11
     srt_max_lines: int = 2
-    asset_dir: Path | None = None
+    preset_dir: Path | None = None
     enable_frame: bool = True
     enable_bgm: bool = True
     enable_se: bool = True
@@ -104,7 +104,7 @@ class SuggestAndExportUseCase:
 
         media_config = detect_media_assets(
             request.video_path,
-            request.asset_dir,
+            request.preset_dir,
             enable_frame=request.enable_frame,
             enable_bgm=request.enable_bgm,
             enable_se=request.enable_se,

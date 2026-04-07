@@ -30,7 +30,7 @@ class TranscriptionConfig:
 
     # API用の固定設定
     api_retry_count: int = 3  # APIリトライ回数
-    
+
     # VAD処理設定
     use_vad_processing: bool = True  # VADベースの処理を使用するか（デフォルトで有効）
 
@@ -50,7 +50,7 @@ class TranscriptionConfig:
         if api_key := os.getenv("TEXTFFCUT_API_KEY"):
             self.api_key = api_key
         # APIプロバイダーはOpenAI固定（環境変数での変更不要）
-        
+
         # VAD処理フラグを環境変数から読み込み（明示的に設定された場合は上書き）
         vad_env = os.getenv("TEXTFFCUT_USE_VAD", "").lower()
         if vad_env == "true":
@@ -115,11 +115,16 @@ class PathConfig:
     def transcriptions_path(self) -> Path:
         return self.base_dir / self.transcriptions_dir
 
+    @property
+    def preset_path(self) -> Path:
+        return self.base_dir / "preset"
+
     def ensure_directories(self) -> None:
         """必要なディレクトリを作成"""
         self.videos_path.mkdir(exist_ok=True)
         self.output_path.mkdir(exist_ok=True)
         self.transcriptions_path.mkdir(exist_ok=True)
+        self.preset_path.mkdir(exist_ok=True)
 
 
 @dataclass
