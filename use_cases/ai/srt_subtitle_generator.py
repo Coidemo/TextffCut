@@ -102,13 +102,16 @@ def _transcribe_output_audio(
 
         with tempfile.TemporaryDirectory() as tmpdir:
             # 各rangeの音声を抽出
+            total_duration = sum(end - start for start, end in time_ranges)
+            ffmpeg_timeout = max(30, int(total_duration * 2))
+
             parts = []
             for i, (start, end) in enumerate(time_ranges):
                 p = f"{tmpdir}/p{i}.wav"
                 proc = subprocess.run(
                     ["ffmpeg", "-y", "-ss", str(start), "-t", str(end - start),
                      "-i", str(video_path), "-vn", "-ar", "16000", "-ac", "1", p],
-                    capture_output=True, timeout=15,
+                    capture_output=True, timeout=ffmpeg_timeout,
                 )
                 if proc.returncode != 0:
                     logger.warning(f"ffmpeg extract failed (part {i})")
@@ -122,7 +125,7 @@ def _transcribe_output_audio(
             proc = subprocess.run(
                 ["ffmpeg", "-y", "-f", "concat", "-safe", "0",
                  "-i", f"{tmpdir}/list.txt", "-c", "copy", f"{tmpdir}/out.wav"],
-                capture_output=True, timeout=15,
+                capture_output=True, timeout=ffmpeg_timeout,
             )
             if proc.returncode != 0:
                 logger.warning("ffmpeg concat failed")
@@ -210,7 +213,7 @@ def _generate_from_char_times(
     max_lines: int,
 ) -> Path | None:
     """char_timesベースで字幕を生成する（共通処理）。"""
-    micro_blocks = _phase1_split(full_text, seg_bounds)
+    micro_blocks = _phase1_split(full_text, seg_bounds, max_chars_per_line)
     lines = _phase2_merge_to_lines(micro_blocks, max_chars_per_line, seg_bounds)
     entries = _phase3_dp_group(lines, char_times, max_chars_per_line, max_lines)
 
@@ -250,7 +253,7 @@ def _tokenize(text: str) -> list[tuple[int, str, str]]:
     return [(i + 1, text[i], "") for i in range(len(text))]
 
 
-def _phase1_split(full_text: str, seg_bounds: set[int]) -> list[TextBlock]:
+def _phase1_split(full_text: str, seg_bounds: set[int], max_chars: int = DEFAULT_MAX_CHARS_PER_LINE) -> list[TextBlock]:
     n = len(full_text)
     if n == 0:
         return []
@@ -262,7 +265,7 @@ def _phase1_split(full_text: str, seg_bounds: set[int]) -> list[TextBlock]:
         boundaries = list(range(1, n))
 
     # 長すぎるギャップ（11文字超）にフォールバック境界を追加
-    MAX_BLOCK = 11
+    MAX_BLOCK = max_chars
     all_b = sorted(set([0] + boundaries + [n]))
     for idx in range(len(all_b) - 1):
         gap = all_b[idx + 1] - all_b[idx]
@@ -310,7 +313,7 @@ def _phase1_split(full_text: str, seg_bounds: set[int]) -> list[TextBlock]:
         cut_scores[b] = score
 
     # DP（11文字以下で分割）
-    MAX_BLOCK = 11
+    MAX_BLOCK = max_chars
     dp = {0: (0.0, -1)}
     all_positions = sorted(set([0] + boundaries))
 
