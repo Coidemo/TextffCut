@@ -23,9 +23,9 @@ def build_suggest_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "files",
-        nargs="+",
+        nargs="*",
         metavar="FILE_OR_DIR",
-        help="処理する動画ファイルまたはフォルダのパス",
+        help="処理する動画ファイルまたはフォルダのパス（省略時: ./videos/）",
     )
     parser.add_argument(
         "-m", "--model",
@@ -117,9 +117,20 @@ def run_suggest(argv: list[str]) -> None:
     parser = build_suggest_parser()
     args = parser.parse_args(argv)
 
-    # ファイル収集
+    # ファイル収集（引数なし → ./videos/ をフォールバック）
     from textffcut_cli.command import _collect_video_paths
-    video_paths = _collect_video_paths(args.files)
+    file_args = args.files
+    if not file_args:
+        videos_dir = Path.cwd() / "videos"
+        if videos_dir.exists():
+            file_args = [str(videos_dir)]
+            console.print(f"[dim]引数なし → {videos_dir}/ を自動検索[/]")
+        else:
+            console.print("[red]エラー: ファイルが指定されていません[/]")
+            console.print("  使い方: textffcut clip [動画ファイル ...]")
+            console.print("  または: textffcut setup で初期設定を行ってください")
+            sys.exit(1)
+    video_paths = _collect_video_paths(file_args)
 
     if args.simulate:
         _print_simulate(video_paths, args)
@@ -136,8 +147,9 @@ def run_suggest(argv: list[str]) -> None:
     except ImportError:
         pass
 
-    # APIキーチェック
-    api_key = os.environ.get("OPENAI_API_KEY") or os.environ.get("TEXTFFCUT_API_KEY")
+    # APIキーチェック（config.json → .env → 環境変数）
+    from textffcut_cli.setup_command import get_config_value
+    api_key = get_config_value("openai_api_key") or os.environ.get("OPENAI_API_KEY") or os.environ.get("TEXTFFCUT_API_KEY")
     if not api_key:
         console.print(
             "[red]エラー: OpenAI APIキーが設定されていません[/]\n"

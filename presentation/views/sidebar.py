@@ -45,6 +45,11 @@ class SidebarView(BaseView[SidebarViewModel]):
 
     def _render_settings_tab(self) -> None:
         """設定タブの内容"""
+        # config.json設定状態
+        self._render_config_status()
+
+        st.markdown("---")
+
         # 無音削除の詳細設定
         st.markdown("#### 🔇 無音削除の詳細設定")
 
@@ -170,6 +175,24 @@ class SidebarView(BaseView[SidebarViewModel]):
         if len(api_key) > 8:
             return api_key[:4] + "*" * (len(api_key) - 8) + api_key[-4:]
         return "*" * len(api_key)
+
+    def _render_config_status(self) -> None:
+        """config.json設定状態を表示"""
+        try:
+            from textffcut_cli.setup_command import get_config_value
+            api_key = get_config_value("openai_api_key")
+            model = get_config_value("default_model", "medium")
+
+            st.markdown("#### 📋 設定状態")
+            if api_key:
+                st.markdown(f"OpenAI API: ✅ 設定済み")
+            else:
+                st.markdown("OpenAI API: ❌ 未設定")
+                st.caption("clipコマンド: 約2-5円/回")
+
+            st.markdown(f"モデル: `{model}`")
+        except Exception:
+            pass
 
     def _render_help_tab(self) -> None:
         """ヘルプタブの内容"""
