@@ -172,10 +172,13 @@ def run_suggest(argv: list[str]) -> None:
         console.print("[red]エラー: 対象ファイルが見つかりませんでした[/]")
         sys.exit(1)
 
-    # APIキーチェック（config.json → .env → 環境変数の順で取得）
+    # APIキーチェック（暗号化ファイル → config.json → .env → 環境変数）
+    from utils.api_key_manager import api_key_manager
     from textffcut_cli.setup_command import get_config_value
 
-    api_key = get_config_value("openai_api_key")
+    api_key = api_key_manager.load_api_key()
+    if not api_key:
+        api_key = get_config_value("openai_api_key")
     if not api_key:
         console.print(
             "[red]エラー: OpenAI APIキーが設定されていません[/]\n"
