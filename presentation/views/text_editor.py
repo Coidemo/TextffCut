@@ -636,20 +636,11 @@ class TextEditorView:
         # 結果表示
         if "ai_clip_result" in st.session_state and st.session_state["ai_clip_result"]:
             result = st.session_state["ai_clip_result"]
-            st.success(f"✅ {len(result['suggestions'])}件の切り抜きを生成しました")
 
-            for i, suggestion in enumerate(result["suggestions"], 1):
-                with st.expander(f"候補{i}: {suggestion['title']}（{suggestion['duration']:.0f}秒）"):
-                    st.write(f"バリエーション: {suggestion['variant_label']}")
-                    st.write(f"クリップ数: {suggestion['clip_count']}")
+            for i, s in enumerate(result["suggestions"], 1):
+                st.markdown(f"**{i}. {s['title']}**　{s['duration']:.0f}秒")
 
-            st.info(f"📁 出力先: {result['output_dir']}")
-
-            # ファイル一覧
-            if result["files"]:
-                st.markdown("**生成ファイル:**")
-                for f in result["files"]:
-                    st.code(f, language=None)
+            st.caption(f"📁 {result['output_dir']}")
 
     def _execute_ai_clip(
         self,
@@ -697,58 +688,105 @@ class TextEditorView:
 
         video_path_obj = Path(video_path).resolve()
 
-        with st.spinner("AI自動切り抜きを実行中...（数分かかる場合があります）"):
-            try:
-                from infrastructure.external.gateways.openai_clip_suggestion_gateway import (
-                    OpenAIClipSuggestionGateway,
-                )
-                from use_cases.ai.suggest_and_export import (
-                    SuggestAndExportRequest,
-                    SuggestAndExportUseCase,
-                )
+        try:
+            from infrastructure.external.gateways.openai_clip_suggestion_gateway import (
+                OpenAIClipSuggestionGateway,
+            )
+            from use_cases.ai.suggest_and_export import (
+                SuggestAndExportRequest,
+                SuggestAndExportUseCase,
+            )
+            from use_cases.ai.generate_clip_suggestions import GenerateClipSuggestionsUseCase
+            from use_cases.ai.word_level_filler_polish import polish_fillers
 
-                gateway = OpenAIClipSuggestionGateway(api_key=api_key, model="gpt-4.1-mini")
-                use_case = SuggestAndExportUseCase(gateway=gateway)
+            gateway = OpenAIClipSuggestionGateway(api_key=api_key, model="gpt-4.1-mini")
 
-                request = SuggestAndExportRequest(
-                    video_path=video_path_obj,
+            with st.status("AI自動切り抜きを実行中...", expanded=True) as status:
+                # Phase 1: 話題検出
+                st.write("🔍 話題を検出中...")
+                gen_use_case = GenerateClipSuggestionsUseCase(gateway)
+                suggestions = gen_use_case.execute(
                     transcription=actual_result,
-                    ai_model="gpt-4.1-mini",
+                    video_path=video_path_obj,
                     num_candidates=num_candidates,
                     min_duration=min_duration,
                     max_duration=max_duration,
-                    remove_silence=remove_silence,
-                    generate_srt=generate_srt,
                 )
+                detection = gen_use_case.last_detection_result
+                total = len(suggestions)
+                st.write(f"✅ {total}件の話題を検出")
 
-                result = use_case.execute(request)
+                # Phase 2: フィラー仕上げ
+                st.write(f"🧹 フィラー除去中... (0/{total})")
+                for i, suggestion in enumerate(suggestions):
+                    suggestions[i] = polish_fillers(
+                        suggestion, actual_result, video_path_obj
+                    )
+                    st.write(f"🧹 フィラー除去中... ({i + 1}/{total})")
 
-                # 結果をセッションに保存
-                st.session_state["ai_clip_result"] = {
-                    "suggestions": [
-                        {
-                            "title": s.title,
-                            "duration": s.total_duration,
-                            "variant_label": s.variant_label,
-                            "clip_count": len(s.time_ranges),
-                        }
-                        for s in result.suggestions
-                    ],
-                    "files": [str(f.name) for f in result.exported_files],
-                    "output_dir": str(result.output_dir),
-                    "cost_usd": result.detection_cost_usd,
-                }
+                # Phase 3: 無音削除
+                if remove_silence:
+                    st.write(f"🔇 無音削除中... (0/{total})")
+                    video_name = video_path_obj.stem
+                    base_dir = video_path_obj.parent / f"{video_name}_TextffCut"
+                    use_case_full = SuggestAndExportUseCase(gateway=gateway)
+                    for i, suggestion in enumerate(suggestions):
+                        use_case_full._apply_silence_removal(suggestion, video_path_obj, base_dir)
+                        st.write(f"🔇 無音削除中... ({i + 1}/{total})")
 
-                cost_jpy = result.detection_cost_usd * 150
-                st.success(
-                    f"✅ 完了！{len(result.suggestions)}件の切り抜きを生成"
-                    f"（APIコスト: 約{cost_jpy:.1f}円）"
-                )
-                st.rerun()
+                # Phase 4: FCPXML + SRT 生成
+                st.write(f"📄 FCPXML生成中... (0/{total})")
+                video_name = video_path_obj.stem
+                base_dir = video_path_obj.parent / f"{video_name}_TextffCut"
+                fcpxml_dir = base_dir / "fcpxml"
+                fcpxml_dir.mkdir(parents=True, exist_ok=True)
 
-            except Exception as e:
-                logger.error(f"AI clip generation error: {e}", exc_info=True)
-                st.error(f"❌ AI切り抜き生成中にエラーが発生しました: {e}")
+                use_case_export = SuggestAndExportUseCase(gateway=gateway)
+                exported_files: list[Path] = []
+                for i, suggestion in enumerate(suggestions, 1):
+                    from use_cases.ai.suggest_and_export import _sanitize_filename
+                    sanitized = _sanitize_filename(suggestion.title)
+
+                    fcpxml_path = fcpxml_dir / f"{i:02d}_{sanitized}.fcpxml"
+                    success = use_case_export._export_fcpxml(suggestion, video_path_obj, fcpxml_path)
+                    if success:
+                        exported_files.append(fcpxml_path)
+
+                    if generate_srt:
+                        from use_cases.ai.srt_subtitle_generator import generate_srt as gen_srt
+                        srt_path = fcpxml_dir / f"{i:02d}_{sanitized}.srt"
+                        gen_srt(
+                            suggestion=suggestion,
+                            transcription=actual_result,
+                            output_path=srt_path,
+                            video_path=video_path_obj,
+                        )
+                    st.write(f"📄 FCPXML生成中... ({i}/{total})")
+
+                # キャッシュ保存
+                cache_dir = base_dir / "clip_suggestions"
+                cache_dir.mkdir(parents=True, exist_ok=True)
+                use_case_export._save_cache(suggestions, detection, cache_dir / f"{detection.model_used}.json")
+
+                status.update(label=f"✅ {total}件の切り抜きを生成完了", state="complete", expanded=False)
+
+            # 結果をセッションに保存
+            cost_jpy = detection.estimated_cost_usd * 150
+            st.session_state["ai_clip_result"] = {
+                "suggestions": [
+                    {
+                        "title": s.title,
+                        "duration": s.total_duration,
+                    }
+                    for s in suggestions
+                ],
+                "output_dir": str(fcpxml_dir),
+            }
+            st.rerun()
+
+        except Exception as e:
+            logger.error(f"AI clip generation error: {e}", exc_info=True)
+            st.error(f"❌ AI切り抜き生成中にエラーが発生しました: {e}")
 
     def _render_text_stats(self) -> None:
         """文字数と時間の統計を表示"""
