@@ -81,10 +81,18 @@ class TranscriptionPresenter(BasePresenter[TranscriptionViewModel]):
         else:
             self.view_model.available_models = ["medium", "small", "base"]
 
-        # 保存されたモデルサイズを復元
+        # 保存されたモデルサイズを復元（セッション → config.json → デフォルト）
         saved_model = self.session_manager.get("model_size", None)
         if saved_model and saved_model in self.view_model.available_models:
             self.view_model.model_size = saved_model
+        else:
+            try:
+                from textffcut_cli.setup_command import get_config_value
+                config_model = get_config_value("default_model", "")
+                if config_model and config_model in self.view_model.available_models:
+                    self.view_model.model_size = config_model
+            except Exception:
+                pass
 
         # 保存されたAPIキーを読み込む
         from utils.api_key_manager import api_key_manager
@@ -184,7 +192,16 @@ class TranscriptionPresenter(BasePresenter[TranscriptionViewModel]):
             if saved and saved in self.view_model.available_models:
                 self.view_model.model_size = saved
             else:
-                self.view_model.model_size = self.view_model.available_models[0]
+                # config.jsonのデフォルトモデルを参照
+                try:
+                    from textffcut_cli.setup_command import get_config_value
+                    config_model = get_config_value("default_model", "")
+                    if config_model and config_model in self.view_model.available_models:
+                        self.view_model.model_size = config_model
+                    else:
+                        self.view_model.model_size = self.view_model.available_models[0]
+                except Exception:
+                    self.view_model.model_size = self.view_model.available_models[0]
 
         # SessionManagerに保存（DIコンテナが参照できるように）
         self.session_manager.set("use_api", use_api)
