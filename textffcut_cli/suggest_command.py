@@ -28,7 +28,8 @@ def build_suggest_parser() -> argparse.ArgumentParser:
         help="処理する動画ファイルまたはフォルダのパス（省略時: ./videos/）",
     )
     parser.add_argument(
-        "-m", "--model",
+        "-m",
+        "--model",
         default="medium",
         choices=["tiny", "base", "small", "medium", "large-v3", "large-v3-turbo"],
         metavar="MODEL",
@@ -91,20 +92,50 @@ def build_suggest_parser() -> argparse.ArgumentParser:
         help="カスタムプロンプトファイルのパス",
     )
     parser.add_argument(
-        "-n", "--no-cache",
+        "-n",
+        "--no-cache",
         dest="use_cache",
         action="store_false",
         default=True,
         help="キャッシュを無視して再処理",
     )
     parser.add_argument(
-        "-s", "--simulate",
+        "--preset-dir",
+        default=None,
+        metavar="DIR",
+        help="プリセット素材のディレクトリ（デフォルト: videos/と並列の preset/）",
+    )
+    parser.add_argument(
+        "--no-frame",
+        dest="no_frame",
+        action="store_true",
+        default=False,
+        help="フレーム画像を適用しない",
+    )
+    parser.add_argument(
+        "--no-bgm",
+        dest="no_bgm",
+        action="store_true",
+        default=False,
+        help="BGMを適用しない",
+    )
+    parser.add_argument(
+        "--no-se",
+        dest="no_se",
+        action="store_true",
+        default=False,
+        help="効果音を適用しない",
+    )
+    parser.add_argument(
+        "-s",
+        "--simulate",
         action="store_true",
         default=False,
         help="ファイルを処理せず、対象ファイル一覧のみ表示",
     )
     parser.add_argument(
-        "-q", "--quiet",
+        "-q",
+        "--quiet",
         action="store_true",
         default=False,
         help="進捗出力を抑制する",
@@ -119,6 +150,7 @@ def run_suggest(argv: list[str]) -> None:
 
     # ファイル収集（引数なし → ./videos/ をフォールバック）
     from textffcut_cli.command import _collect_video_paths
+
     file_args = args.files
     if not file_args:
         videos_dir = Path.cwd() / "videos"
@@ -140,9 +172,13 @@ def run_suggest(argv: list[str]) -> None:
         console.print("[red]エラー: 対象ファイルが見つかりませんでした[/]")
         sys.exit(1)
 
-    # APIキーチェック（config.json → .env → 環境変数の順で取得）
+    # APIキーチェック（暗号化ファイル → config.json → .env → 環境変数）
+    from utils.api_key_manager import api_key_manager
     from textffcut_cli.setup_command import get_config_value
-    api_key = get_config_value("openai_api_key")
+
+    api_key = api_key_manager.load_api_key()
+    if not api_key:
+        api_key = get_config_value("openai_api_key")
     if not api_key:
         console.print(
             "[red]エラー: OpenAI APIキーが設定されていません[/]\n"
@@ -176,10 +212,7 @@ def run_suggest(argv: list[str]) -> None:
     # サマリー
     if len(video_paths) > 1:
         console.print()
-        console.print(
-            f"[bold]合計: {total_exported}件のFCPXML | "
-            f"APIコスト: 約{total_cost * 150:.1f}円[/]"
-        )
+        console.print(f"[bold]合計: {total_exported}件のFCPXML | " f"APIコスト: 約{total_cost * 150:.1f}円[/]")
 
 
 def _process_single_video(
@@ -211,6 +244,20 @@ def _process_single_video(
     gateway = OpenAIClipSuggestionGateway(api_key=api_key, model=args.ai_model)
     use_case = SuggestAndExportUseCase(gateway=gateway)
 
+    # メディア素材検出サマリー
+    from utils.media_asset_detector import detect_media_assets
+
+    preset_dir = Path(args.preset_dir) if args.preset_dir else None
+    media_preview = detect_media_assets(
+        video_path.resolve(),
+        preset_dir,
+        enable_frame=not args.no_frame,
+        enable_bgm=not args.no_bgm,
+        enable_se=not args.no_se,
+    )
+    if media_preview.has_any:
+        console.print(f"  🎨 {media_preview.summary()}")
+
     request = SuggestAndExportRequest(
         video_path=video_path.resolve(),
         transcription=transcription,
@@ -223,23 +270,24 @@ def _process_single_video(
         generate_srt=args.generate_srt,
         srt_max_chars=args.srt_max_chars,
         srt_max_lines=args.srt_max_lines,
+        preset_dir=preset_dir,
+        enable_frame=not args.no_frame,
+        enable_bgm=not args.no_bgm,
+        enable_se=not args.no_se,
     )
 
     result = use_case.execute(request)
 
     cost_jpy = result.detection_cost_usd * 150
     console.print(
-        f"  ✓ 話題{len(result.suggestions)}件検出"
-        f"（{result.detection_processing_time:.1f}秒、約{cost_jpy:.1f}円）"
+        f"  ✓ 話題{len(result.suggestions)}件検出" f"（{result.detection_processing_time:.1f}秒、約{cost_jpy:.1f}円）"
     )
 
     # 各候補の情報表示
     if not args.quiet and result.suggestions:
         console.print(f"\n[bold]🔧 機械的編集 → AI選定...[/]")
         for i, s in enumerate(result.suggestions, 1):
-            console.print(
-                f"  候補{i}: {s.title}（{s.total_duration:.0f}秒、{s.variant_label}）"
-            )
+            console.print(f"  候補{i}: {s.title}（{s.total_duration:.0f}秒、{s.variant_label}）")
 
     # FCPXML出力結果
     if result.exported_files:
@@ -298,10 +346,7 @@ def _load_transcription_cache(video_path: Path, model: str) -> "TranscriptionRes
         if cache_dir.exists():
             available = [f.stem for f in cache_dir.glob("*.json")]
             if available:
-                console.print(
-                    f"  [yellow]モデル '{model}' のキャッシュなし。"
-                    f"利用可能: {', '.join(available)}[/]"
-                )
+                console.print(f"  [yellow]モデル '{model}' のキャッシュなし。" f"利用可能: {', '.join(available)}[/]")
                 # 最初に見つかったキャッシュを使う
                 cache_file = cache_dir / f"{available[0]}.json"
                 console.print(f"  → {available[0]} のキャッシュを使用")
