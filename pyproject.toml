@@ -21,6 +21,7 @@ dependencies = [
     "torchaudio>=2.2.0",
     "mlx-whisper>=0.4.0",
     "mlx-forced-aligner>=0.1.0",
+    "cryptography>=41.0.0",
 ]
 
 [project.urls]

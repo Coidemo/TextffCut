@@ -14,6 +14,7 @@ from pathlib import Path
 # 環境チェック（起動時に即座に確認）
 # ---------------------------------------------------------------------------
 
+
 def _check_environment() -> None:
     """Apple Silicon + MLX の確認。非対応環境ではエラー終了する。"""
     import platform
@@ -89,6 +90,7 @@ def _collect_video_paths(inputs: list[str]) -> list[Path]:
 # CLI エントリーポイント
 # ---------------------------------------------------------------------------
 
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="textffcut",
@@ -114,11 +116,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     try:
         from importlib.metadata import version as _pkg_version
+
         _version = _pkg_version("textffcut")
     except Exception:
         _version = "unknown"
     parser.add_argument(
-        "-V", "--version",
+        "-V",
+        "--version",
         action="version",
         version=f"%(prog)s {_version}",
     )
@@ -131,27 +135,31 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
-        "-m", "--model",
+        "-m",
+        "--model",
         default="medium",
         choices=["tiny", "base", "small", "medium", "large-v3", "large-v3-turbo"],
         metavar="MODEL",
         help="使用するモデルサイズ（デフォルト: medium）tiny/base/small/medium/large-v3/large-v3-turbo",
     )
     parser.add_argument(
-        "-n", "--no-cache",
+        "-n",
+        "--no-cache",
         dest="use_cache",
         action="store_false",
         default=True,
         help="キャッシュを無視して再処理",
     )
     parser.add_argument(
-        "-s", "--simulate",
+        "-s",
+        "--simulate",
         action="store_true",
         default=False,
         help="ファイルを処理せず、対象ファイル一覧のみ表示",
     )
     parser.add_argument(
-        "-q", "--quiet",
+        "-q",
+        "--quiet",
         action="store_true",
         default=False,
         help="進捗出力を抑制する（デフォルト: 表示あり）",
@@ -190,12 +198,12 @@ def _cmd_models() -> None:
     from rich.table import Table
 
     models = [
-        ("tiny",           "39M",   "最速・低精度。動作確認用"),
-        ("base",           "74M",   "高速・やや低精度"),
-        ("small",          "244M",  "バランス型"),
-        ("medium",         "769M",  "推奨。精度と速度のバランスが良い"),
-        ("large-v3",       "1.5G",  "高精度・低速"),
-        ("large-v3-turbo", "809M",  "large-v3 の高速版（推奨）"),
+        ("tiny", "39M", "最速・低精度。動作確認用"),
+        ("base", "74M", "高速・やや低精度"),
+        ("small", "244M", "バランス型"),
+        ("medium", "769M", "推奨。精度と速度のバランスが良い"),
+        ("large-v3", "1.5G", "高精度・低速"),
+        ("large-v3-turbo", "809M", "large-v3 の高速版（推奨）"),
     ]
 
     con = Console()
@@ -239,20 +247,21 @@ def _cmd_gui() -> None:
     print("\nGUIを起動中... http://localhost:8501")
     print("停止するには Ctrl+C を押してください\n")
 
+    # sys.executable と同じ Python で streamlit を起動する。
+    # PATH 上の streamlit を使うと Python バージョン不一致で
+    # C 拡張（numpy 等）の読み込みに失敗する。
     try:
-        # subprocess.run はブロッキング呼び出し。
-        # Ctrl+C は子プロセス（streamlit）に直接 SIGINT が届くため、
-        # 通常は KeyboardInterrupt ではなく subprocess.run が正常に return する。
-        # どちらのケースでも停止メッセージを表示する。
-        subprocess.run(["streamlit", "run", str(main_py)], check=False)
+        subprocess.run(
+            [sys.executable, "-m", "streamlit", "run", str(main_py)],
+            check=False,
+        )
         print("\n✓ GUIを停止しました")
     except KeyboardInterrupt:
         print("\n✓ GUIを停止しました")
     except FileNotFoundError:
         print(
             "エラー: streamlit が見つかりません。\n"
-            "  Homebrew でインストールした場合: brew reinstall textffcut\n"
-            "  直接インストールした場合: pip install 'textffcut[ui]'",
+            "  pip install 'textffcut[ui]'",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -283,6 +292,7 @@ def main() -> None:
     # 起動時の更新チェック（24時間ごと、バックグラウンドで通知のみ）
     try:
         from textffcut_cli.upgrade_command import check_for_updates_on_startup
+
         check_for_updates_on_startup()
     except Exception:
         pass
@@ -307,6 +317,7 @@ def main() -> None:
             print("使い方: textffcut activate XXXXX-XXXXX-XXXXX-XXXXX", file=sys.stderr)
             sys.exit(1)
         from textffcut_cli.license import activate
+
         if activate(key):
             print(
                 "✓ ライセンスを登録しました。\n"
@@ -323,23 +334,28 @@ def main() -> None:
 
     if sys.argv[1] == "setup":
         from textffcut_cli.setup_command import run_setup
+
         run_setup()
         return
 
     if sys.argv[1] == "upgrade":
         from textffcut_cli.upgrade_command import run_upgrade
+
         run_upgrade(sys.argv[2:])
         return
 
     if sys.argv[1] in ("clip", "suggest"):
         from textffcut_cli.suggest_command import run_suggest
+
         run_suggest(sys.argv[2:])
         return
 
     if sys.argv[1] == "gui":
         # --help フラグを確認してからGUIを起動
         if len(sys.argv) > 2 and sys.argv[2] in ("-h", "--help"):
-            print("使い方: textffcut gui\nStreamlit GUIを起動します。カレントディレクトリに videos/ フォルダを作成します。")
+            print(
+                "使い方: textffcut gui\nStreamlit GUIを起動します。カレントディレクトリに videos/ フォルダを作成します。"
+            )
             return
         _cmd_gui()
         return
@@ -350,6 +366,7 @@ def main() -> None:
     # 通常コマンド: 環境チェック → ライセンスチェックの順
     _check_environment()
     from textffcut_cli.license import require_license
+
     require_license()
 
     # ファイル収集
@@ -402,5 +419,3 @@ def main() -> None:
         sys.exit(2)
     else:
         sys.exit(1)
-
-
