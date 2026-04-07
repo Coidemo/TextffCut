@@ -237,7 +237,8 @@ class TestGUIClipIntegration:
         """sidebar.pyにモデル選択UIが存在する"""
         content = (PROJECT_ROOT / "presentation" / "views" / "sidebar.py").read_text(encoding="utf-8")
         assert "default_model" in content
-        assert "sidebar_default_model" in content
+        assert "デフォルトモデル" in content
+        assert "st.selectbox" in content
 
 
 # ===== suggest_command テスト =====

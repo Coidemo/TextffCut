@@ -793,6 +793,8 @@ class TextEditorView:
 
         except Exception as e:
             logger.error(f"AI clip generation error: {e}", exc_info=True)
+            # エラー時はセッションの古い結果をクリア
+            st.session_state.pop("ai_clip_result", None)
             st.error(f"❌ AI切り抜き生成中にエラーが発生しました: {e}")
 
     def _render_text_stats(self) -> None:

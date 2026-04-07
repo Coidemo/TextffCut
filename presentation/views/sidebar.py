@@ -164,20 +164,27 @@ class SidebarView(BaseView[SidebarViewModel]):
                     st.success("✅ APIキーを暗号化保存しました")
                     st.rerun()
 
-        # デフォルトモデル選択
+        # デフォルトモデル選択（transcription presenterのavailable_modelsと一致させる）
         try:
             from textffcut_cli.setup_command import get_config_value, _load_config, _save_config
 
-            models = ["tiny", "base", "small", "medium", "large-v3", "large-v3-turbo"]
+            try:
+                import mlx_whisper  # noqa: F401
+                models = ["medium", "large-v3", "large-v3-turbo", "small", "base"]
+            except ImportError:
+                models = ["medium", "small", "base"]
+
             current_model = get_config_value("default_model", "medium")
-            current_index = models.index(current_model) if current_model in models else 3
+            if current_model not in models:
+                current_model = "medium"
+            current_index = models.index(current_model)
 
             selected_model = st.selectbox(
                 "デフォルトモデル",
                 options=models,
                 index=current_index,
-                key="sidebar_default_model",
-                help="文字起こしに使用するモデル",
+                key=TestIds.SIDEBAR_SILENCE_THRESHOLD + "_model",
+                help="文字起こしに使用するモデル（CLI/GUIで共通）",
             )
 
             if selected_model != current_model:

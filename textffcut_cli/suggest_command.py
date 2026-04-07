@@ -140,20 +140,13 @@ def run_suggest(argv: list[str]) -> None:
         console.print("[red]エラー: 対象ファイルが見つかりませんでした[/]")
         sys.exit(1)
 
-    # .envファイルから環境変数を読み込み
-    try:
-        from dotenv import load_dotenv
-        load_dotenv()
-    except ImportError:
-        pass
-
-    # APIキーチェック（config.json → .env → 環境変数）
+    # APIキーチェック（config.json → .env → 環境変数の順で取得）
     from textffcut_cli.setup_command import get_config_value
-    api_key = get_config_value("openai_api_key") or os.environ.get("OPENAI_API_KEY") or os.environ.get("TEXTFFCUT_API_KEY")
+    api_key = get_config_value("openai_api_key")
     if not api_key:
         console.print(
             "[red]エラー: OpenAI APIキーが設定されていません[/]\n"
-            "  環境変数 OPENAI_API_KEY または TEXTFFCUT_API_KEY を設定してください:\n"
+            "  textffcut setup で設定するか、環境変数を設定してください:\n"
             "  [cyan]export OPENAI_API_KEY=sk-...[/]"
         )
         sys.exit(1)
