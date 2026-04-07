@@ -27,8 +27,11 @@ from infrastructure.repositories.performance_profile_repository import FilePerfo
 from core.auto_optimizer import AutoOptimizer
 from core.memory_monitor import MemoryMonitor
 
-# Presentation層のインポート
-from presentation.di_config import PresentationContainer
+# Presentation層はStreamlit依存のため、インストールされていない場合はスキップ
+try:
+    from presentation.di_config import PresentationContainer
+except ImportError:
+    PresentationContainer = None
 
 # サービス層のインポート（段階的移行用） - servicesパッケージ削除済み
 # from services.configuration_service import ConfigurationService
@@ -72,7 +75,7 @@ class GatewayContainer(containers.DeclarativeContainer):
     transcription_gateway = providers.Factory(
         OptimizedTranscriptionGatewayAdapter,
         config=config.legacy_config,
-        profile_repository=performance_profile_repository
+        profile_repository=performance_profile_repository,
     )
 
     # テキスト処理ゲートウェイ
@@ -138,7 +141,7 @@ class UseCaseContainer(containers.DeclarativeContainer):
     optimize_audio = providers.Factory(
         OptimizeAudioUseCase,
         audio_optimizer_gateway=gateways.audio_optimizer_gateway,
-        profile_repository=gateways.performance_profile_repository
+        profile_repository=gateways.performance_profile_repository,
     )
 
     # 注: AI バズクリップ生成ユースケースは実行時にAI gatewayを必要とするため、main.pyで直接作成する
@@ -186,8 +189,9 @@ class ApplicationContainer(containers.DeclarativeContainer):
         ServiceContainer, config=providers.DependenciesContainer(legacy_config=legacy_config)
     )
 
-    # Presentation層コンテナ
-    presentation = providers.Container(PresentationContainer, gateways=gateways, use_cases=use_cases, services=services)
+    # Presentation層コンテナ（Streamlit がインストールされている場合のみ）
+    if PresentationContainer is not None:
+        presentation = providers.Container(PresentationContainer, gateways=gateways, use_cases=use_cases, services=services)
 
     # Streamlit連携用プロバイダー
     api_key_provider = providers.Singleton(
