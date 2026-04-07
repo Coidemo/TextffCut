@@ -69,28 +69,13 @@ def generate_srt(
     if not entries:
         return None
 
-    # 短すぎるエントリ（0.5秒未満）を前と結合（前が1行の場合のみ）
-    merged_entries = []
-    for entry in entries:
-        dur = entry.end_time - entry.start_time
-        if dur < 0.5 and merged_entries:
-            prev = merged_entries[-1]
-            prev_lines = prev.text.count("\n") + 1
-            entry_lines = entry.text.count("\n") + 1
-            if prev_lines + entry_lines <= 2:
-                prev.text = prev.text + "\n" + entry.text
-                prev.end_time = entry.end_time
-                continue
-        merged_entries.append(entry)
-    entries = merged_entries
-
-    for i, e in enumerate(entries, 1):
-        e.index = i
-
-    # 隣接エントリ間の隙間を埋める
+    # 隣接エントリ間の隙間を埋める（前のend_timeを次のstart_timeまで延長）
     for i in range(len(entries) - 1):
         if entries[i + 1].start_time > entries[i].end_time:
             entries[i].end_time = entries[i + 1].start_time
+
+    for i, e in enumerate(entries, 1):
+        e.index = i
 
     _write_srt(entries, output_path)
     logger.info(f"SRT生成: {len(entries)}エントリ → {output_path.name}")
