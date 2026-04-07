@@ -94,7 +94,7 @@ class ExportSettingsView:
         if selected_format == "fcpxml":
             # 設定マネージャーをインポート
             from utils import settings_manager
-            
+
             with st.expander("🎥 FCPXML詳細設定", expanded=True):
                 # タイムライン解像度選択
                 saved_timeline_resolution = settings_manager.get("fcpxml_timeline_resolution", "horizontal")
@@ -108,7 +108,7 @@ class ExportSettingsView:
                 )
                 if timeline_resolution != saved_timeline_resolution:
                     settings_manager.set("fcpxml_timeline_resolution", timeline_resolution)
-                
+
                 # ズーム設定（速度設定は削除）
                 saved_zoom = settings_manager.get("fcpxml_zoom", 100)
                 zoom_percent = st.number_input(
@@ -124,11 +124,11 @@ class ExportSettingsView:
                 # 値が変更されたら保存
                 if zoom_percent != saved_zoom:
                     settings_manager.set("fcpxml_zoom", zoom_percent)
-                
+
                 # アンカー位置設定
                 saved_anchor_x = settings_manager.get("fcpxml_anchor_x", 0.0)
                 saved_anchor_y = settings_manager.get("fcpxml_anchor_y", 0.0)
-                
+
                 col3, col4 = st.columns(2)
                 with col3:
                     anchor_x = st.number_input(
@@ -142,7 +142,7 @@ class ExportSettingsView:
                     )
                     if anchor_x != saved_anchor_x:
                         settings_manager.set("fcpxml_anchor_x", anchor_x)
-                
+
                 with col4:
                     anchor_y = st.number_input(
                         "アンカー位置 Y",
@@ -155,139 +155,131 @@ class ExportSettingsView:
                     )
                     if anchor_y != saved_anchor_y:
                         settings_manager.set("fcpxml_anchor_y", anchor_y)
-                
+
                 # セッション状態に保存
                 st.session_state.fcpxml_settings = {
                     "scale": (scale, scale),
                     "anchor": (anchor_x, anchor_y),
                     "timeline_resolution": timeline_resolution,
                 }
-                
+
+            # メディア素材の自動検出
+            from pathlib import Path as _Path
+
+            from utils.media_asset_detector import detect_media_assets
+
+            detected_config = detect_media_assets(self.view_model.video_path) if self.view_model.video_path else None
+
             # 画像オーバーレイ設定
             with st.expander("🖼️ 画像オーバーレイ（オプション）", expanded=False):
-                st.info("💡 videosフォルダ内にoverlaysフォルダを作成し、frame.png（透過背景）を配置すると自動的に読み込まれます。")
-                
-                # オーバーレイ画像の自動検出
-                if self.view_model.video_path:
-                    video_dir = self.view_model.video_path.parent
-                    overlay_dir = video_dir / "overlays"
-                    
-                    overlay_settings = {}
-                    
+                st.info(
+                    "💡 videosフォルダ内にoverlaysフォルダを作成し、frame.png（透過背景）を配置すると自動的に読み込まれます。"
+                )
+
+                overlay_settings = {}
+                if detected_config and detected_config.overlay_settings:
+                    frame_name = _Path(detected_config.overlay_settings["frame_path"]).name
+                    st.success(f"✅ 背景フレーム検出: {frame_name}")
+                    overlay_settings = dict(detected_config.overlay_settings)
+                    logger.info(f"オーバーレイ設定 - frame_path: {overlay_settings['frame_path']}")
+                    st.info("💡 ロゴなどの要素は背景フレーム画像に含めてください。")
+                elif self.view_model.video_path:
+                    overlay_dir = self.view_model.video_path.parent / "overlays"
                     if overlay_dir.exists():
-                        # 背景フレーム
-                        frame_path = overlay_dir / "frame.png"
-                        if frame_path.exists():
-                            st.success(f"✅ 背景フレーム検出: {frame_path.name}")
-                            overlay_settings['frame_path'] = str(frame_path)
-                            # デバッグ用ログ
-                            logger.info(f"オーバーレイ設定 - frame_path: {str(frame_path)}")
-                            st.info("💡 ロゴなどの要素は背景フレーム画像に含めてください。")
-                        else:
-                            st.info("frame.png が見つかりません。透過背景を使用する場合は overlays/frame.png を配置してください。")
+                        st.info(
+                            "frame.png が見つかりません。透過背景を使用する場合は overlays/frame.png を配置してください。"
+                        )
                     else:
-                        st.info("overlaysフォルダが見つかりません。画像オーバーレイを使用する場合は、videosフォルダ内に overlays フォルダを作成してください。")
-                    
-                    # セッション状態に保存
-                    st.session_state.fcpxml_overlay_settings = overlay_settings
-                
+                        st.info(
+                            "overlaysフォルダが見つかりません。画像オーバーレイを使用する場合は、videosフォルダ内に overlays フォルダを作成してください。"
+                        )
+
+                st.session_state.fcpxml_overlay_settings = overlay_settings
+
             # BGM設定
             with st.expander("🎵 BGM（オプション）", expanded=False):
                 st.info("💡 videosフォルダ内にoverlaysフォルダを作成し、bgm.mp3を配置すると自動的に読み込まれます。")
-                
+
                 bgm_settings = {}
-                
-                if self.view_model.video_path and overlay_dir and overlay_dir.exists():
-                    # BGMファイル
-                    bgm_path = overlay_dir / "bgm.mp3"
-                    if bgm_path.exists():
-                        st.success(f"✅ BGM検出: {bgm_path.name}")
-                        bgm_settings['bgm_path'] = str(bgm_path)
-                        # デバッグ用ログ
-                        logger.info(f"BGM設定 - bgm_path: {str(bgm_path)}")
-                        
-                        # 音量調整
-                        saved_bgm_volume = settings_manager.get("bgm_volume", -25)
-                        bgm_volume = st.slider(
-                            "BGM音量",
-                            min_value=-50,
-                            max_value=0,
-                            value=saved_bgm_volume,
-                            step=5,
-                            help="0 = 元の音量、-50 = 最小音量",
-                            key="bgm_volume"
-                        )
-                        bgm_settings['bgm_volume'] = bgm_volume
-                        if bgm_volume != saved_bgm_volume:
-                            settings_manager.set("bgm_volume", bgm_volume)
-                        
-                        # ループ設定
-                        saved_bgm_loop = settings_manager.get("bgm_loop", True)
-                        bgm_loop = st.checkbox(
-                            "BGMをループ再生",
-                            value=saved_bgm_loop,
-                            help="動画の長さに合わせてBGMを繰り返し再生します",
-                            key="bgm_loop"
-                        )
-                        bgm_settings['bgm_loop'] = bgm_loop
-                        if bgm_loop != saved_bgm_loop:
-                            settings_manager.set("bgm_loop", bgm_loop)
-                    else:
-                        st.info("bgm.mp3 が見つかりません。BGMを使用する場合は overlays/bgm.mp3 を配置してください。")
-                
-                # セッション状態に保存
+                if detected_config and detected_config.bgm_settings:
+                    bgm_name = _Path(detected_config.bgm_settings["bgm_path"]).name
+                    st.success(f"✅ BGM検出: {bgm_name}")
+                    bgm_settings["bgm_path"] = detected_config.bgm_settings["bgm_path"]
+                    logger.info(f"BGM設定 - bgm_path: {bgm_settings['bgm_path']}")
+
+                    # 音量調整
+                    saved_bgm_volume = settings_manager.get("bgm_volume", -25)
+                    bgm_volume = st.slider(
+                        "BGM音量",
+                        min_value=-50,
+                        max_value=0,
+                        value=saved_bgm_volume,
+                        step=5,
+                        help="0 = 元の音量、-50 = 最小音量",
+                        key="bgm_volume",
+                    )
+                    bgm_settings["bgm_volume"] = bgm_volume
+                    if bgm_volume != saved_bgm_volume:
+                        settings_manager.set("bgm_volume", bgm_volume)
+
+                    # ループ設定
+                    saved_bgm_loop = settings_manager.get("bgm_loop", True)
+                    bgm_loop = st.checkbox(
+                        "BGMをループ再生",
+                        value=saved_bgm_loop,
+                        help="動画の長さに合わせてBGMを繰り返し再生します",
+                        key="bgm_loop",
+                    )
+                    bgm_settings["bgm_loop"] = bgm_loop
+                    if bgm_loop != saved_bgm_loop:
+                        settings_manager.set("bgm_loop", bgm_loop)
+                else:
+                    st.info("bgm.mp3 が見つかりません。BGMを使用する場合は overlays/bgm.mp3 を配置してください。")
+
                 st.session_state.fcpxml_bgm_settings = bgm_settings
-                
+
             # 追加オーディオ設定
             with st.expander("🎶 追加オーディオ（オプション）", expanded=False):
-                st.info("💡 overlaysフォルダ内のbgm.mp3以外のMP3ファイルを自動的に検出し、BGMの下のレーンに並べて配置します。")
-                
+                st.info(
+                    "💡 overlaysフォルダ内のbgm.mp3以外のMP3ファイルを自動的に検出し、BGMの下のレーンに並べて配置します。"
+                )
+
                 additional_audio_settings = {}
-                
-                if self.view_model.video_path and overlay_dir and overlay_dir.exists():
-                    # bgm.mp3以外のMP3ファイルを検出
-                    mp3_files = []
-                    for file in overlay_dir.iterdir():
-                        if file.suffix.lower() == '.mp3' and file.name != 'bgm.mp3':
-                            mp3_files.append(file)
-                    
-                    # 名前順でソート
-                    mp3_files.sort(key=lambda x: x.name)
-                    
-                    if mp3_files:
-                        st.success(f"✅ {len(mp3_files)}個の追加オーディオファイルを検出しました")
-                        
-                        # ファイルリスト表示（expanderの代わりにコンテナを使用）
-                        st.caption("検出されたファイル:")
-                        files_text = "\n".join([f"{idx}. {file.name}" for idx, file in enumerate(mp3_files, 1)])
-                        st.code(files_text, language=None)
-                        
-                        # 音量調整
-                        saved_additional_audio_volume = settings_manager.get("additional_audio_volume", -20)
-                        additional_audio_volume = st.slider(
-                            "追加オーディオ音量",
-                            min_value=-50,
-                            max_value=0,
-                            value=saved_additional_audio_volume,
-                            step=5,
-                            help="0 = 元の音量、-50 = 最小音量",
-                            key="additional_audio_volume"
+                if detected_config and detected_config.additional_audio_settings:
+                    audio_files = detected_config.additional_audio_settings["audio_files"]
+                    st.success(f"✅ {len(audio_files)}個の追加オーディオファイルを検出しました")
+
+                    st.caption("検出されたファイル:")
+                    files_text = "\n".join([f"{idx}. {_Path(f).name}" for idx, f in enumerate(audio_files, 1)])
+                    st.code(files_text, language=None)
+
+                    # 音量調整
+                    saved_additional_audio_volume = settings_manager.get("additional_audio_volume", -20)
+                    additional_audio_volume = st.slider(
+                        "追加オーディオ音量",
+                        min_value=-50,
+                        max_value=0,
+                        value=saved_additional_audio_volume,
+                        step=5,
+                        help="0 = 元の音量、-50 = 最小音量",
+                        key="additional_audio_volume",
+                    )
+                    if additional_audio_volume != saved_additional_audio_volume:
+                        settings_manager.set("additional_audio_volume", additional_audio_volume)
+
+                    additional_audio_settings["audio_files"] = audio_files
+                    logger.info(f"追加オーディオ設定 - audio_files: {audio_files}")
+                    additional_audio_settings["volume"] = additional_audio_volume
+                    additional_audio_settings["muted"] = False
+                elif self.view_model.video_path:
+                    overlay_dir = self.view_model.video_path.parent / "overlays"
+                    if overlay_dir.exists():
+                        st.info(
+                            "追加のMP3ファイルが見つかりません。overlaysフォルダ内にMP3ファイルを配置してください。"
                         )
-                        if additional_audio_volume != saved_additional_audio_volume:
-                            settings_manager.set("additional_audio_volume", additional_audio_volume)
-                        
-                        # 設定に保存
-                        additional_audio_settings['audio_files'] = [str(f) for f in mp3_files]
-                        # デバッグ用ログ
-                        logger.info(f"追加オーディオ設定 - audio_files: {additional_audio_settings['audio_files']}")
-                        additional_audio_settings['volume'] = additional_audio_volume
-                        additional_audio_settings['muted'] = False  # ミュート解除
                     else:
-                        st.info("追加のMP3ファイルが見つかりません。overlaysフォルダ内にMP3ファイルを配置してください。")
-                else:
-                    st.info("overlaysフォルダが見つかりません。")
-                
-                # セッション状態に保存
+                        st.info("overlaysフォルダが見つかりません。")
+
                 st.session_state.fcpxml_additional_audio_settings = additional_audio_settings
 
         # オプション設定（SRT字幕のみ以外）
@@ -443,7 +435,6 @@ class ExportSettingsView:
         else:
             st.info(self.view_model.status_message)
 
-    
     def _render_results(self) -> None:
         """結果表示"""
         if self.view_model.export_results:

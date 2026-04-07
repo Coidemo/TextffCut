@@ -43,6 +43,10 @@ class SuggestAndExportRequest:
     generate_srt: bool = True
     srt_max_chars: int = 11
     srt_max_lines: int = 2
+    asset_dir: Path | None = None
+    enable_frame: bool = True
+    enable_bgm: bool = True
+    enable_se: bool = True
 
 
 @dataclass
@@ -81,10 +85,9 @@ class SuggestAndExportUseCase:
 
         # Phase 4: wordsレベルフィラー仕上げ（音響チェック付き）
         from use_cases.ai.word_level_filler_polish import polish_fillers
+
         for i, suggestion in enumerate(suggestions):
-            suggestions[i] = polish_fillers(
-                suggestion, request.transcription, request.video_path
-            )
+            suggestions[i] = polish_fillers(suggestion, request.transcription, request.video_path)
 
         # Phase 5: 無音削除（最終候補にのみ適用）
         if request.remove_silence:
@@ -96,6 +99,19 @@ class SuggestAndExportUseCase:
         cache_dir.mkdir(parents=True, exist_ok=True)
         self._save_cache(suggestions, detection, cache_dir / f"{detection.model_used}.json")
 
+        # メディア素材検出
+        from utils.media_asset_detector import detect_media_assets
+
+        media_config = detect_media_assets(
+            request.video_path,
+            request.asset_dir,
+            enable_frame=request.enable_frame,
+            enable_bgm=request.enable_bgm,
+            enable_se=request.enable_se,
+        )
+        if media_config.has_any:
+            logger.info(media_config.summary())
+
         # Phase 6: FCPXML + SRT生成
         exported_files: list[Path] = []
         for i, suggestion in enumerate(suggestions, 1):
@@ -103,13 +119,14 @@ class SuggestAndExportUseCase:
 
             # FCPXML
             fcpxml_path = fcpxml_dir / f"{i:02d}_{sanitized}.fcpxml"
-            success = self._export_fcpxml(suggestion, request.video_path, fcpxml_path)
+            success = self._export_fcpxml(suggestion, request.video_path, fcpxml_path, media_config)
             if success:
                 exported_files.append(fcpxml_path)
 
             # SRT字幕
             if request.generate_srt:
                 from use_cases.ai.srt_subtitle_generator import generate_srt
+
                 srt_path = fcpxml_dir / f"{i:02d}_{sanitized}.srt"
                 generate_srt(
                     suggestion=suggestion,
@@ -128,9 +145,7 @@ class SuggestAndExportUseCase:
             detection_cost_usd=detection.estimated_cost_usd,
         )
 
-    def _apply_silence_removal(
-        self, suggestion: ClipSuggestion, video_path: Path, base_dir: Path
-    ) -> None:
+    def _apply_silence_removal(self, suggestion: ClipSuggestion, video_path: Path, base_dir: Path) -> None:
         """1つの候補に無音削除を適用する。"""
         try:
             from config import Config
@@ -156,6 +171,7 @@ class SuggestAndExportUseCase:
 
             # temp_wav クリーンアップ
             import shutil
+
             temp_path = base_dir / "temp_wav"
             if temp_path.exists():
                 shutil.rmtree(temp_path, ignore_errors=True)
@@ -164,7 +180,11 @@ class SuggestAndExportUseCase:
             logger.warning(f"無音削除失敗 ({suggestion.title}): {e}")
 
     def _export_fcpxml(
-        self, suggestion: ClipSuggestion, video_path: Path, output_path: Path
+        self,
+        suggestion: ClipSuggestion,
+        video_path: Path,
+        output_path: Path,
+        media_config: "MediaAssetConfig | None" = None,  # noqa: F821
     ) -> bool:
         if not suggestion.time_ranges:
             return False
@@ -191,16 +211,15 @@ class SuggestAndExportUseCase:
                 segments=segments,
                 output_path=str(output_path),
                 project_name=suggestion.title,
+                overlay_settings=media_config.overlay_settings if media_config else None,
+                bgm_settings=media_config.bgm_settings if media_config else None,
+                additional_audio_settings=media_config.additional_audio_settings if media_config else None,
             )
         except Exception as e:
             logger.warning(f"FCPXMLExporter failed ({e}), using simple FCPXML")
-            return self._export_simple_fcpxml(
-                suggestion, video_path, output_path
-            )
+            return self._export_simple_fcpxml(suggestion, video_path, output_path)
 
-    def _export_simple_fcpxml(
-        self, suggestion: ClipSuggestion, video_path: Path, output_path: Path
-    ) -> bool:
+    def _export_simple_fcpxml(self, suggestion: ClipSuggestion, video_path: Path, output_path: Path) -> bool:
         """ffprobeなしで簡易FCPXMLを生成する（DaVinci Resolve互換）"""
         from fractions import Fraction
         from urllib.parse import quote
@@ -213,19 +232,25 @@ class SuggestAndExportUseCase:
             return f"{frac.numerator}/{frac.denominator}s"
 
         from xml.sax.saxutils import escape, quoteattr
+
         video_name = escape(video_path.name)
         title_escaped = escape(suggestion.title)
         encoded_path = quote(str(video_path), safe="/:")
         video_url = f"file://{encoded_path}"
 
         from core.export import ExportSegment
+
         segments = []
         timeline_pos = 0.0
         for start, end in suggestion.time_ranges:
-            segments.append(ExportSegment(
-                source_path=str(video_path),
-                start_time=start, end_time=end, timeline_start=timeline_pos,
-            ))
+            segments.append(
+                ExportSegment(
+                    source_path=str(video_path),
+                    start_time=start,
+                    end_time=end,
+                    timeline_start=timeline_pos,
+                )
+            )
             timeline_pos += end - start
 
         total_dur = timeline_pos
@@ -241,7 +266,7 @@ class SuggestAndExportUseCase:
                 f'enabled="1" format="r0" tcFormat="NDF">\n'
                 f'                            <adjust-conform type="fit"/>\n'
                 f'                            <adjust-transform position="0 0" scale="1 1" anchor="0 0"/>\n'
-                f'                        </asset-clip>\n'
+                f"                        </asset-clip>\n"
             )
 
         xml = f"""<?xml version="1.0" encoding="UTF-8"?>

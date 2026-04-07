@@ -532,37 +532,37 @@ class TextEditorView:
         # 新しい外部AIサービス版のバズクリップ機能を表示
         from presentation.views.buzz_clip import show_buzz_clip_generation
         from infrastructure.ui.session_manager import SessionManager
-        
+
         session_manager = SessionManager()
         transcription_result = session_manager.get_transcription_result()
-        
+
         if transcription_result:
             # TranscriptionResultAdapterの処理
             from presentation.adapters.transcription_result_adapter import TranscriptionResultAdapter
-            
+
             if isinstance(transcription_result, TranscriptionResultAdapter):
                 actual_result = transcription_result.domain_result
             else:
                 actual_result = transcription_result
-            
+
             # セグメントを辞書形式に変換
             segments = []
-            if hasattr(actual_result, 'segments'):
+            if hasattr(actual_result, "segments"):
                 for seg in actual_result.segments:
                     segments.append({"text": seg.text, "start": seg.start, "end": seg.end})
-            
+
             # プロンプト生成UI（横並び表示）
             if segments and self.container:
                 col1, col2 = st.columns(2)
-                
+
                 with col1:
                     # バズクリップ生成UI
                     show_buzz_clip_generation(self.container, segments)
-                
+
                 with col2:
                     # タイトル生成プロンプト
                     self._render_title_generation_prompt()
-                
+
                 # 両方のプロンプトに対する説明を中央に配置
                 st.caption("上記のプロンプトをChatGPT/Claude/Geminiなどにコピー&ペーストして使用してください")
 
@@ -579,6 +579,7 @@ class TextEditorView:
         api_key = get_config_value("openai_api_key")
         if not api_key:
             import os
+
             api_key = os.environ.get("OPENAI_API_KEY") or os.environ.get("TEXTFFCUT_API_KEY")
 
         if not api_key:
@@ -600,23 +601,35 @@ class TextEditorView:
         # 設定UI
         col1, col2, col3 = st.columns(3)
         with col1:
-            num_candidates = st.number_input(
-                "候補数", min_value=1, max_value=10, value=5, key="ai_clip_num"
-            )
+            num_candidates = st.number_input("候補数", min_value=1, max_value=10, value=5, key="ai_clip_num")
         with col2:
-            min_duration = st.number_input(
-                "最小秒数", min_value=10, max_value=120, value=30, key="ai_clip_min"
-            )
+            min_duration = st.number_input("最小秒数", min_value=10, max_value=120, value=30, key="ai_clip_min")
         with col3:
-            max_duration = st.number_input(
-                "最大秒数", min_value=10, max_value=120, value=60, key="ai_clip_max"
-            )
+            max_duration = st.number_input("最大秒数", min_value=10, max_value=120, value=60, key="ai_clip_max")
 
         col_opts1, col_opts2 = st.columns(2)
         with col_opts1:
             generate_srt = st.checkbox("SRT字幕を生成", value=True, key="ai_clip_srt")
         with col_opts2:
             remove_silence = st.checkbox("無音削除", value=True, key="ai_clip_silence")
+
+        # メディア素材検出・ON/OFF
+        enable_frame = True
+        enable_bgm = True
+        enable_se = True
+        from utils.media_asset_detector import detect_media_assets
+
+        video_path_obj = Path(video_path).resolve()
+        detected = detect_media_assets(video_path_obj)
+        if detected.has_any:
+            st.markdown("##### 🎨 メディア素材")
+            if detected.overlay_settings:
+                enable_frame = st.checkbox("フレーム画像を適用", value=True, key="ai_clip_frame")
+            if detected.bgm_settings:
+                enable_bgm = st.checkbox("BGMを適用", value=True, key="ai_clip_bgm")
+            if detected.additional_audio_settings:
+                n = len(detected.additional_audio_settings["audio_files"])
+                enable_se = st.checkbox(f"効果音を適用（{n}個）", value=True, key="ai_clip_se")
 
         # 入力検証
         if int(min_duration) > int(max_duration):
@@ -625,7 +638,13 @@ class TextEditorView:
         st.caption("💰 コスト目安: 約2-5円/回（GPT-4.1-mini使用）")
 
         # 実行ボタン
-        if st.button("🚀 AI自動切り抜きを実行", type="primary", use_container_width=True, key="run_ai_clip", disabled=int(min_duration) > int(max_duration)):
+        if st.button(
+            "🚀 AI自動切り抜きを実行",
+            type="primary",
+            use_container_width=True,
+            key="run_ai_clip",
+            disabled=int(min_duration) > int(max_duration),
+        ):
             self._execute_ai_clip(
                 api_key=api_key,
                 video_path=video_path,
@@ -635,6 +654,9 @@ class TextEditorView:
                 max_duration=int(max_duration),
                 generate_srt=generate_srt,
                 remove_silence=remove_silence,
+                enable_frame=enable_frame,
+                enable_bgm=enable_bgm,
+                enable_se=enable_se,
             )
 
         # 結果表示
@@ -656,6 +678,9 @@ class TextEditorView:
         max_duration: int,
         generate_srt: bool,
         remove_silence: bool,
+        enable_frame: bool = True,
+        enable_bgm: bool = True,
+        enable_se: bool = True,
     ) -> None:
         """AI自動切り抜きを実行"""
         from pathlib import Path
@@ -730,9 +755,7 @@ class TextEditorView:
                 # Phase 2: フィラー仕上げ
                 for i, suggestion in enumerate(suggestions):
                     st.write(f"🧹 フィラー除去中... ({i + 1}/{total})")
-                    suggestions[i] = polish_fillers(
-                        suggestion, actual_result, video_path_obj
-                    )
+                    suggestions[i] = polish_fillers(suggestion, actual_result, video_path_obj)
 
                 # Phase 3: 無音削除
                 if remove_silence:
@@ -748,6 +771,18 @@ class TextEditorView:
                 fcpxml_dir = base_dir / "fcpxml"
                 fcpxml_dir.mkdir(parents=True, exist_ok=True)
 
+                # メディア素材検出
+                from utils.media_asset_detector import detect_media_assets as _detect
+
+                media_config = _detect(
+                    video_path_obj,
+                    enable_frame=enable_frame,
+                    enable_bgm=enable_bgm,
+                    enable_se=enable_se,
+                )
+                if media_config.has_any:
+                    st.write(f"🎨 {media_config.summary()}")
+
                 from use_cases.ai.suggest_and_export import _sanitize_filename
 
                 exported_files: list[Path] = []
@@ -756,12 +791,13 @@ class TextEditorView:
                     sanitized = _sanitize_filename(suggestion.title)
 
                     fcpxml_path = fcpxml_dir / f"{i:02d}_{sanitized}.fcpxml"
-                    success = use_case._export_fcpxml(suggestion, video_path_obj, fcpxml_path)
+                    success = use_case._export_fcpxml(suggestion, video_path_obj, fcpxml_path, media_config)
                     if success:
                         exported_files.append(fcpxml_path)
 
                     if generate_srt:
                         from use_cases.ai.srt_subtitle_generator import generate_srt as gen_srt
+
                         srt_path = fcpxml_dir / f"{i:02d}_{sanitized}.srt"
                         gen_srt(
                             suggestion=suggestion,
@@ -805,7 +841,7 @@ class TextEditorView:
             # edited_textがあるのに文字数が0の場合は再計算
             char_count = len(self.view_model.edited_text)
             logger.warning(f"[_render_text_stats] char_count was 0 but edited_text exists. Recalculated: {char_count}")
-        
+
         stats_parts = [f"文字数: {char_count}文字"]
 
         if self.view_model.total_duration > 0:
@@ -937,11 +973,11 @@ class TextEditorView:
         """時間範囲の計算結果を表示"""
         # 時間範囲が計算されたことを示すだけ（特に表示なし）
         pass
-    
+
     def _render_title_generation_prompt(self) -> None:
         """タイトル生成プロンプトを表示"""
         from utils.prompt_loader import PromptLoader
-        
+
         if not self.view_model.edited_text:
             # 編集テキストがない場合は空のエリアを表示
             st.text_area(
@@ -949,21 +985,21 @@ class TextEditorView:
                 value="（切り抜き箇所を入力すると表示されます）",
                 height=68,
                 key="title_generation_prompt",
-                disabled=True
+                disabled=True,
             )
             return
-        
+
         try:
             loader = PromptLoader()
             prompt = loader.load_title_generation_prompt(self.view_model.edited_text)
-            
+
             # プロンプトを表示（最小高さ）
             st.text_area(
                 "🎯 タイトル生成プロンプト",
                 value=prompt,
                 height=68,
                 key="title_generation_prompt",
-                help="Ctrl+A (Windows) / Cmd+A (Mac) で全選択してコピー"
+                help="Ctrl+A (Windows) / Cmd+A (Mac) で全選択してコピー",
             )
         except Exception as e:
             logger.error(f"タイトル生成プロンプトの読み込みエラー: {e}")
