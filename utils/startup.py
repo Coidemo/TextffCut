@@ -4,8 +4,6 @@
 起動時のチェックや初期化処理を管理する。
 """
 
-from pathlib import Path
-
 import streamlit as st
 
 from ui.recovery_components import show_startup_recovery
@@ -33,8 +31,7 @@ def run_initial_checks() -> tuple[bool, str]:
     is_docker = IS_DOCKER
 
     # バージョン情報を取得
-    version_file = Path(__file__).parent.parent / "VERSION.txt"
-    version = get_app_version(version_file)
+    version = get_app_version()
 
     # 起動時のリカバリーチェック（自動リカバリーが有効な場合）
     if st.session_state.get("auto_recovery", True) and "startup_recovery_checked" not in st.session_state:
@@ -77,8 +74,7 @@ def get_version_info() -> str:
     Returns:
         str: バージョン文字列
     """
-    version_file = Path(__file__).parent.parent / "VERSION.txt"
-    return get_app_version(version_file)
+    return get_app_version()
 
 
 def check_environment() -> dict:
