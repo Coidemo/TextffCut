@@ -575,8 +575,11 @@ class TextEditorView:
         st.markdown("### 🤖 AI自動切り抜き")
         st.caption("AIが話題を検出し、最適な切り抜きを自動生成します（FCPXML+SRT出力）")
 
-        # APIキーチェック
-        api_key = get_config_value("openai_api_key")
+        # APIキーチェック（api_key_manager → config.json → 環境変数）
+        from utils.api_key_manager import api_key_manager
+        api_key = api_key_manager.load_api_key()
+        if not api_key:
+            api_key = get_config_value("openai_api_key")
         if not api_key:
             import os
 
