@@ -47,6 +47,10 @@ class SuggestAndExportRequest:
     enable_frame: bool = True
     enable_bgm: bool = True
     enable_se: bool = True
+    speed: float = 1.0  # 再生速度（1.0=等速、1.2=1.2倍速）
+    scale: tuple[float, float] = (1.0, 1.0)  # ズーム倍率 (x, y)
+    anchor: tuple[float, float] = (0.0, 0.0)  # アンカーポイント (x, y)
+    timeline_resolution: str = "horizontal"  # タイムライン向き ("horizontal" or "vertical")
 
 
 @dataclass
@@ -94,6 +98,28 @@ class SuggestAndExportUseCase:
             for suggestion in suggestions:
                 self._apply_silence_removal(suggestion, request.video_path, base_dir)
 
+        # Phase 5.5: 速度変更
+        actual_video_path = request.video_path
+        if request.speed != 1.0:
+            from config import Config
+            from core.video import VideoProcessor
+
+            speed = round(request.speed, 2)
+            speed_label = f"{round(speed, 1)}x"
+            vp = VideoProcessor(Config())
+            speed_path = base_dir / f"source_{speed_label}.mp4"
+            vp.create_speed_changed_video(str(request.video_path), str(speed_path), speed)
+            actual_video_path = speed_path
+            logger.info(f"速度変更済み動画を使用: {speed_path}")
+
+            # 全候補のtime_rangesを速度に合わせて調整（FFmpegと同じ丸め値を使用）
+            for suggestion in suggestions:
+                suggestion.time_ranges = [
+                    (s / speed, e / speed)
+                    for s, e in suggestion.time_ranges
+                ]
+                suggestion.total_duration = sum(e - s for s, e in suggestion.time_ranges)
+
         # キャッシュ保存
         cache_dir = base_dir / "clip_suggestions"
         cache_dir.mkdir(parents=True, exist_ok=True)
@@ -117,13 +143,17 @@ class SuggestAndExportUseCase:
         for i, suggestion in enumerate(suggestions, 1):
             sanitized = _sanitize_filename(suggestion.title)
 
-            # FCPXML
+            # FCPXML（速度変更済み動画を参照）
             fcpxml_path = fcpxml_dir / f"{i:02d}_{sanitized}.fcpxml"
-            success = self._export_fcpxml(suggestion, request.video_path, fcpxml_path, media_config)
+            success = self._export_fcpxml(
+                suggestion, actual_video_path, fcpxml_path, media_config,
+                scale=request.scale, anchor=request.anchor,
+                timeline_resolution=request.timeline_resolution,
+            )
             if success:
                 exported_files.append(fcpxml_path)
 
-            # SRT字幕
+            # SRT字幕（速度変更済みタイムスタンプで生成）
             if request.generate_srt:
                 from use_cases.ai.srt_subtitle_generator import generate_srt
 
@@ -132,7 +162,7 @@ class SuggestAndExportUseCase:
                     suggestion=suggestion,
                     transcription=request.transcription,
                     output_path=srt_path,
-                    video_path=request.video_path,
+                    video_path=actual_video_path,
                     max_chars_per_line=request.srt_max_chars,
                     max_lines=request.srt_max_lines,
                 )
@@ -185,6 +215,9 @@ class SuggestAndExportUseCase:
         video_path: Path,
         output_path: Path,
         media_config: "MediaAssetConfig | None" = None,  # noqa: F821
+        scale: tuple[float, float] = (1.0, 1.0),
+        anchor: tuple[float, float] = (0.0, 0.0),
+        timeline_resolution: str = "horizontal",
     ) -> bool:
         if not suggestion.time_ranges:
             return False
@@ -211,15 +244,29 @@ class SuggestAndExportUseCase:
                 segments=segments,
                 output_path=str(output_path),
                 project_name=suggestion.title,
+                scale=scale,
+                anchor=anchor,
+                timeline_resolution=timeline_resolution,
                 overlay_settings=media_config.overlay_settings if media_config else None,
                 bgm_settings=media_config.bgm_settings if media_config else None,
                 additional_audio_settings=media_config.additional_audio_settings if media_config else None,
             )
         except Exception as e:
             logger.warning(f"FCPXMLExporter failed ({e}), using simple FCPXML")
-            return self._export_simple_fcpxml(suggestion, video_path, output_path)
+            return self._export_simple_fcpxml(
+                suggestion, video_path, output_path,
+                scale=scale, anchor=anchor, timeline_resolution=timeline_resolution,
+            )
 
-    def _export_simple_fcpxml(self, suggestion: ClipSuggestion, video_path: Path, output_path: Path) -> bool:
+    def _export_simple_fcpxml(
+        self,
+        suggestion: ClipSuggestion,
+        video_path: Path,
+        output_path: Path,
+        scale: tuple[float, float] = (1.0, 1.0),
+        anchor: tuple[float, float] = (0.0, 0.0),
+        timeline_resolution: str = "horizontal",
+    ) -> bool:
         """ffprobeなしで簡易FCPXMLを生成する（DaVinci Resolve互換）"""
         from fractions import Fraction
         from urllib.parse import quote
@@ -265,15 +312,22 @@ class SuggestAndExportUseCase:
                 f'offset="{to_frac(seg.timeline_start)}" '
                 f'enabled="1" format="r0" tcFormat="NDF">\n'
                 f'                            <adjust-conform type="fit"/>\n'
-                f'                            <adjust-transform position="0 0" scale="1 1" anchor="0 0"/>\n'
+                f'                            <adjust-transform position="0 0" scale="{scale[0]:.6g} {scale[1]:.6g}" anchor="{anchor[0]:.6g} {anchor[1]:.6g}"/>\n'
                 f"                        </asset-clip>\n"
             )
+
+        if timeline_resolution == "vertical":
+            fmt_w, fmt_h = 1080, 1920
+            fmt_name = "FFVideoFormatVertical30"
+        else:
+            fmt_w, fmt_h = 1920, 1080
+            fmt_name = "FFVideoFormat1080p30"
 
         xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE fcpxml>
 <fcpxml version="1.9">
     <resources>
-        <format height="1080" id="r0" name="FFVideoFormat1080p30" frameDuration="1/30s" width="1920"/>
+        <format height="{fmt_h}" id="r0" name="{fmt_name}" frameDuration="1/30s" width="{fmt_w}"/>
         <asset id="r1" name="{video_name}" start="0/1s" hasVideo="1" format="r0" hasAudio="1" audioSources="1" audioChannels="2">
             <media-rep kind="original-media" src="{video_url}"/>
         </asset>
