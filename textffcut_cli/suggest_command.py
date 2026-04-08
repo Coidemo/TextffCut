@@ -87,6 +87,33 @@ def build_suggest_parser() -> argparse.ArgumentParser:
         help="無音削除を無効にする（デフォルト: 有効）",
     )
     parser.add_argument(
+        "--speed",
+        type=float,
+        default=1.0,
+        help="再生速度（デフォルト: 1.0、例: 1.2で1.2倍速）",
+    )
+    parser.add_argument(
+        "--zoom",
+        type=int,
+        default=100,
+        metavar="PERCENT",
+        help="ズーム（デフォルト: 100%%、例: 200で2倍拡大）",
+    )
+    parser.add_argument(
+        "--anchor",
+        type=float,
+        nargs=2,
+        default=[0.0, 0.0],
+        metavar=("X", "Y"),
+        help="アンカーポイント（デフォルト: 0 0 = 中央）",
+    )
+    parser.add_argument(
+        "--vertical",
+        action="store_true",
+        default=False,
+        help="縦動画用タイムライン（デフォルト: 横）",
+    )
+    parser.add_argument(
         "--prompt",
         default=None,
         help="カスタムプロンプトファイルのパス",
@@ -231,7 +258,8 @@ def _process_single_video(
 
     # AI候補生成→FCPXML出力
     console.print(f"\n[bold]🤖 AI切り抜き候補を生成中...[/]")
-    console.print(f"  モデル: {args.ai_model} | 候補数: {args.num}")
+    speed_info = f" | 速度: {args.speed}x" if args.speed != 1.0 else ""
+    console.print(f"  モデル: {args.ai_model} | 候補数: {args.num}{speed_info}")
 
     from infrastructure.external.gateways.openai_clip_suggestion_gateway import (
         OpenAIClipSuggestionGateway,
@@ -274,6 +302,10 @@ def _process_single_video(
         enable_frame=not args.no_frame,
         enable_bgm=not args.no_bgm,
         enable_se=not args.no_se,
+        speed=args.speed,
+        scale=(args.zoom / 100.0, args.zoom / 100.0),
+        anchor=tuple(args.anchor),
+        timeline_resolution="vertical" if args.vertical else "horizontal",
     )
 
     result = use_case.execute(request)

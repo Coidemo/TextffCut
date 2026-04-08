@@ -601,20 +601,74 @@ class TextEditorView:
             st.info("動画の文字起こしが完了してから使用できます。")
             return
 
+        # 保存された設定を読み込み
+        from utils import settings_manager
+
+        saved_num = settings_manager.get("ai_clip_num", 5)
+        saved_min = settings_manager.get("ai_clip_min_duration", 30)
+        saved_max = settings_manager.get("ai_clip_max_duration", 60)
+        saved_srt = settings_manager.get("ai_clip_srt", True)
+        saved_silence = settings_manager.get("ai_clip_silence", True)
+        saved_speed = settings_manager.get("ai_clip_speed", 1.0)
+        saved_zoom = settings_manager.get("ai_clip_zoom", 100)
+        saved_anchor_x = settings_manager.get("ai_clip_anchor_x", 0.0)
+        saved_anchor_y = settings_manager.get("ai_clip_anchor_y", 0.0)
+        saved_timeline = settings_manager.get("ai_clip_timeline", "horizontal")
+
         # 設定UI
         col1, col2, col3 = st.columns(3)
         with col1:
-            num_candidates = st.number_input("候補数", min_value=1, max_value=10, value=5, key="ai_clip_num")
+            num_candidates = st.number_input("候補数", min_value=1, max_value=10, value=saved_num, key="ai_clip_num")
         with col2:
-            min_duration = st.number_input("最小秒数", min_value=10, max_value=120, value=30, key="ai_clip_min")
+            min_duration = st.number_input("最小秒数", min_value=10, max_value=120, value=saved_min, key="ai_clip_min")
         with col3:
-            max_duration = st.number_input("最大秒数", min_value=10, max_value=120, value=60, key="ai_clip_max")
+            max_duration = st.number_input("最大秒数", min_value=10, max_value=120, value=saved_max, key="ai_clip_max")
 
-        col_opts1, col_opts2 = st.columns(2)
+        col_opts1, col_opts2, col_opts3 = st.columns(3)
         with col_opts1:
-            generate_srt = st.checkbox("SRT字幕を生成", value=True, key="ai_clip_srt")
+            generate_srt = st.checkbox("SRT字幕を生成", value=saved_srt, key="ai_clip_srt")
         with col_opts2:
-            remove_silence = st.checkbox("無音削除", value=True, key="ai_clip_silence")
+            remove_silence = st.checkbox("無音削除", value=saved_silence, key="ai_clip_silence")
+        with col_opts3:
+            speed = st.number_input("再生速度", min_value=0.5, max_value=2.0, value=saved_speed, step=0.1, key="ai_clip_speed")
+
+        # ズーム・アンカー・タイムライン設定
+        col_zoom1, col_zoom2, col_zoom3, col_zoom4 = st.columns(4)
+        with col_zoom1:
+            zoom_percent = st.number_input(
+                "ズーム (%)", min_value=50, max_value=300, value=saved_zoom, step=10,
+                help="100% = 元のサイズ、200% = 2倍拡大", key="ai_clip_zoom",
+            )
+        with col_zoom2:
+            anchor_x = st.number_input(
+                "アンカー X", min_value=-100.0, max_value=100.0, value=float(saved_anchor_x), step=0.1,
+                help="横方向の位置調整（0 = 中央）", key="ai_clip_anchor_x",
+            )
+        with col_zoom3:
+            anchor_y = st.number_input(
+                "アンカー Y", min_value=-100.0, max_value=100.0, value=float(saved_anchor_y), step=0.1,
+                help="縦方向の位置調整（0 = 中央）", key="ai_clip_anchor_y",
+            )
+        with col_zoom4:
+            timeline_options = ["横（16:9）", "縦（9:16）"]
+            timeline_index = 1 if saved_timeline == "vertical" else 0
+            timeline_orientation = st.selectbox(
+                "タイムライン", options=timeline_options,
+                index=timeline_index, key="ai_clip_timeline",
+            )
+            timeline_resolution = "vertical" if "縦" in timeline_orientation else "horizontal"
+
+        # 設定値を保存
+        settings_manager.set("ai_clip_num", int(num_candidates))
+        settings_manager.set("ai_clip_min_duration", int(min_duration))
+        settings_manager.set("ai_clip_max_duration", int(max_duration))
+        settings_manager.set("ai_clip_srt", generate_srt)
+        settings_manager.set("ai_clip_silence", remove_silence)
+        settings_manager.set("ai_clip_speed", round(float(speed), 1))
+        settings_manager.set("ai_clip_zoom", int(zoom_percent))
+        settings_manager.set("ai_clip_anchor_x", float(anchor_x))
+        settings_manager.set("ai_clip_anchor_y", float(anchor_y))
+        settings_manager.set("ai_clip_timeline", timeline_resolution)
 
         # メディア素材検出・ON/OFF
         enable_frame = True
@@ -660,6 +714,10 @@ class TextEditorView:
                 enable_frame=enable_frame,
                 enable_bgm=enable_bgm,
                 enable_se=enable_se,
+                speed=float(speed),
+                scale=(zoom_percent / 100.0, zoom_percent / 100.0),
+                anchor=(float(anchor_x), float(anchor_y)),
+                timeline_resolution=timeline_resolution,
             )
 
         # 結果表示
@@ -684,6 +742,10 @@ class TextEditorView:
         enable_frame: bool = True,
         enable_bgm: bool = True,
         enable_se: bool = True,
+        speed: float = 1.0,
+        scale: tuple[float, float] = (1.0, 1.0),
+        anchor: tuple[float, float] = (0.0, 0.0),
+        timeline_resolution: str = "horizontal",
     ) -> None:
         """AI自動切り抜きを実行"""
         from pathlib import Path
@@ -736,8 +798,10 @@ class TextEditorView:
             use_case = SuggestAndExportUseCase(gateway=gateway)
 
             with st.status("AI自動切り抜きを実行中...", expanded=True) as status:
+                progress_text = st.empty()
+
                 # Phase 1: 話題検出
-                st.write("🔍 話題を検出中...")
+                progress_text.write("🔍 話題を検出中...")
                 gen_use_case = GenerateClipSuggestionsUseCase(gateway)
                 suggestions = gen_use_case.execute(
                     transcription=actual_result,
@@ -753,11 +817,11 @@ class TextEditorView:
                     status.update(label="⚠️ 切り抜き候補が見つかりませんでした", state="error", expanded=False)
                     return
 
-                st.write(f"✅ {total}件の話題を検出")
+                progress_text.write(f"✅ {total}件の話題を検出")
 
                 # Phase 2: フィラー仕上げ
                 for i, suggestion in enumerate(suggestions):
-                    st.write(f"🧹 フィラー除去中... ({i + 1}/{total})")
+                    progress_text.write(f"🧹 フィラー除去中... ({i + 1}/{total})")
                     suggestions[i] = polish_fillers(suggestion, actual_result, video_path_obj)
 
                 # Phase 3: 無音削除
@@ -765,8 +829,32 @@ class TextEditorView:
                     video_name = video_path_obj.stem
                     base_dir = video_path_obj.parent / f"{video_name}_TextffCut"
                     for i, suggestion in enumerate(suggestions):
-                        st.write(f"🔇 無音削除中... ({i + 1}/{total})")
+                        progress_text.write(f"🔇 無音削除中... ({i + 1}/{total})")
                         use_case._apply_silence_removal(suggestion, video_path_obj, base_dir)
+
+                # Phase 3.5: 速度変更
+                actual_video_path = video_path_obj
+                if speed != 1.0:
+                    from config import Config
+                    from core.video import VideoProcessor
+
+                    speed_label = f"{round(speed, 1)}x"
+                    progress_text.write(f"⚡ {speed_label}速度変更中...")
+                    video_name = video_path_obj.stem
+                    base_dir = video_path_obj.parent / f"{video_name}_TextffCut"
+                    vp = VideoProcessor(Config())
+                    speed_path = base_dir / f"source_{speed_label}.mp4"
+                    vp.create_speed_changed_video(str(video_path_obj), str(speed_path), round(speed, 2))
+                    actual_video_path = speed_path
+
+                    # 全候補のtime_rangesを速度に合わせて調整
+                    for suggestion in suggestions:
+                        suggestion.time_ranges = [
+                            (s / speed, e / speed)
+                            for s, e in suggestion.time_ranges
+                        ]
+                        suggestion.total_duration = sum(e - s for s, e in suggestion.time_ranges)
+                    progress_text.write(f"✅ {speed_label}速度変更完了")
 
                 # Phase 4: FCPXML + SRT 生成
                 video_name = video_path_obj.stem
@@ -784,17 +872,21 @@ class TextEditorView:
                     enable_se=enable_se,
                 )
                 if media_config.has_any:
-                    st.write(f"🎨 {media_config.summary()}")
+                    progress_text.write(f"🎨 {media_config.summary()}")
 
                 from use_cases.ai.suggest_and_export import _sanitize_filename
 
                 exported_files: list[Path] = []
                 for i, suggestion in enumerate(suggestions, 1):
-                    st.write(f"📄 FCPXML生成中... ({i}/{total})")
+                    progress_text.write(f"📄 FCPXML生成中... ({i}/{total})")
                     sanitized = _sanitize_filename(suggestion.title)
 
                     fcpxml_path = fcpxml_dir / f"{i:02d}_{sanitized}.fcpxml"
-                    success = use_case._export_fcpxml(suggestion, video_path_obj, fcpxml_path, media_config)
+                    success = use_case._export_fcpxml(
+                        suggestion, actual_video_path, fcpxml_path, media_config,
+                        scale=scale, anchor=anchor,
+                        timeline_resolution=timeline_resolution,
+                    )
                     if success:
                         exported_files.append(fcpxml_path)
 
@@ -806,7 +898,7 @@ class TextEditorView:
                             suggestion=suggestion,
                             transcription=actual_result,
                             output_path=srt_path,
-                            video_path=video_path_obj,
+                            video_path=actual_video_path,
                         )
 
                 # キャッシュ保存

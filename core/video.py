@@ -585,7 +585,7 @@ class VideoProcessor:
         # 一時ディレクトリの削除エラーは無視（空でない場合など）
         with suppress(OSError):
             (output_dir_path / "temp_wav").rmdir()
-        
+
         # output_dir_path自体も削除を試みる
         with suppress(OSError):
             output_dir_path.rmdir()
@@ -946,6 +946,69 @@ class VideoProcessor:
             from utils.exceptions import VideoProcessingError
 
             raise VideoProcessingError(f"音声抽出エラー: {str(e)}") from e
+
+    def create_speed_changed_video(
+        self,
+        source_path: str | Path,
+        output_path: str | Path,
+        speed: float = 1.2,
+    ) -> str:
+        """ソース動画をspeed倍速化した動画を生成する。
+
+        映像は再エンコードせずタイムスタンプのみ変更（品質劣化なし）。
+        音声はatempo filterでピッチ保持した速度変更。
+        既に変換済みファイルが存在すればスキップ（キャッシュ）。
+
+        Args:
+            source_path: 入力動画パス
+            output_path: 出力動画パス
+            speed: 再生速度（0.5〜2.0）
+
+        Returns:
+            出力動画パス
+        """
+        if not (0.5 <= speed <= 2.0):
+            raise ValueError(f"speedは0.5〜2.0の範囲で指定してください: {speed}")
+
+        output_path = Path(output_path)
+
+        # キャッシュ: 出力ファイルが既に存在すればスキップ
+        if output_path.exists() and output_path.stat().st_size > 0:
+            logger.info(f"速度変更済みファイルが既に存在: {output_path}")
+            return str(output_path)
+
+        ensure_directory(output_path.parent)
+
+        itsscale = 1.0 / speed
+
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-itsscale",
+            str(itsscale),
+            "-i",
+            str(source_path),
+            "-c:v",
+            "copy",
+            "-af",
+            f"atempo={speed}",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "320k",
+            str(output_path),
+        ]
+
+        logger.info(f"速度変更開始: {speed}x ({source_path} → {output_path})")
+        result = subprocess.run(cmd, capture_output=True, text=True)
+
+        if result.returncode != 0:
+            from utils.exceptions import FFmpegError
+
+            raise FFmpegError(" ".join(cmd), result.stderr)
+
+        logger.info(f"速度変更完了: {output_path}")
+        return str(output_path)
 
     def _monitor_ffmpeg_progress(
         self, process: subprocess.Popen, total_duration: float, progress_callback: Callable[[float, str], None]
