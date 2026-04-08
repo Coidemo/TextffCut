@@ -51,6 +51,7 @@ class SuggestAndExportRequest:
     scale: tuple[float, float] = (1.0, 1.0)  # ズーム倍率 (x, y)
     anchor: tuple[float, float] = (0.0, 0.0)  # アンカーポイント (x, y)
     timeline_resolution: str = "horizontal"  # タイムライン向き ("horizontal" or "vertical")
+    enable_title_image: bool = True  # タイトル画像生成
 
 
 @dataclass
@@ -138,17 +139,52 @@ class SuggestAndExportUseCase:
         if media_config.has_any:
             logger.info(media_config.summary())
 
+        # Phase 5.7: タイトル画像生成
+        title_image_paths: dict[int, Path] = {}
+        if request.enable_title_image:
+            from use_cases.ai.title_image_generator import generate_title_image
+
+            titles_dir = base_dir / "title_images"
+            titles_dir.mkdir(parents=True, exist_ok=True)
+
+            # frame.pngの色を抽出（配色参考用）
+            frame_path = None
+            if media_config and media_config.overlay_settings:
+                fp = media_config.overlay_settings.get("frame_path")
+                if fp:
+                    frame_path = Path(fp)
+
+            for i, suggestion in enumerate(suggestions, 1):
+                sanitized = _sanitize_filename(suggestion.title)
+                title_path = titles_dir / f"{i:02d}_{sanitized}.png"
+                result = generate_title_image(
+                    title=suggestion.title,
+                    keywords=getattr(suggestion, "keywords", []),
+                    output_path=title_path,
+                    orientation=request.timeline_resolution,
+                    client=self.gateway.client,
+                    model=request.ai_model,
+                    font_dir=request.preset_dir / "fonts" if request.preset_dir else None,
+                    frame_path=frame_path,
+                )
+                if result:
+                    title_image_paths[i] = result
+                    logger.info(f"タイトル画像生成: {result.name}")
+
         # Phase 6: FCPXML + SRT生成
         exported_files: list[Path] = []
         for i, suggestion in enumerate(suggestions, 1):
             sanitized = _sanitize_filename(suggestion.title)
 
             # FCPXML（速度変更済み動画を参照）
+            title_path = title_image_paths.get(i)
+            title_settings = {"title_path": str(title_path)} if title_path else None
             fcpxml_path = fcpxml_dir / f"{i:02d}_{sanitized}.fcpxml"
             success = self._export_fcpxml(
                 suggestion, actual_video_path, fcpxml_path, media_config,
                 scale=request.scale, anchor=request.anchor,
                 timeline_resolution=request.timeline_resolution,
+                title_settings=title_settings,
             )
             if success:
                 exported_files.append(fcpxml_path)
@@ -218,6 +254,7 @@ class SuggestAndExportUseCase:
         scale: tuple[float, float] = (1.0, 1.0),
         anchor: tuple[float, float] = (0.0, 0.0),
         timeline_resolution: str = "horizontal",
+        title_settings: dict | None = None,
     ) -> bool:
         if not suggestion.time_ranges:
             return False
@@ -250,6 +287,7 @@ class SuggestAndExportUseCase:
                 overlay_settings=media_config.overlay_settings if media_config else None,
                 bgm_settings=media_config.bgm_settings if media_config else None,
                 additional_audio_settings=media_config.additional_audio_settings if media_config else None,
+                title_settings=title_settings,
             )
         except Exception as e:
             logger.warning(f"FCPXMLExporter failed ({e}), using simple FCPXML")
