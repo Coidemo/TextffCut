@@ -884,15 +884,14 @@ class TextEditorView:
                 if media_config.has_any:
                     progress_text.write(f"🎨 {media_config.summary()}")
 
-                # Phase 3.7: タイトル画像生成
+                # Phase 3.7: タイトル画像生成（バッチ1回のAI呼び出し）
                 from use_cases.ai.suggest_and_export import _sanitize_filename
 
                 title_image_paths: dict[int, Path] = {}
                 if enable_title_image:
-                    from use_cases.ai.title_image_generator import generate_title_image as gen_title
+                    from use_cases.ai.title_image_generator import generate_title_images_batch
 
                     titles_dir = base_dir / "title_images"
-                    titles_dir.mkdir(parents=True, exist_ok=True)
 
                     frame_path_for_title = None
                     if media_config.overlay_settings:
@@ -900,27 +899,21 @@ class TextEditorView:
                         if fp:
                             frame_path_for_title = Path(fp)
 
-                    # preset/fonts/ からフォント検索
                     font_dir = video_path_obj.parent / "preset" / "fonts"
                     if not font_dir.exists():
                         font_dir = None
 
-                    for i, suggestion in enumerate(suggestions, 1):
-                        progress_text.write(f"🖼 タイトル画像生成中... ({i}/{total})")
-                        sanitized_t = _sanitize_filename(suggestion.title)
-                        title_out = titles_dir / f"{i:02d}_{sanitized_t}.png"
-                        result_t = gen_title(
-                            title=suggestion.title,
-                            keywords=getattr(suggestion, "keywords", []),
-                            output_path=title_out,
-                            orientation=timeline_resolution,
-                            client=gateway.client,
-                            model="gpt-4.1-mini",
-                            font_dir=font_dir,
-                            frame_path=frame_path_for_title,
-                        )
-                        if result_t:
-                            title_image_paths[i] = result_t
+                    progress_text.write(f"🖼 タイトル画像生成中... ({total}件)")
+                    title_image_paths = generate_title_images_batch(
+                        suggestions=suggestions,
+                        output_dir=titles_dir,
+                        orientation=timeline_resolution,
+                        client=gateway.client,
+                        model="gpt-4.1-mini",
+                        font_dir=font_dir,
+                        frame_path=frame_path_for_title,
+                        sanitize_fn=_sanitize_filename,
+                    )
 
                 exported_files: list[Path] = []
                 for i, suggestion in enumerate(suggestions, 1):

@@ -139,37 +139,29 @@ class SuggestAndExportUseCase:
         if media_config.has_any:
             logger.info(media_config.summary())
 
-        # Phase 5.7: タイトル画像生成
+        # Phase 5.7: タイトル画像生成（バッチ1回のAI呼び出し）
         title_image_paths: dict[int, Path] = {}
         if request.enable_title_image:
-            from use_cases.ai.title_image_generator import generate_title_image
+            from use_cases.ai.title_image_generator import generate_title_images_batch
 
             titles_dir = base_dir / "title_images"
-            titles_dir.mkdir(parents=True, exist_ok=True)
 
-            # frame.pngの色を抽出（配色参考用）
             frame_path = None
             if media_config and media_config.overlay_settings:
                 fp = media_config.overlay_settings.get("frame_path")
                 if fp:
                     frame_path = Path(fp)
 
-            for i, suggestion in enumerate(suggestions, 1):
-                sanitized = _sanitize_filename(suggestion.title)
-                title_path = titles_dir / f"{i:02d}_{sanitized}.png"
-                result = generate_title_image(
-                    title=suggestion.title,
-                    keywords=getattr(suggestion, "keywords", []),
-                    output_path=title_path,
-                    orientation=request.timeline_resolution,
-                    client=self.gateway.client,
-                    model=request.ai_model,
-                    font_dir=request.preset_dir / "fonts" if request.preset_dir else None,
-                    frame_path=frame_path,
-                )
-                if result:
-                    title_image_paths[i] = result
-                    logger.info(f"タイトル画像生成: {result.name}")
+            title_image_paths = generate_title_images_batch(
+                suggestions=suggestions,
+                output_dir=titles_dir,
+                orientation=request.timeline_resolution,
+                client=self.gateway.client,
+                model=request.ai_model,
+                font_dir=request.preset_dir / "fonts" if request.preset_dir else None,
+                frame_path=frame_path,
+                sanitize_fn=_sanitize_filename,
+            )
 
         # Phase 6: FCPXML + SRT生成
         exported_files: list[Path] = []

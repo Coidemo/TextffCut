@@ -158,6 +158,15 @@ class TestFallbackDesign:
         assert len(design.lines) == 1
         assert design.lines[0].segments[0].text == "短い"
 
+    def test_emphasis_on_longest_line(self):
+        """複数行の場合、最長行が強調される"""
+        design = create_fallback_design("これは長い文章で「テスト」を含む例です")
+        assert len(design.lines) >= 2
+        # 最長行はグラデーション付き
+        sizes = [line.segments[0].font_size for line in design.lines]
+        assert max(sizes) == 85  # 強調行
+        assert min(sizes) == 65  # 非強調行
+
 
 class TestRenderTitleImage:
     def test_basic_render(self, tmp_path):
@@ -238,7 +247,8 @@ class TestExtractFrameColors:
 
         colors = extract_frame_colors(path)
         assert len(colors) >= 1
-        assert colors[0] == "#ff0000"
+        # RGB量子化(32刻み): (255,0,0) → (224,0,0)
+        assert colors[0] == "#e00000"
 
     def test_transparent_image(self, tmp_path):
         img = Image.new("RGBA", (100, 100), (0, 0, 0, 0))
