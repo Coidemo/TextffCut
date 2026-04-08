@@ -847,10 +847,11 @@ class TextEditorView:
                     vp.create_speed_changed_video(str(video_path_obj), str(speed_path), round(speed, 2))
                     actual_video_path = speed_path
 
-                    # 全候補のtime_rangesを速度に合わせて調整
+                    # 全候補のtime_rangesを速度に合わせて調整（FFmpegと同じ丸め値を使用）
+                    actual_speed = round(speed, 2)
                     for suggestion in suggestions:
                         suggestion.time_ranges = [
-                            (s / speed, e / speed)
+                            (s / actual_speed, e / actual_speed)
                             for s, e in suggestion.time_ranges
                         ]
                         suggestion.total_duration = sum(e - s for s, e in suggestion.time_ranges)

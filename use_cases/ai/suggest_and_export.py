@@ -112,10 +112,10 @@ class SuggestAndExportUseCase:
             actual_video_path = speed_path
             logger.info(f"速度変更済み動画を使用: {speed_path}")
 
-            # 全候補のtime_rangesを速度に合わせて調整
+            # 全候補のtime_rangesを速度に合わせて調整（FFmpegと同じ丸め値を使用）
             for suggestion in suggestions:
                 suggestion.time_ranges = [
-                    (s / request.speed, e / request.speed)
+                    (s / speed, e / speed)
                     for s, e in suggestion.time_ranges
                 ]
                 suggestion.total_duration = sum(e - s for s, e in suggestion.time_ranges)

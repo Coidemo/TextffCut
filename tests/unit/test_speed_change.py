@@ -168,6 +168,16 @@ class TestCLIOptions(unittest.TestCase):
         args = self._parse("video.mp4")
         self.assertEqual(args.zoom, 100)
 
+    def test_zoom_out_of_range_rejected(self):
+        """範囲外の --zoom はパーサーがエラーにする"""
+        from textffcut_cli.suggest_command import build_suggest_parser
+
+        parser = build_suggest_parser()
+        with self.assertRaises(SystemExit):
+            parser.parse_args(["--zoom", "0", "video.mp4"])
+        with self.assertRaises(SystemExit):
+            parser.parse_args(["--zoom", "600", "video.mp4"])
+
     def test_anchor_accepted(self):
         args = self._parse("--anchor 10.5 -5.0 video.mp4")
         self.assertEqual(args.anchor, [10.5, -5.0])

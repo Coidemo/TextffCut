@@ -98,12 +98,18 @@ def build_suggest_parser() -> argparse.ArgumentParser:
         default=1.0,
         help="再生速度（0.5〜2.0、デフォルト: 1.0、例: 1.2で1.2倍速）",
     )
+    def _zoom_type(value: str) -> int:
+        i = int(value)
+        if not (10 <= i <= 500):
+            raise argparse.ArgumentTypeError(f"10〜500の範囲で指定してください: {value}")
+        return i
+
     parser.add_argument(
         "--zoom",
-        type=int,
+        type=_zoom_type,
         default=100,
         metavar="PERCENT",
-        help="ズーム（デフォルト: 100%%、例: 200で2倍拡大）",
+        help="ズーム（10〜500%%、デフォルト: 100%%、例: 200で2倍拡大）",
     )
     parser.add_argument(
         "--anchor",
