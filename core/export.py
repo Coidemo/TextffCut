@@ -4,8 +4,9 @@
 
 import os
 from dataclasses import dataclass
-from pathlib import Path
 from fractions import Fraction
+from pathlib import Path
+from xml.sax.saxutils import escape as xml_escape
 
 from config import Config
 
@@ -289,7 +290,7 @@ class FCPXMLExporter:
 
                 xml_content += (
                     f'        <asset duration="0/1s" id="{title_resource_id}" '
-                    f'name="{Path(title_path).name}" start="0/1s" hasVideo="1" '
+                    f'name="{xml_escape(Path(title_path).name)}" start="0/1s" hasVideo="1" '
                     f'format="r0">\n'
                     f'            <media-rep kind="original-media" src="{file_url}"/>\n'
                     f"        </asset>\n"
@@ -374,7 +375,7 @@ class FCPXMLExporter:
         total_duration_str = optimize_fraction(total_duration, timeline_fps)
 
         # DaVinci Resolveスタイルのイベント名とプロジェクト名
-        event_name = f"{project_name} (Resolve)"
+        event_name = xml_escape(f"{project_name} (Resolve)")
 
         xml_content += (
             '''    </resources>
@@ -457,9 +458,9 @@ class FCPXMLExporter:
         if title_resource_id and title_settings:
             xml_content += (
                 f'{indent}<video duration="{total_duration_str}" lane="2" '
-                f'name="{Path(title_settings["title_path"]).name}" ref="{title_resource_id}" '
+                f'name="{xml_escape(Path(title_settings["title_path"]).name)}" ref="{title_resource_id}" '
                 f'start="0/1s" offset="0/1s" enabled="1">\n'
-                f'{indent}    <adjust-conform type="fit"/>\n'
+                f'{indent}    <adjust-conform type="none"/>\n'
                 f'{indent}    <adjust-transform position="0 0" scale="1 1" anchor="0 0"/>\n'
                 f"{indent}</video>\n"
             )

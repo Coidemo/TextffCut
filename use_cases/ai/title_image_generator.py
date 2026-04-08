@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -365,9 +366,14 @@ def _split_title(title: str, max_lines: int = 3) -> list[str]:
                 split_points.append(i)
 
     if not split_points:
-        # 均等分割
-        chunk = len(title) // min(max_lines, max(1, (len(title) + 9) // 10))
-        return [title[i : i + chunk] for i in range(0, len(title), chunk)][:max_lines]
+        # 均等分割（最後のパートに残り全文字を含める）
+        n_lines = min(max_lines, max(1, (len(title) + 9) // 10))
+        chunk = len(title) // n_lines
+        parts = [title[i : i + chunk] for i in range(0, len(title), chunk)]
+        if len(parts) > n_lines:
+            parts[n_lines - 1] += "".join(parts[n_lines:])
+            parts = parts[:n_lines]
+        return parts
 
     # 分割点で分ける
     parts = []
@@ -717,8 +723,22 @@ def _save_design_cache(design: TitleImageDesign, path: Path) -> None:
         "line_spacing": design.line_spacing,
         "padding_top": design.padding_top,
     }
+    import tempfile
+
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    # アトミック書き込み: 一時ファイルに書いてからリネーム
+    fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        os.replace(tmp_path, path)
+    except Exception:
+        # 失敗時は一時ファイルを削除
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
 
 
 # ---------------------------------------------------------------------------

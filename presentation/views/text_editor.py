@@ -913,6 +913,13 @@ class TextEditorView:
                         frame_path=frame_path_for_title,
                         sanitize_fn=_sanitize_filename,
                     )
+                    failed_count = total - len(title_image_paths)
+                    if failed_count > 0:
+                        progress_text.write(
+                            f"⚠️ タイトル画像: {len(title_image_paths)}枚成功、{failed_count}枚失敗"
+                        )
+                    else:
+                        progress_text.write(f"✅ タイトル画像: {len(title_image_paths)}枚生成完了")
 
                 exported_files: list[Path] = []
                 for i, suggestion in enumerate(suggestions, 1):

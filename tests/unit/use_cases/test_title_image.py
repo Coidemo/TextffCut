@@ -14,6 +14,7 @@ from use_cases.ai.title_image_generator import (
     _hex_to_rgb,
     _parse_design_json,
     _safe_int,
+    _save_design_cache,
     _scale_outline,
     _split_title,
     create_fallback_design,
@@ -90,6 +91,19 @@ class TestSplitTitle:
     def test_split_on_punctuation(self):
         result = _split_title("これは長い文章で「テスト」を含む例です")
         assert len(result) >= 2
+
+    def test_no_character_loss(self):
+        """均等分割で文字が欠落しないこと（25文字・分割点なし）"""
+        title = "あ" * 25
+        result = _split_title(title)
+        assert "".join(result) == title
+
+    def test_no_character_loss_various_lengths(self):
+        """様々な長さで文字欠落がないこと"""
+        for length in [11, 15, 22, 25, 30, 40, 50]:
+            title = "あ" * length
+            result = _split_title(title)
+            assert "".join(result) == title, f"Length {length}: expected {length} chars, got {len(''.join(result))}"
 
     def test_max_lines(self):
         result = _split_title("とても長いタイトルの文字列を分割するテスト", max_lines=2)
@@ -630,3 +644,108 @@ class TestGenerateTitleImagesBatch:
             client=mock_client,
         )
         assert len(results) == 2  # フォールバックで全候補生成
+        assert all(p.exists() for p in results.values())
+
+
+class TestDesignCacheRoundTrip:
+    def test_basic_roundtrip(self, tmp_path):
+        """保存→読み込みでデザインが復元されること"""
+        design = TitleImageDesign(
+            lines=[TitleLine(
+                segments=[TitleTextSegment(text="テスト", font_size=80, color="#FF0000", weight="Bd")],
+                outer_outline_width=6,
+                inner_outline_width=3,
+                inner_outline_color="#FFFFFF",
+            )],
+            line_spacing=15,
+            padding_top=100,
+        )
+        cache_path = tmp_path / "test.title.json"
+        _save_design_cache(design, cache_path)
+        assert cache_path.exists()
+
+        raw = json.loads(cache_path.read_text())
+        reloaded = _parse_design_json(raw)
+
+        assert reloaded.lines[0].segments[0].text == "テスト"
+        assert reloaded.lines[0].segments[0].font_size == 80
+        assert reloaded.lines[0].segments[0].color == "#FF0000"
+        assert reloaded.lines[0].segments[0].weight == "Bd"
+        assert reloaded.lines[0].outer_outline_width == 6
+        assert reloaded.lines[0].inner_outline_width == 3
+        assert reloaded.line_spacing == 15
+        assert reloaded.padding_top == 100
+
+    def test_gradient_roundtrip(self, tmp_path):
+        """gradient tuple→list→tupleの変換が正しいこと"""
+        design = TitleImageDesign(
+            lines=[TitleLine(
+                segments=[TitleTextSegment(text="グラデ", gradient=("#FFD700", "#FF6600"))]
+            )]
+        )
+        cache_path = tmp_path / "grad.title.json"
+        _save_design_cache(design, cache_path)
+
+        raw = json.loads(cache_path.read_text())
+        reloaded = _parse_design_json(raw)
+        assert reloaded.lines[0].segments[0].gradient == ("#FFD700", "#FF6600")
+
+    def test_null_gradient_roundtrip(self, tmp_path):
+        """gradient=Noneがラウンドトリップで保持されること"""
+        design = TitleImageDesign(
+            lines=[TitleLine(segments=[TitleTextSegment(text="普通")])]
+        )
+        cache_path = tmp_path / "null.title.json"
+        _save_design_cache(design, cache_path)
+
+        raw = json.loads(cache_path.read_text())
+        reloaded = _parse_design_json(raw)
+        assert reloaded.lines[0].segments[0].gradient is None
+
+
+class TestRenderImageAssertions:
+    """画像の内容を検証する強化テスト"""
+
+    def test_fallback_renders_content(self, tmp_path):
+        """フォールバックデザインが実際にピクセルを描画すること"""
+        output = tmp_path / "fb.png"
+        result = generate_title_image(
+            title="テストタイトル", keywords=[], output_path=output, client=None,
+        )
+        assert result is not None
+        img = Image.open(result)
+        assert img.size == (1080, 1920)
+        assert img.mode == "RGBA"
+        # 左上は透明（背景）
+        assert img.getpixel((0, 0))[3] == 0
+        # 描画領域にはピクセルが存在する
+        non_transparent = sum(1 for p in img.getdata() if p[3] > 0)
+        assert non_transparent > 0
+
+    def test_ai_design_end_to_end(self, tmp_path):
+        """AI設計→キャッシュ→描画→画像検証のフルフロー"""
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = MagicMock(
+            choices=[MagicMock(message=MagicMock(content=json.dumps({
+                "lines": [
+                    {"segments": [
+                        {"text": "衝撃", "font_size": 90, "gradient": ["#FFD700", "#FF6600"], "weight": "Eb"},
+                        {"text": "の事実", "font_size": 60, "color": "#FFFFFF", "weight": "Bd"},
+                    ], "outer_outline_width": 8, "inner_outline_width": 4},
+                ],
+                "line_spacing": 12,
+                "padding_top": 80,
+            })))]
+        )
+        output = tmp_path / "e2e.png"
+        result = generate_title_image(
+            title="衝撃の事実", keywords=["衝撃"], output_path=output,
+            client=mock_client, orientation="vertical",
+        )
+        assert result is not None
+        img = Image.open(result)
+        assert img.size == (1080, 1920)
+        assert img.mode == "RGBA"
+        assert img.getpixel((0, 0))[3] == 0  # 背景透明
+        # キャッシュが生成されている
+        assert output.with_suffix(".title.json").exists()

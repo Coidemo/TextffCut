@@ -355,8 +355,16 @@ def _process_single_video(
         title_dir = result.output_dir.parent / "title_images"
         if title_dir.exists():
             title_count = len(list(title_dir.glob("*.png")))
+            total_suggestions = len(result.suggestions)
             if title_count > 0:
-                console.print(f"  🖼 タイトル画像: {title_count}枚 [dim]({title_dir.name}/)[/]")
+                if title_count < total_suggestions and not args.no_title_image:
+                    failed = total_suggestions - title_count
+                    console.print(
+                        f"  🖼 タイトル画像: {title_count}枚 [dim]({title_dir.name}/)[/]"
+                        f" [yellow]({failed}件失敗、フォントが見つからない可能性)[/]"
+                    )
+                else:
+                    console.print(f"  🖼 タイトル画像: {title_count}枚 [dim]({title_dir.name}/)[/]")
 
         console.print(f"\n📁 出力: {result.output_dir}/ （{len(result.exported_files)}件）")
     else:

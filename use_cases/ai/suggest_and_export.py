@@ -375,7 +375,7 @@ class SuggestAndExportUseCase:
                     f'                        <video duration="{to_frac(total_dur)}" lane="2" '
                     f'name="{escape(Path(title_path).name)}" ref="r2" '
                     f'start="0/1s" offset="0/1s" enabled="1">\n'
-                    f'                            <adjust-conform type="fit"/>\n'
+                    f'                            <adjust-conform type="none"/>\n'
                     f'                            <adjust-transform position="0 0" scale="1 1" anchor="0 0"/>\n'
                     f'                        </video>\n'
                 )
