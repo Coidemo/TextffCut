@@ -142,26 +142,29 @@ class SuggestAndExportUseCase:
         # Phase 5.7: タイトル画像生成（バッチ1回のAI呼び出し）
         title_image_paths: dict[int, Path] = {}
         if request.enable_title_image:
-            from use_cases.ai.title_image_generator import generate_title_images_batch
+            try:
+                from use_cases.ai.title_image_generator import generate_title_images_batch
 
-            titles_dir = base_dir / "title_images"
+                titles_dir = base_dir / "title_images"
 
-            frame_path = None
-            if media_config and media_config.overlay_settings:
-                fp = media_config.overlay_settings.get("frame_path")
-                if fp:
-                    frame_path = Path(fp)
+                frame_path = None
+                if media_config and media_config.overlay_settings:
+                    fp = media_config.overlay_settings.get("frame_path")
+                    if fp:
+                        frame_path = Path(fp)
 
-            title_image_paths = generate_title_images_batch(
-                suggestions=suggestions,
-                output_dir=titles_dir,
-                orientation=request.timeline_resolution,
-                client=self.gateway.client,
-                model=request.ai_model,
-                font_dir=request.preset_dir / "fonts" if request.preset_dir else None,
-                frame_path=frame_path,
-                sanitize_fn=_sanitize_filename,
-            )
+                title_image_paths = generate_title_images_batch(
+                    suggestions=suggestions,
+                    output_dir=titles_dir,
+                    orientation=request.timeline_resolution,
+                    client=self.gateway.client,
+                    model=request.ai_model,
+                    font_dir=request.preset_dir / "fonts" if request.preset_dir else None,
+                    frame_path=frame_path,
+                    sanitize_fn=_sanitize_filename,
+                )
+            except Exception as e:
+                logger.warning(f"タイトル画像生成をスキップ: {e}")
 
         # Phase 6: FCPXML + SRT生成
         exported_files: list[Path] = []
@@ -310,7 +313,7 @@ class SuggestAndExportUseCase:
                 return "0/1s"
             return f"{frac.numerator}/{frac.denominator}s"
 
-        from xml.sax.saxutils import escape, quoteattr
+        from xml.sax.saxutils import escape
 
         video_name = escape(video_path.name)
         title_escaped = escape(suggestion.title)

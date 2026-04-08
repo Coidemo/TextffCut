@@ -13,11 +13,16 @@ from use_cases.ai.title_image_generator import (
     TitleTextSegment,
     _hex_to_rgb,
     _parse_design_json,
+    _safe_int,
+    _scale_outline,
     _split_title,
     create_fallback_design,
+    design_title_layout,
+    design_title_layouts_batch,
     extract_frame_colors,
     find_font,
     generate_title_image,
+    generate_title_images_batch,
     render_title_image,
 )
 
@@ -44,7 +49,6 @@ class TestDataStructures:
         design = TitleImageDesign(lines=[line])
         assert design.line_spacing == 10
         assert design.padding_top == 60
-        assert design.background_color is None
 
 
 class TestFontSearch:
@@ -328,3 +332,301 @@ class TestGenerateTitleImage:
         assert result is not None
         img = Image.open(result)
         assert img.size == (1080, 1920)
+
+    def test_ai_failure_falls_back(self, tmp_path):
+        """AI呼び出し失敗時にフォールバックデザインが使われること"""
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.side_effect = Exception("API error")
+        output = tmp_path / "fallback.png"
+        result = generate_title_image(
+            title="テスト",
+            keywords=[],
+            output_path=output,
+            client=mock_client,
+        )
+        assert result is not None
+        assert result.exists()
+
+    def test_corrupted_cache_recovery(self, tmp_path):
+        """キャッシュJSONが壊れている場合にフォールバックで回復すること"""
+        output = tmp_path / "title.png"
+        cache_path = output.with_suffix(".title.json")
+        cache_path.write_text("{ invalid json !!!")
+        result = generate_title_image(
+            title="テスト",
+            keywords=[],
+            output_path=output,
+            client=None,
+        )
+        assert result is not None
+        assert result.exists()
+
+
+class TestSafeInt:
+    def test_normal_int(self):
+        assert _safe_int(42, 0) == 42
+
+    def test_float(self):
+        assert _safe_int(72.5, 0) == 72
+
+    def test_string_number(self):
+        assert _safe_int("80", 0) == 80
+
+    def test_none(self):
+        assert _safe_int(None, 99) == 99
+
+    def test_invalid_string(self):
+        assert _safe_int("abc", 50) == 50
+
+    def test_empty_string(self):
+        assert _safe_int("", 50) == 50
+
+
+class TestScaleOutline:
+    def test_reference_size(self):
+        """ref_size(90)で同じ値が返ること"""
+        assert _scale_outline(8, 90) == 8
+
+    def test_smaller_font(self):
+        """小さいフォントでアウトラインが縮小されること"""
+        result = _scale_outline(8, 60)
+        assert result < 8
+        assert result >= 2  # 最低2px
+
+    def test_larger_font(self):
+        """大きいフォントでアウトラインが拡大されること"""
+        result = _scale_outline(8, 120)
+        assert result > 8
+
+    def test_zero_base_width(self):
+        assert _scale_outline(0, 90) == 0
+
+    def test_minimum_2px(self):
+        """極小フォントでも最低2pxが確保されること"""
+        result = _scale_outline(4, 10)
+        assert result >= 2
+
+
+class TestDesignTitleLayout:
+    def _mock_response(self, content: str) -> MagicMock:
+        mock = MagicMock()
+        mock.choices[0].message.content = content
+        return mock
+
+    def test_successful_design(self):
+        """正常なAIレスポンスでデザインが返ること"""
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = self._mock_response(
+            json.dumps({
+                "lines": [{"segments": [{"text": "テスト", "font_size": 80}]}],
+                "line_spacing": 10,
+                "padding_top": 60,
+            })
+        )
+        design = design_title_layout(
+            client=mock_client, title="テスト", keywords=["AI"],
+        )
+        assert len(design.lines) == 1
+        assert design.lines[0].segments[0].text == "テスト"
+        mock_client.chat.completions.create.assert_called_once()
+
+    def test_title_mismatch_raises_error(self):
+        """AIがタイトル文字を変更した場合にValueErrorが発生すること"""
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = self._mock_response(
+            json.dumps({
+                "lines": [{"segments": [{"text": "改変された", "font_size": 80}]}],
+            })
+        )
+        with pytest.raises(ValueError, match="AIがタイトル文字を変更"):
+            design_title_layout(client=mock_client, title="テスト", keywords=[])
+
+    def test_empty_response_raises(self):
+        """AIレスポンスが空の場合にValueErrorが発生すること"""
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = self._mock_response(None)
+        # content=None → "AIレスポンスが空です"
+        with pytest.raises(ValueError, match="AIレスポンスが空"):
+            design_title_layout(client=mock_client, title="テスト", keywords=[])
+
+    def test_uses_custom_prompt_template(self):
+        """カスタムプロンプトテンプレートが使われること"""
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = self._mock_response(
+            json.dumps({
+                "lines": [{"segments": [{"text": "OK", "font_size": 72}]}],
+            })
+        )
+        design_title_layout(
+            client=mock_client, title="OK", keywords=[],
+            prompt_template="Custom: {TITLE} {KEYWORDS} {FRAME_COLORS} {JSON_SCHEMA} {ORIENTATION}",
+        )
+        call_args = mock_client.chat.completions.create.call_args
+        prompt = call_args[1]["messages"][0]["content"]
+        assert "Custom:" in prompt
+
+    def test_frame_colors_in_prompt(self):
+        """frame_colorsがプロンプトに含まれること"""
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = self._mock_response(
+            json.dumps({
+                "lines": [{"segments": [{"text": "色", "font_size": 72}]}],
+            })
+        )
+        design_title_layout(
+            client=mock_client, title="色", keywords=[],
+            frame_colors=["#FF0000", "#00FF00"],
+            prompt_template="{TITLE}{KEYWORDS}{FRAME_COLORS}{JSON_SCHEMA}{ORIENTATION}",
+        )
+        call_args = mock_client.chat.completions.create.call_args
+        prompt = call_args[1]["messages"][0]["content"]
+        assert "#FF0000" in prompt
+
+
+class TestDesignTitleLayoutsBatch:
+    def _mock_response(self, content: str) -> MagicMock:
+        mock = MagicMock()
+        mock.choices[0].message.content = content
+        return mock
+
+    def test_batch_success(self):
+        """バッチAI呼び出しが正常に動作すること"""
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = self._mock_response(
+            json.dumps({
+                "designs": [
+                    {"lines": [{"segments": [{"text": "タイトルA", "font_size": 80}]}]},
+                    {"lines": [{"segments": [{"text": "タイトルB", "font_size": 72}]}]},
+                ]
+            })
+        )
+        results = design_title_layouts_batch(
+            client=mock_client,
+            titles=["タイトルA", "タイトルB"],
+            keywords_list=[["AI"], ["テスト"]],
+        )
+        assert len(results) == 2
+        assert results[0] is not None
+        assert results[1] is not None
+        assert results[0].lines[0].segments[0].text == "タイトルA"
+
+    def test_partial_failure(self):
+        """一部タイトルのパースが失敗してもNoneで返ること"""
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = self._mock_response(
+            json.dumps({
+                "designs": [
+                    {"lines": [{"segments": [{"text": "OK", "font_size": 80}]}]},
+                    {"lines": []},  # 空行 → ValueError
+                ]
+            })
+        )
+        results = design_title_layouts_batch(
+            client=mock_client,
+            titles=["OK", "NG"],
+            keywords_list=[[], []],
+        )
+        assert results[0] is not None
+        assert results[1] is None  # パース失敗
+
+    def test_title_mismatch_returns_none(self):
+        """AIがタイトル文字を変更した場合にNoneが返ること"""
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = self._mock_response(
+            json.dumps({
+                "designs": [
+                    {"lines": [{"segments": [{"text": "改変", "font_size": 80}]}]},
+                ]
+            })
+        )
+        results = design_title_layouts_batch(
+            client=mock_client,
+            titles=["元テキスト"],
+            keywords_list=[[]],
+        )
+        assert results[0] is None
+
+    def test_empty_response(self):
+        """空レスポンスで例外が発生すること"""
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = self._mock_response(None)
+        with pytest.raises(ValueError, match="AIレスポンスが空"):
+            design_title_layouts_batch(
+                client=mock_client, titles=["テスト"], keywords_list=[[]],
+            )
+
+    def test_fewer_designs_than_titles(self):
+        """AIの返すデザイン数がタイトル数より少ない場合"""
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = self._mock_response(
+            json.dumps({
+                "designs": [
+                    {"lines": [{"segments": [{"text": "A", "font_size": 72}]}]},
+                ]
+            })
+        )
+        results = design_title_layouts_batch(
+            client=mock_client,
+            titles=["A", "B", "C"],
+            keywords_list=[[], [], []],
+        )
+        assert len(results) == 3
+        assert results[0] is not None
+        assert results[1] is None
+        assert results[2] is None
+
+
+class TestGenerateTitleImagesBatch:
+    def _make_suggestions(self, titles: list[str]) -> list:
+        suggestions = []
+        for t in titles:
+            s = MagicMock()
+            s.title = t
+            s.keywords = []
+            suggestions.append(s)
+        return suggestions
+
+    def test_without_client(self, tmp_path):
+        """client無しでフォールバック画像が全候補分生成されること"""
+        suggestions = self._make_suggestions(["タイトルA", "タイトルB"])
+        results = generate_title_images_batch(
+            suggestions=suggestions,
+            output_dir=tmp_path / "titles",
+            client=None,
+        )
+        assert len(results) == 2
+        assert all(p.exists() for p in results.values())
+
+    def test_with_cache(self, tmp_path):
+        """キャッシュがある候補はAI呼び出しをスキップすること"""
+        output_dir = tmp_path / "titles"
+        output_dir.mkdir()
+        # キャッシュを作成
+        cache_data = json.dumps({
+            "lines": [{"segments": [{"text": "キャッシュ済み", "font_size": 72}]}],
+            "line_spacing": 10,
+            "padding_top": 60,
+        }, ensure_ascii=False)
+        (output_dir / "01_キャッシュ済み.title.json").write_text(cache_data)
+
+        suggestions = self._make_suggestions(["キャッシュ済み"])
+        results = generate_title_images_batch(
+            suggestions=suggestions,
+            output_dir=output_dir,
+            client=None,  # AI不使用でもキャッシュから描画
+        )
+        assert 1 in results
+        assert results[1].exists()
+
+    def test_batch_ai_failure_falls_back(self, tmp_path):
+        """バッチAI呼び出し失敗時にフォールバックで全候補が生成されること"""
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.side_effect = Exception("API error")
+
+        suggestions = self._make_suggestions(["タイトルA", "タイトルB"])
+        results = generate_title_images_batch(
+            suggestions=suggestions,
+            output_dir=tmp_path / "titles",
+            client=mock_client,
+        )
+        assert len(results) == 2  # フォールバックで全候補生成

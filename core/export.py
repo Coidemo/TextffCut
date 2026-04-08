@@ -272,12 +272,13 @@ class FCPXMLExporter:
 
         # タイトル画像のリソースを追加
         title_resource_id = None
-        if title_settings and "title_path" in title_settings:
+        if title_settings and title_settings.get("title_path"):
             title_path = title_settings["title_path"]
             if Path(title_path).exists():
                 title_resource_id = f"r{asset_counter}"
 
                 # ファイルパスの処理（Docker環境対応）
+                logger.info(f"タイトル画像を追加: {Path(title_path).name}")
                 is_docker = os.path.exists("/.dockerenv")
                 if is_docker and (title_path.startswith("/app/videos/") or title_path.startswith("videos/")):
                     host_videos_path = os.getenv("HOST_VIDEOS_PATH", os.getenv("PWD", "") + "/videos")

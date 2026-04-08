@@ -10,10 +10,11 @@ from __future__ import annotations
 import json
 import logging
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageChops, ImageDraw, ImageFont
 
 logger = logging.getLogger(__name__)
 
@@ -49,8 +50,6 @@ class TitleImageDesign:
     """タイトル画像全体のデザイン"""
 
     lines: list[TitleLine]
-    background_color: str | None = None
-    background_opacity: float = 0.0
     line_spacing: int = 10
     padding_top: int = 60
 
@@ -88,8 +87,9 @@ def find_font(weight: str = "Eb", font_dir: Path | None = None) -> str:
     if hiragino.exists():
         return str(hiragino)
 
-    # 4. 最終フォールバック: デフォルト
-    return str(home_font)
+    # 4. 最終フォールバック: Pillowデフォルトフォント
+    logger.warning(f"フォントが見つかりません: {filename}。デフォルトフォントを使用します。")
+    return ""  # ImageFont.truetype("") は失敗するが、呼び出し元でキャッチされる
 
 
 # ---------------------------------------------------------------------------
@@ -180,7 +180,10 @@ def design_title_layout(
         temperature=0.7,
     )
 
-    raw = json.loads(response.choices[0].message.content)
+    content = response.choices[0].message.content
+    if not content:
+        raise ValueError("AIレスポンスが空です")
+    raw = json.loads(content)
     design = _parse_design_json(raw)
 
     # バリデーション: AIが文字を書き換えていないか確認
@@ -497,7 +500,6 @@ def _draw_segment(
       2. 差分でリング（ドーナツ型）マスクを作り、各色で塗る
       3. テキスト塗りはグリフ形状のみ（膨張しない）
     """
-    from PIL import ImageChops
 
     x, y = xy
     total_stroke = outer_outline_width + inner_outline_width
@@ -733,6 +735,9 @@ _BATCH_PROMPT_TEMPLATE = """あなたはYouTubeショート動画のタイトル
 ## タイトル一覧
 {TITLES}
 
+## キーワード
+{KEYWORDS}
+
 ## 背景フレームの色情報
 {FRAME_COLORS}
 
@@ -766,11 +771,19 @@ def design_title_layouts_batch(
     """複数タイトルを1回のAPI呼び出しでまとめて設計させる"""
     titles_text = "\n".join(f"{i+1}. {t}" for i, t in enumerate(titles))
 
+    # キーワードをタイトルごとにまとめる
+    kw_lines = []
+    for i, kws in enumerate(keywords_list):
+        if kws:
+            kw_lines.append(f"{i+1}. {', '.join(kws)}")
+    keywords_text = "\n".join(kw_lines) if kw_lines else "なし"
+
     frame_info = "なし（デフォルトの配色で設計してください）"
     if frame_colors:
         frame_info = ", ".join(frame_colors)
 
     prompt = _BATCH_PROMPT_TEMPLATE.replace("{TITLES}", titles_text)
+    prompt = prompt.replace("{KEYWORDS}", keywords_text)
     prompt = prompt.replace("{FRAME_COLORS}", frame_info)
     prompt = prompt.replace("{ORIENTATION}", orientation)
     prompt = prompt.replace("{JSON_SCHEMA}", _JSON_SCHEMA)
@@ -782,7 +795,10 @@ def design_title_layouts_batch(
         temperature=0.7,
     )
 
-    raw = json.loads(response.choices[0].message.content)
+    content = response.choices[0].message.content
+    if not content:
+        raise ValueError("AIレスポンスが空です")
+    raw = json.loads(content)
     designs_raw = raw.get("designs", [])
 
     results: list[TitleImageDesign | None] = []
@@ -819,7 +835,7 @@ def generate_title_images_batch(
     model: str = "gpt-4.1-mini",
     font_dir: Path | None = None,
     frame_path: Path | None = None,
-    sanitize_fn: "callable | None" = None,
+    sanitize_fn: "Callable[[str], str] | None" = None,
 ) -> dict[int, Path]:
     """複数候補のタイトル画像をバッチ生成する。
 

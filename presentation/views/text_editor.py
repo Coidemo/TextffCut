@@ -864,7 +864,6 @@ class TextEditorView:
                         suggestion.total_duration = sum(e - s for s, e in suggestion.time_ranges)
                     progress_text.write(f"✅ {speed_label}速度変更完了")
 
-                # Phase 3.7: タイトル画像生成
                 video_name = video_path_obj.stem
                 base_dir = video_path_obj.parent / f"{video_name}_TextffCut"
 
@@ -909,7 +908,7 @@ class TextEditorView:
                         output_dir=titles_dir,
                         orientation=timeline_resolution,
                         client=gateway.client,
-                        model="gpt-4.1-mini",
+                        model=gateway.model,
                         font_dir=font_dir,
                         frame_path=frame_path_for_title,
                         sanitize_fn=_sanitize_filename,
