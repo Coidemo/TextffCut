@@ -277,11 +277,14 @@ class FCPXMLExporter:
             if Path(title_path).exists():
                 title_resource_id = f"r{asset_counter}"
 
-                from urllib.parse import quote
-
-                file_path = Path(title_path).resolve()
-                encoded_path = "/".join(quote(part, safe="") for part in str(file_path).split("/"))
-                file_url = f"file://{encoded_path}"
+                # ファイルパスの処理（Docker環境対応）
+                is_docker = os.path.exists("/.dockerenv")
+                if is_docker and (title_path.startswith("/app/videos/") or title_path.startswith("videos/")):
+                    host_videos_path = os.getenv("HOST_VIDEOS_PATH", os.getenv("PWD", "") + "/videos")
+                    relative_path = title_path.replace("/app/videos/", "").replace("videos/", "")
+                    file_url = f"file://{host_videos_path}/{relative_path}".replace("\\", "/")
+                else:
+                    file_url = Path(title_path).resolve().as_uri()
 
                 xml_content += (
                     f'        <asset duration="0/1s" id="{title_resource_id}" '

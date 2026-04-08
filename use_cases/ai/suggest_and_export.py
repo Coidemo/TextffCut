@@ -294,6 +294,7 @@ class SuggestAndExportUseCase:
             return self._export_simple_fcpxml(
                 suggestion, video_path, output_path,
                 scale=scale, anchor=anchor, timeline_resolution=timeline_resolution,
+                title_settings=title_settings,
             )
 
     def _export_simple_fcpxml(
@@ -304,6 +305,7 @@ class SuggestAndExportUseCase:
         scale: tuple[float, float] = (1.0, 1.0),
         anchor: tuple[float, float] = (0.0, 0.0),
         timeline_resolution: str = "horizontal",
+        title_settings: dict | None = None,
     ) -> bool:
         """ffprobeなしで簡易FCPXMLを生成する（DaVinci Resolve互換）"""
         from fractions import Fraction
@@ -361,6 +363,28 @@ class SuggestAndExportUseCase:
             fmt_w, fmt_h = 1920, 1080
             fmt_name = "FFVideoFormat1080p30"
 
+        # タイトル画像リソース
+        title_asset_xml = ""
+        title_spine_xml = ""
+        if title_settings and "title_path" in title_settings:
+            title_path = title_settings["title_path"]
+            if Path(title_path).exists():
+                title_url = f"file://{quote(str(Path(title_path).resolve()), safe='/:')}"
+                title_asset_xml = (
+                    f'        <asset duration="0/1s" id="r2" '
+                    f'name="{escape(Path(title_path).name)}" start="0/1s" hasVideo="1" format="r0">\n'
+                    f'            <media-rep kind="original-media" src="{title_url}"/>\n'
+                    f'        </asset>\n'
+                )
+                title_spine_xml = (
+                    f'                        <video duration="{to_frac(total_dur)}" lane="2" '
+                    f'name="{escape(Path(title_path).name)}" ref="r2" '
+                    f'start="0/1s" offset="0/1s" enabled="1">\n'
+                    f'                            <adjust-conform type="fit"/>\n'
+                    f'                            <adjust-transform position="0 0" scale="1 1" anchor="0 0"/>\n'
+                    f'                        </video>\n'
+                )
+
         xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE fcpxml>
 <fcpxml version="1.9">
@@ -369,13 +393,13 @@ class SuggestAndExportUseCase:
         <asset id="r1" name="{video_name}" start="0/1s" hasVideo="1" format="r0" hasAudio="1" audioSources="1" audioChannels="2">
             <media-rep kind="original-media" src="{video_url}"/>
         </asset>
-    </resources>
+{title_asset_xml}    </resources>
     <library>
         <event name="TextffCut">
             <project name="{title_escaped}">
                 <sequence duration="{to_frac(total_dur)}" tcStart="0/1s" format="r0" tcFormat="NDF">
                     <spine>
-{clips_xml}                    </spine>
+{clips_xml}{title_spine_xml}                    </spine>
                 </sequence>
             </project>
         </event>

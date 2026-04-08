@@ -868,45 +868,11 @@ class TextEditorView:
                 video_name = video_path_obj.stem
                 base_dir = video_path_obj.parent / f"{video_name}_TextffCut"
 
-                title_image_paths: dict[int, Path] = {}
-                if enable_title_image:
-                    from use_cases.ai.title_image_generator import generate_title_image as gen_title
-                    from use_cases.ai.suggest_and_export import _sanitize_filename as _san
-
-                    titles_dir = base_dir / "title_images"
-                    titles_dir.mkdir(parents=True, exist_ok=True)
-
-                    # frame.pngの色抽出用
-                    from utils.media_asset_detector import detect_media_assets as _detect_for_frame
-
-                    media_for_frame = _detect_for_frame(video_path_obj, enable_frame=enable_frame)
-                    frame_path_for_title = None
-                    if media_for_frame.overlay_settings:
-                        fp = media_for_frame.overlay_settings.get("frame_path")
-                        if fp:
-                            frame_path_for_title = Path(fp)
-
-                    for i, suggestion in enumerate(suggestions, 1):
-                        progress_text.write(f"🖼 タイトル画像生成中... ({i}/{total})")
-                        sanitized_t = _san(suggestion.title)
-                        title_out = titles_dir / f"{i:02d}_{sanitized_t}.png"
-                        result_t = gen_title(
-                            title=suggestion.title,
-                            keywords=getattr(suggestion, "keywords", []),
-                            output_path=title_out,
-                            orientation=timeline_resolution,
-                            client=gateway.client,
-                            model="gpt-4.1-mini",
-                            frame_path=frame_path_for_title,
-                        )
-                        if result_t:
-                            title_image_paths[i] = result_t
-
                 # Phase 4: FCPXML + SRT 生成
                 fcpxml_dir = base_dir / "fcpxml"
                 fcpxml_dir.mkdir(parents=True, exist_ok=True)
 
-                # メディア素材検出
+                # メディア素材検出（タイトル画像のframe色抽出でも再利用）
                 from utils.media_asset_detector import detect_media_assets as _detect
 
                 media_config = _detect(
@@ -918,7 +884,43 @@ class TextEditorView:
                 if media_config.has_any:
                     progress_text.write(f"🎨 {media_config.summary()}")
 
+                # Phase 3.7: タイトル画像生成
                 from use_cases.ai.suggest_and_export import _sanitize_filename
+
+                title_image_paths: dict[int, Path] = {}
+                if enable_title_image:
+                    from use_cases.ai.title_image_generator import generate_title_image as gen_title
+
+                    titles_dir = base_dir / "title_images"
+                    titles_dir.mkdir(parents=True, exist_ok=True)
+
+                    frame_path_for_title = None
+                    if media_config.overlay_settings:
+                        fp = media_config.overlay_settings.get("frame_path")
+                        if fp:
+                            frame_path_for_title = Path(fp)
+
+                    # preset/fonts/ からフォント検索
+                    font_dir = video_path_obj.parent / "preset" / "fonts"
+                    if not font_dir.exists():
+                        font_dir = None
+
+                    for i, suggestion in enumerate(suggestions, 1):
+                        progress_text.write(f"🖼 タイトル画像生成中... ({i}/{total})")
+                        sanitized_t = _sanitize_filename(suggestion.title)
+                        title_out = titles_dir / f"{i:02d}_{sanitized_t}.png"
+                        result_t = gen_title(
+                            title=suggestion.title,
+                            keywords=getattr(suggestion, "keywords", []),
+                            output_path=title_out,
+                            orientation=timeline_resolution,
+                            client=gateway.client,
+                            model="gpt-4.1-mini",
+                            font_dir=font_dir,
+                            frame_path=frame_path_for_title,
+                        )
+                        if result_t:
+                            title_image_paths[i] = result_t
 
                 exported_files: list[Path] = []
                 for i, suggestion in enumerate(suggestions, 1):
