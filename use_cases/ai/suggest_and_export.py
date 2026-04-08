@@ -51,6 +51,7 @@ class SuggestAndExportRequest:
     scale: tuple[float, float] = (1.0, 1.0)  # ズーム倍率 (x, y)
     anchor: tuple[float, float] = (0.0, 0.0)  # アンカーポイント (x, y)
     timeline_resolution: str = "horizontal"  # タイムライン向き ("horizontal" or "vertical")
+    enable_title_image: bool = True  # タイトル画像生成
 
 
 @dataclass
@@ -138,17 +139,47 @@ class SuggestAndExportUseCase:
         if media_config.has_any:
             logger.info(media_config.summary())
 
+        # Phase 5.7: タイトル画像生成（バッチ1回のAI呼び出し）
+        title_image_paths: dict[int, Path] = {}
+        if request.enable_title_image:
+            try:
+                from use_cases.ai.title_image_generator import generate_title_images_batch
+
+                titles_dir = base_dir / "title_images"
+
+                frame_path = None
+                if media_config and media_config.overlay_settings:
+                    fp = media_config.overlay_settings.get("frame_path")
+                    if fp:
+                        frame_path = Path(fp)
+
+                title_image_paths = generate_title_images_batch(
+                    suggestions=suggestions,
+                    output_dir=titles_dir,
+                    orientation=request.timeline_resolution,
+                    client=self.gateway.client,
+                    model=request.ai_model,
+                    font_dir=request.preset_dir / "fonts" if request.preset_dir else None,
+                    frame_path=frame_path,
+                    sanitize_fn=_sanitize_filename,
+                )
+            except Exception as e:
+                logger.warning(f"タイトル画像生成をスキップ: {e}")
+
         # Phase 6: FCPXML + SRT生成
         exported_files: list[Path] = []
         for i, suggestion in enumerate(suggestions, 1):
             sanitized = _sanitize_filename(suggestion.title)
 
             # FCPXML（速度変更済み動画を参照）
+            title_path = title_image_paths.get(i)
+            title_settings = {"title_path": str(title_path)} if title_path else None
             fcpxml_path = fcpxml_dir / f"{i:02d}_{sanitized}.fcpxml"
             success = self._export_fcpxml(
                 suggestion, actual_video_path, fcpxml_path, media_config,
                 scale=request.scale, anchor=request.anchor,
                 timeline_resolution=request.timeline_resolution,
+                title_settings=title_settings,
             )
             if success:
                 exported_files.append(fcpxml_path)
@@ -218,6 +249,7 @@ class SuggestAndExportUseCase:
         scale: tuple[float, float] = (1.0, 1.0),
         anchor: tuple[float, float] = (0.0, 0.0),
         timeline_resolution: str = "horizontal",
+        title_settings: dict | None = None,
     ) -> bool:
         if not suggestion.time_ranges:
             return False
@@ -250,12 +282,14 @@ class SuggestAndExportUseCase:
                 overlay_settings=media_config.overlay_settings if media_config else None,
                 bgm_settings=media_config.bgm_settings if media_config else None,
                 additional_audio_settings=media_config.additional_audio_settings if media_config else None,
+                title_settings=title_settings,
             )
         except Exception as e:
             logger.warning(f"FCPXMLExporter failed ({e}), using simple FCPXML")
             return self._export_simple_fcpxml(
                 suggestion, video_path, output_path,
                 scale=scale, anchor=anchor, timeline_resolution=timeline_resolution,
+                title_settings=title_settings,
             )
 
     def _export_simple_fcpxml(
@@ -266,6 +300,7 @@ class SuggestAndExportUseCase:
         scale: tuple[float, float] = (1.0, 1.0),
         anchor: tuple[float, float] = (0.0, 0.0),
         timeline_resolution: str = "horizontal",
+        title_settings: dict | None = None,
     ) -> bool:
         """ffprobeなしで簡易FCPXMLを生成する（DaVinci Resolve互換）"""
         from fractions import Fraction
@@ -278,7 +313,7 @@ class SuggestAndExportUseCase:
                 return "0/1s"
             return f"{frac.numerator}/{frac.denominator}s"
 
-        from xml.sax.saxutils import escape, quoteattr
+        from xml.sax.saxutils import escape
 
         video_name = escape(video_path.name)
         title_escaped = escape(suggestion.title)
@@ -323,6 +358,28 @@ class SuggestAndExportUseCase:
             fmt_w, fmt_h = 1920, 1080
             fmt_name = "FFVideoFormat1080p30"
 
+        # タイトル画像リソース
+        title_asset_xml = ""
+        title_spine_xml = ""
+        if title_settings and "title_path" in title_settings:
+            title_path = title_settings["title_path"]
+            if Path(title_path).exists():
+                title_url = f"file://{quote(str(Path(title_path).resolve()), safe='/:')}"
+                title_asset_xml = (
+                    f'        <asset duration="0/1s" id="r2" '
+                    f'name="{escape(Path(title_path).name)}" start="0/1s" hasVideo="1" format="r0">\n'
+                    f'            <media-rep kind="original-media" src="{title_url}"/>\n'
+                    f'        </asset>\n'
+                )
+                title_spine_xml = (
+                    f'                        <video duration="{to_frac(total_dur)}" lane="2" '
+                    f'name="{escape(Path(title_path).name)}" ref="r2" '
+                    f'start="0/1s" offset="0/1s" enabled="1">\n'
+                    f'                            <adjust-conform type="none"/>\n'
+                    f'                            <adjust-transform position="0 0" scale="1 1" anchor="0 0"/>\n'
+                    f'                        </video>\n'
+                )
+
         xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE fcpxml>
 <fcpxml version="1.9">
@@ -331,13 +388,13 @@ class SuggestAndExportUseCase:
         <asset id="r1" name="{video_name}" start="0/1s" hasVideo="1" format="r0" hasAudio="1" audioSources="1" audioChannels="2">
             <media-rep kind="original-media" src="{video_url}"/>
         </asset>
-    </resources>
+{title_asset_xml}    </resources>
     <library>
         <event name="TextffCut">
             <project name="{title_escaped}">
                 <sequence duration="{to_frac(total_dur)}" tcStart="0/1s" format="r0" tcFormat="NDF">
                     <spine>
-{clips_xml}                    </spine>
+{clips_xml}{title_spine_xml}                    </spine>
                 </sequence>
             </project>
         </event>

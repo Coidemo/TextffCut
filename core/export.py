@@ -4,10 +4,12 @@
 
 import os
 from dataclasses import dataclass
-from pathlib import Path
 from fractions import Fraction
+from pathlib import Path
+from xml.sax.saxutils import escape as xml_escape
 
 from config import Config
+
 # utils.environmentのインポートは実行時に行う（循環依存回避のため）
 from utils.time_utils import frames_to_timecode
 
@@ -19,24 +21,24 @@ logger = logging.getLogger(__name__)
 
 def optimize_fraction(value: float, base_fps: int = 30) -> str:
     """浮動小数点数を最適化された分数文字列に変換
-    
+
     Args:
         value: 変換する値（秒）
         base_fps: 基準となるFPS
-        
+
     Returns:
         最適化された分数文字列（例: "11/10s"）
     """
     # まず基準FPSでフレーム数に変換
     frames = round(value * base_fps)
-    
+
     # Fractionで最適化
     frac = Fraction(frames, base_fps)
-    
+
     # 分子が0の場合
     if frac.numerator == 0:
         return "0/1s"
-    
+
     return f"{frac.numerator}/{frac.denominator}s"
 
 
@@ -72,6 +74,7 @@ class FCPXMLExporter:
         overlay_settings: dict | None = None,
         bgm_settings: dict | None = None,
         additional_audio_settings: dict | None = None,
+        title_settings: dict | None = None,
     ) -> bool:
         """
         FCPXMLファイルをエクスポート
@@ -96,7 +99,19 @@ class FCPXMLExporter:
                     video_infos[source_path_str] = VideoInfo.from_file(seg.source_path)
 
             # XMLを構築
-            xml_content = self._build_fcpxml(segments, video_infos, timeline_fps, project_name, scale, anchor, timeline_resolution, overlay_settings, bgm_settings, additional_audio_settings)
+            xml_content = self._build_fcpxml(
+                segments,
+                video_infos,
+                timeline_fps,
+                project_name,
+                scale,
+                anchor,
+                timeline_resolution,
+                overlay_settings,
+                bgm_settings,
+                additional_audio_settings,
+                title_settings,
+            )
 
             # ファイルに保存
             Path(output_path).parent.mkdir(parents=True, exist_ok=True)
@@ -119,15 +134,24 @@ class FCPXMLExporter:
             raise VideoProcessingError(f"FCPXMLエクスポートエラー: {str(e)}") from e
 
     def _build_fcpxml(
-        self, segments: list[ExportSegment], video_infos: dict[str, VideoInfo], timeline_fps: int, project_name: str,
-        scale: tuple[float, float], anchor: tuple[float, float], timeline_resolution: str,
-        overlay_settings: dict | None = None, bgm_settings: dict | None = None, additional_audio_settings: dict | None = None
+        self,
+        segments: list[ExportSegment],
+        video_infos: dict[str, VideoInfo],
+        timeline_fps: int,
+        project_name: str,
+        scale: tuple[float, float],
+        anchor: tuple[float, float],
+        timeline_resolution: str,
+        overlay_settings: dict | None = None,
+        bgm_settings: dict | None = None,
+        additional_audio_settings: dict | None = None,
+        title_settings: dict | None = None,
     ) -> str:
         """FCPXMLコンテンツを構築（DaVinci Resolve完全互換）"""
         # 総時間を計算
         total_duration = sum(seg.duration for seg in segments)
         total_frames = round(total_duration * timeline_fps)
-        
+
         # スピード変更機能は削除済み（DaVinci Resolve制限のため）
 
         # タイムライン解像度を決定
@@ -137,17 +161,17 @@ class FCPXMLExporter:
         else:
             timeline_width, timeline_height = 1920, 1080
             format_name = f"FFVideoFormat1080p{timeline_fps}"
-        
+
         # ソース動画の解像度を取得（デフォルト値を設定）
         source_width = 640
         source_height = 360
         # 実際の動画情報から解像度を取得できる場合は更新
         if segments and segments[0].source_path in video_infos:
             first_video_info = video_infos[str(segments[0].source_path)]
-            if hasattr(first_video_info, 'width') and hasattr(first_video_info, 'height'):
+            if hasattr(first_video_info, "width") and hasattr(first_video_info, "height"):
                 source_width = first_video_info.width
                 source_height = first_video_info.height
-        
+
         # XMLヘッダー
         xml_content = f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE fcpxml>
@@ -160,21 +184,21 @@ class FCPXMLExporter:
         # 同じ動画ファイルは同じアセットIDを使用
         resource_map = {}
         asset_counter = 1  # r1から開始（r0はタイムラインフォーマット）
-        
+
         # 動画ファイルごとに1つのアセットを作成
         processed_files = set()
         for seg in segments:
             source_path_str = str(seg.source_path)
             if source_path_str not in video_infos or source_path_str in processed_files:
                 continue
-            
+
             processed_files.add(source_path_str)
             info = video_infos[source_path_str]
             resource_id = f"r{asset_counter}"
-            
+
             # このファイルのすべてのセグメントに同じリソースIDを割り当て
             resource_map[source_path_str] = resource_id
-            
+
             # 動画の総時間を分数で表現（DaVinci Resolveスタイル）
             source_fps = int(info.fps)
             total_frames = round(info.duration * source_fps)
@@ -183,7 +207,9 @@ class FCPXMLExporter:
 
             # Docker環境の場合はホストパスに変換
             is_docker = os.path.exists("/.dockerenv")
-            logger.info(f"Docker環境判定（動画）: is_docker={is_docker}, /.dockerenv存在={os.path.exists('/.dockerenv')}")
+            logger.info(
+                f"Docker環境判定（動画）: is_docker={is_docker}, /.dockerenv存在={os.path.exists('/.dockerenv')}"
+            )
             if is_docker:
                 # /app/videos/xxx.mp4 -> HOST_VIDEOS_PATH/xxx.mp4
                 video_filename = Path(source_path_str).name
@@ -195,6 +221,7 @@ class FCPXMLExporter:
                 # ローカル環境は通常通り
                 # DaVinci Resolveと同じくURLエンコードする
                 from urllib.parse import quote
+
                 file_path = Path(source_path_str).resolve()
                 # パスをURLエンコード（スラッシュは除く）
                 encoded_path = "/".join(quote(part, safe="") for part in str(file_path).split("/"))
@@ -209,18 +236,18 @@ class FCPXMLExporter:
                 f'            <media-rep kind="original-media" src="{file_url}"/>\n'
                 f"        </asset>\n"
             )
-            
+
             asset_counter += 1
 
         # オーバーレイ画像のリソースを追加
         overlay_resource_ids = {}
         if overlay_settings:
             # 背景フレーム
-            if 'frame_path' in overlay_settings:
-                frame_path = overlay_settings['frame_path']
+            if "frame_path" in overlay_settings:
+                frame_path = overlay_settings["frame_path"]
                 resource_id = f"r{asset_counter}"
-                overlay_resource_ids['frame'] = resource_id
-                
+                overlay_resource_ids["frame"] = resource_id
+
                 # ファイルパスの処理（Docker環境対応）
                 is_docker = os.path.exists("/.dockerenv")
                 logger.info(f"Docker環境チェック: {is_docker}, frame_path: {frame_path}")
@@ -233,7 +260,7 @@ class FCPXMLExporter:
                     # 絶対パスに変換してからURIに
                     file_url = Path(frame_path).resolve().as_uri()
                     logger.info(f"非Docker環境でのオーバーレイパス: {frame_path} -> {file_url}")
-                
+
                 # 画像フォーマット（縦型/横型に合わせる）
                 xml_content += (
                     f'        <asset duration="0/1s" id="{resource_id}" '
@@ -243,13 +270,39 @@ class FCPXMLExporter:
                     f"        </asset>\n"
                 )
                 asset_counter += 1
-            
+
+        # タイトル画像のリソースを追加
+        title_resource_id = None
+        if title_settings and title_settings.get("title_path"):
+            title_path = title_settings["title_path"]
+            if Path(title_path).exists():
+                title_resource_id = f"r{asset_counter}"
+
+                # ファイルパスの処理（Docker環境対応）
+                logger.info(f"タイトル画像を追加: {Path(title_path).name}")
+                is_docker = os.path.exists("/.dockerenv")
+                if is_docker and (title_path.startswith("/app/videos/") or title_path.startswith("videos/")):
+                    host_videos_path = os.getenv("HOST_VIDEOS_PATH", os.getenv("PWD", "") + "/videos")
+                    relative_path = title_path.replace("/app/videos/", "").replace("videos/", "")
+                    file_url = f"file://{host_videos_path}/{relative_path}".replace("\\", "/")
+                else:
+                    file_url = Path(title_path).resolve().as_uri()
+
+                xml_content += (
+                    f'        <asset duration="0/1s" id="{title_resource_id}" '
+                    f'name="{xml_escape(Path(title_path).name)}" start="0/1s" hasVideo="1" '
+                    f'format="r0">\n'
+                    f'            <media-rep kind="original-media" src="{file_url}"/>\n'
+                    f"        </asset>\n"
+                )
+                asset_counter += 1
+
         # BGMのリソースを追加
         bgm_resource_id = None
-        if bgm_settings and 'bgm_path' in bgm_settings:
-            bgm_path = bgm_settings['bgm_path']
+        if bgm_settings and "bgm_path" in bgm_settings:
+            bgm_path = bgm_settings["bgm_path"]
             bgm_resource_id = f"r{asset_counter}"
-            
+
             # ファイルパスの処理（Docker環境対応）
             is_docker = os.path.exists("/.dockerenv")
             logger.info(f"Docker環境チェック（BGM）: {is_docker}, bgm_path: {bgm_path}")
@@ -262,12 +315,13 @@ class FCPXMLExporter:
                 # 絶対パスに変換してからURIに
                 file_url = Path(bgm_path).resolve().as_uri()
                 logger.info(f"非Docker環境でのBGMパス: {bgm_path} -> {file_url}")
-            
+
             # BGMの長さを取得（FFprobeを使用）
             from .video import VideoInfo
+
             bgm_info = VideoInfo.from_file(bgm_path)
             bgm_duration_str = optimize_fraction(bgm_info.duration, timeline_fps)
-            
+
             xml_content += (
                 f'        <asset duration="{bgm_duration_str}" id="{bgm_resource_id}" '
                 f'name="{Path(bgm_path).name}" start="0/1s" hasAudio="1" '
@@ -280,17 +334,17 @@ class FCPXMLExporter:
         # 追加オーディオの準備（BGM以外のMP3ファイル）
         additional_audio_resource_ids = {}
         logger.info(f"追加オーディオ設定: {additional_audio_settings}")
-        if additional_audio_settings and additional_audio_settings.get('audio_files'):
-            audio_files = additional_audio_settings['audio_files']
-            volume = additional_audio_settings.get('volume', -20)
-            
+        if additional_audio_settings and additional_audio_settings.get("audio_files"):
+            audio_files = additional_audio_settings["audio_files"]
+            volume = additional_audio_settings.get("volume", -20)
+
             # 各オーディオファイルの情報を取得してリソースとして登録
             for audio_path in audio_files:
                 try:
                     audio_info = VideoInfo.from_file(audio_path)
                     resource_id = f"r{asset_counter}"
                     additional_audio_resource_ids[audio_path] = (resource_id, audio_info, volume)
-                    
+
                     # ファイルパスの処理（Docker環境対応）
                     is_docker = os.path.exists("/.dockerenv")
                     logger.info(f"Docker環境チェック（追加オーディオ）: {is_docker}, audio_path: {audio_path}")
@@ -303,7 +357,7 @@ class FCPXMLExporter:
                         # 絶対パスに変換してからURIに
                         file_url = Path(audio_path).resolve().as_uri()
                         logger.info(f"非Docker環境での追加オーディオパス: {audio_path} -> {file_url}")
-                    
+
                     # リソースセクションに追加
                     audio_duration_str = optimize_fraction(audio_info.duration, timeline_fps)
                     xml_content += (
@@ -319,10 +373,10 @@ class FCPXMLExporter:
 
         # sequenceのdurationも最適化された分数で
         total_duration_str = optimize_fraction(total_duration, timeline_fps)
-        
+
         # DaVinci Resolveスタイルのイベント名とプロジェクト名
-        event_name = f"{project_name} (Resolve)"
-        
+        event_name = xml_escape(f"{project_name} (Resolve)")
+
         xml_content += (
             '''    </resources>
     <library>
@@ -334,9 +388,9 @@ class FCPXMLExporter:
             + '''">
                 <sequence duration="'''
             + total_duration_str
-            + '''" tcStart="0/1s" format="r0" tcFormat="NDF">
+            + """" tcStart="0/1s" format="r0" tcFormat="NDF">
                     <spine>
-'''
+"""
         )
 
         # インデントを設定（gap要素は使わない）
@@ -353,10 +407,10 @@ class FCPXMLExporter:
             # DaVinci Resolveスタイルの計算
             # offsetは最適化された分数で
             offset_str = optimize_fraction(current_timeline_pos / timeline_fps, timeline_fps)
-            
+
             # durationの最適化
             duration_str = optimize_fraction(seg.duration, timeline_fps)
-            
+
             # start値の最適化
             source_fps = int(info.fps)
             start_str = optimize_fraction(seg.start_time, source_fps)
@@ -369,7 +423,7 @@ class FCPXMLExporter:
                 f'start="{start_str}" offset="{offset_str}" enabled="1" '
                 f'format="r0" tcFormat="NDF">\n'
             )
-            
+
             # タイムライン上での実際の長さ（次のクリップのoffset計算用）
             timeline_duration_frames = round(seg.duration * timeline_fps)
 
@@ -377,34 +431,45 @@ class FCPXMLExporter:
 
             # DaVinci Resolveスタイルのadjust要素
             xml_content += f'{indent}    <adjust-conform type="fit"/>\n'
-            
+
             # adjust-transformは常に出力（DaVinci Resolveスタイル）
             scale_str = f"{scale[0]:.6g} {scale[1]:.6g}".replace(".0 ", " ").replace(".0", "")
             anchor_str = f"{anchor[0]:.6g} {anchor[1]:.6g}".replace(".0 ", " ").replace(".0", "")
             xml_content += f'{indent}    <adjust-transform position="0 0" scale="{scale_str}" anchor="{anchor_str}"/>\n'
-            
+
             # ビデオクリップ内にオーバーレイ、BGM、追加オーディオは含めない
-            
+
             xml_content += f"{indent}</asset-clip>\n"
 
             current_timeline_pos += timeline_duration_frames
 
         # オーバーレイ画像をspine直下に追加（全クリップの上に重なる）
-        if overlay_settings and overlay_resource_ids and 'frame' in overlay_resource_ids:
+        if overlay_settings and overlay_resource_ids and "frame" in overlay_resource_ids:
             xml_content += (
                 f'{indent}<video duration="{total_duration_str}" lane="1" '
                 f'name="{Path(overlay_settings["frame_path"]).name}" ref="{overlay_resource_ids["frame"]}" '
                 f'start="0/1s" offset="0/1s" enabled="1">\n'
                 f'{indent}    <adjust-conform type="fit"/>\n'
                 f'{indent}    <adjust-transform position="0 0" scale="1 1" anchor="0 0"/>\n'
-                f'{indent}</video>\n'
+                f"{indent}</video>\n"
             )
-        
+
+        # タイトル画像をspine直下に追加（レーン2）
+        if title_resource_id and title_settings:
+            xml_content += (
+                f'{indent}<video duration="{total_duration_str}" lane="2" '
+                f'name="{xml_escape(Path(title_settings["title_path"]).name)}" ref="{title_resource_id}" '
+                f'start="0/1s" offset="0/1s" enabled="1">\n'
+                f'{indent}    <adjust-conform type="none"/>\n'
+                f'{indent}    <adjust-transform position="0 0" scale="1 1" anchor="0 0"/>\n'
+                f"{indent}</video>\n"
+            )
+
         # BGMをspine直下に追加（レーン3）
         if bgm_resource_id:
-            bgm_volume = bgm_settings.get('bgm_volume', -25)
-            bgm_loop = bgm_settings.get('bgm_loop', True)
-            
+            bgm_volume = bgm_settings.get("bgm_volume", -25)
+            bgm_loop = bgm_settings.get("bgm_loop", True)
+
             if bgm_loop:
                 # ループ再生：タイムライン全体の長さに合わせて繰り返す
                 bgm_offset = 0
@@ -413,45 +478,45 @@ class FCPXMLExporter:
                     remaining_duration = min(bgm_info.duration, total_duration - bgm_offset)
                     remaining_duration_str = optimize_fraction(remaining_duration, timeline_fps)
                     offset_str = f"{round(bgm_offset * timeline_fps)}/{timeline_fps}s"
-                    
+
                     xml_content += (
                         f'{indent}<asset-clip duration="{remaining_duration_str}" lane="3" '
                         f'name="{Path(bgm_path).name}" ref="{bgm_resource_id}" '
                         f'start="0/1s" offset="{offset_str}" enabled="1">\n'
                         f'{indent}    <adjust-volume amount="{bgm_volume}"/>\n'
-                        f'{indent}</asset-clip>\n'
+                        f"{indent}</asset-clip>\n"
                     )
-                    
+
                     bgm_offset += bgm_info.duration
             else:
                 # ループなし：BGMの長さまたはタイムラインの長さの短い方を使用
                 bgm_duration = min(bgm_info.duration, total_duration)
                 bgm_duration_str = optimize_fraction(bgm_duration, timeline_fps)
-                
+
                 xml_content += (
                     f'{indent}<asset-clip duration="{bgm_duration_str}" lane="3" '
                     f'name="{Path(bgm_path).name}" ref="{bgm_resource_id}" '
                     f'start="0/1s" offset="0/1s" enabled="1">\n'
                     f'{indent}    <adjust-volume amount="{bgm_volume}"/>\n'
-                    f'{indent}</asset-clip>\n'
+                    f"{indent}</asset-clip>\n"
                 )
-        
+
         # 追加オーディオをspine直下に配置（レーン4に5フレームの隙間を開けて並べる）
         if additional_audio_resource_ids:
             current_offset = 0
             gap_frames = 5  # クリップ間の隙間（フレーム数）
             gap_duration = gap_frames / timeline_fps  # 秒に変換
-            
+
             for audio_path, (resource_id, audio_info, volume) in additional_audio_resource_ids.items():
                 # 残りの時間がオーディオの長さより短い場合は、残り時間分だけ配置
                 remaining_duration = total_duration - current_offset
                 if remaining_duration <= 0:
                     break
-                
+
                 audio_duration = min(audio_info.duration, remaining_duration)
                 duration_str = optimize_fraction(audio_duration, timeline_fps)
                 offset_str = f"{round(current_offset * timeline_fps)}/{timeline_fps}s"
-                
+
                 xml_content += (
                     f'{indent}<asset-clip duration="{duration_str}" lane="4" '
                     f'name="{Path(audio_path).name}" ref="{resource_id}" '
@@ -459,8 +524,8 @@ class FCPXMLExporter:
                 )
                 if volume != 0:
                     xml_content += f'{indent}    <adjust-volume amount="{volume}"/>\n'
-                xml_content += f'{indent}</asset-clip>\n'
-                
+                xml_content += f"{indent}</asset-clip>\n"
+
                 # 次のクリップの開始位置は、現在のクリップの終了位置 + 隙間
                 current_offset += audio_duration + gap_duration
 

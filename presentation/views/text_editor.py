@@ -688,6 +688,11 @@ class TextEditorView:
                 n = len(detected.additional_audio_settings["audio_files"])
                 enable_se = st.checkbox(f"効果音を適用（{n}個）", value=True, key="ai_clip_se")
 
+        # タイトル画像
+        saved_title_img = settings_manager.get("ai_clip_title_image", True)
+        enable_title_image = st.checkbox("タイトル画像", value=saved_title_img, key="ai_clip_title")
+        settings_manager.set("ai_clip_title_image", enable_title_image)
+
         # 入力検証
         if int(min_duration) > int(max_duration):
             st.warning("⚠️ 最小秒数が最大秒数より大きくなっています")
@@ -718,6 +723,7 @@ class TextEditorView:
                 scale=(zoom_percent / 100.0, zoom_percent / 100.0),
                 anchor=(float(anchor_x), float(anchor_y)),
                 timeline_resolution=timeline_resolution,
+                enable_title_image=enable_title_image,
             )
 
         # 結果表示
@@ -746,6 +752,7 @@ class TextEditorView:
         scale: tuple[float, float] = (1.0, 1.0),
         anchor: tuple[float, float] = (0.0, 0.0),
         timeline_resolution: str = "horizontal",
+        enable_title_image: bool = True,
     ) -> None:
         """AI自動切り抜きを実行"""
         from pathlib import Path
@@ -857,13 +864,14 @@ class TextEditorView:
                         suggestion.total_duration = sum(e - s for s, e in suggestion.time_ranges)
                     progress_text.write(f"✅ {speed_label}速度変更完了")
 
-                # Phase 4: FCPXML + SRT 生成
                 video_name = video_path_obj.stem
                 base_dir = video_path_obj.parent / f"{video_name}_TextffCut"
+
+                # Phase 4: FCPXML + SRT 生成
                 fcpxml_dir = base_dir / "fcpxml"
                 fcpxml_dir.mkdir(parents=True, exist_ok=True)
 
-                # メディア素材検出
+                # メディア素材検出（タイトル画像のframe色抽出でも再利用）
                 from utils.media_asset_detector import detect_media_assets as _detect
 
                 media_config = _detect(
@@ -875,18 +883,57 @@ class TextEditorView:
                 if media_config.has_any:
                     progress_text.write(f"🎨 {media_config.summary()}")
 
+                # Phase 3.7: タイトル画像生成（バッチ1回のAI呼び出し）
                 from use_cases.ai.suggest_and_export import _sanitize_filename
+
+                title_image_paths: dict[int, Path] = {}
+                if enable_title_image:
+                    from use_cases.ai.title_image_generator import generate_title_images_batch
+
+                    titles_dir = base_dir / "title_images"
+
+                    frame_path_for_title = None
+                    if media_config.overlay_settings:
+                        fp = media_config.overlay_settings.get("frame_path")
+                        if fp:
+                            frame_path_for_title = Path(fp)
+
+                    font_dir = video_path_obj.parent / "preset" / "fonts"
+                    if not font_dir.exists():
+                        font_dir = None
+
+                    progress_text.write(f"🖼 タイトル画像生成中... ({total}件)")
+                    title_image_paths = generate_title_images_batch(
+                        suggestions=suggestions,
+                        output_dir=titles_dir,
+                        orientation=timeline_resolution,
+                        client=gateway.client,
+                        model=gateway.model,
+                        font_dir=font_dir,
+                        frame_path=frame_path_for_title,
+                        sanitize_fn=_sanitize_filename,
+                    )
+                    failed_count = total - len(title_image_paths)
+                    if failed_count > 0:
+                        progress_text.write(
+                            f"⚠️ タイトル画像: {len(title_image_paths)}枚成功、{failed_count}枚失敗"
+                        )
+                    else:
+                        progress_text.write(f"✅ タイトル画像: {len(title_image_paths)}枚生成完了")
 
                 exported_files: list[Path] = []
                 for i, suggestion in enumerate(suggestions, 1):
                     progress_text.write(f"📄 FCPXML生成中... ({i}/{total})")
                     sanitized = _sanitize_filename(suggestion.title)
 
+                    title_path = title_image_paths.get(i)
+                    title_settings = {"title_path": str(title_path)} if title_path else None
                     fcpxml_path = fcpxml_dir / f"{i:02d}_{sanitized}.fcpxml"
                     success = use_case._export_fcpxml(
                         suggestion, actual_video_path, fcpxml_path, media_config,
                         scale=scale, anchor=anchor,
                         timeline_resolution=timeline_resolution,
+                        title_settings=title_settings,
                     )
                     if success:
                         exported_files.append(fcpxml_path)
