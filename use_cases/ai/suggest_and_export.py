@@ -316,13 +316,18 @@ class SuggestAndExportUseCase:
                 f"                        </asset-clip>\n"
             )
 
-        fmt_w, fmt_h = (1080, 1920) if timeline_resolution == "vertical" else (1920, 1080)
+        if timeline_resolution == "vertical":
+            fmt_w, fmt_h = 1080, 1920
+            fmt_name = "FFVideoFormatVertical30"
+        else:
+            fmt_w, fmt_h = 1920, 1080
+            fmt_name = "FFVideoFormat1080p30"
 
         xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE fcpxml>
 <fcpxml version="1.9">
     <resources>
-        <format height="{fmt_h}" id="r0" name="FFVideoFormat{fmt_h}p30" frameDuration="1/30s" width="{fmt_w}"/>
+        <format height="{fmt_h}" id="r0" name="{fmt_name}" frameDuration="1/30s" width="{fmt_w}"/>
         <asset id="r1" name="{video_name}" start="0/1s" hasVideo="1" format="r0" hasAudio="1" audioSources="1" audioChannels="2">
             <media-rep kind="original-media" src="{video_url}"/>
         </asset>

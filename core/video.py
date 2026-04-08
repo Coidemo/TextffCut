@@ -984,7 +984,7 @@ class VideoProcessor:
         cmd = [
             "ffmpeg",
             "-y",
-            "-itsscale",
+            "-itsscale:v",
             str(itsscale),
             "-i",
             str(source_path),

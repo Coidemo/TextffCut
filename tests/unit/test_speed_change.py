@@ -50,8 +50,8 @@ class TestCreateSpeedChangedVideo(unittest.TestCase):
         mock_run.assert_called_once()
         cmd = mock_run.call_args[0][0]
 
-        # -itsscale が 1/1.2 ≈ 0.8333
-        itsscale_idx = cmd.index("-itsscale")
+        # -itsscale:v が 1/1.2 ≈ 0.8333（映像ストリームのみに適用）
+        itsscale_idx = cmd.index("-itsscale:v")
         itsscale_val = float(cmd[itsscale_idx + 1])
         self.assertAlmostEqual(itsscale_val, 1.0 / 1.2, places=4)
 
@@ -264,6 +264,8 @@ class TestSimpleFcpxmlScaleAndTimeline(unittest.TestCase):
             xml = output_path.read_text()
             self.assertIn('width="1080"', xml)
             self.assertIn('height="1920"', xml)
+            # format nameがcore/export.pyと一致すること
+            self.assertIn('name="FFVideoFormatVertical30"', xml)
         finally:
             output_path.unlink(missing_ok=True)
 
@@ -286,6 +288,8 @@ class TestSimpleFcpxmlScaleAndTimeline(unittest.TestCase):
             xml = output_path.read_text()
             self.assertIn('width="1920"', xml)
             self.assertIn('height="1080"', xml)
+            # format nameがcore/export.pyと一致すること
+            self.assertIn('name="FFVideoFormat1080p30"', xml)
         finally:
             output_path.unlink(missing_ok=True)
 
