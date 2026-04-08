@@ -253,9 +253,20 @@ class SuggestAndExportUseCase:
             )
         except Exception as e:
             logger.warning(f"FCPXMLExporter failed ({e}), using simple FCPXML")
-            return self._export_simple_fcpxml(suggestion, video_path, output_path)
+            return self._export_simple_fcpxml(
+                suggestion, video_path, output_path,
+                scale=scale, anchor=anchor, timeline_resolution=timeline_resolution,
+            )
 
-    def _export_simple_fcpxml(self, suggestion: ClipSuggestion, video_path: Path, output_path: Path) -> bool:
+    def _export_simple_fcpxml(
+        self,
+        suggestion: ClipSuggestion,
+        video_path: Path,
+        output_path: Path,
+        scale: tuple[float, float] = (1.0, 1.0),
+        anchor: tuple[float, float] = (0.0, 0.0),
+        timeline_resolution: str = "horizontal",
+    ) -> bool:
         """ffprobeなしで簡易FCPXMLを生成する（DaVinci Resolve互換）"""
         from fractions import Fraction
         from urllib.parse import quote
@@ -301,15 +312,17 @@ class SuggestAndExportUseCase:
                 f'offset="{to_frac(seg.timeline_start)}" '
                 f'enabled="1" format="r0" tcFormat="NDF">\n'
                 f'                            <adjust-conform type="fit"/>\n'
-                f'                            <adjust-transform position="0 0" scale="1 1" anchor="0 0"/>\n'
+                f'                            <adjust-transform position="0 0" scale="{scale[0]:.6g} {scale[1]:.6g}" anchor="{anchor[0]:.6g} {anchor[1]:.6g}"/>\n'
                 f"                        </asset-clip>\n"
             )
+
+        fmt_w, fmt_h = (1080, 1920) if timeline_resolution == "vertical" else (1920, 1080)
 
         xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE fcpxml>
 <fcpxml version="1.9">
     <resources>
-        <format height="1080" id="r0" name="FFVideoFormat1080p30" frameDuration="1/30s" width="1920"/>
+        <format height="{fmt_h}" id="r0" name="FFVideoFormat{fmt_h}p30" frameDuration="1/30s" width="{fmt_w}"/>
         <asset id="r1" name="{video_name}" start="0/1s" hasVideo="1" format="r0" hasAudio="1" audioSources="1" audioChannels="2">
             <media-rep kind="original-media" src="{video_url}"/>
         </asset>

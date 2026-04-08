@@ -1,5 +1,6 @@
-"""速度変更機能のユニットテスト"""
+"""速度変更・ズーム・アンカー・タイムライン設定のユニットテスト"""
 
+import argparse
 import subprocess
 import unittest
 from pathlib import Path
@@ -83,25 +84,30 @@ class TestCreateSpeedChangedVideo(unittest.TestCase):
         self.assertIn("FFmpeg", type(ctx.exception).__name__)
 
 
-class TestSuggestAndExportSpeed(unittest.TestCase):
-    """SuggestAndExportRequest の speed フィールドテスト"""
+class TestSuggestAndExportRequest(unittest.TestCase):
+    """SuggestAndExportRequest のフィールドテスト"""
 
-    def test_default_speed_is_1(self):
-        """デフォルトのspeedは1.0"""
+    def test_default_values(self):
+        """全追加フィールドのデフォルト値を確認"""
+        import dataclasses
+
         from use_cases.ai.suggest_and_export import SuggestAndExportRequest
 
-        req = SuggestAndExportRequest.__new__(SuggestAndExportRequest)
-        # dataclassのデフォルト値を確認
-        import dataclasses
         fields = {f.name: f.default for f in dataclasses.fields(SuggestAndExportRequest)}
         self.assertEqual(fields["speed"], 1.0)
+        self.assertEqual(fields["scale"], (1.0, 1.0))
+        self.assertEqual(fields["anchor"], (0.0, 0.0))
+        self.assertEqual(fields["timeline_resolution"], "horizontal")
 
-    def test_speed_field_exists(self):
-        """speed フィールドが存在する"""
-        from use_cases.ai.suggest_and_export import SuggestAndExportRequest
+    def test_all_new_fields_exist(self):
+        """speed, scale, anchor, timeline_resolution が存在する"""
         import dataclasses
+
+        from use_cases.ai.suggest_and_export import SuggestAndExportRequest
+
         field_names = [f.name for f in dataclasses.fields(SuggestAndExportRequest)]
-        self.assertIn("speed", field_names)
+        for name in ("speed", "scale", "anchor", "timeline_resolution"):
+            self.assertIn(name, field_names)
 
 
 class TestTimeRangeAdjustment(unittest.TestCase):
@@ -130,24 +136,148 @@ class TestTimeRangeAdjustment(unittest.TestCase):
         self.assertAlmostEqual(total, 20.0)
 
 
-class TestCLISpeedOption(unittest.TestCase):
-    """CLIの--speedオプションテスト"""
+class TestCLIOptions(unittest.TestCase):
+    """CLIオプションのテスト"""
 
-    def test_parser_accepts_speed(self):
-        """--speed オプションが受け付けられる"""
+    def _parse(self, args_str: str) -> argparse.Namespace:
         from textffcut_cli.suggest_command import build_suggest_parser
 
-        parser = build_suggest_parser()
-        args = parser.parse_args(["--speed", "1.2", "video.mp4"])
+        return build_suggest_parser().parse_args(args_str.split())
+
+    def test_speed_accepted(self):
+        args = self._parse("--speed 1.2 video.mp4")
         self.assertEqual(args.speed, 1.2)
 
-    def test_parser_default_speed(self):
-        """speed のデフォルトは 1.0"""
+    def test_speed_default(self):
+        args = self._parse("video.mp4")
+        self.assertEqual(args.speed, 1.0)
+
+    def test_speed_out_of_range_rejected(self):
+        """範囲外の --speed はパーサーがエラーにする"""
         from textffcut_cli.suggest_command import build_suggest_parser
 
         parser = build_suggest_parser()
-        args = parser.parse_args(["video.mp4"])
-        self.assertEqual(args.speed, 1.0)
+        with self.assertRaises(SystemExit):
+            parser.parse_args(["--speed", "3.0", "video.mp4"])
+
+    def test_zoom_accepted(self):
+        args = self._parse("--zoom 200 video.mp4")
+        self.assertEqual(args.zoom, 200)
+
+    def test_zoom_default(self):
+        args = self._parse("video.mp4")
+        self.assertEqual(args.zoom, 100)
+
+    def test_anchor_accepted(self):
+        args = self._parse("--anchor 10.5 -5.0 video.mp4")
+        self.assertEqual(args.anchor, [10.5, -5.0])
+
+    def test_anchor_default(self):
+        args = self._parse("video.mp4")
+        self.assertEqual(args.anchor, [0.0, 0.0])
+
+    def test_vertical_flag(self):
+        args = self._parse("--vertical video.mp4")
+        self.assertTrue(args.vertical)
+
+    def test_vertical_default(self):
+        args = self._parse("video.mp4")
+        self.assertFalse(args.vertical)
+
+    def test_all_options_combined(self):
+        """全オプションを同時指定"""
+        args = self._parse("--speed 1.2 --zoom 200 --anchor 10 5 --vertical video.mp4")
+        self.assertEqual(args.speed, 1.2)
+        self.assertEqual(args.zoom, 200)
+        self.assertEqual(args.anchor, [10.0, 5.0])
+        self.assertTrue(args.vertical)
+
+
+class TestSimpleFcpxmlScaleAndTimeline(unittest.TestCase):
+    """_export_simple_fcpxml のscale/anchor/timeline_resolution反映テスト"""
+
+    def _make_suggestion(self):
+        from domain.entities.clip_suggestion import ClipSuggestion
+
+        return ClipSuggestion(
+            id="test_1",
+            title="test",
+            text="test text",
+            time_ranges=[(0.0, 10.0)],
+            total_duration=10.0,
+            score=80,
+            category="test",
+            reasoning="test",
+            variant_label="test",
+        )
+
+    def test_scale_reflected_in_xml(self):
+        """scaleがXMLに反映される"""
+        from use_cases.ai.suggest_and_export import SuggestAndExportUseCase
+
+        uc = SuggestAndExportUseCase.__new__(SuggestAndExportUseCase)
+        suggestion = self._make_suggestion()
+
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(suffix=".fcpxml", delete=False) as f:
+            output_path = Path(f.name)
+
+        try:
+            uc._export_simple_fcpxml(
+                suggestion, Path("/tmp/video.mp4"), output_path,
+                scale=(2.0, 2.0), anchor=(10.0, 5.0),
+            )
+            xml = output_path.read_text()
+            self.assertIn('scale="2 2"', xml)
+            self.assertIn('anchor="10 5"', xml)
+        finally:
+            output_path.unlink(missing_ok=True)
+
+    def test_vertical_timeline_resolution(self):
+        """縦タイムラインでwidth/heightが入れ替わる"""
+        from use_cases.ai.suggest_and_export import SuggestAndExportUseCase
+
+        uc = SuggestAndExportUseCase.__new__(SuggestAndExportUseCase)
+        suggestion = self._make_suggestion()
+
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(suffix=".fcpxml", delete=False) as f:
+            output_path = Path(f.name)
+
+        try:
+            uc._export_simple_fcpxml(
+                suggestion, Path("/tmp/video.mp4"), output_path,
+                timeline_resolution="vertical",
+            )
+            xml = output_path.read_text()
+            self.assertIn('width="1080"', xml)
+            self.assertIn('height="1920"', xml)
+        finally:
+            output_path.unlink(missing_ok=True)
+
+    def test_horizontal_timeline_default(self):
+        """横タイムラインがデフォルト"""
+        from use_cases.ai.suggest_and_export import SuggestAndExportUseCase
+
+        uc = SuggestAndExportUseCase.__new__(SuggestAndExportUseCase)
+        suggestion = self._make_suggestion()
+
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(suffix=".fcpxml", delete=False) as f:
+            output_path = Path(f.name)
+
+        try:
+            uc._export_simple_fcpxml(
+                suggestion, Path("/tmp/video.mp4"), output_path,
+            )
+            xml = output_path.read_text()
+            self.assertIn('width="1920"', xml)
+            self.assertIn('height="1080"', xml)
+        finally:
+            output_path.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":

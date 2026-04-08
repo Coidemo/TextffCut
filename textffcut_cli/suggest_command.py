@@ -86,11 +86,17 @@ def build_suggest_parser() -> argparse.ArgumentParser:
         default=True,
         help="無音削除を無効にする（デフォルト: 有効）",
     )
+    def _speed_type(value: str) -> float:
+        f = float(value)
+        if not (0.5 <= f <= 2.0):
+            raise argparse.ArgumentTypeError(f"0.5〜2.0の範囲で指定してください: {value}")
+        return f
+
     parser.add_argument(
         "--speed",
-        type=float,
+        type=_speed_type,
         default=1.0,
-        help="再生速度（デフォルト: 1.0、例: 1.2で1.2倍速）",
+        help="再生速度（0.5〜2.0、デフォルト: 1.0、例: 1.2で1.2倍速）",
     )
     parser.add_argument(
         "--zoom",
