@@ -384,8 +384,9 @@ def evaluate_candidates_with_vision(
     if len(candidate_images) == 1:
         return candidate_images[0][0]
 
-    # 候補画像をbase64エンコード
+    # 候補画像をbase64エンコード（成功した候補のインデックスも追跡）
     image_contents = []
+    encoded_candidates: list[tuple[int, Path]] = []
     for idx, img_path in candidate_images:
         try:
             with open(img_path, "rb") as f:
@@ -397,11 +398,16 @@ def evaluate_candidates_with_vision(
                     "detail": "low",
                 },
             })
+            encoded_candidates.append((idx, img_path))
         except Exception as e:
             logger.warning(f"画像#{idx}: base64エンコード失敗: {e}")
 
     if not image_contents:
         return candidate_images[0][0]
+
+    # エンコード成功が1枚のみならAPI不要
+    if len(encoded_candidates) == 1:
+        return encoded_candidates[0][0]
 
     # 評価プロンプト
     prompt_text = (
@@ -431,16 +437,16 @@ def evaluate_candidates_with_vision(
             result = json.loads(content)
             best_idx = int(result.get("best_index", 0))
             reason = result.get("reason", "")
-            if 0 <= best_idx < len(candidate_images):
+            if 0 <= best_idx < len(encoded_candidates):
                 logger.info(f"Vision AI選定: 候補#{best_idx} — {reason}")
-                return candidate_images[best_idx][0]
+                return encoded_candidates[best_idx][0]
             else:
                 logger.warning(f"Vision AIが無効なインデックスを返しました: {best_idx}")
     except Exception as e:
         logger.warning(f"Vision AI評価失敗: {e}")
 
-    # フォールバック: 最初の候補
-    return candidate_images[0][0]
+    # フォールバック: エンコード成功した最初の候補
+    return encoded_candidates[0][0]
 
 
 def _parse_design_json(raw: dict) -> TitleImageDesign:
