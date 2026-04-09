@@ -231,9 +231,9 @@ class FCPXMLExporter:
             # タイムラインフォーマット（r0）を使用
             xml_content += (
                 f'        <asset duration="{duration_str}" id="{resource_id}" '
-                f'name="{Path(source_path_str).name}" start="0/1s" hasVideo="1" '
+                f'name="{xml_escape(Path(source_path_str).name)}" start="0/1s" hasVideo="1" '
                 f'format="r0" hasAudio="1" audioSources="1" audioChannels="2">\n'
-                f'            <media-rep kind="original-media" src="{file_url}"/>\n'
+                f'            <media-rep kind="original-media" src="{xml_escape(file_url)}"/>\n'
                 f"        </asset>\n"
             )
 
@@ -266,7 +266,7 @@ class FCPXMLExporter:
                     f'        <asset duration="0/1s" id="{resource_id}" '
                     f'name="{xml_escape(Path(frame_path).name)}" start="0/1s" hasVideo="1" '
                     f'format="r0">\n'
-                    f'            <media-rep kind="original-media" src="{file_url}"/>\n'
+                    f'            <media-rep kind="original-media" src="{xml_escape(file_url)}"/>\n'
                     f"        </asset>\n"
                 )
                 asset_counter += 1
@@ -293,7 +293,7 @@ class FCPXMLExporter:
                     f'        <asset duration="0/1s" id="{title_resource_id}" '
                     f'name="{xml_escape(Path(title_path).name)}" start="0/1s" hasVideo="1" '
                     f'format="r0">\n'
-                    f'            <media-rep kind="original-media" src="{file_url}"/>\n'
+                    f'            <media-rep kind="original-media" src="{xml_escape(file_url)}"/>\n'
                     f"        </asset>\n"
                 )
 
@@ -324,9 +324,9 @@ class FCPXMLExporter:
 
             xml_content += (
                 f'        <asset duration="{bgm_duration_str}" id="{bgm_resource_id}" '
-                f'name="{Path(bgm_path).name}" start="0/1s" hasAudio="1" '
+                f'name="{xml_escape(Path(bgm_path).name)}" start="0/1s" hasAudio="1" '
                 f'audioSources="1" audioChannels="2">\n'
-                f'            <media-rep kind="original-media" src="{file_url}"/>\n'
+                f'            <media-rep kind="original-media" src="{xml_escape(file_url)}"/>\n'
                 f"        </asset>\n"
             )
             asset_counter += 1
@@ -362,9 +362,9 @@ class FCPXMLExporter:
                     audio_duration_str = optimize_fraction(audio_info.duration, timeline_fps)
                     xml_content += (
                         f'        <asset duration="{audio_duration_str}" id="{resource_id}" '
-                        f'name="{Path(audio_path).name}" start="0/1s" hasAudio="1" '
+                        f'name="{xml_escape(Path(audio_path).name)}" start="0/1s" hasAudio="1" '
                         f'audioSources="1" audioChannels="2">\n'
-                        f'            <media-rep kind="original-media" src="{file_url}"/>\n'
+                        f'            <media-rep kind="original-media" src="{xml_escape(file_url)}"/>\n'
                         f"        </asset>\n"
                     )
                     asset_counter += 1

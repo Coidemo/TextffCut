@@ -923,7 +923,7 @@ class TestOffsetY:
         assert bbox[1] < 100  # 100pxより上に描画される
 
     def test_filter_fitting_with_offset_y(self):
-        """offset_yがフィルタリング結果に影響すること"""
+        """offset_yが大きいとフィルタリングで弾かれること"""
         design = TitleImageDesign(
             lines=[TitleLine(segments=[TitleTextSegment(text="テスト", font_size=80)])],
             padding_top=10,
@@ -942,8 +942,13 @@ class TestOffsetY:
             canvas_width=1080, canvas_height=1920,
             offset_y=500,
         )
-        # offset_y=0 の方が通過しやすい（または同じ）
-        assert len(results_no_offset) >= len(results_large_offset) or len(results_large_offset) > 0
+        # offset_y=0 はフィットする候補を返す
+        assert len(results_no_offset) == 1
+        # offset_y=500 はフィットしないのでフォールバック（content_h > 300）
+        # フォールバック候補は返されるが、content_hがtarget_heightを超えている
+        if results_large_offset:
+            _, _, _, content_h = results_large_offset[0]
+            assert content_h > 300  # ターゲット高さを超えているフォールバック候補
 
     def test_generate_title_image_with_offset(self, tmp_path):
         """generate_title_imageにoffset_yを渡して画像生成できること"""
@@ -1121,3 +1126,132 @@ class TestGenerateTitleImageWithTargetSize:
         )
         assert len(results) == 2
         assert all(p.exists() for p in results.values())
+
+
+class TestVisionAIEdgeCases:
+    """Vision AI評価のエッジケーステスト"""
+
+    def test_out_of_range_best_index(self, tmp_path):
+        """Vision AIが範囲外のbest_indexを返した場合にフォールバックすること"""
+        for i in range(3):
+            img = Image.new("RGBA", (100, 50), (255, 0, 0, 255))
+            img.save(str(tmp_path / f"c{i}.png"))
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = MagicMock(
+            choices=[MagicMock(message=MagicMock(
+                content=json.dumps({"best_index": 99, "reason": "範囲外"})
+            ))]
+        )
+        result = evaluate_candidates_with_vision(
+            client=mock_client,
+            candidate_images=[
+                (0, tmp_path / "c0.png"),
+                (1, tmp_path / "c1.png"),
+                (2, tmp_path / "c2.png"),
+            ],
+            title="テスト",
+        )
+        # 範囲外なのでフォールバック（最初の候補のインデックス）
+        assert result == 0
+
+    def test_negative_best_index(self, tmp_path):
+        """Vision AIが負のbest_indexを返した場合にフォールバックすること"""
+        for i in range(2):
+            img = Image.new("RGBA", (100, 50), (255, 0, 0, 255))
+            img.save(str(tmp_path / f"c{i}.png"))
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = MagicMock(
+            choices=[MagicMock(message=MagicMock(
+                content=json.dumps({"best_index": -1, "reason": "負の値"})
+            ))]
+        )
+        result = evaluate_candidates_with_vision(
+            client=mock_client,
+            candidate_images=[(0, tmp_path / "c0.png"), (1, tmp_path / "c1.png")],
+            title="テスト",
+        )
+        assert result == 0
+
+
+class TestFilterEdgeCases:
+    """フィルタリングのエッジケーステスト"""
+
+    def test_target_width_zero_no_crash(self):
+        """target_width=0でクラッシュしないこと"""
+        design = TitleImageDesign(
+            lines=[TitleLine(segments=[TitleTextSegment(text="テスト", font_size=80)])]
+        )
+        # target_width=0 でもゼロ除算にならないこと
+        results, tmp_dirs = filter_fitting_candidates(
+            candidates=[design],
+            target_width=0,
+            target_height=438,
+            canvas_width=1080,
+            canvas_height=1920,
+        )
+        # クラッシュせず結果が返ること
+        assert isinstance(results, list)
+        assert isinstance(tmp_dirs, list)
+
+
+class TestPipelineEmptyResults:
+    """パイプラインの空結果テスト"""
+
+    def test_stage1_all_invalid_candidates(self, tmp_path):
+        """Stage 1で全候補がバリデーション失敗した場合のフォールバック"""
+        mock_client = MagicMock()
+        # 全候補が文字不一致
+        candidates_response = MagicMock()
+        candidates_response.choices[0].message.content = json.dumps({
+            "designs": [
+                {"lines": [{"segments": [{"text": "改変A", "font_size": 120}]}]},
+                {"lines": [{"segments": [{"text": "改変B", "font_size": 90}]}]},
+            ]
+        })
+        mock_client.chat.completions.create.side_effect = [candidates_response]
+
+        output = tmp_path / "empty_stage1.png"
+        result = generate_title_image(
+            title="テスト",
+            keywords=[],
+            output_path=output,
+            client=mock_client,
+            target_size=(1080, 438),
+        )
+        # パイプライン失敗→従来方式フォールバックで画像は生成される
+        assert result is not None
+        assert result.exists()
+
+    def test_batch_with_target_size_and_cache(self, tmp_path):
+        """バッチ生成でtarget_size指定+キャッシュ済みの場合"""
+        output_dir = tmp_path / "titles"
+        output_dir.mkdir()
+
+        # キャッシュを作成
+        cache_data = json.dumps({
+            "lines": [{"segments": [{"text": "キャッシュ", "font_size": 72}]}],
+            "line_spacing": 10,
+            "padding_top": 60,
+        }, ensure_ascii=False)
+        (output_dir / "01_キャッシュ.title.json").write_text(cache_data)
+
+        suggestions = []
+        s = MagicMock()
+        s.title = "キャッシュ"
+        s.keywords = []
+        suggestions.append(s)
+
+        mock_client = MagicMock()
+        results = generate_title_images_batch(
+            suggestions=suggestions,
+            output_dir=output_dir,
+            client=mock_client,
+            target_size=(1080, 438),
+        )
+        # キャッシュがあるのでAI呼び出しなしで画像生成
+        assert 1 in results
+        assert results[1].exists()
+        # パイプラインAPI呼び出しは不要
+        mock_client.chat.completions.create.assert_not_called()
