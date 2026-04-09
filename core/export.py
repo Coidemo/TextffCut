@@ -120,14 +120,14 @@ class FCPXMLExporter:
 
             return True
 
-        except OSError as e:
-            from utils.exceptions import FileNotFoundError as TextffCutFileNotFoundError
-
-            raise TextffCutFileNotFoundError(f"FCPXML書き込みエラー: {str(e)}") from e
         except PermissionError as e:
             from utils.exceptions import VideoProcessingError
 
             raise VideoProcessingError(f"FCPXML書き込み権限エラー: {str(e)}") from e
+        except OSError as e:
+            from utils.exceptions import FileNotFoundError as TextffCutFileNotFoundError
+
+            raise TextffCutFileNotFoundError(f"FCPXML書き込みエラー: {str(e)}") from e
         except Exception as e:
             from utils.exceptions import VideoProcessingError
 
@@ -583,14 +583,14 @@ class XMEMLExporter:
 
             return True
 
-        except OSError as e:
-            from utils.exceptions import FileNotFoundError as TextffCutFileNotFoundError
-
-            raise TextffCutFileNotFoundError(f"XMEML書き込みエラー: {str(e)}") from e
         except PermissionError as e:
             from utils.exceptions import VideoProcessingError
 
             raise VideoProcessingError(f"XMEML書き込み権限エラー: {str(e)}") from e
+        except OSError as e:
+            from utils.exceptions import FileNotFoundError as TextffCutFileNotFoundError
+
+            raise TextffCutFileNotFoundError(f"XMEML書き込みエラー: {str(e)}") from e
         except Exception as e:
             from utils.exceptions import VideoProcessingError
 
@@ -624,7 +624,7 @@ class XMEMLExporter:
 			<ntsc>FALSE</ntsc>
 		</rate>
 		<name>"""
-            + project_name
+            + xml_escape(project_name)
             + """</name>
 		<media>
 			<video>
@@ -720,7 +720,7 @@ class XMEMLExporter:
 
             xml_content += f"""					<clipitem id="clipitem-{i}">
 						<masterclipid>masterclip-1</masterclipid>
-						<name>{Path(seg.source_path).stem}</name>
+						<name>{xml_escape(Path(seg.source_path).stem)}</name>
 						<enabled>TRUE</enabled>
 						<duration>{total_file_duration}</duration>
 						<rate>
@@ -735,8 +735,8 @@ class XMEMLExporter:
 						<pixelaspectratio>square</pixelaspectratio>
 						<anamorphic>FALSE</anamorphic>
 						<file id="{file_id}">
-							<name>{Path(seg.source_path).name}</name>
-							<pathurl>{file_url}</pathurl>
+							<name>{xml_escape(Path(seg.source_path).name)}</name>
+							<pathurl>{xml_escape(file_url)}</pathurl>
 							<rate>
 								<timebase>{timeline_fps}</timebase>
 								<ntsc>FALSE</ntsc>
@@ -872,7 +872,7 @@ class XMEMLExporter:
                 f'					<clipitem id="clipitem-{video_clip_count + i}" '
                 f'premiereChannelType="stereo">\n'
                 f"						<masterclipid>masterclip-1</masterclipid>\n"
-                f"						<name>{Path(seg.source_path).stem}</name>\n"
+                f"						<name>{xml_escape(Path(seg.source_path).stem)}</name>\n"
                 f"						<enabled>TRUE</enabled>\n"
                 f"						<duration>{total_file_duration}</duration>\n"
                 f"						<rate>\n"
@@ -960,7 +960,7 @@ class XMEMLExporter:
                 f'					<clipitem id="clipitem-{video_clip_count * 2 + i}" '
                 f'premiereChannelType="stereo">\n'
                 f"						<masterclipid>masterclip-1</masterclipid>\n"
-                f"						<name>{Path(seg.source_path).stem}</name>\n"
+                f"						<name>{xml_escape(Path(seg.source_path).stem)}</name>\n"
                 f"						<enabled>TRUE</enabled>\n"
                 f"						<duration>{total_file_duration}</duration>\n"
                 f"						<rate>\n"
@@ -1110,14 +1110,14 @@ class EDLExporter:
 
             return True
 
-        except OSError as e:
-            from utils.exceptions import FileNotFoundError as TextffCutFileNotFoundError
-
-            raise TextffCutFileNotFoundError(f"EDL書き込みエラー: {str(e)}") from e
         except PermissionError as e:
             from utils.exceptions import VideoProcessingError
 
             raise VideoProcessingError(f"EDL書き込み権限エラー: {str(e)}") from e
+        except OSError as e:
+            from utils.exceptions import FileNotFoundError as TextffCutFileNotFoundError
+
+            raise TextffCutFileNotFoundError(f"EDL書き込みエラー: {str(e)}") from e
         except Exception as e:
             from utils.exceptions import VideoProcessingError
 

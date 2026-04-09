@@ -846,6 +846,12 @@ class TestFilterFittingCandidates:
         assert len(results) >= 1
         # 全候補分の一時ディレクトリが返ること
         assert len(tmp_dirs) == 2
+        # 各結果のtuple構造を検証
+        for design, path, w, content_h in results:
+            assert isinstance(design, TitleImageDesign)
+            assert path.exists()
+            assert w == 1080
+            assert content_h > 0
 
     def test_fallback_when_none_fit(self, tmp_path):
         """収まる候補がない場合にフォールバック候補が返ること"""
@@ -868,9 +874,13 @@ class TestFilterFittingCandidates:
             canvas_height=1920,
         )
         # フォールバック: アスペクト比が近い上位3つ
-        assert len(results) <= 3
+        assert len(results) == 3
         assert len(tmp_dirs) == 3
-        assert len(results) > 0
+        # フォールバック候補はターゲット高さを超えている（フィットしなかった証明）
+        for design, path, w, content_h in results:
+            assert isinstance(design, TitleImageDesign)
+            assert path.exists()
+            assert content_h > 100  # target_height(100)を超えている
 
     def test_empty_candidates(self):
         """空の候補リストで空リストが返ること"""
@@ -944,11 +954,12 @@ class TestOffsetY:
         )
         # offset_y=0 はフィットする候補を返す
         assert len(results_no_offset) == 1
-        # offset_y=500 はフィットしないのでフォールバック（content_h > 300）
-        # フォールバック候補は返されるが、content_hがtarget_heightを超えている
-        if results_large_offset:
-            _, _, _, content_h = results_large_offset[0]
-            assert content_h > 300  # ターゲット高さを超えているフォールバック候補
+        _, _, _, content_h_no = results_no_offset[0]
+        assert content_h_no <= 300  # ターゲット高さ以内
+        # offset_y=500 はフィットしないのでフォールバック候補が返る
+        assert len(results_large_offset) >= 1
+        _, _, _, content_h_large = results_large_offset[0]
+        assert content_h_large > 300  # ターゲット高さを超えているフォールバック候補
 
     def test_generate_title_image_with_offset(self, tmp_path):
         """generate_title_imageにoffset_yを渡して画像生成できること"""

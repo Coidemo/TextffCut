@@ -396,7 +396,7 @@ class SuggestAndExportUseCase:
                 title_asset_xml = (
                     f'        <asset duration="0/1s" id="r2" '
                     f'name="{escape(Path(title_path).name)}" start="0/1s" hasVideo="1" format="r0">\n'
-                    f'            <media-rep kind="original-media" src="{title_url}"/>\n'
+                    f'            <media-rep kind="original-media" src="{escape(title_url)}"/>\n'
                     f'        </asset>\n'
                 )
                 title_spine_xml = (
@@ -414,7 +414,7 @@ class SuggestAndExportUseCase:
     <resources>
         <format height="{fmt_h}" id="r0" name="{fmt_name}" frameDuration="1/30s" width="{fmt_w}"/>
         <asset id="r1" name="{video_name}" start="0/1s" hasVideo="1" format="r0" hasAudio="1" audioSources="1" audioChannels="2">
-            <media-rep kind="original-media" src="{video_url}"/>
+            <media-rep kind="original-media" src="{escape(video_url)}"/>
         </asset>
 {title_asset_xml}    </resources>
     <library>
