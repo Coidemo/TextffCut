@@ -1266,3 +1266,23 @@ class TestPipelineEmptyResults:
         assert results[1].exists()
         # パイプラインAPI呼び出しは不要
         mock_client.chat.completions.create.assert_not_called()
+
+
+class TestXmlAttrEscape:
+    """XML属性値のダブルクォートエスケープテスト"""
+
+    def test_xml_attr_escapes_double_quotes(self):
+        """_xml_attrがダブルクォートを&quot;にエスケープすること"""
+        from core.export import _xml_attr
+
+        assert _xml_attr('test"value') == "test&quot;value"
+        assert _xml_attr("no quotes") == "no quotes"
+        assert _xml_attr('<script>"alert"</script>') == "&lt;script&gt;&quot;alert&quot;&lt;/script&gt;"
+
+    def test_xml_attr_escapes_standard_entities(self):
+        """_xml_attrが標準エンティティもエスケープすること"""
+        from core.export import _xml_attr
+
+        assert "&amp;" in _xml_attr("a&b")
+        assert "&lt;" in _xml_attr("a<b")
+        assert "&gt;" in _xml_attr("a>b")

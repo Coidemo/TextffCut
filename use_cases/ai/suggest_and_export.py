@@ -342,8 +342,11 @@ class SuggestAndExportUseCase:
 
         from xml.sax.saxutils import escape
 
-        video_name = escape(video_path.name)
-        title_escaped = escape(suggestion.title)
+        def _attr(v: str) -> str:
+            return escape(v, {'"': "&quot;"})
+
+        video_name = _attr(video_path.name)
+        title_escaped = _attr(suggestion.title)
         encoded_path = quote(str(video_path), safe="/:")
         video_url = f"file://{encoded_path}"
 
@@ -395,13 +398,13 @@ class SuggestAndExportUseCase:
 
                 title_asset_xml = (
                     f'        <asset duration="0/1s" id="r2" '
-                    f'name="{escape(Path(title_path).name)}" start="0/1s" hasVideo="1" format="r0">\n'
-                    f'            <media-rep kind="original-media" src="{escape(title_url)}"/>\n'
+                    f'name="{_attr(Path(title_path).name)}" start="0/1s" hasVideo="1" format="r0">\n'
+                    f'            <media-rep kind="original-media" src="{_attr(title_url)}"/>\n'
                     f'        </asset>\n'
                 )
                 title_spine_xml = (
                     f'                        <video duration="{to_frac(total_dur)}" lane="2" '
-                    f'name="{escape(Path(title_path).name)}" ref="r2" '
+                    f'name="{_attr(Path(title_path).name)}" ref="r2" '
                     f'start="0/1s" offset="0/1s" enabled="1">\n'
                     f'                            <adjust-conform type="none"/>\n'
                     f'                            <adjust-transform position="0 0" scale="1 1" anchor="0 0"/>\n'
@@ -414,7 +417,7 @@ class SuggestAndExportUseCase:
     <resources>
         <format height="{fmt_h}" id="r0" name="{fmt_name}" frameDuration="1/30s" width="{fmt_w}"/>
         <asset id="r1" name="{video_name}" start="0/1s" hasVideo="1" format="r0" hasAudio="1" audioSources="1" audioChannels="2">
-            <media-rep kind="original-media" src="{escape(video_url)}"/>
+            <media-rep kind="original-media" src="{_attr(video_url)}"/>
         </asset>
 {title_asset_xml}    </resources>
     <library>

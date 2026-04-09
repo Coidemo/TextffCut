@@ -103,7 +103,8 @@ def find_font(weight: str = "Eb", font_dir: Path | None = None) -> str:
 def extract_frame_colors(frame_path: Path, num_colors: int = 5) -> list[str]:
     """frame.pngから支配色を抽出し、hex文字列リストで返す"""
     try:
-        img = Image.open(frame_path).convert("RGBA")
+        with Image.open(frame_path) as raw_img:
+            img = raw_img.convert("RGBA")
         # リサイズして高速化
         img = img.resize((100, 100), Image.LANCZOS)
 
