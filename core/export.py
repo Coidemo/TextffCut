@@ -277,6 +277,7 @@ class FCPXMLExporter:
             title_path = title_settings["title_path"]
             if Path(title_path).exists():
                 title_resource_id = f"r{asset_counter}"
+                asset_counter += 1
 
                 # ファイルパスの処理（Docker環境対応）
                 logger.info(f"タイトル画像を追加: {Path(title_path).name}")
@@ -295,7 +296,6 @@ class FCPXMLExporter:
                     f'            <media-rep kind="original-media" src="{file_url}"/>\n'
                     f"        </asset>\n"
                 )
-                asset_counter += 1
 
         # BGMのリソースを追加
         bgm_resource_id = None
@@ -455,6 +455,7 @@ class FCPXMLExporter:
             )
 
         # タイトル画像をspine直下に追加（レーン2）
+        # タイトル画像はフレームと同じフルサイズ透過PNGなので position="0 0" で配置
         if title_resource_id and title_settings:
             xml_content += (
                 f'{indent}<video duration="{total_duration_str}" lane="2" '

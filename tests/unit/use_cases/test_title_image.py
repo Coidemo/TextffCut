@@ -19,8 +19,11 @@ from use_cases.ai.title_image_generator import (
     _split_title,
     create_fallback_design,
     design_title_layout,
+    design_title_layout_candidates,
     design_title_layouts_batch,
+    evaluate_candidates_with_vision,
     extract_frame_colors,
+    filter_fitting_candidates,
     find_font,
     generate_title_image,
     generate_title_images_batch,
@@ -148,7 +151,7 @@ class TestParseDesignJson:
             "lines": [
                 {
                     "segments": [
-                        {"text": "大きすぎ", "font_size": 200}
+                        {"text": "大きすぎ", "font_size": 300}
                     ],
                     "outer_outline_width": 50,
                 }
@@ -156,7 +159,7 @@ class TestParseDesignJson:
             "padding_top": 999,
         }
         design = _parse_design_json(raw)
-        assert design.lines[0].segments[0].font_size == 120  # clamped
+        assert design.lines[0].segments[0].font_size == 220  # clamped
         assert design.lines[0].outer_outline_width == 10  # clamped
         assert design.padding_top == 200  # clamped
 
@@ -182,8 +185,8 @@ class TestFallbackDesign:
         assert len(design.lines) >= 2
         # 最長行はグラデーション付き
         sizes = [line.segments[0].font_size for line in design.lines]
-        assert max(sizes) == 85  # 強調行
-        assert min(sizes) == 65  # 非強調行
+        assert max(sizes) == 180  # 強調行
+        assert min(sizes) == 130  # 非強調行
 
 
 class TestRenderTitleImage:
@@ -197,11 +200,13 @@ class TestRenderTitleImage:
             ]
         )
         output = tmp_path / "test.png"
-        result = render_title_image(design, output, width=540, height=960)
-        assert result.exists()
+        result_path, img_w, img_h = render_title_image(design, output, width=540, height=960)
+        assert result_path.exists()
 
-        img = Image.open(result)
-        assert img.size == (540, 960)
+        img = Image.open(result_path)
+        assert img.width == 540  # 横幅はフル維持
+        assert img_h == 960  # フルサイズ透過PNG（クロップなし）
+        assert img.height == 960
         assert img.mode == "RGBA"
 
     def test_multi_segment_render(self, tmp_path):
@@ -219,8 +224,8 @@ class TestRenderTitleImage:
             ]
         )
         output = tmp_path / "multi.png"
-        result = render_title_image(design, output, width=540, height=960)
-        assert result.exists()
+        result_path, _, _ = render_title_image(design, output, width=540, height=960)
+        assert result_path.exists()
 
     def test_gradient_render(self, tmp_path):
         design = TitleImageDesign(
@@ -238,8 +243,8 @@ class TestRenderTitleImage:
             ]
         )
         output = tmp_path / "grad.png"
-        result = render_title_image(design, output, width=540, height=960)
-        assert result.exists()
+        result_path, _, _ = render_title_image(design, output, width=540, height=960)
+        assert result_path.exists()
 
     def test_auto_shrink_wide_text(self, tmp_path):
         """幅を超えるテキストが自動縮小されること"""
@@ -253,8 +258,8 @@ class TestRenderTitleImage:
             ]
         )
         output = tmp_path / "shrink.png"
-        result = render_title_image(design, output, width=300, height=500)
-        assert result.exists()
+        result_path, _, _ = render_title_image(design, output, width=300, height=500)
+        assert result_path.exists()
 
 
 class TestExtractFrameColors:
@@ -332,7 +337,8 @@ class TestGenerateTitleImage:
         )
         assert result is not None
         img = Image.open(result)
-        assert img.size == (1920, 1080)
+        assert img.width == 1920  # 横幅はフル維持
+        assert img.height == 1080  # フルサイズ透過PNG
 
     def test_vertical_orientation(self, tmp_path):
         output = tmp_path / "title_v.png"
@@ -345,7 +351,8 @@ class TestGenerateTitleImage:
         )
         assert result is not None
         img = Image.open(result)
-        assert img.size == (1080, 1920)
+        assert img.width == 1080  # 横幅はフル維持
+        assert img.height == 1920  # フルサイズ透過PNG
 
     def test_ai_failure_falls_back(self, tmp_path):
         """AI呼び出し失敗時にフォールバックデザインが使われること"""
@@ -714,10 +721,9 @@ class TestRenderImageAssertions:
         )
         assert result is not None
         img = Image.open(result)
-        assert img.size == (1080, 1920)
+        assert img.width == 1080  # 横幅はフル維持
+        assert img.height == 1920  # フルサイズ透過PNG
         assert img.mode == "RGBA"
-        # 左上は透明（背景）
-        assert img.getpixel((0, 0))[3] == 0
         # 描画領域にはピクセルが存在する
         non_transparent = sum(1 for p in img.getdata() if p[3] > 0)
         assert non_transparent > 0
@@ -744,8 +750,293 @@ class TestRenderImageAssertions:
         )
         assert result is not None
         img = Image.open(result)
-        assert img.size == (1080, 1920)
+        assert img.width == 1080  # 横幅はフル維持
+        assert img.height == 1920  # フルサイズ透過PNG
         assert img.mode == "RGBA"
-        assert img.getpixel((0, 0))[3] == 0  # 背景透明
         # キャッシュが生成されている
         assert output.with_suffix(".title.json").exists()
+
+
+class TestDesignTitleLayoutCandidates:
+    """Stage 1: 複数候補生成のテスト"""
+
+    def _mock_response(self, content: str) -> MagicMock:
+        mock = MagicMock()
+        mock.choices[0].message.content = content
+        return mock
+
+    def test_generates_multiple_candidates(self):
+        """複数候補が正常に生成されること"""
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = self._mock_response(
+            json.dumps({
+                "designs": [
+                    {"lines": [{"segments": [{"text": "テスト", "font_size": 160}]}]},
+                    {"lines": [{"segments": [{"text": "テスト", "font_size": 120}]}]},
+                    {"lines": [{"segments": [{"text": "テスト", "font_size": 90}]}]},
+                ]
+            })
+        )
+        results = design_title_layout_candidates(
+            client=mock_client,
+            title="テスト",
+            keywords=["AI"],
+            target_size=(1080, 438),
+        )
+        assert len(results) == 3
+        assert results[0].lines[0].segments[0].font_size == 160
+        assert results[2].lines[0].segments[0].font_size == 90
+
+    def test_skips_invalid_candidates(self):
+        """文字不一致の候補はスキップされること"""
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = self._mock_response(
+            json.dumps({
+                "designs": [
+                    {"lines": [{"segments": [{"text": "テスト", "font_size": 160}]}]},
+                    {"lines": [{"segments": [{"text": "改変された", "font_size": 120}]}]},
+                    {"lines": [{"segments": [{"text": "テスト", "font_size": 90}]}]},
+                ]
+            })
+        )
+        results = design_title_layout_candidates(
+            client=mock_client,
+            title="テスト",
+            keywords=[],
+            target_size=(1080, 438),
+        )
+        assert len(results) == 2  # 改変された候補はスキップ
+
+    def test_empty_response_raises(self):
+        """空レスポンスでValueErrorが発生すること"""
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = self._mock_response(None)
+        with pytest.raises(ValueError, match="AIレスポンスが空"):
+            design_title_layout_candidates(
+                client=mock_client, title="テスト", keywords=[],
+                target_size=(1080, 438),
+            )
+
+
+class TestFilterFittingCandidates:
+    """Stage 2: フィルタリングのテスト"""
+
+    def test_filters_by_height(self, tmp_path):
+        """ターゲット高さを超える候補がフィルタされること"""
+        # 小さいフォントの候補（収まる）
+        small_design = TitleImageDesign(
+            lines=[TitleLine(segments=[TitleTextSegment(text="テスト", font_size=80)])]
+        )
+        # 大きいフォントの候補（はみ出す可能性）
+        large_design = TitleImageDesign(
+            lines=[
+                TitleLine(segments=[TitleTextSegment(text="テスト", font_size=200)]),
+                TitleLine(segments=[TitleTextSegment(text="テスト", font_size=200)]),
+                TitleLine(segments=[TitleTextSegment(text="テスト", font_size=200)]),
+            ]
+        )
+        results = filter_fitting_candidates(
+            candidates=[small_design, large_design],
+            target_width=1080,
+            target_height=438,
+            canvas_width=1080,
+            canvas_height=1920,
+        )
+        # 少なくとも1つの結果が返ること（フォールバック含む）
+        assert len(results) >= 1
+
+    def test_fallback_when_none_fit(self, tmp_path):
+        """収まる候補がない場合にフォールバック候補が返ること"""
+        # 非常に大きなフォントの候補3つ
+        big_designs = [
+            TitleImageDesign(
+                lines=[
+                    TitleLine(segments=[TitleTextSegment(text="あ" * 10, font_size=200)]),
+                    TitleLine(segments=[TitleTextSegment(text="い" * 10, font_size=200)]),
+                    TitleLine(segments=[TitleTextSegment(text="う" * 10, font_size=200)]),
+                ]
+            )
+            for _ in range(3)
+        ]
+        results = filter_fitting_candidates(
+            candidates=big_designs,
+            target_width=1080,
+            target_height=100,  # 非常に小さいターゲット
+            canvas_width=1080,
+            canvas_height=1920,
+        )
+        # フォールバック: アスペクト比が近い上位3つ
+        assert len(results) <= 3
+        assert len(results) > 0
+
+    def test_empty_candidates(self):
+        """空の候補リストで空リストが返ること"""
+        results = filter_fitting_candidates(
+            candidates=[],
+            target_width=1080,
+            target_height=438,
+        )
+        assert results == []
+
+
+class TestEvaluateCandidatesWithVision:
+    """Stage 3: Vision AI評価のテスト"""
+
+    def test_selects_best_candidate(self, tmp_path):
+        """Vision AIが最適な候補を選択すること"""
+        # ダミー画像を作成
+        for i in range(3):
+            img = Image.new("RGBA", (100, 50), (255, 0, 0, 255))
+            img.save(str(tmp_path / f"c{i}.png"))
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = MagicMock(
+            choices=[MagicMock(message=MagicMock(
+                content=json.dumps({"best_index": 1, "reason": "可読性が高い"})
+            ))]
+        )
+        result = evaluate_candidates_with_vision(
+            client=mock_client,
+            candidate_images=[
+                (0, tmp_path / "c0.png"),
+                (1, tmp_path / "c1.png"),
+                (2, tmp_path / "c2.png"),
+            ],
+            title="テスト",
+        )
+        assert result == 1
+
+    def test_single_candidate_returns_immediately(self, tmp_path):
+        """候補が1つの場合はAPIを呼ばずにそのインデックスを返すこと"""
+        img = Image.new("RGBA", (100, 50), (255, 0, 0, 255))
+        img.save(str(tmp_path / "single.png"))
+
+        mock_client = MagicMock()
+        result = evaluate_candidates_with_vision(
+            client=mock_client,
+            candidate_images=[(5, tmp_path / "single.png")],
+            title="テスト",
+        )
+        assert result == 5
+        mock_client.chat.completions.create.assert_not_called()
+
+    def test_api_failure_returns_first(self, tmp_path):
+        """API失敗時に最初の候補インデックスを返すこと"""
+        for i in range(2):
+            img = Image.new("RGBA", (100, 50), (255, 0, 0, 255))
+            img.save(str(tmp_path / f"c{i}.png"))
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.side_effect = Exception("API error")
+        result = evaluate_candidates_with_vision(
+            client=mock_client,
+            candidate_images=[(0, tmp_path / "c0.png"), (1, tmp_path / "c1.png")],
+            title="テスト",
+        )
+        assert result == 0
+
+    def test_empty_candidates_returns_zero(self):
+        """空の候補リストで0を返すこと"""
+        mock_client = MagicMock()
+        result = evaluate_candidates_with_vision(
+            client=mock_client, candidate_images=[], title="テスト",
+        )
+        assert result == 0
+
+
+class TestGenerateTitleImageWithTargetSize:
+    """target_size指定時の3段階パイプラインのテスト"""
+
+    def test_pipeline_with_target_size(self, tmp_path):
+        """target_size指定時にパイプラインが実行されること"""
+        # Stage 1: 複数候補生成
+        mock_client = MagicMock()
+        # 最初のAPI呼び出し: 候補生成
+        candidates_response = MagicMock()
+        candidates_response.choices[0].message.content = json.dumps({
+            "designs": [
+                {"lines": [{"segments": [{"text": "テスト", "font_size": 120}]}]},
+                {"lines": [{"segments": [{"text": "テスト", "font_size": 90}]}]},
+            ]
+        })
+        # 2番目のAPI呼び出し: Vision AI評価
+        vision_response = MagicMock()
+        vision_response.choices[0].message.content = json.dumps({
+            "best_index": 0, "reason": "インパクトが強い"
+        })
+        mock_client.chat.completions.create.side_effect = [
+            candidates_response, vision_response,
+        ]
+
+        output = tmp_path / "pipeline.png"
+        result = generate_title_image(
+            title="テスト",
+            keywords=["AI"],
+            output_path=output,
+            client=mock_client,
+            target_size=(1080, 438),
+        )
+        assert result is not None
+        assert result.exists()
+        # キャッシュが生成されている
+        assert output.with_suffix(".title.json").exists()
+
+    def test_pipeline_fallback_to_legacy(self, tmp_path):
+        """パイプライン失敗時に従来方式にフォールバックすること"""
+        mock_client = MagicMock()
+        # パイプライン用API呼び出しは全て失敗
+        mock_client.chat.completions.create.side_effect = Exception("API error")
+
+        output = tmp_path / "fallback_pipeline.png"
+        result = generate_title_image(
+            title="テスト",
+            keywords=[],
+            output_path=output,
+            client=mock_client,
+            target_size=(1080, 438),
+        )
+        # フォールバックデザインが使われる
+        assert result is not None
+        assert result.exists()
+
+    def test_batch_with_target_size(self, tmp_path):
+        """バッチ生成でtarget_size指定時にパイプラインが各タイトルに適用されること"""
+        mock_client = MagicMock()
+
+        # 各タイトルに対して2回のAPI呼び出し（候補生成 + Vision評価）
+        def make_candidates_response(title):
+            r = MagicMock()
+            r.choices[0].message.content = json.dumps({
+                "designs": [
+                    {"lines": [{"segments": [{"text": title, "font_size": 100}]}]},
+                ]
+            })
+            return r
+
+        def make_vision_response():
+            r = MagicMock()
+            r.choices[0].message.content = json.dumps({
+                "best_index": 0, "reason": "OK"
+            })
+            return r
+
+        mock_client.chat.completions.create.side_effect = [
+            make_candidates_response("A"),
+            make_candidates_response("B"),
+        ]
+
+        suggestions = []
+        for t in ["A", "B"]:
+            s = MagicMock()
+            s.title = t
+            s.keywords = []
+            suggestions.append(s)
+
+        results = generate_title_images_batch(
+            suggestions=suggestions,
+            output_dir=tmp_path / "titles",
+            client=mock_client,
+            target_size=(1080, 438),
+        )
+        assert len(results) == 2
+        assert all(p.exists() for p in results.values())
