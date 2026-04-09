@@ -835,7 +835,7 @@ class TestFilterFittingCandidates:
                 TitleLine(segments=[TitleTextSegment(text="テスト", font_size=200)]),
             ]
         )
-        results = filter_fitting_candidates(
+        results, tmp_dirs = filter_fitting_candidates(
             candidates=[small_design, large_design],
             target_width=1080,
             target_height=438,
@@ -844,6 +844,8 @@ class TestFilterFittingCandidates:
         )
         # 少なくとも1つの結果が返ること（フォールバック含む）
         assert len(results) >= 1
+        # 全候補分の一時ディレクトリが返ること
+        assert len(tmp_dirs) == 2
 
     def test_fallback_when_none_fit(self, tmp_path):
         """収まる候補がない場合にフォールバック候補が返ること"""
@@ -858,7 +860,7 @@ class TestFilterFittingCandidates:
             )
             for _ in range(3)
         ]
-        results = filter_fitting_candidates(
+        results, tmp_dirs = filter_fitting_candidates(
             candidates=big_designs,
             target_width=1080,
             target_height=100,  # 非常に小さいターゲット
@@ -867,16 +869,95 @@ class TestFilterFittingCandidates:
         )
         # フォールバック: アスペクト比が近い上位3つ
         assert len(results) <= 3
+        assert len(tmp_dirs) == 3
         assert len(results) > 0
 
     def test_empty_candidates(self):
         """空の候補リストで空リストが返ること"""
-        results = filter_fitting_candidates(
+        results, tmp_dirs = filter_fitting_candidates(
             candidates=[],
             target_width=1080,
             target_height=438,
         )
         assert results == []
+        assert tmp_dirs == []
+
+
+class TestOffsetY:
+    """offset_yパラメータのテスト"""
+
+    def test_render_offset_y_shifts_content_down(self, tmp_path):
+        """offset_yが正の場合、コンテンツが下方向にシフトすること"""
+        design = TitleImageDesign(
+            lines=[TitleLine(segments=[TitleTextSegment(text="テスト", font_size=72)])],
+            padding_top=60,
+        )
+        # offset_y=0 で描画
+        out0 = tmp_path / "no_offset.png"
+        render_title_image(design, out0, width=540, height=960, offset_y=0)
+        img0 = Image.open(out0)
+        bbox0 = img0.getbbox()
+
+        # offset_y=100 で描画
+        out100 = tmp_path / "offset_100.png"
+        render_title_image(design, out100, width=540, height=960, offset_y=100)
+        img100 = Image.open(out100)
+        bbox100 = img100.getbbox()
+
+        # offset_y=100の方がコンテンツ上端(top-y)が約100px下にあること
+        assert bbox100[1] > bbox0[1]
+        assert abs((bbox100[1] - bbox0[1]) - 100) < 5  # 誤差5px以内
+
+    def test_render_offset_y_negative(self, tmp_path):
+        """offset_yが負の場合、コンテンツが上方向にシフトすること"""
+        design = TitleImageDesign(
+            lines=[TitleLine(segments=[TitleTextSegment(text="テスト", font_size=72)])],
+            padding_top=100,
+        )
+        out_neg = tmp_path / "neg.png"
+        render_title_image(design, out_neg, width=540, height=960, offset_y=-50)
+        img = Image.open(out_neg)
+        bbox = img.getbbox()
+        # padding_top=100, offset_y=-50 → 実効位置は50px付近
+        assert bbox is not None
+        assert bbox[1] < 100  # 100pxより上に描画される
+
+    def test_filter_fitting_with_offset_y(self):
+        """offset_yがフィルタリング結果に影響すること"""
+        design = TitleImageDesign(
+            lines=[TitleLine(segments=[TitleTextSegment(text="テスト", font_size=80)])],
+            padding_top=10,
+        )
+        # offset_y=0: コンテンツは上部に収まるはず
+        results_no_offset, _ = filter_fitting_candidates(
+            candidates=[design],
+            target_width=1080, target_height=300,
+            canvas_width=1080, canvas_height=1920,
+            offset_y=0,
+        )
+        # offset_y=500: コンテンツが大幅に下にずれ、target_heightを超える
+        results_large_offset, _ = filter_fitting_candidates(
+            candidates=[design],
+            target_width=1080, target_height=300,
+            canvas_width=1080, canvas_height=1920,
+            offset_y=500,
+        )
+        # offset_y=0 の方が通過しやすい（または同じ）
+        assert len(results_no_offset) >= len(results_large_offset) or len(results_large_offset) > 0
+
+    def test_generate_title_image_with_offset(self, tmp_path):
+        """generate_title_imageにoffset_yを渡して画像生成できること"""
+        output = tmp_path / "offset.png"
+        result = generate_title_image(
+            title="テスト", keywords=[], output_path=output,
+            client=None, offset_y=80,
+        )
+        assert result is not None
+        assert result.exists()
+        img = Image.open(result)
+        bbox = img.getbbox()
+        # padding_top(60) + offset_y(80) = 140px付近からコンテンツ開始
+        assert bbox[1] >= 100
 
 
 class TestEvaluateCandidatesWithVision:

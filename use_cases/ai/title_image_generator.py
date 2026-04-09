@@ -309,18 +309,22 @@ def filter_fitting_candidates(
     canvas_height: int = 1920,
     font_dir: Path | None = None,
     offset_y: int = 0,
-) -> list[tuple[TitleImageDesign, Path, int, int]]:
+) -> tuple[list[tuple[TitleImageDesign, Path, int, int]], list[Path]]:
     """候補をレンダリングし、ターゲットエリアに収まるものをフィルタする (Stage 2)
 
     Returns:
-        [(design, rendered_path, width, height), ...] — ターゲットに収まる候補
-        収まるものがない場合はアスペクト比が近い上位3つを返す
+        (fitting_candidates, all_tmp_dirs):
+        - fitting_candidates: [(design, rendered_path, width, content_height), ...]
+          ターゲットに収まる候補。収まるものがない場合はアスペクト比が近い上位3つ。
+        - all_tmp_dirs: クリーンアップが必要な全一時ディレクトリ
     """
     all_rendered: list[tuple[TitleImageDesign, Path, int, int]] = []
+    all_tmp_dirs: list[Path] = []
 
     for i, design in enumerate(candidates):
         try:
             tmp_dir = Path(tempfile.mkdtemp(prefix="title_candidate_"))
+            all_tmp_dirs.append(tmp_dir)
             tmp_path = tmp_dir / f"candidate_{i:02d}.png"
             _, img_w, img_h = render_title_image(
                 design=design,
@@ -345,7 +349,7 @@ def filter_fitting_candidates(
             continue
 
     if not all_rendered:
-        return []
+        return [], all_tmp_dirs
 
     # ターゲットエリア（上部エリア）に収まるものをフィルタ
     fitting = [
@@ -354,7 +358,7 @@ def filter_fitting_candidates(
     ]
 
     if fitting:
-        return fitting
+        return fitting, all_tmp_dirs
 
     # 収まるものがない場合: アスペクト比が近い上位3つをフォールバック
     logger.warning(
@@ -363,7 +367,7 @@ def filter_fitting_candidates(
     )
     target_ratio = target_height / target_width if target_width > 0 else 1.0
     all_rendered.sort(key=lambda x: abs((x[3] / x[2] if x[2] > 0 else 0) - target_ratio))
-    return all_rendered[:3]
+    return all_rendered[:3], all_tmp_dirs
 
 
 def evaluate_candidates_with_vision(
@@ -985,9 +989,9 @@ def _generate_with_pipeline(
 
         logger.info(f"Stage 1: {len(candidates)}個の有効な候補を取得")
 
-        # Stage 2: フィルタリング
+        # Stage 2: フィルタリング（レンダリング済み画像 + 全tmpディレクトリ）
         logger.info("Stage 2: フィルタリング中...")
-        fitting = filter_fitting_candidates(
+        fitting, tmp_dirs = filter_fitting_candidates(
             candidates=candidates,
             target_width=target_w,
             target_height=target_h,
@@ -999,11 +1003,6 @@ def _generate_with_pipeline(
         if not fitting:
             logger.warning("Stage 2: フィルタリング結果が空")
             return None
-
-        # 一時ディレクトリを記録（クリーンアップ用）
-        for _, p, _, _ in fitting:
-            if p.parent not in tmp_dirs:
-                tmp_dirs.append(p.parent)
 
         logger.info(f"Stage 2: {len(fitting)}個の候補がフィルタ通過")
 
@@ -1019,29 +1018,23 @@ def _generate_with_pipeline(
         else:
             best_idx = 0
 
-        # 最適候補で最終レンダリング
-        best_design = fitting[best_idx][0]
+        # 最適候補のレンダリング済み画像をコピー（再レンダリング不要）
+        best_design, best_rendered_path = fitting[best_idx][0], fitting[best_idx][1]
         _save_design_cache(best_design, cache_path)
 
-        result_path, img_w, img_h = render_title_image(
-            design=best_design,
-            output_path=output_path,
-            width=canvas_w,
-            height=canvas_h,
-            font_dir=font_dir,
-            offset_y=offset_y,
-        )
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(best_rendered_path, output_path)
         logger.info(
-            f"パイプライン完了: {output_path.name} ({img_w}x{img_h}) "
+            f"パイプライン完了: {output_path.name} ({canvas_w}x{canvas_h}) "
             f"[候補{best_idx+1}/{len(fitting)}選択]"
         )
-        return result_path
+        return output_path
 
     except Exception as e:
         logger.warning(f"パイプライン失敗: {e}")
         return None
     finally:
-        # 一時ファイルクリーンアップ
+        # 全一時ディレクトリをクリーンアップ（フィルタ除外分も含む）
         for tmp_dir in tmp_dirs:
             try:
                 shutil.rmtree(tmp_dir, ignore_errors=True)

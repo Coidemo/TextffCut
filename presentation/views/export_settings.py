@@ -169,40 +169,12 @@ class ExportSettingsView:
                     if auto_anchor != saved_auto_anchor:
                         settings_manager.set("fcpxml_auto_anchor", auto_anchor)
 
-                # タイトル画像ターゲットサイズ・表示位置
-                saved_title_tw = settings_manager.get("fcpxml_title_target_w", 1080)
-                saved_title_th = settings_manager.get("fcpxml_title_target_h", 438)
-                saved_title_oy = settings_manager.get("fcpxml_title_offset_y", 0)
-                t_cols = st.columns(3)
-                with t_cols[0]:
-                    title_target_w = st.number_input(
-                        "タイトル幅", value=saved_title_tw, min_value=100, key="fcpxml_title_target_w",
-                    )
-                with t_cols[1]:
-                    title_target_h = st.number_input(
-                        "タイトル高さ", value=saved_title_th, min_value=100, key="fcpxml_title_target_h",
-                    )
-                with t_cols[2]:
-                    title_offset_y = st.number_input(
-                        "Y位置オフセット", value=saved_title_oy, min_value=-500, max_value=500,
-                        step=10, help="正の値で下方向に移動（px）",
-                        key="fcpxml_title_offset_y",
-                    )
-                if title_target_w != saved_title_tw:
-                    settings_manager.set("fcpxml_title_target_w", int(title_target_w))
-                if title_target_h != saved_title_th:
-                    settings_manager.set("fcpxml_title_target_h", int(title_target_h))
-                if title_offset_y != saved_title_oy:
-                    settings_manager.set("fcpxml_title_offset_y", int(title_offset_y))
-
                 # セッション状態に保存
                 st.session_state.fcpxml_settings = {
                     "scale": (scale, scale),
                     "anchor": (anchor_x, anchor_y),
                     "timeline_resolution": timeline_resolution,
                     "auto_anchor": auto_anchor,
-                    "title_target_size": (int(title_target_w), int(title_target_h)),
-                    "title_offset_y": int(title_offset_y),
                 }
 
             # メディア素材の自動検出

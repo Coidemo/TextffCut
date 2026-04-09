@@ -264,7 +264,7 @@ class FCPXMLExporter:
                 # 画像フォーマット（縦型/横型に合わせる）
                 xml_content += (
                     f'        <asset duration="0/1s" id="{resource_id}" '
-                    f'name="{Path(frame_path).name}" start="0/1s" hasVideo="1" '
+                    f'name="{xml_escape(Path(frame_path).name)}" start="0/1s" hasVideo="1" '
                     f'format="r0">\n'
                     f'            <media-rep kind="original-media" src="{file_url}"/>\n'
                     f"        </asset>\n"
@@ -419,7 +419,7 @@ class FCPXMLExporter:
             # タイムラインフォーマット（r0）を使用
             xml_content += (
                 f'{indent}<asset-clip duration="{duration_str}" '
-                f'name="{Path(source_path_str).name}" ref="{resource_id}" '
+                f'name="{xml_escape(Path(source_path_str).name)}" ref="{resource_id}" '
                 f'start="{start_str}" offset="{offset_str}" enabled="1" '
                 f'format="r0" tcFormat="NDF">\n'
             )
@@ -447,7 +447,7 @@ class FCPXMLExporter:
         if overlay_settings and overlay_resource_ids and "frame" in overlay_resource_ids:
             xml_content += (
                 f'{indent}<video duration="{total_duration_str}" lane="1" '
-                f'name="{Path(overlay_settings["frame_path"]).name}" ref="{overlay_resource_ids["frame"]}" '
+                f'name="{xml_escape(Path(overlay_settings["frame_path"]).name)}" ref="{overlay_resource_ids["frame"]}" '
                 f'start="0/1s" offset="0/1s" enabled="1">\n'
                 f'{indent}    <adjust-conform type="fit"/>\n'
                 f'{indent}    <adjust-transform position="0 0" scale="1 1" anchor="0 0"/>\n'
@@ -482,7 +482,7 @@ class FCPXMLExporter:
 
                     xml_content += (
                         f'{indent}<asset-clip duration="{remaining_duration_str}" lane="3" '
-                        f'name="{Path(bgm_path).name}" ref="{bgm_resource_id}" '
+                        f'name="{xml_escape(Path(bgm_path).name)}" ref="{bgm_resource_id}" '
                         f'start="0/1s" offset="{offset_str}" enabled="1">\n'
                         f'{indent}    <adjust-volume amount="{bgm_volume}"/>\n'
                         f"{indent}</asset-clip>\n"
@@ -496,7 +496,7 @@ class FCPXMLExporter:
 
                 xml_content += (
                     f'{indent}<asset-clip duration="{bgm_duration_str}" lane="3" '
-                    f'name="{Path(bgm_path).name}" ref="{bgm_resource_id}" '
+                    f'name="{xml_escape(Path(bgm_path).name)}" ref="{bgm_resource_id}" '
                     f'start="0/1s" offset="0/1s" enabled="1">\n'
                     f'{indent}    <adjust-volume amount="{bgm_volume}"/>\n'
                     f"{indent}</asset-clip>\n"
@@ -520,7 +520,7 @@ class FCPXMLExporter:
 
                 xml_content += (
                     f'{indent}<asset-clip duration="{duration_str}" lane="4" '
-                    f'name="{Path(audio_path).name}" ref="{resource_id}" '
+                    f'name="{xml_escape(Path(audio_path).name)}" ref="{resource_id}" '
                     f'start="0/1s" offset="{offset_str}" enabled="1">\n'
                 )
                 if volume != 0:
