@@ -52,6 +52,9 @@ class SuggestAndExportRequest:
     anchor: tuple[float, float] = (0.0, 0.0)  # アンカーポイント (x, y)
     timeline_resolution: str = "horizontal"  # タイムライン向き ("horizontal" or "vertical")
     enable_title_image: bool = True  # タイトル画像生成
+    title_target_size: tuple[int, int] | None = None  # タイトル画像ターゲットサイズ (width, height)
+    title_offset_y: int = 0  # タイトル表示位置の垂直オフセット（px、正=下方向）
+    auto_anchor: bool = False  # 被写体位置からアンカーを自動検出（vertical時のみ有効）
 
 
 @dataclass
@@ -162,9 +165,31 @@ class SuggestAndExportUseCase:
                     font_dir=request.preset_dir / "fonts" if request.preset_dir else None,
                     frame_path=frame_path,
                     sanitize_fn=_sanitize_filename,
+                    target_size=request.title_target_size,
+                    offset_y=request.title_offset_y,
                 )
+
             except Exception as e:
                 logger.warning(f"タイトル画像生成をスキップ: {e}")
+
+        # Phase 5.8: アンカー自動検出（vertical + 手動指定なし + auto_anchor有効時）
+        actual_anchor = request.anchor
+        if (
+            request.auto_anchor
+            and request.timeline_resolution == "vertical"
+            and request.anchor == (0.0, 0.0)
+        ):
+            try:
+                from use_cases.ai.auto_anchor_detector import detect_anchor
+
+                result = detect_anchor(
+                    video_path=request.video_path,
+                    client=self.gateway.client,
+                )
+                actual_anchor = (result.anchor_x, result.anchor_y)
+                logger.info(f"アンカー自動検出: {actual_anchor} — {result.description}")
+            except Exception as e:
+                logger.warning(f"アンカー自動検出スキップ: {e}")
 
         # Phase 6: FCPXML + SRT生成
         exported_files: list[Path] = []
@@ -173,11 +198,13 @@ class SuggestAndExportUseCase:
 
             # FCPXML（速度変更済み動画を参照）
             title_path = title_image_paths.get(i)
-            title_settings = {"title_path": str(title_path)} if title_path else None
+            title_settings = None
+            if title_path:
+                title_settings = {"title_path": str(title_path)}
             fcpxml_path = fcpxml_dir / f"{i:02d}_{sanitized}.fcpxml"
             success = self._export_fcpxml(
                 suggestion, actual_video_path, fcpxml_path, media_config,
-                scale=request.scale, anchor=request.anchor,
+                scale=request.scale, anchor=actual_anchor,
                 timeline_resolution=request.timeline_resolution,
                 title_settings=title_settings,
             )
@@ -315,8 +342,11 @@ class SuggestAndExportUseCase:
 
         from xml.sax.saxutils import escape
 
-        video_name = escape(video_path.name)
-        title_escaped = escape(suggestion.title)
+        def _attr(v: str) -> str:
+            return escape(v, {'"': "&quot;"})
+
+        video_name = _attr(video_path.name)
+        title_escaped = _attr(suggestion.title)
         encoded_path = quote(str(video_path), safe="/:")
         video_url = f"file://{encoded_path}"
 
@@ -358,22 +388,23 @@ class SuggestAndExportUseCase:
             fmt_w, fmt_h = 1920, 1080
             fmt_name = "FFVideoFormat1080p30"
 
-        # タイトル画像リソース
+        # タイトル画像リソース（フルサイズ透過PNG — position="0 0"で配置）
         title_asset_xml = ""
         title_spine_xml = ""
         if title_settings and "title_path" in title_settings:
             title_path = title_settings["title_path"]
             if Path(title_path).exists():
                 title_url = f"file://{quote(str(Path(title_path).resolve()), safe='/:')}"
+
                 title_asset_xml = (
                     f'        <asset duration="0/1s" id="r2" '
-                    f'name="{escape(Path(title_path).name)}" start="0/1s" hasVideo="1" format="r0">\n'
-                    f'            <media-rep kind="original-media" src="{title_url}"/>\n'
+                    f'name="{_attr(Path(title_path).name)}" start="0/1s" hasVideo="1" format="r0">\n'
+                    f'            <media-rep kind="original-media" src="{_attr(title_url)}"/>\n'
                     f'        </asset>\n'
                 )
                 title_spine_xml = (
                     f'                        <video duration="{to_frac(total_dur)}" lane="2" '
-                    f'name="{escape(Path(title_path).name)}" ref="r2" '
+                    f'name="{_attr(Path(title_path).name)}" ref="r2" '
                     f'start="0/1s" offset="0/1s" enabled="1">\n'
                     f'                            <adjust-conform type="none"/>\n'
                     f'                            <adjust-transform position="0 0" scale="1 1" anchor="0 0"/>\n'
@@ -386,7 +417,7 @@ class SuggestAndExportUseCase:
     <resources>
         <format height="{fmt_h}" id="r0" name="{fmt_name}" frameDuration="1/30s" width="{fmt_w}"/>
         <asset id="r1" name="{video_name}" start="0/1s" hasVideo="1" format="r0" hasAudio="1" audioSources="1" audioChannels="2">
-            <media-rep kind="original-media" src="{video_url}"/>
+            <media-rep kind="original-media" src="{_attr(video_url)}"/>
         </asset>
 {title_asset_xml}    </resources>
     <library>

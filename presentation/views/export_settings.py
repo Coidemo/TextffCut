@@ -156,11 +156,25 @@ class ExportSettingsView:
                     if anchor_y != saved_anchor_y:
                         settings_manager.set("fcpxml_anchor_y", anchor_y)
 
+                # アンカー自動検出（vertical時のみ表示）
+                auto_anchor = False
+                if timeline_resolution == "vertical":
+                    saved_auto_anchor = settings_manager.get("fcpxml_auto_anchor", False)
+                    auto_anchor = st.checkbox(
+                        "被写体位置からアンカーを自動検出",
+                        value=saved_auto_anchor,
+                        help="GPT-4o Visionで動画を分析し、被写体に合わせてアンカーを自動設定（追加コスト: 約0.4円）",
+                        key="fcpxml_auto_anchor",
+                    )
+                    if auto_anchor != saved_auto_anchor:
+                        settings_manager.set("fcpxml_auto_anchor", auto_anchor)
+
                 # セッション状態に保存
                 st.session_state.fcpxml_settings = {
                     "scale": (scale, scale),
                     "anchor": (anchor_x, anchor_y),
                     "timeline_resolution": timeline_resolution,
+                    "auto_anchor": auto_anchor,
                 }
 
             # メディア素材の自動検出

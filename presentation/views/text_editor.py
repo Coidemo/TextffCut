@@ -693,6 +693,46 @@ class TextEditorView:
         enable_title_image = st.checkbox("タイトル画像", value=saved_title_img, key="ai_clip_title")
         settings_manager.set("ai_clip_title_image", enable_title_image)
 
+        # タイトル画像ターゲットサイズ・表示位置
+        title_target_size = None
+        title_offset_y = 0
+        if enable_title_image:
+            saved_tw = settings_manager.get("ai_clip_title_target_w", 1080)
+            saved_th = settings_manager.get("ai_clip_title_target_h", 438)
+            saved_oy = settings_manager.get("ai_clip_title_offset_y", 0)
+            t_cols = st.columns(3)
+            with t_cols[0]:
+                title_target_w = st.number_input(
+                    "タイトル幅", value=saved_tw, min_value=100, key="ai_clip_title_target_w",
+                )
+            with t_cols[1]:
+                title_target_h = st.number_input(
+                    "タイトル高さ", value=saved_th, min_value=100, key="ai_clip_title_target_h",
+                )
+            with t_cols[2]:
+                title_offset_y = st.number_input(
+                    "Y位置オフセット", value=saved_oy, min_value=-500, max_value=500,
+                    step=10, help="正の値で下方向に移動（px）",
+                    key="ai_clip_title_offset_y",
+                )
+            settings_manager.set("ai_clip_title_target_w", int(title_target_w))
+            settings_manager.set("ai_clip_title_target_h", int(title_target_h))
+            settings_manager.set("ai_clip_title_offset_y", int(title_offset_y))
+            title_target_size = (int(title_target_w), int(title_target_h))
+            title_offset_y = int(title_offset_y)
+
+        # アンカー自動検出（vertical時のみ表示）
+        auto_anchor = False
+        if timeline_resolution == "vertical":
+            saved_auto_anchor = settings_manager.get("ai_clip_auto_anchor", False)
+            auto_anchor = st.checkbox(
+                "被写体位置からアンカーを自動検出",
+                value=saved_auto_anchor,
+                help="GPT-4o Visionで動画を分析（追加コスト: 約0.4円）",
+                key="ai_clip_auto_anchor",
+            )
+            settings_manager.set("ai_clip_auto_anchor", auto_anchor)
+
         # 入力検証
         if int(min_duration) > int(max_duration):
             st.warning("⚠️ 最小秒数が最大秒数より大きくなっています")
@@ -724,6 +764,9 @@ class TextEditorView:
                 anchor=(float(anchor_x), float(anchor_y)),
                 timeline_resolution=timeline_resolution,
                 enable_title_image=enable_title_image,
+                auto_anchor=auto_anchor,
+                title_target_size=title_target_size,
+                title_offset_y=title_offset_y,
             )
 
         # 結果表示
@@ -753,6 +796,9 @@ class TextEditorView:
         anchor: tuple[float, float] = (0.0, 0.0),
         timeline_resolution: str = "horizontal",
         enable_title_image: bool = True,
+        auto_anchor: bool = False,
+        title_target_size: tuple[int, int] | None = None,
+        title_offset_y: int = 0,
     ) -> None:
         """AI自動切り抜きを実行"""
         from pathlib import Path
@@ -912,6 +958,8 @@ class TextEditorView:
                         font_dir=font_dir,
                         frame_path=frame_path_for_title,
                         sanitize_fn=_sanitize_filename,
+                        target_size=title_target_size,
+                        offset_y=title_offset_y,
                     )
                     failed_count = total - len(title_image_paths)
                     if failed_count > 0:
@@ -921,17 +969,41 @@ class TextEditorView:
                     else:
                         progress_text.write(f"✅ タイトル画像: {len(title_image_paths)}枚生成完了")
 
+                # Phase 3.8: アンカー自動検出
+                actual_anchor = anchor
+                if (
+                    auto_anchor
+                    and timeline_resolution == "vertical"
+                    and anchor == (0.0, 0.0)
+                ):
+                    try:
+                        from use_cases.ai.auto_anchor_detector import detect_anchor as _detect_anchor
+
+                        progress_text.write("📍 アンカー位置を自動検出中...")
+                        anchor_result = _detect_anchor(
+                            video_path=video_path_obj,
+                            client=gateway.client,
+                        )
+                        actual_anchor = (anchor_result.anchor_x, anchor_result.anchor_y)
+                        progress_text.write(
+                            f"✅ アンカー検出: ({actual_anchor[0]:.1f}, {actual_anchor[1]:.1f}) — {anchor_result.description}"
+                        )
+                    except Exception as e:
+                        progress_text.write(f"⚠️ アンカー自動検出スキップ: {e}")
+
                 exported_files: list[Path] = []
                 for i, suggestion in enumerate(suggestions, 1):
                     progress_text.write(f"📄 FCPXML生成中... ({i}/{total})")
                     sanitized = _sanitize_filename(suggestion.title)
 
                     title_path = title_image_paths.get(i)
-                    title_settings = {"title_path": str(title_path)} if title_path else None
+                    title_settings = None
+                    if title_path:
+                        title_settings = {"title_path": str(title_path)}
                     fcpxml_path = fcpxml_dir / f"{i:02d}_{sanitized}.fcpxml"
                     success = use_case._export_fcpxml(
                         suggestion, actual_video_path, fcpxml_path, media_config,
-                        scale=scale, anchor=anchor,
+                        scale=scale, anchor=actual_anchor,
                         timeline_resolution=timeline_resolution,
                         title_settings=title_settings,
                     )

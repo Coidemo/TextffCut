@@ -126,6 +126,12 @@ def build_suggest_parser() -> argparse.ArgumentParser:
         help="縦動画用タイムライン（デフォルト: 横）",
     )
     parser.add_argument(
+        "--auto-anchor",
+        action="store_true",
+        default=False,
+        help="被写体位置からアンカーを自動検出（--vertical時のみ有効）",
+    )
+    parser.add_argument(
         "--prompt",
         default=None,
         help="カスタムプロンプトファイルのパス",
@@ -171,6 +177,20 @@ def build_suggest_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=False,
         help="タイトル画像を生成しない",
+    )
+    parser.add_argument(
+        "--title-target-size",
+        type=str,
+        default="1080x438",
+        metavar="WxH",
+        help="タイトル画像ターゲットサイズ（幅x高さ、例: 1080x438）",
+    )
+    parser.add_argument(
+        "--title-offset-y",
+        type=int,
+        default=0,
+        metavar="PX",
+        help="タイトル表示位置の垂直オフセット（px、正=下方向、例: 50）",
     )
     parser.add_argument(
         "-s",
@@ -305,6 +325,16 @@ def _process_single_video(
     if media_preview.has_any:
         console.print(f"  🎨 {media_preview.summary()}")
 
+    # タイトル画像ターゲットサイズのパース
+    title_target_size = None
+    if not args.no_title_image:
+        try:
+            tw, th = args.title_target_size.split("x")
+            title_target_size = (int(tw), int(th))
+        except (ValueError, AttributeError):
+            console.print(f"[yellow]⚠ --title-target-size の形式が不正です: {args.title_target_size}。デフォルト(1080x438)を使用[/]")
+            title_target_size = (1080, 438)
+
     request = SuggestAndExportRequest(
         video_path=video_path.resolve(),
         transcription=transcription,
@@ -326,6 +356,9 @@ def _process_single_video(
         anchor=tuple(args.anchor),
         timeline_resolution="vertical" if args.vertical else "horizontal",
         enable_title_image=not args.no_title_image,
+        title_target_size=title_target_size,
+        title_offset_y=args.title_offset_y,
+        auto_anchor=args.auto_anchor,
     )
 
     result = use_case.execute(request)
