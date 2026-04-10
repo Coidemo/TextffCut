@@ -984,7 +984,12 @@ class TextEditorView:
                             video_path=video_path_obj,
                             client=gateway.client,
                         )
-                        actual_anchor = (anchor_result.anchor_x, anchor_result.anchor_y)
+                        # 正規化座標(0.0-1.0) → FCPXMLピクセル座標(中心=0,0)に変換
+                        res_w, res_h = (1080, 1920) if timeline_resolution == "vertical" else (1920, 1080)
+                        actual_anchor = (
+                            (anchor_result.anchor_x - 0.5) * res_w,
+                            -(anchor_result.anchor_y - 0.5) * res_h,
+                        )
                         progress_text.write(
                             f"✅ アンカー検出: ({actual_anchor[0]:.1f}, {actual_anchor[1]:.1f}) — {anchor_result.description}"
                         )

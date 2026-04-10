@@ -814,6 +814,8 @@ def _merge_short_entries(
 
 
 def _char_time(pos, char_times, start):
+    if not char_times:
+        return 0.0
     if pos < 0:
         pos = 0
     if pos >= len(char_times):
@@ -833,7 +835,7 @@ def _build_timeline_map(time_ranges):
 def _to_tl(orig, tmap):
     for os_, oe, tl in tmap:
         if os_ - 0.1 <= orig <= oe + 0.1:
-            return tl + (orig - os_)
+            return tl + max(0.0, orig - os_)
     return None
 
 

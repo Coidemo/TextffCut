@@ -90,9 +90,16 @@ def find_font(weight: str = "Eb", font_dir: Path | None = None) -> str:
     if hiragino.exists():
         return str(hiragino)
 
-    # 4. 最終フォールバック: Pillowデフォルトフォント
+    # 4. 最終フォールバック: システム上の任意の日本語フォント
+    for fallback in [
+        Path("/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc"),
+        Path("/System/Library/Fonts/Hiragino Sans GB.ttc"),
+        Path("/System/Library/Fonts/AppleSDGothicNeo.ttc"),
+    ]:
+        if fallback.exists():
+            return str(fallback)
     logger.warning(f"フォントが見つかりません: {filename}。デフォルトフォントを使用します。")
-    return ""  # ImageFont.truetype("") は失敗するが、呼び出し元でキャッチされる
+    return ""
 
 
 # ---------------------------------------------------------------------------
@@ -254,7 +261,8 @@ def design_title_layout_candidates(
     if prompt_path.exists():
         prompt_template = prompt_path.read_text(encoding="utf-8")
     else:
-        raise FileNotFoundError(f"プロンプトファイルが見つかりません: {prompt_path}")
+        logger.warning("title_image_candidates.md が見つかりません。デフォルトプロンプトで1候補生成に切り替えます。")
+        prompt_template = _DEFAULT_PROMPT
 
     frame_info = "なし（デフォルトの配色で設計してください）"
     if frame_colors:
@@ -640,7 +648,10 @@ def render_title_image(
 
         for seg in line.segments:
             font_path = find_font(seg.weight, font_dir)
-            font = ImageFont.truetype(font_path, seg.font_size)
+            if font_path:
+                font = ImageFont.truetype(font_path, seg.font_size)
+            else:
+                font = ImageFont.load_default(size=seg.font_size)
             fonts.append(font)
 
             bbox = font.getbbox(seg.text)

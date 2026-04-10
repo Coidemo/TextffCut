@@ -99,7 +99,7 @@ class ThemeDetector:
                         try {
                             const bgColor = window.getComputedStyle(document.body).backgroundColor;
                             // RGB値を解析
-                            const rgb = bgColor.match(/\d+/g);
+                            const rgb = bgColor.match(/\\d+/g);
                             if (rgb && rgb.length >= 3) {
                                 // 暗い色かどうかを判定（しきい値: 128）
                                 const brightness = (parseInt(rgb[0]) + parseInt(rgb[1]) + parseInt(rgb[2])) / 3;

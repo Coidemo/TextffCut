@@ -186,7 +186,12 @@ class SuggestAndExportUseCase:
                     video_path=request.video_path,
                     client=self.gateway.client,
                 )
-                actual_anchor = (result.anchor_x, result.anchor_y)
+                # 正規化座標(0.0-1.0) → FCPXMLピクセル座標(中心=0,0)に変換
+                res_w, res_h = (1080, 1920) if request.timeline_resolution == "vertical" else (1920, 1080)
+                actual_anchor = (
+                    (result.anchor_x - 0.5) * res_w,
+                    -(result.anchor_y - 0.5) * res_h,
+                )
                 logger.info(f"アンカー自動検出: {actual_anchor} — {result.description}")
             except Exception as e:
                 logger.warning(f"アンカー自動検出スキップ: {e}")

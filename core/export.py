@@ -28,6 +28,16 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def _safe_volume_db(value: object) -> str:
+    """adjust-volume amount用の安全な文字列を返す。dB範囲 [-96, 12] にクランプ。"""
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        v = 0.0
+    v = max(-96.0, min(12.0, v))
+    return f"{v:g}"
+
+
 def optimize_fraction(value: float, base_fps: int = 30) -> str:
     """浮動小数点数を最適化された分数文字列に変換
 
@@ -496,7 +506,7 @@ class FCPXMLExporter:
                         f'{indent}<asset-clip duration="{remaining_duration_str}" lane="3" '
                         f'name="{_xml_attr(Path(bgm_path).name)}" ref="{bgm_resource_id}" '
                         f'start="0/1s" offset="{offset_str}" enabled="1">\n'
-                        f'{indent}    <adjust-volume amount="{bgm_volume}"/>\n'
+                        f'{indent}    <adjust-volume amount="{_safe_volume_db(bgm_volume)}"/>\n'
                         f"{indent}</asset-clip>\n"
                     )
 
@@ -510,7 +520,7 @@ class FCPXMLExporter:
                     f'{indent}<asset-clip duration="{bgm_duration_str}" lane="3" '
                     f'name="{_xml_attr(Path(bgm_path).name)}" ref="{bgm_resource_id}" '
                     f'start="0/1s" offset="0/1s" enabled="1">\n'
-                    f'{indent}    <adjust-volume amount="{bgm_volume}"/>\n'
+                    f'{indent}    <adjust-volume amount="{_safe_volume_db(bgm_volume)}"/>\n'
                     f"{indent}</asset-clip>\n"
                 )
 
@@ -536,7 +546,7 @@ class FCPXMLExporter:
                     f'start="0/1s" offset="{offset_str}" enabled="1">\n'
                 )
                 if volume != 0:
-                    xml_content += f'{indent}    <adjust-volume amount="{volume}"/>\n'
+                    xml_content += f'{indent}    <adjust-volume amount="{_safe_volume_db(volume)}"/>\n'
                 xml_content += f"{indent}</asset-clip>\n"
 
                 # 次のクリップの開始位置は、現在のクリップの終了位置 + 隙間
@@ -564,7 +574,7 @@ class FCPXMLExporter:
                     f'start="0/1s" offset="{offset_str}" enabled="1">\n'
                 )
                 if volume != 0:
-                    xml_content += f'{indent}    <adjust-volume amount="{volume}"/>\n'
+                    xml_content += f'{indent}    <adjust-volume amount="{_safe_volume_db(volume)}"/>\n'
                 xml_content += f"{indent}</asset-clip>\n"
 
         xml_content += """                    </spine>
