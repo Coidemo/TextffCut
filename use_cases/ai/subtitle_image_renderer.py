@@ -21,7 +21,12 @@ FONT_WEIGHTS = {
     "Bd": "LINESeedJP_A_OTF_Bd.otf",
     "Eb": "LINESeedJP_A_OTF_Eb.otf",
 }
-FALLBACK_FONT = "/System/Library/Fonts/ヒラギノ角ゴシック W6.ttc"
+FALLBACK_FONTS = [
+    "/System/Library/Fonts/ヒラギノ角ゴシック W6.ttc",  # macOS
+    "/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc",  # macOS (lighter)
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",  # Linux (Noto)
+    "/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc",  # Linux variant
+]
 
 
 # ---------------------------------------------------------------------------
@@ -77,8 +82,9 @@ def _resolve_font(weight: str = "Bd", size: int = 48):
     font_path = FONT_DIR / font_name
     if font_path.exists():
         return ImageFont.truetype(str(font_path), size)
-    if Path(FALLBACK_FONT).exists():
-        return ImageFont.truetype(FALLBACK_FONT, size)
+    for fb in FALLBACK_FONTS:
+        if Path(fb).exists():
+            return ImageFont.truetype(fb, size)
     logger.warning(
         "日本語フォントが見つかりません。字幕画像の日本語が正しく表示されない可能性があります。"
         "推奨: %s にフォントを配置してください。", FONT_DIR / font_name,

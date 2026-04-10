@@ -139,8 +139,12 @@ def detect_anchor(
     )
 
     text = response.choices[0].message.content or ""
-    json_str = _extract_json(text)
-    data = json.loads(json_str)
+    try:
+        json_str = _extract_json(text)
+        data = json.loads(json_str)
+    except (ValueError, json.JSONDecodeError) as e:
+        logger.warning("アンカー検出JSON解析失敗: %s", e)
+        return AnchorResult(anchor_x=0.5, anchor_y=0.3, description="解析失敗、デフォルト使用")
 
     ax = float(data.get("anchor_x", 0.5))
     ay = float(data.get("anchor_y", 0.3))
