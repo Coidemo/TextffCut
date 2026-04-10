@@ -537,7 +537,7 @@ class SuggestAndExportUseCase:
                 except Exception:
                     pass
 
-                se_rid_map[audio_path] = (rid, se_duration)
+                se_rid_map[str(ap)] = (rid, se_duration)
 
                 se_asset_xml += (
                     f'        <asset duration="{to_frac(se_duration)}" id="{rid}" '
@@ -551,9 +551,10 @@ class SuggestAndExportUseCase:
             current_offset = 0.0
             gap_duration = 5 / 30  # 5フレーム
             for audio_path in audio_files:
-                if audio_path not in se_rid_map:
+                norm_path = str(Path(audio_path))
+                if norm_path not in se_rid_map:
                     continue
-                rid, se_dur = se_rid_map[audio_path]
+                rid, se_dur = se_rid_map[norm_path]
                 audio_duration = min(se_dur, total_dur - current_offset)
                 if audio_duration <= 0:
                     break
