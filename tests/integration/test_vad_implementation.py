@@ -141,6 +141,7 @@ class TestVADImplementationIntegration(unittest.TestCase):
             # worker_transcribeを実行
             import sys
 
+            orig_argv = sys.argv
             sys.argv = ["worker_transcribe.py", config_path]
 
             try:
@@ -148,6 +149,8 @@ class TestVADImplementationIntegration(unittest.TestCase):
             except SystemExit as e:
                 # 正常終了（exit(0)）を確認
                 self.assertEqual(e.code, 0)
+            finally:
+                sys.argv = orig_argv
 
             # オプティマイザが正しく使用されたことを確認
             mock_optimizer_class.assert_called_once_with("medium")
@@ -264,12 +267,15 @@ class TestVADImplementationIntegration(unittest.TestCase):
 
             import sys
 
+            orig_argv = sys.argv
             sys.argv = ["worker_transcribe.py", config_path]
 
             try:
                 worker_main()
             except SystemExit as e:
                 self.assertEqual(e.code, 0)
+            finally:
+                sys.argv = orig_argv
 
             # APIモードでTranscriberが使用されたことを確認
             mock_transcriber_class.assert_called_once()
