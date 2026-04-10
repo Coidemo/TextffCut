@@ -679,7 +679,10 @@ def render_title_image(
             for i, seg in enumerate(line.segments):
                 new_size = max(30, int(seg.font_size * scale_factor))
                 font_path = find_font(seg.weight, font_dir)
-                fonts[i] = ImageFont.truetype(font_path, new_size)
+                if font_path:
+                    fonts[i] = ImageFont.truetype(font_path, new_size)
+                else:
+                    fonts[i] = ImageFont.load_default(size=new_size)
                 bbox = fonts[i].getbbox(seg.text)
                 seg_widths[i] = bbox[2] - bbox[0]
                 seg_heights[i] = bbox[3] - bbox[1]

@@ -154,10 +154,15 @@ def _concat_clips(
             _run_ffmpeg(cmd, timeout=max(30, int(duration * 5)))
             clip_paths.append(clip_path)
 
-        # concatリスト生成
+        # concatリスト生成（パス中のシングルクォートをエスケープ）
         concat_list = tmpdir / "concat.txt"
+
+        def _escape_concat_path(p: Path) -> str:
+            # FFmpeg concat形式: シングルクォート内の ' は '\'' でエスケープ
+            return str(p).replace("'", "'\\''")
+
         concat_list.write_text(
-            "\n".join(f"file '{p}'" for p in clip_paths),
+            "\n".join(f"file '{_escape_concat_path(p)}'" for p in clip_paths),
             encoding="utf-8",
         )
 

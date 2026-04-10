@@ -840,6 +840,8 @@ def _to_tl(orig, tmap):
 
 
 def collect_parts(time_ranges, tmap, transcription, speed=1.0):
+    if speed <= 0:
+        raise ValueError(f"speed must be > 0, got {speed}")
     from use_cases.ai.filler_constants import FILLER_ONLY_TEXTS
 
     parts = []
