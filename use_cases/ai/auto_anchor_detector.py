@@ -135,6 +135,7 @@ def detect_anchor(
         ],
         max_tokens=256,
         temperature=0.2,
+        response_format={"type": "json_object"},
     )
 
     text = response.choices[0].message.content or ""

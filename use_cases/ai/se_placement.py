@@ -114,6 +114,7 @@ def plan_se_placements(
             messages=[{"role": "user", "content": prompt}],
             max_tokens=1024,
             temperature=0.3,
+            response_format={"type": "json_object"},
         )
         text = response.choices[0].message.content or ""
     except Exception as e:
