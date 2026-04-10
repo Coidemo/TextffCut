@@ -14,12 +14,12 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 # フォント解決（title_image_generator と同じロジック）
-FONT_DIR = Path(__file__).parent.parent.parent / "preset"
+FONT_DIR = Path(__file__).parent.parent.parent / "preset" / "fonts"
 FONT_WEIGHTS = {
-    "Th": "LINESeedJP_A_OTF_Th.otf",
-    "Rg": "LINESeedJP_A_OTF_Rg.otf",
-    "Bd": "LINESeedJP_A_OTF_Bd.otf",
-    "Eb": "LINESeedJP_A_OTF_Eb.otf",
+    "Th": "LINESeedJP_OTF_Th.otf",
+    "Rg": "LINESeedJP_OTF_Rg.otf",
+    "Bd": "LINESeedJP_OTF_Bd.otf",
+    "Eb": "LINESeedJP_OTF_Eb.otf",
 }
 FALLBACK_FONTS = [
     "/System/Library/Fonts/ヒラギノ角ゴシック W6.ttc",  # macOS

@@ -17,9 +17,12 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from PIL import Image, ImageChops, ImageDraw, ImageFont
-
 logger = logging.getLogger(__name__)
+
+try:
+    from PIL import Image, ImageChops, ImageDraw, ImageFont
+except ImportError:  # pragma: no cover
+    Image = ImageChops = ImageDraw = ImageFont = None  # type: ignore[assignment,misc]
 
 # ---------------------------------------------------------------------------
 # データ構造
@@ -95,6 +98,8 @@ def find_font(weight: str = "Eb", font_dir: Path | None = None) -> str:
         Path("/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc"),
         Path("/System/Library/Fonts/Hiragino Sans GB.ttc"),
         Path("/System/Library/Fonts/AppleSDGothicNeo.ttc"),
+        Path("/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc"),  # Linux (Noto)
+        Path("/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc"),  # Linux variant
     ]:
         if fallback.exists():
             return str(fallback)
@@ -109,6 +114,8 @@ def find_font(weight: str = "Eb", font_dir: Path | None = None) -> str:
 
 def extract_frame_colors(frame_path: Path, num_colors: int = 5) -> list[str]:
     """frame.pngから支配色を抽出し、hex文字列リストで返す"""
+    if Image is None:
+        raise ImportError("Pillow is required for title image generation. Install it with: pip install Pillow>=10.0.0")
     try:
         img = Image.open(frame_path).convert("RGBA")
         # リサイズして高速化
@@ -632,6 +639,8 @@ def render_title_image(
     Returns:
         (output_path, image_width, image_height) — 画像サイズ（常にwidth x height）
     """
+    if Image is None:
+        raise ImportError("Pillow is required for title image generation. Install it with: pip install Pillow>=10.0.0")
     img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
 

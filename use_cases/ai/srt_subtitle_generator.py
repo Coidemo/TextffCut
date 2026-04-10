@@ -56,8 +56,8 @@ def generate_srt(
             return _generate_from_segments(segments, output_path, max_chars_per_line, max_lines)
 
     # フォールバック: 元の文字起こしを使用
-    tmap = _build_timeline_map(suggestion.time_ranges)
-    parts = _collect_parts(suggestion.time_ranges, tmap, transcription, speed=speed)
+    tmap = build_timeline_map(suggestion.time_ranges)
+    parts = collect_parts(suggestion.time_ranges, tmap, transcription, speed=speed)
     if not parts:
         return None
 
@@ -823,7 +823,7 @@ def _char_time(pos, char_times, start):
     return char_times[pos][0] if start else char_times[pos][1]
 
 
-def _build_timeline_map(time_ranges):
+def build_timeline_map(time_ranges):
     m = []
     tl = 0.0
     for s, e in time_ranges:
@@ -839,7 +839,7 @@ def _to_tl(orig, tmap):
     return None
 
 
-def _collect_parts(time_ranges, tmap, transcription, speed=1.0):
+def collect_parts(time_ranges, tmap, transcription, speed=1.0):
     from use_cases.ai.filler_constants import FILLER_ONLY_TEXTS
 
     parts = []

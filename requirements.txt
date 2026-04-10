@@ -28,6 +28,9 @@ dependency-injector==4.41.0  # DI framework for clean architecture
 plotly==5.18.0  # Interactive graphs for waveform display
 librosa==0.10.1  # Audio processing for waveform extraction
 
+# Image processing
+Pillow>=10.0.0
+
 # API support
 openai==1.12.0
 httpx==0.23.3  # OpenAI 1.12.0との互換性のため

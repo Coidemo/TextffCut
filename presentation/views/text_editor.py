@@ -930,7 +930,7 @@ class TextEditorView:
                     progress_text.write(f"🎨 {media_config.summary()}")
 
                 # Phase 3.7: タイトル画像生成（バッチ1回のAI呼び出し）
-                from use_cases.ai.suggest_and_export import _sanitize_filename
+                from use_cases.ai.suggest_and_export import sanitize_filename
 
                 title_image_paths: dict[int, Path] = {}
                 if enable_title_image:
@@ -957,7 +957,7 @@ class TextEditorView:
                         model=gateway.model,
                         font_dir=font_dir,
                         frame_path=frame_path_for_title,
-                        sanitize_fn=_sanitize_filename,
+                        sanitize_fn=sanitize_filename,
                         target_size=title_target_size,
                         offset_y=title_offset_y,
                     )
@@ -999,7 +999,7 @@ class TextEditorView:
                 exported_files: list[Path] = []
                 for i, suggestion in enumerate(suggestions, 1):
                     progress_text.write(f"📄 FCPXML生成中... ({i}/{total})")
-                    sanitized = _sanitize_filename(suggestion.title)
+                    sanitized = sanitize_filename(suggestion.title)
 
                     # AI SE配置を計算（SEファイルがある場合）
                     ai_se_placements = None

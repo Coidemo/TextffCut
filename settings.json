@@ -7,7 +7,7 @@
     "pad_end": 0.10000000000000002
   },
   "api": {
-    "use_api": false,
+    "use_api": true,
     "model": "whisper-1"
   },
   "advanced": {

@@ -164,7 +164,7 @@ class SuggestAndExportUseCase:
                     model=request.ai_model,
                     font_dir=request.preset_dir / "fonts" if request.preset_dir else None,
                     frame_path=frame_path,
-                    sanitize_fn=_sanitize_filename,
+                    sanitize_fn=sanitize_filename,
                     target_size=request.title_target_size,
                     offset_y=request.title_offset_y,
                 )
@@ -199,7 +199,7 @@ class SuggestAndExportUseCase:
         # Phase 6: AI SE配置 + FCPXML + SRT生成
         exported_files: list[Path] = []
         for i, suggestion in enumerate(suggestions, 1):
-            sanitized = _sanitize_filename(suggestion.title)
+            sanitized = sanitize_filename(suggestion.title)
 
             # AI SE配置を計算（SEファイルがある場合）
             ai_se_placements = None
@@ -267,8 +267,8 @@ class SuggestAndExportUseCase:
         try:
             from use_cases.ai.se_placement import plan_se_placements
             from use_cases.ai.srt_subtitle_generator import (
-                _build_timeline_map,
-                _collect_parts,
+                build_timeline_map,
+                collect_parts,
                 generate_srt_entries_from_segments,
             )
             from use_cases.ai.subtitle_image_renderer import SubtitleEntry
@@ -281,8 +281,8 @@ class SuggestAndExportUseCase:
             if not se_files:
                 return None
 
-            tmap = _build_timeline_map(suggestion.time_ranges)
-            parts = _collect_parts(suggestion.time_ranges, tmap, transcription, speed=speed)
+            tmap = build_timeline_map(suggestion.time_ranges)
+            parts = collect_parts(suggestion.time_ranges, tmap, transcription, speed=speed)
             if not parts:
                 return None
 
@@ -623,7 +623,7 @@ class SuggestAndExportUseCase:
         path.write_text(json.dumps(cache_data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def _sanitize_filename(title: str, max_length: int = 50) -> str:
+def sanitize_filename(title: str, max_length: int = 50) -> str:
     title = unicodedata.normalize("NFKC", title)
     title = re.sub(r'[<>:"/\\|?*]', "", title)
     title = title.replace(" ", "_").replace("　", "_")
