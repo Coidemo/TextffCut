@@ -23,7 +23,7 @@ class OptimizedTranscriptionGatewayAdapter(TranscriptionGatewayAdapter):
 
     パフォーマンスプロファイルを活用したMLXベースの文字起こし実装
     """
-    
+
     def __init__(
         self,
         config: Config,
@@ -33,7 +33,6 @@ class OptimizedTranscriptionGatewayAdapter(TranscriptionGatewayAdapter):
         self.profile_repository = profile_repository
         self.profile = self._load_or_create_profile()
 
-    
     def _load_or_create_profile(self) -> PerformanceProfile:
         """プロファイルを読み込みまたは作成"""
         profile = self.profile_repository.load()
@@ -41,7 +40,7 @@ class OptimizedTranscriptionGatewayAdapter(TranscriptionGatewayAdapter):
             profile = self.profile_repository.get_default()
             self.profile_repository.save(profile)
         return profile
-    
+
     def transcribe(
         self,
         video_path: FilePath,
@@ -55,7 +54,8 @@ class OptimizedTranscriptionGatewayAdapter(TranscriptionGatewayAdapter):
         """
         # MLXモードの場合、VAD/legacyをバイパスしてTranscriberに委譲
         from utils.environment import MLX_AVAILABLE
-        if MLX_AVAILABLE and getattr(self.config.transcription, 'use_mlx_whisper', False):
+
+        if MLX_AVAILABLE and getattr(self.config.transcription, "use_mlx_whisper", False):
             logger.info("MLXモードで文字起こし（OptimizedGatewayからTranscriberに委譲）")
             return self._transcribe_mlx(
                 video_path=video_path,
@@ -108,14 +108,16 @@ class OptimizedTranscriptionGatewayAdapter(TranscriptionGatewayAdapter):
         duration = 0.0
         domain_segments = []
         for seg in core_result.segments:
-            domain_segments.append(DomainSegment(
-                id=str(uuid.uuid4()),
-                start=seg.start,
-                end=seg.end,
-                text=seg.text,
-                words=seg.words,
-                chars=seg.chars,
-            ))
+            domain_segments.append(
+                DomainSegment(
+                    id=str(uuid.uuid4()),
+                    start=seg.start,
+                    end=seg.end,
+                    text=seg.text,
+                    words=seg.words,
+                    chars=seg.chars,
+                )
+            )
             if seg.end > duration:
                 duration = seg.end
 
@@ -133,9 +135,8 @@ class OptimizedTranscriptionGatewayAdapter(TranscriptionGatewayAdapter):
     def get_performance_profile(self) -> PerformanceProfile:
         """現在のパフォーマンスプロファイルを取得"""
         return self.profile
-    
+
     def update_performance_profile(self, profile: PerformanceProfile):
         """パフォーマンスプロファイルを更新"""
         self.profile = profile
         self.profile_repository.save(profile)
-

@@ -13,11 +13,11 @@ logger = logging.getLogger(__name__)
 
 class PromptLoader:
     """プロンプトテンプレートを読み込んで処理するクラス"""
-    
+
     def __init__(self, prompts_dir: Path | None = None):
         """
         初期化
-        
+
         Args:
             prompts_dir: プロンプトファイルのディレクトリ
         """
@@ -26,41 +26,41 @@ class PromptLoader:
             self.prompts_dir = Path(__file__).parent.parent / "prompts"
         else:
             self.prompts_dir = Path(prompts_dir)
-            
+
         # 初期化フラグ
         self._initialized = False
-        
+
         # プロンプトファイルの初期化（初回のみ）
         self._ensure_prompts_initialized()
-    
+
     def load_buzz_clip_prompt(self, transcription_segments: list[dict[str, Any]]) -> str:
         """
         バズクリップ生成用のプロンプトを読み込んで文字起こし結果を埋め込む
-        
+
         Args:
             transcription_segments: 文字起こしセグメントのリスト
-            
+
         Returns:
             完成したプロンプト
         """
         prompt_file = self.prompts_dir / "clip_suggestions.md"
-        
+
         if not prompt_file.exists():
             logger.error(f"Prompt file not found: {prompt_file}")
             raise FileNotFoundError(f"プロンプトファイルが見つかりません: {prompt_file}")
-        
+
         # プロンプトテンプレートを読み込む
         with open(prompt_file, "r", encoding="utf-8") as f:
             template = f.read()
-        
+
         # セグメントをフォーマット
         formatted_segments = self._format_segments(transcription_segments)
-        
+
         # プレースホルダーを置き換え
         prompt = template.replace("{TRANSCRIPTION}", formatted_segments)
-        
+
         return prompt
-    
+
     def _format_segments(self, segments: list[dict[str, Any]]) -> str:
         """セグメントをフォーマット"""
         formatted_lines = []
@@ -68,38 +68,38 @@ class PromptLoader:
             time_str = f"[{seg['start']:.1f}s - {seg['end']:.1f}s]"
             formatted_lines.append(f"{time_str} {seg['text']}")
         return "\n".join(formatted_lines)
-    
+
     def load_title_generation_prompt(self, edited_text: str) -> str:
         """
         タイトル生成用のプロンプトを読み込んで編集テキストを埋め込む
-        
+
         Args:
             edited_text: 編集された切り抜きテキスト
-            
+
         Returns:
             完成したプロンプト
         """
         prompt_file = self.prompts_dir / "title_generation.md"
-        
+
         if not prompt_file.exists():
             logger.error(f"Prompt file not found: {prompt_file}")
             raise FileNotFoundError(f"プロンプトファイルが見つかりません: {prompt_file}")
-        
+
         # プロンプトテンプレートを読み込む
         with open(prompt_file, "r", encoding="utf-8") as f:
             template = f.read()
-        
+
         # プレースホルダーを置き換え
         prompt = template.replace("{EDITED_TEXT}", edited_text)
-        
+
         return prompt
-    
+
     def _ensure_prompts_initialized(self):
         """プロンプトファイルの初期化を確実に行う（一度だけ）"""
         if not self._initialized:
             self._initialize_prompts()
             self._initialized = True
-    
+
     def _initialize_prompts(self):
         """
         プロンプトファイルを初期化（存在しない場合はデフォルトからコピー）
@@ -108,16 +108,16 @@ class PromptLoader:
         if not self.prompts_dir.exists():
             self.prompts_dir.mkdir(parents=True, exist_ok=True)
             logger.info(f"Created prompts directory: {self.prompts_dir}")
-        
+
         # 必要なプロンプトファイルのリスト
         prompt_files = ["clip_suggestions.md", "title_generation.md"]
-        
+
         # デフォルトプロンプトディレクトリ（環境変数で設定可能）
         default_prompts_dir = Path(os.getenv("DEFAULT_PROMPTS_DIR", "/app/default_prompts"))
-        
+
         for filename in prompt_files:
             target_file = self.prompts_dir / filename
-            
+
             # ファイルが存在しない場合
             if not target_file.exists():
                 # デフォルトプロンプトディレクトリから試す
@@ -130,10 +130,12 @@ class PromptLoader:
                             continue
                         except Exception as e:
                             logger.error(f"Failed to copy default prompt file {filename}: {e}")
-                
+
                 # デフォルトが利用できない場合は、基本的な内容を作成
                 logger.warning(f"Creating basic prompt file: {filename}")
-                logger.warning("Note: This is a basic template. For better results, please provide a complete prompt file.")
+                logger.warning(
+                    "Note: This is a basic template. For better results, please provide a complete prompt file."
+                )
                 try:
                     if filename == "clip_suggestions.md":
                         # より完全な基本プロンプト

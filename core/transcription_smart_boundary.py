@@ -84,16 +84,25 @@ class SmartBoundaryTranscriber(Transcriber):
         try:
             if progress_callback:
                 progress_callback(0.05, "音声を抽出中...")
-            
+
             # まず全体の音声を抽出（VAD処理のため）
             temp_audio = os.path.join(self.temp_dir, "audio.wav")
             extract_cmd = [
-                "ffmpeg", "-y", "-i", video_path,
-                "-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1",
-                temp_audio
+                "ffmpeg",
+                "-y",
+                "-i",
+                video_path,
+                "-vn",
+                "-acodec",
+                "pcm_s16le",
+                "-ar",
+                "16000",
+                "-ac",
+                "1",
+                temp_audio,
             ]
             subprocess.run(extract_cmd, capture_output=True, check=True)
-            
+
             if progress_callback:
                 progress_callback(0.1, "音声区間を検出中...")
 
@@ -157,45 +166,59 @@ class SmartBoundaryTranscriber(Transcriber):
         try:
             # 簡易的なVAD実装（ffmpegのsilencedetectを使用）
             # 本来はpyannote.audioなどを使うべきだが、依存関係を最小限にするため
-            
+
             # 音声の長さを取得
-            duration_cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration", 
-                           "-of", "default=noprint_wrappers=1:nokey=1", audio_path]
+            duration_cmd = [
+                "ffprobe",
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                audio_path,
+            ]
             result = subprocess.run(duration_cmd, capture_output=True, text=True)
-            
+
             # エラーチェック
             if result.returncode != 0:
                 raise Exception(f"ffprobe failed: {result.stderr}")
-            
+
             # 空の出力チェック
             duration_str = result.stdout.strip()
             if not duration_str:
                 raise Exception("ffprobe returned empty duration")
-                
+
             total_duration = float(duration_str)
-            
+
             # 無音検出で音声区間を特定
             silence_cmd = [
-                "ffmpeg", "-i", audio_path, "-af",
+                "ffmpeg",
+                "-i",
+                audio_path,
+                "-af",
                 f"silencedetect=noise={self.SILENCE_THRESH}dB:d={self.MIN_SILENCE_LEN}",
-                "-f", "null", "-"
+                "-f",
+                "null",
+                "-",
             ]
             result = subprocess.run(silence_cmd, capture_output=True, text=True, stderr=subprocess.STDOUT)
-            
+
             # 無音区間を解析して音声区間を抽出
             vad_segments = []
             current_start = 0.0
-            
+
             import re
+
             silence_starts = re.findall(r"silence_start: ([\d.]+)", result.stdout)
             silence_ends = re.findall(r"silence_end: ([\d.]+)", result.stdout)
-            
+
             # 無音区間から音声区間を計算
             if silence_starts:
                 # 最初の無音開始まで
                 if float(silence_starts[0]) > 0.1:
                     vad_segments.append((0.0, float(silence_starts[0])))
-                
+
                 # 無音区間の間の音声区間
                 for i in range(len(silence_ends)):
                     start = float(silence_ends[i])
@@ -203,18 +226,18 @@ class SmartBoundaryTranscriber(Transcriber):
                         end = float(silence_starts[i + 1])
                     else:
                         end = total_duration
-                    
+
                     if end - start > 0.1:  # 0.1秒以上の音声区間のみ
                         vad_segments.append((start, end))
             else:
                 # 無音が検出されなかった場合は全体を1つのセグメントとして扱う
                 vad_segments = [(0.0, total_duration)]
-            
+
             # VADセグメントを30秒以内に分割
             final_segments = []
             for segment in vad_segments:
                 start, end = segment  # タプルとして扱う
-                
+
                 # セグメントが30秒を超える場合は分割
                 if end - start > self.MAX_SEGMENT_DURATION:
                     current_start = start
@@ -224,44 +247,51 @@ class SmartBoundaryTranscriber(Transcriber):
                         current_start = segment_end
                 else:
                     final_segments.append((start, end))
-            
+
             # 短すぎるセグメントを結合
             merged_segments = []
             i = 0
             while i < len(final_segments):
                 start, end = final_segments[i]
-                
+
                 # 次のセグメントと結合可能か確認
                 while i + 1 < len(final_segments):
                     next_start, next_end = final_segments[i + 1]
                     # 間隔が短く、合計時間が30秒以内なら結合
-                    if (next_start - end < 0.5 and 
-                        next_end - start <= self.MAX_SEGMENT_DURATION):
+                    if next_start - end < 0.5 and next_end - start <= self.MAX_SEGMENT_DURATION:
                         end = next_end
                         i += 1
                     else:
                         break
-                
+
                 # 最小長以上なら追加
                 if end - start >= self.MIN_SEGMENT_DURATION:
                     merged_segments.append((start, end))
                 i += 1
-            
+
             logger.info(f"VAD検出: {len(vad_segments)}個の音声区間 → {len(merged_segments)}個のセグメントに分割")
             return merged_segments
-            
+
         except Exception as e:
             logger.warning(f"VADベース分割に失敗、フォールバック: {e}")
             # フォールバック：固定長分割
             return self._find_fixed_segments(audio_path)
-    
+
     def _find_fixed_segments(self, audio_path: str) -> list[tuple[float, float]]:
         """固定長でセグメントを分割（フォールバック）"""
         # 音声の長さを取得
-        cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration", 
-               "-of", "default=noprint_wrappers=1:nokey=1", audio_path]
+        cmd = [
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            audio_path,
+        ]
         result = subprocess.run(cmd, capture_output=True, text=True)
-        
+
         # エラーチェック
         if result.returncode != 0:
             logger.error(f"ffprobe failed in fallback: {result.stderr}")
@@ -274,14 +304,14 @@ class SmartBoundaryTranscriber(Transcriber):
                 duration = 1800.0
             else:
                 duration = float(duration_str)
-        
+
         segments = []
         current = 0.0
         while current < duration:
             segment_end = min(current + self.PREFERRED_SEGMENT_DURATION, duration)
             segments.append((current, segment_end))
             current = segment_end
-            
+
         return segments
 
     def _find_smart_boundaries(self, video_path: str | Path, duration: float) -> list[float]:
@@ -380,7 +410,13 @@ class SmartBoundaryTranscriber(Transcriber):
                 os.unlink(temp_wav)
 
     def _process_segment(
-        self, video_path: str | Path, start: float, end: float, model_size: str, segment_index: int, skip_alignment: bool = False
+        self,
+        video_path: str | Path,
+        start: float,
+        end: float,
+        model_size: str,
+        segment_index: int,
+        skip_alignment: bool = False,
     ) -> list[TranscriptionSegment]:
         """セグメントを処理"""
         # 動的メモリ最適化
@@ -400,7 +436,7 @@ class SmartBoundaryTranscriber(Transcriber):
                 # バッチサイズも記録（後で使用）
                 # AutoOptimizerが現在のメモリ状況に基づいて動的に決定
                 self._dynamic_batch_size = optimal_params["batch_size"]
-                
+
                 # 動的パラメータを保存（後でモデル読み込み時に使用）
                 self._dynamic_compute_type = optimal_params.get("compute_type", self.config.transcription.compute_type)
 
@@ -461,7 +497,7 @@ class SmartBoundaryTranscriber(Transcriber):
             compute_type = getattr(self, "_dynamic_compute_type", self.config.transcription.compute_type)
             if compute_type != self.config.transcription.compute_type:
                 logger.info(f"動的compute_type: {compute_type} (デフォルト: {self.config.transcription.compute_type})")
-            
+
             # モデルを読み込み
             model = whisperx.load_model(
                 model_size,

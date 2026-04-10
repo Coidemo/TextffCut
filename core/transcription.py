@@ -247,7 +247,7 @@ class Transcriber:
         # model_sizeに既に_apiが含まれている場合は、そのまま使用
         if model_size.endswith("_api"):
             return cache_dir / f"{model_size}.json"
-        
+
         # APIモードかどうかで、ファイル名を変える
         if self.config.transcription.use_api:
             # APIモードの場合は_apiサフィックスを追加
@@ -397,7 +397,7 @@ class Transcriber:
         if self.config.transcription.use_api:
             logger.info("APIモードで処理開始 (_transcribe_api)")
             return self._transcribe_api(video_path, model_size, progress_callback, use_cache, save_cache)
-        elif getattr(self, 'use_mlx', False):
+        elif getattr(self, "use_mlx", False):
             logger.info("MLXモードで処理開始 (_transcribe_mlx)")
             try:
                 return self._transcribe_mlx(video_path, model_size, progress_callback, use_cache, save_cache)
@@ -406,9 +406,7 @@ class Transcriber:
                 raise
         else:
             # __init__ でMLX未使用かつ非APIの場合は ImportError を投げるためここには到達しない
-            raise RuntimeError(
-                "不正な初期化状態です。APIモードまたはMLXモードを設定してください。"
-            )
+            raise RuntimeError("不正な初期化状態です。APIモードまたはMLXモードを設定してください。")
 
     def _transcribe_api(
         self,
@@ -504,7 +502,7 @@ class Transcriber:
         # 2. mlx-forced-alignerでアライメント（words/chars付き）
         logger.info("mlx-forced-alignerでアライメント開始")
         # ForcedAlignerをキャッシュ（wav2vec2モデル1.2GBの再ロードを防止）
-        if not hasattr(self, '_mlx_aligner'):
+        if not hasattr(self, "_mlx_aligner"):
             self._mlx_aligner = ForcedAligner()
         aligner = self._mlx_aligner
         segments_for_align = [
@@ -551,4 +549,3 @@ class Transcriber:
         logger.info(f"MLX文字起こし完了: {len(transcription_segments)}セグメント, {processing_time:.1f}秒")
 
         return transcription_result
-

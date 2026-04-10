@@ -21,7 +21,6 @@ def render_video_input_section(container):
     """動画入力セクション"""
     st.subheader("🎥 動画ファイル選択")
 
-
     # VideoInputPresenterを使用
     video_input_presenter = container.presentation.video_input_presenter()
     video_input_presenter.initialize()
@@ -270,7 +269,8 @@ def main():
 
     # 初期レンダリング時のちらつきを防ぐため、
     # 最初にベースCSSを適用してからテーマ検出を行う
-    st.markdown("""
+    st.markdown(
+        """
     <style>
     /* 初期レンダリング用のベーススタイル */
     /* prefers-color-schemeで即座に適用される */
@@ -291,17 +291,21 @@ def main():
         transition: none;
     }
     </style>
-    """, unsafe_allow_html=True)
-    
+    """,
+        unsafe_allow_html=True,
+    )
+
     # テーマ検出器を初期化
     from utils.theme_detector import ThemeDetector
+
     ThemeDetector.inject_theme_detector()
-    
+
     # テーマ別CSSを適用（背景色も含む）
     ThemeDetector.apply_theme_specific_css()
-    
+
     # ダークモードスタイルを適用
     from ui.dark_mode_styles import apply_dark_mode_styles
+
     apply_dark_mode_styles()
 
     # タイトル

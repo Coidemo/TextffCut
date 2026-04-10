@@ -50,7 +50,10 @@ class OpenAIClipSuggestionGateway(ClipSuggestionGatewayInterface):
         response = self.client.chat.completions.create(
             model=self.model,
             messages=[
-                {"role": "system", "content": "あなたは動画から面白い話題を見つける専門家です。必ずJSON形式で回答してください。"},
+                {
+                    "role": "system",
+                    "content": "あなたは動画から面白い話題を見つける専門家です。必ずJSON形式で回答してください。",
+                },
                 {"role": "user", "content": prompt},
             ],
             temperature=0.7,
@@ -71,15 +74,17 @@ class OpenAIClipSuggestionGateway(ClipSuggestionGatewayInterface):
                 logger.warning(f"Invalid segment range [{seg_start}-{seg_end}], skipping")
                 continue
 
-            topics.append(TopicRange.create(
-                title=topic_data.get("title", ""),
-                segment_start_index=seg_start,
-                segment_end_index=seg_end,
-                score=topic_data.get("score", 0),
-                category=topic_data.get("category", ""),
-                reasoning=topic_data.get("reasoning", ""),
-                keywords=topic_data.get("keywords", []),
-            ))
+            topics.append(
+                TopicRange.create(
+                    title=topic_data.get("title", ""),
+                    segment_start_index=seg_start,
+                    segment_end_index=seg_end,
+                    score=topic_data.get("score", 0),
+                    category=topic_data.get("category", ""),
+                    reasoning=topic_data.get("reasoning", ""),
+                    keywords=topic_data.get("keywords", []),
+                )
+            )
 
         token_usage = {
             "prompt_tokens": response.usage.prompt_tokens,
@@ -87,10 +92,9 @@ class OpenAIClipSuggestionGateway(ClipSuggestionGatewayInterface):
             "total_tokens": response.usage.total_tokens,
         }
         pricing = MODEL_PRICING.get(self.model, MODEL_PRICING["gpt-4.1-mini"])
-        cost = (
-            (token_usage["prompt_tokens"] / 1_000_000) * pricing["input"]
-            + (token_usage["completion_tokens"] / 1_000_000) * pricing["output"]
-        )
+        cost = (token_usage["prompt_tokens"] / 1_000_000) * pricing["input"] + (
+            token_usage["completion_tokens"] / 1_000_000
+        ) * pricing["output"]
 
         return TopicDetectionResult(
             topics=topics,
@@ -109,9 +113,7 @@ class OpenAIClipSuggestionGateway(ClipSuggestionGatewayInterface):
         # バリアント情報をフォーマット
         options = []
         for i, v in enumerate(variants):
-            options.append(
-                f"パターン{i+1}（{v['label']}、{v['duration']:.0f}秒）:\n{v['text'][:300]}"
-            )
+            options.append(f"パターン{i+1}（{v['label']}、{v['duration']:.0f}秒）:\n{v['text'][:300]}")
 
         prompt = f"""以下は「{topic_title}」という話題の切り抜きパターン候補です。
 ショート動画として最も「保存したくなる」「誰かに教えたくなる」パターンを1つ選んでください。
@@ -145,15 +147,12 @@ class OpenAIClipSuggestionGateway(ClipSuggestionGatewayInterface):
             logger.warning(f"AI variant selection failed: {e}, using first variant")
             return 0
 
-    def judge_segment_relevance(
-        self, title: str, segments: list[dict]
-    ) -> list[int]:
+    def judge_segment_relevance(self, title: str, segments: list[dict]) -> list[int]:
         if not segments:
             return []
 
         segs_desc = "\n".join(
-            f"[{s['index']}] ({s['start']:.0f}s) {s['text']}"
-            for s in segments[:30]  # 最大30セグメント
+            f"[{s['index']}] ({s['start']:.0f}s) {s['text']}" for s in segments[:30]  # 最大30セグメント
         )
 
         prompt = f"""「{title}」というショート動画の素材として、以下のセグメントがあります。
@@ -346,7 +345,10 @@ JSON: {{"remove": [削除するクリップのindex番号], "reason": "理由"}}
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
-                    {"role": "system", "content": "動画編集の中間カット担当。主張と結論を残して不要部分を大胆に削除。JSON形式で回答。"},
+                    {
+                        "role": "system",
+                        "content": "動画編集の中間カット担当。主張と結論を残して不要部分を大胆に削除。JSON形式で回答。",
+                    },
                     {"role": "user", "content": prompt},
                 ],
                 temperature=0.2,
@@ -408,13 +410,11 @@ JSON: {{"remove": [削除するクリップのindex番号], "reason": "理由"}}
             chunk_texts.append(seg.get("text", ""))
             seg_end = seg.get("end", 0.0)
 
-            is_last = (i == len(segments) - 1)
+            is_last = i == len(segments) - 1
             if seg_end - chunk_start_time >= CHUNK_DURATION or is_last:
                 combined_text = "".join(chunk_texts)
                 lines.append(
-                    f"[{chunk_start_idx}-{i}] "
-                    f"({chunk_start_time:.1f}s-{seg_end:.1f}s) "
-                    f"{combined_text}"
+                    f"[{chunk_start_idx}-{i}] " f"({chunk_start_time:.1f}s-{seg_end:.1f}s) " f"{combined_text}"
                 )
                 if not is_last:
                     chunk_start_idx = i + 1

@@ -33,18 +33,15 @@ class BatchTranscribeRequest:
     video_paths: list[FilePath]
     model_size: str = "medium"
     language: str | None = None
-    use_cache: bool = True           # バッチではキャッシュ活用がデフォルト
-    max_workers: int = 1             # MLXのメモリ効率のためデフォルト1
+    use_cache: bool = True  # バッチではキャッシュ活用がデフォルト
+    max_workers: int = 1  # MLXのメモリ効率のためデフォルト1
     retry_count: int = 0
     fail_fast: bool = False
     dry_run: bool = False
     progress_callback: Callable[[BatchProgress], None] | None = None
 
     def __post_init__(self) -> None:
-        self.video_paths = [
-            FilePath(str(p)) if not isinstance(p, FilePath) else p
-            for p in self.video_paths
-        ]
+        self.video_paths = [FilePath(str(p)) if not isinstance(p, FilePath) else p for p in self.video_paths]
         # 上限: CPUコア数またはファイル数のいずれか小さい方
         cpu_count = os.cpu_count() or 1
         self.max_workers = max(1, min(self.max_workers, cpu_count))
@@ -60,7 +57,7 @@ class BatchProgress:
     failed: int
     skipped: int
     current_file: str | None
-    current_status: str              # "processing" | "retrying" | "succeeded" | "failed" | "skipped"
+    current_status: str  # "processing" | "retrying" | "succeeded" | "failed" | "skipped"
     elapsed_seconds: float
     estimated_remaining_seconds: float | None
 
@@ -70,7 +67,7 @@ class BatchItemResult:
     """1ファイル分の処理結果"""
 
     video_path: Path
-    status: str                      # "succeeded" | "failed" | "skipped" | "pending"
+    status: str  # "succeeded" | "failed" | "skipped" | "pending"
     output_path: Path | None = None
     error: str | None = None
     processing_time: float = 0.0
@@ -218,10 +215,7 @@ class BatchTranscribeUseCase(UseCase[BatchTranscribeRequest, BatchTranscribeResu
         skipped = 0
 
         with ThreadPoolExecutor(max_workers=request.max_workers) as executor:
-            futures = {
-                executor.submit(self._process_one, request, vp): (idx, vp)
-                for idx, vp in indexed_paths
-            }
+            futures = {executor.submit(self._process_one, request, vp): (idx, vp) for idx, vp in indexed_paths}
 
             for future in as_completed(futures):
                 idx, video_path = futures[future]
@@ -275,19 +269,19 @@ class BatchTranscribeUseCase(UseCase[BatchTranscribeRequest, BatchTranscribeResu
                 result.items.append(items_map[idx])
             else:
                 # fail_fast でキャンセルされたファイルは failed として記録
-                result.items.append(BatchItemResult(
-                    video_path=Path(str(vp)),
-                    status="failed",
-                    error="キャンセルされました（fail_fast）",
-                ))
+                result.items.append(
+                    BatchItemResult(
+                        video_path=Path(str(vp)),
+                        status="failed",
+                        error="キャンセルされました（fail_fast）",
+                    )
+                )
 
     # ------------------------------------------------------------------
     # 1ファイル処理（リトライ込み）
     # ------------------------------------------------------------------
 
-    def _process_one(
-        self, request: BatchTranscribeRequest, video_path: FilePath
-    ) -> BatchItemResult:
+    def _process_one(self, request: BatchTranscribeRequest, video_path: FilePath) -> BatchItemResult:
         start = time.time()
 
         # キャッシュ確認（use_cache=True のときはキャッシュがあればスキップ）
@@ -305,9 +299,7 @@ class BatchTranscribeUseCase(UseCase[BatchTranscribeRequest, BatchTranscribeResu
                 if attempt > 0:
                     # リトライ前に指数バックオフ（ 2^(attempt-1) + jitter 秒）
                     wait = (2 ** (attempt - 1)) + random.uniform(0.0, 1.0)
-                    self.logger.info(
-                        f"リトライ {attempt}/{request.retry_count} ({wait:.1f}秒後): {video_path}"
-                    )
+                    self.logger.info(f"リトライ {attempt}/{request.retry_count} ({wait:.1f}秒後): {video_path}")
                     self._notify(
                         request,
                         BatchProgress(
@@ -327,7 +319,7 @@ class BatchTranscribeUseCase(UseCase[BatchTranscribeRequest, BatchTranscribeResu
                     video_path=video_path,
                     model_size=request.model_size,
                     language=request.language,
-                    use_cache=False,   # ここではキャッシュ確認済みのため無効化
+                    use_cache=False,  # ここではキャッシュ確認済みのため無効化
                 )
                 self._single_use_case.execute(transcription_request)
 
@@ -396,9 +388,7 @@ class BatchTranscribeUseCase(UseCase[BatchTranscribeRequest, BatchTranscribeResu
             return None
 
     @staticmethod
-    def _estimate_remaining(
-        elapsed: float, processed: int, total: int
-    ) -> float | None:
+    def _estimate_remaining(elapsed: float, processed: int, total: int) -> float | None:
         if processed == 0:
             return None
         avg_per_item = elapsed / processed

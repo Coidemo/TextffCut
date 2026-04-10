@@ -98,10 +98,10 @@ def show_transcription_controls(
 
             # 最新のキャッシュをデフォルトで選択（最初の要素が最新）
             selected_option = st.selectbox(
-                "保存済みの文字起こし結果", 
-                cache_options, 
+                "保存済みの文字起こし結果",
+                cache_options,
                 index=0,  # 最初の要素（最新）を選択
-                help="使用する文字起こし結果を選択してください"
+                help="使用する文字起こし結果を選択してください",
             )
 
             if selected_option:
@@ -422,71 +422,70 @@ def show_edited_text_with_highlights(edited_text: str, diff: TextDifference | No
 
     html_content = (
         f'<div class="edited-text-viewer" style="height: {height}px; overflow-y: auto; '
-        f'padding: 10px; border: 1px solid #666; border-radius: 5px; '
-        f'background-color: var(--background-color, rgba(255, 255, 255, 0.05)); '
+        f"padding: 10px; border: 1px solid #666; border-radius: 5px; "
+        f"background-color: var(--background-color, rgba(255, 255, 255, 0.05)); "
         f'backdrop-filter: blur(5px);">'
     )
-    
+
     # 文脈マーカーを検出
     import re
+
     context_markers = []
-    for match in re.finditer(r'\{([^}]+)\}', edited_text):
-        context_markers.append({
-            'start': match.start(),
-            'end': match.end(),
-            'content': match.group(1)
-        })
+    for match in re.finditer(r"\{([^}]+)\}", edited_text):
+        context_markers.append({"start": match.start(), "end": match.end(), "content": match.group(1)})
 
     # 削除ボタンを押した後のテキストを計算
     remaining_text = ""
     if hasattr(diff, "differences"):
         # ドメインエンティティの場合
         from domain.entities.text_difference import DifferenceType
-        
+
         # UNCHANGEDの部分のみを結合（削除後に残る部分）
         remaining_text = "".join(
-            diff_item[1] for diff_item in diff.differences 
+            diff_item[1]
+            for diff_item in diff.differences
             if len(diff_item) >= 3 and diff_item[0] == DifferenceType.UNCHANGED
         )
-    
+
     # デバッグ情報をログ出力
     import logging
+
     logger = logging.getLogger(__name__)
     logger.info(f"[show_edited_text_with_highlights] 元のテキスト長: {len(edited_text)}")
     logger.info(f"[show_edited_text_with_highlights] 削除後のテキスト長: {len(remaining_text)}")
-    
+
     # 削除される文字を特定（元のテキストと削除後のテキストの差分）
     # シンプルなアプローチ：各文字が残るかどうかをチェック
     remaining_chars = list(remaining_text)
     remaining_index = 0
-    
+
     # 文脈マーカー内かどうかを追跡
     in_context_marker = False
     skip_char = False
-    
+
     for i, char in enumerate(edited_text):
         skip_char = False
-        
+
         # 文脈マーカーの開始/終了をチェック
         for marker in context_markers:
-            if i == marker['start']:
+            if i == marker["start"]:
                 in_context_marker = True
                 # 開始の { も含める
                 break
-            elif i == marker['end'] - 1:
+            elif i == marker["end"] - 1:
                 # 終了の } の後で状態を戻す
-                if char == '}':
+                if char == "}":
                     in_context_marker = False
                 break
-        
+
         if skip_char:
             continue
-        
+
         # 文脈マーカー内の文字もそのまま表示
         if in_context_marker:
             html_content += char
             continue
-        
+
         # この文字が削除後のテキストに存在するかチェック
         if remaining_index < len(remaining_chars) and char == remaining_chars[remaining_index]:
             # この文字は残る（ハイライトしない）
@@ -498,7 +497,7 @@ def show_edited_text_with_highlights(edited_text: str, diff: TextDifference | No
                 f'<span class="highlight-deletion" style="background-color: #ffe6e6; '
                 f'color: #d00; text-decoration: line-through;">{char}</span>'
             )
-    
+
     logger.info(f"[show_edited_text_with_highlights] ハイライトされた文字数: {len(edited_text) - remaining_index}")
 
     html_content += "</div>"
@@ -517,16 +516,13 @@ def show_edited_text_with_separators_highlights(edited_text: str, separator: str
     """
 
     text_processor = SimpleTextProcessorGateway()
-    
+
     # 文脈マーカーを検出
     import re
+
     context_markers = []
-    for match in re.finditer(r'\{([^}]+)\}', edited_text):
-        context_markers.append({
-            'start': match.start(),
-            'end': match.end(),
-            'content': match.group(1)
-        })
+    for match in re.finditer(r"\{([^}]+)\}", edited_text):
+        context_markers.append({"start": match.start(), "end": match.end(), "content": match.group(1)})
 
     # 元のテキストを取得
     full_text = ""
@@ -549,13 +545,9 @@ def show_edited_text_with_separators_highlights(edited_text: str, separator: str
     for i, section in enumerate(sections):
         # 文脈マーカーを検出
         section_context_markers = []
-        for match in re.finditer(r'\{([^}]+)\}', section):
-            section_context_markers.append({
-                'start': match.start(),
-                'end': match.end(),
-                'content': match.group(1)
-            })
-        
+        for match in re.finditer(r"\{([^}]+)\}", section):
+            section_context_markers.append({"start": match.start(), "end": match.end(), "content": match.group(1)})
+
         # 差分を計算（文脈マーカーは自動的に処理される）
         cleaned_section = section
         # 境界マーカーがある場合は正規化をスキップ
@@ -574,9 +566,11 @@ def show_edited_text_with_separators_highlights(edited_text: str, separator: str
         # 削除後に残るテキストを計算
         remaining_text = ""
         from domain.entities.text_difference import DifferenceType
+
         if section_diff and hasattr(section_diff, "differences"):
             remaining_text = "".join(
-                text for diff_item in section_diff.differences 
+                text
+                for diff_item in section_diff.differences
                 if (diff_item[0] == DifferenceType.UNCHANGED if len(diff_item) >= 3 else False)
                 for text in [diff_item[1]]
             )
@@ -585,23 +579,23 @@ def show_edited_text_with_separators_highlights(edited_text: str, separator: str
         remaining_chars = list(remaining_text)
         remaining_index = 0
         in_context_marker = False
-        
+
         for j, char in enumerate(section):
             # 文脈マーカーの開始/終了をチェック
             is_marker_boundary = False
             for marker in section_context_markers:
-                if j == marker['start']:
+                if j == marker["start"]:
                     in_context_marker = True
                     is_marker_boundary = True
                     break
-                elif j == marker['end'] - 1:
-                    if char == '}':
+                elif j == marker["end"] - 1:
+                    if char == "}":
                         in_context_marker = False
                         is_marker_boundary = True
                         break
-            
+
             # is_marker_boundaryのチェックを削除（文字を表示する必要があるため）
-                
+
             if j in marker_positions:
                 # 境界調整マーカー文字はそのまま表示（ハイライトなし）
                 html_content += char
@@ -660,11 +654,11 @@ def show_red_highlight_modal(edited_text: str, diff: TextDifference | None = Non
         show_edited_text_with_highlights(edited_text, diff, height=300)
 
     col1, col2 = st.columns(2)
-    
+
     with col1:
         if st.button("削除", type="primary", use_container_width=True, key=TestIds.DELETE_HIGHLIGHTS_MODAL_BUTTON):
-        # 既に渡されたdiffオブジェクトを使用
-        # これにより、ゲートウェイ経由で処理されたドメイン形式の差分が使われる
+            # 既に渡されたdiffオブジェクトを使用
+            # これにより、ゲートウェイ経由で処理されたドメイン形式の差分が使われる
 
             # 区切り文字がある場合の処理
             original_edited_text = st.session_state.get("original_edited_text", edited_text)
@@ -682,18 +676,18 @@ def show_red_highlight_modal(edited_text: str, diff: TextDifference | None = Non
                 # シンプルなアプローチ：ADDED部分を除外して再結合
                 if diff and hasattr(diff, "differences"):
                     from domain.entities.text_difference import DifferenceType
-                    
+
                     # UNCHANGED部分と文脈マーカーを結合
                     result_parts = []
                     for diff_item in diff.differences:
                         if len(diff_item) >= 3 and diff_item[0] == DifferenceType.UNCHANGED:
                             # 文脈マーカーかどうかチェック
-                            if len(diff_item) >= 4 and diff_item[3] and diff_item[3].get('is_context_marker'):
+                            if len(diff_item) >= 4 and diff_item[3] and diff_item[3].get("is_context_marker"):
                                 # 文脈マーカー内のテキストの場合、{} で囲んで復元
-                                result_parts.append('{' + diff_item[1] + '}')
+                                result_parts.append("{" + diff_item[1] + "}")
                             else:
                                 result_parts.append(diff_item[1])
-                    
+
                     # セクション間に区切り文字を挿入
                     sections = []
                     current_section = ""
@@ -702,7 +696,7 @@ def show_red_highlight_modal(edited_text: str, diff: TextDifference | None = Non
                         if found_separator in original_edited_text:
                             # 元のテキストの区切り位置を参考にする
                             current_section += part
-                    
+
                     # TODO: より正確な区切り文字の位置復元が必要
                     cleaned_text = "".join(result_parts)
                 else:
@@ -712,24 +706,25 @@ def show_red_highlight_modal(edited_text: str, diff: TextDifference | None = Non
                 if diff and hasattr(diff, "differences"):
                     # ドメインエンティティ形式
                     from domain.entities.text_difference import DifferenceType
-                    
+
                     # 元のテキストから開始
                     cleaned_text = original_edited_text
-                    
+
                     # ADDED部分を特定して削除
                     added_texts = []
                     for diff_item in diff.differences:
                         if len(diff_item) >= 3 and diff_item[0] == DifferenceType.ADDED:
                             added_texts.append(diff_item[1])
-                    
+
                     # 追加されたテキストを削除（文脈マーカー内のテキストは除外）
                     import re
+
                     for added_text in added_texts:
                         # 文脈マーカー内のテキストかどうかチェック
                         pattern = re.escape(added_text)
                         # 文脈マーカー内でない場合のみ削除
-                        if not re.search(r'\{[^}]*' + pattern + r'[^}]*\}', cleaned_text):
-                            cleaned_text = cleaned_text.replace(added_text, '', 1)
+                        if not re.search(r"\{[^}]*" + pattern + r"[^}]*\}", cleaned_text):
+                            cleaned_text = cleaned_text.replace(added_text, "", 1)
                 elif diff and hasattr(diff, "common_positions"):
                     # レガシー形式
                     cleaned_text = "".join(pos.text for pos in diff.common_positions)
@@ -742,7 +737,7 @@ def show_red_highlight_modal(edited_text: str, diff: TextDifference | None = Non
             st.session_state.show_modal = False
             st.session_state.show_error_and_delete = False  # エラー状態もクリア
             st.rerun()
-    
+
     with col2:
         if st.button("編集を続ける", use_container_width=True, key=TestIds.CONTINUE_EDITING_MODAL_BUTTON):
             # モーダルを閉じるだけで、テキストは変更しない
@@ -782,7 +777,7 @@ def show_diff_viewer(original_text: str, diff: TextDifference | None = None, hei
             # 元のテキスト全体を表示しつつ、共通部分（UNCHANGED）をハイライト
             # diff.differencesには位置情報が含まれているはずなので、それを使用
             highlight_positions = []
-            
+
             # 複数のUNCHANGEDブロックから位置情報を取得
             for diff_item in diff.differences:
                 # タプルの長さをチェック
@@ -793,7 +788,7 @@ def show_diff_viewer(original_text: str, diff: TextDifference | None = None, hei
                     extra_attrs = None
                 if diff_type == DifferenceType.UNCHANGED and positions:
                     # 文脈マーカーフラグが付いているものは除外
-                    if extra_attrs and extra_attrs.get('is_context_marker'):
+                    if extra_attrs and extra_attrs.get("is_context_marker"):
                         continue
                     # positionsは[(start, end), ...]の形式
                     for pos in positions:
@@ -810,7 +805,9 @@ def show_diff_viewer(original_text: str, diff: TextDifference | None = None, hei
                 if current_pos < start:
                     html_content += original_text[current_pos:start]
                 # ハイライト部分（緑）
-                html_content += f'<span class="highlight-match" style="background-color: #90ee90; color: #000000;">{text}</span>'
+                html_content += (
+                    f'<span class="highlight-match" style="background-color: #90ee90; color: #000000;">{text}</span>'
+                )
                 current_pos = end
 
             # 残りの部分

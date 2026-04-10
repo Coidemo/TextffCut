@@ -72,19 +72,18 @@ class BuzzClipView:
         if self.view_model.error_message:
             st.error(f"❌ {self.view_model.error_message}")
 
-
     def _show_prompt_for_copy(self, transcription_segments: list[dict[str, Any]]) -> None:
         """プロンプトを表示してコピーできるようにする"""
         # プロンプトを生成
         prompt = self.presenter.generate_prompt_for_external_ai(transcription_segments)
-        
+
         # プロンプトを表示（最小高さに設定）
         st.text_area(
             "💡 切り抜き生成プロンプト",
             value=prompt,
             height=68,
             key=TestIds.BUZZ_CLIP_PROMPT_AREA,
-            help="Ctrl+A (Windows) / Cmd+A (Mac) で全選択してコピー"
+            help="Ctrl+A (Windows) / Cmd+A (Mac) で全選択してコピー",
         )
 
 

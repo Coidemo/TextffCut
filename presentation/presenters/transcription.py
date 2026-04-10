@@ -88,6 +88,7 @@ class TranscriptionPresenter(BasePresenter[TranscriptionViewModel]):
         else:
             try:
                 from textffcut_cli.setup_command import get_config_value
+
                 config_model = get_config_value("default_model", "")
                 if config_model and config_model in self.view_model.available_models:
                     self.view_model.model_size = config_model
@@ -195,6 +196,7 @@ class TranscriptionPresenter(BasePresenter[TranscriptionViewModel]):
                 # config.jsonのデフォルトモデルを参照
                 try:
                     from textffcut_cli.setup_command import get_config_value
+
                     config_model = get_config_value("default_model", "")
                     if config_model and config_model in self.view_model.available_models:
                         self.view_model.model_size = config_model
@@ -335,7 +337,7 @@ class TranscriptionPresenter(BasePresenter[TranscriptionViewModel]):
                     progress_callback(progress, status)
 
             # バッチサイズは自動最適化されるため、手動設定は削除
-            
+
             # 文字起こしユースケースを実行
             logger.info(
                 f"TranscribeVideoRequest作成 - video_path: {self.view_model.video_path}, model_size: {self.view_model.model_size}"

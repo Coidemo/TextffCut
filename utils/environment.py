@@ -17,6 +17,7 @@ def _check_mlx_whisper() -> bool:
         return False
     try:
         import mlx_whisper  # noqa: F401
+
         return True
     except ImportError:
         return False
@@ -28,6 +29,7 @@ def _check_mlx_aligner() -> bool:
         return False
     try:
         from mlx_forced_aligner import ForcedAligner  # noqa: F401
+
         return True
     except ImportError:
         return False

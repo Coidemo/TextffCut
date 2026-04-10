@@ -18,14 +18,26 @@ logger = logging.getLogger(__name__)
 
 # Whisperが検出しうる日本語フィラー
 JAPANESE_FILLERS = {
-    "あの", "あのー", "あのう",
-    "えー", "えーと", "えっと", "えーっと",
-    "まあ", "まぁ", "まあまあ",
-    "なんか", "なんかこう", "なんかその",
-    "うーん", "んー",
-    "そうですね", "そう",
+    "あの",
+    "あのー",
+    "あのう",
+    "えー",
+    "えーと",
+    "えっと",
+    "えーっと",
+    "まあ",
+    "まぁ",
+    "まあまあ",
+    "なんか",
+    "なんかこう",
+    "なんかその",
+    "うーん",
+    "んー",
+    "そうですね",
+    "そう",
     "ちょっと",
-    "やっぱ", "やっぱり",
+    "やっぱ",
+    "やっぱり",
 }
 
 
@@ -110,11 +122,13 @@ def detect_fillers_with_whisper(
                 # 検出されたフィラーがtime_ranges内にあるか確認
                 for tr_start, tr_end in time_ranges:
                     if abs_start >= tr_start - 0.1 and abs_end <= tr_end + 0.1:
-                        detected.append(DetectedFiller(
-                            text=cleaned,
-                            start=abs_start,
-                            end=abs_end,
-                        ))
+                        detected.append(
+                            DetectedFiller(
+                                text=cleaned,
+                                start=abs_start,
+                                end=abs_end,
+                            )
+                        )
                         break
 
         logger.info(f"Whisper filler detection: {len(detected)} fillers in {overall_end - overall_start:.0f}s range")
@@ -168,31 +182,41 @@ def check_cut_naturalness(
             tmp_path.unlink(missing_ok=True)
 
             if len(y) < sr * 0.1:
-                results.append(CutNaturalness(
-                    position=point, is_natural=True,
-                    pitch_direction="unknown", confidence=0.0,
-                ))
+                results.append(
+                    CutNaturalness(
+                        position=point,
+                        is_natural=True,
+                        pitch_direction="unknown",
+                        confidence=0.0,
+                    )
+                )
                 continue
 
             # F0（基本周波数）を抽出
-            f0, voiced_flag, _ = librosa.pyin(
-                y, fmin=80, fmax=400, sr=sr
-            )
+            f0, voiced_flag, _ = librosa.pyin(y, fmin=80, fmax=400, sr=sr)
 
             if f0 is None or len(f0) == 0:
-                results.append(CutNaturalness(
-                    position=point, is_natural=True,
-                    pitch_direction="unknown", confidence=0.0,
-                ))
+                results.append(
+                    CutNaturalness(
+                        position=point,
+                        is_natural=True,
+                        pitch_direction="unknown",
+                        confidence=0.0,
+                    )
+                )
                 continue
 
             # 有声フレームだけ取得
             voiced_f0 = f0[~np.isnan(f0)]
             if len(voiced_f0) < 4:
-                results.append(CutNaturalness(
-                    position=point, is_natural=True,
-                    pitch_direction="flat", confidence=0.3,
-                ))
+                results.append(
+                    CutNaturalness(
+                        position=point,
+                        is_natural=True,
+                        pitch_direction="flat",
+                        confidence=0.3,
+                    )
+                )
                 continue
 
             # 末尾1/3のピッチトレンドを分析
@@ -214,19 +238,25 @@ def check_cut_naturalness(
                 is_natural = True  # フラットは許容
                 confidence = 0.5
 
-            results.append(CutNaturalness(
-                position=point,
-                is_natural=is_natural,
-                pitch_direction=direction,
-                confidence=confidence,
-            ))
+            results.append(
+                CutNaturalness(
+                    position=point,
+                    is_natural=is_natural,
+                    pitch_direction=direction,
+                    confidence=confidence,
+                )
+            )
 
         except Exception as e:
             logger.warning(f"Pitch analysis failed at {point:.1f}s: {e}")
-            results.append(CutNaturalness(
-                position=point, is_natural=True,
-                pitch_direction="error", confidence=0.0,
-            ))
+            results.append(
+                CutNaturalness(
+                    position=point,
+                    is_natural=True,
+                    pitch_direction="error",
+                    confidence=0.0,
+                )
+            )
 
     return results
 
@@ -259,9 +289,7 @@ def apply_filler_removal(
     for filler in fillers:
         f_start, f_end = filler.start, filler.end
         if transcription:
-            f_start, f_end = _snap_to_word_boundaries(
-                f_start, f_end, transcription
-            )
+            f_start, f_end = _snap_to_word_boundaries(f_start, f_end, transcription)
         filler_ranges.append((f_start, f_end))
 
     filler_ranges.sort()
@@ -307,10 +335,10 @@ def _snap_to_word_boundaries(
     for seg in transcription.segments:
         if seg.end < filler_start - 1 or seg.start > filler_end + 1:
             continue
-        words = getattr(seg, 'words', None) or []
+        words = getattr(seg, "words", None) or []
         for w in words:
-            w_start = w.start if hasattr(w, 'start') else w.get('start', 0)
-            w_end = w.end if hasattr(w, 'end') else w.get('end', 0)
+            w_start = w.start if hasattr(w, "start") else w.get("start", 0)
+            w_end = w.end if hasattr(w, "end") else w.get("end", 0)
 
             # フィラー開始に最も近いword開始をsnap先にする
             if abs(w_start - filler_start) < 0.3:
@@ -324,21 +352,31 @@ def _snap_to_word_boundaries(
     return best_start, best_end
 
 
-def _extract_audio_range(
-    video_path: Path, start: float, end: float, output_path: Path
-) -> None:
+def _extract_audio_range(video_path: Path, start: float, end: float, output_path: Path) -> None:
     """ffmpegで指定範囲の音声をWAVとして抽出する"""
     cmd = [
-        "ffmpeg", "-y",
-        "-ss", str(start),
-        "-to", str(end),
-        "-i", str(video_path),
-        "-vn", "-ar", "16000", "-ac", "1",
-        "-f", "wav",
+        "ffmpeg",
+        "-y",
+        "-ss",
+        str(start),
+        "-to",
+        str(end),
+        "-i",
+        str(video_path),
+        "-vn",
+        "-ar",
+        "16000",
+        "-ac",
+        "1",
+        "-f",
+        "wav",
         str(output_path),
     ]
     result = subprocess.run(
-        cmd, capture_output=True, text=True, timeout=30,
+        cmd,
+        capture_output=True,
+        text=True,
+        timeout=30,
     )
     if result.returncode != 0:
         raise RuntimeError(f"ffmpeg error: {result.stderr[:200]}")

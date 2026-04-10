@@ -48,16 +48,20 @@ def analyze_join_naturalness(
             results.append(result)
         except Exception as e:
             logger.debug(f"Join analysis failed at {i}: {e}")
-            results.append(JoinNaturalness(
-                index=i, rms_diff=0, pitch_diff=0,
-                is_natural=True, detail="analysis_failed",
-            ))
+            results.append(
+                JoinNaturalness(
+                    index=i,
+                    rms_diff=0,
+                    pitch_diff=0,
+                    is_natural=True,
+                    detail="analysis_failed",
+                )
+            )
 
     unnatural = [r for r in results if not r.is_natural]
     if unnatural:
         logger.info(
-            f"音響分析: {len(unnatural)}/{len(results)}箇所が不自然 "
-            f"({', '.join(r.detail for r in unnatural[:3])})"
+            f"音響分析: {len(unnatural)}/{len(results)}箇所が不自然 " f"({', '.join(r.detail for r in unnatural[:3])})"
         )
 
     return results
@@ -77,17 +81,47 @@ def _analyze_single_join(
         tail_start = max(0, end_a - WINDOW_SEC)
         tail_path = f"{tmpdir}/tail.wav"
         subprocess.run(
-            ["ffmpeg", "-y", "-ss", str(tail_start), "-t", str(WINDOW_SEC),
-             "-i", str(video_path), "-vn", "-ar", "16000", "-ac", "1", tail_path],
-            capture_output=True, timeout=10,
+            [
+                "ffmpeg",
+                "-y",
+                "-ss",
+                str(tail_start),
+                "-t",
+                str(WINDOW_SEC),
+                "-i",
+                str(video_path),
+                "-vn",
+                "-ar",
+                "16000",
+                "-ac",
+                "1",
+                tail_path,
+            ],
+            capture_output=True,
+            timeout=10,
         )
 
         # クリップBの冒頭
         head_path = f"{tmpdir}/head.wav"
         subprocess.run(
-            ["ffmpeg", "-y", "-ss", str(start_b), "-t", str(WINDOW_SEC),
-             "-i", str(video_path), "-vn", "-ar", "16000", "-ac", "1", head_path],
-            capture_output=True, timeout=10,
+            [
+                "ffmpeg",
+                "-y",
+                "-ss",
+                str(start_b),
+                "-t",
+                str(WINDOW_SEC),
+                "-i",
+                str(video_path),
+                "-vn",
+                "-ar",
+                "16000",
+                "-ac",
+                "1",
+                head_path,
+            ],
+            capture_output=True,
+            timeout=10,
         )
 
         y_tail, sr = librosa.load(tail_path, sr=16000)
@@ -95,13 +129,16 @@ def _analyze_single_join(
 
         if len(y_tail) < 100 or len(y_head) < 100:
             return JoinNaturalness(
-                index=index, rms_diff=0, pitch_diff=0,
-                is_natural=True, detail="too_short",
+                index=index,
+                rms_diff=0,
+                pitch_diff=0,
+                is_natural=True,
+                detail="too_short",
             )
 
         # 音圧（RMS）比較
-        rms_tail = np.sqrt(np.mean(y_tail ** 2))
-        rms_head = np.sqrt(np.mean(y_head ** 2))
+        rms_tail = np.sqrt(np.mean(y_tail**2))
+        rms_head = np.sqrt(np.mean(y_head**2))
         if rms_tail > 0 and rms_head > 0:
             rms_diff_db = 20 * np.log10(rms_head / rms_tail)
         else:

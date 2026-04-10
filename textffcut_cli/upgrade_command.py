@@ -24,6 +24,7 @@ def _get_current_version() -> str:
     """現在のバージョンを取得"""
     try:
         from importlib.metadata import version as _pkg_version
+
         return _pkg_version("textffcut")
     except Exception:
         return "unknown"
@@ -94,10 +95,7 @@ def check_for_updates_on_startup() -> None:
             latest = last.get("latest_version")
             current = _get_current_version()
             if latest and current != "unknown" and latest != current:
-                console.print(
-                    f"[yellow]💡 TextffCut {latest} が利用可能です "
-                    f"(現在: {current})[/]"
-                )
+                console.print(f"[yellow]💡 TextffCut {latest} が利用可能です " f"(現在: {current})[/]")
                 console.print("   更新: [cyan]textffcut upgrade[/]\n")
             return
 
@@ -107,10 +105,7 @@ def check_for_updates_on_startup() -> None:
     _save_check_result(current, latest)
 
     if latest and current != "unknown" and latest != current:
-        console.print(
-            f"[yellow]💡 TextffCut {latest} が利用可能です "
-            f"(現在: {current})[/]"
-        )
+        console.print(f"[yellow]💡 TextffCut {latest} が利用可能です " f"(現在: {current})[/]")
         console.print("   更新: [cyan]textffcut upgrade[/]\n")
 
 

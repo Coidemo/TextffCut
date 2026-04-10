@@ -170,6 +170,7 @@ class SidebarView(BaseView[SidebarViewModel]):
 
             try:
                 import mlx_whisper  # noqa: F401
+
                 models = ["medium", "large-v3", "large-v3-turbo", "small", "base"]
             except ImportError:
                 models = ["medium", "small", "base"]

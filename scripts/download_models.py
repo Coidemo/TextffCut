@@ -17,13 +17,10 @@ def download_with_huggingface_hub(model_id: str, cache_dir: str) -> str:
     """Hugging Face Hubを使用してモデルを直接ダウンロード（代替方法）"""
     try:
         from huggingface_hub import snapshot_download
-        
+
         logger.info(f"Hugging Face Hub経由でダウンロード: {model_id}")
         local_dir = snapshot_download(
-            repo_id=model_id,
-            cache_dir=cache_dir,
-            resume_download=True,
-            max_workers=1  # 並列ダウンロードを制限
+            repo_id=model_id, cache_dir=cache_dir, resume_download=True, max_workers=1  # 並列ダウンロードを制限
         )
         logger.info(f"✓ ダウンロード成功: {local_dir}")
         return local_dir
@@ -55,6 +52,7 @@ def download_models():
         logger.info("\n1. MLX Whisperモデルをダウンロード中...")
         try:
             import mlx_whisper
+
             # モデルをロードしてダウンロードをトリガー
             mlx_model = "mlx-community/whisper-large-v3-turbo"
             logger.info(f"モデル: {mlx_model}")

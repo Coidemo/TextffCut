@@ -207,7 +207,6 @@ class SimpleTextProcessorGateway(ITextProcessorGateway):
         """
         return [section.strip() for section in text.split(separator) if section.strip()]
 
-
     def extract_existing_markers(self, text: str) -> dict[str, dict[str, float]]:
         """
         既存のマーカー情報を抽出

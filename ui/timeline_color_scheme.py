@@ -79,6 +79,7 @@ class TimelineColorScheme:
             ダークモードの場合True
         """
         from utils.theme_detector import ThemeDetector
+
         return ThemeDetector.is_dark_mode()
 
     @staticmethod

@@ -328,11 +328,11 @@ class VideoProcessorGatewayAdapter(IVideoProcessorGateway):
         try:
             import tempfile
             import os
-            
+
             # 一時ディレクトリを作成（Docker環境でも書き込み可能な場所）
             temp_dir = tempfile.mkdtemp(prefix="silence_removal_")
             logger.info(f"無音削除用一時ディレクトリ: {temp_dir}")
-            
+
             try:
                 # レガシーメソッドを呼び出し
                 keep_ranges = self._legacy_processor.remove_silence_new(
@@ -350,6 +350,7 @@ class VideoProcessorGatewayAdapter(IVideoProcessorGateway):
             finally:
                 # 一時ディレクトリをクリーンアップ
                 import shutil
+
                 if os.path.exists(temp_dir):
                     shutil.rmtree(temp_dir, ignore_errors=True)
                     logger.info(f"一時ディレクトリをクリーンアップしました: {temp_dir}")
