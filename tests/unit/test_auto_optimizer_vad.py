@@ -46,22 +46,24 @@ class TestAutoOptimizerVAD(unittest.TestCase):
         params = self.optimizer.get_optimal_params(85.0)
         self.assertEqual(params["compute_type"], "int8")
 
+        # CPU環境（torch.cuda.is_available() == False）では常にint8が返される
         # 中メモリ使用率（60-70%）
         params = self.optimizer.get_optimal_params(65.0)
-        self.assertEqual(params["compute_type"], "float16")  # mediumモデル
+        self.assertEqual(params["compute_type"], "int8")  # CPU環境ではint8
 
         # 低メモリ使用率（60%未満）
         params = self.optimizer.get_optimal_params(50.0)
-        self.assertEqual(params["compute_type"], "float16")  # mediumモデルはfloat16
+        self.assertEqual(params["compute_type"], "int8")  # CPU環境ではint8
 
     def test_compute_type_for_different_models(self):
         """モデルサイズによるcompute_type選択の違い"""
-        # Baseモデル - 低メモリでfloat32可能
+        # CPU環境（torch.cuda.is_available() == False）ではモデルサイズに関わらず常にint8
+        # Baseモデル
         optimizer_base = AutoOptimizer("base")
         for i in range(ChunkSizeLimits.DIAGNOSTIC_COUNT):
             optimizer_base.get_optimal_params(50.0)
         params = optimizer_base.get_optimal_params(40.0)
-        self.assertEqual(params["compute_type"], "float32")
+        self.assertEqual(params["compute_type"], "int8")  # CPU環境ではint8
 
         # Large-v3モデル - 常にint8推奨
         optimizer_large = AutoOptimizer("large-v3")

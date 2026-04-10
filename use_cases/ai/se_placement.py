@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -121,29 +122,38 @@ def plan_se_placements(
 
     # JSON抽出
     try:
-        if "```" in text:
-            json_str = text.split("```json")[-1].split("```")[0].strip()
+        m = re.search(r"```(?:json)?\s*(.*?)```", text, re.DOTALL)
+        if m:
+            json_str = m.group(1).strip()
         else:
             start = text.find("{")
-            end = text.rfind("}") + 1
-            json_str = text[start:end]
+            end = text.rfind("}")
+            if start == -1 or end == -1 or end <= start:
+                logger.warning("AI SE配置: JSON構造が見つかりません")
+                return []
+            json_str = text[start : end + 1]
         data = json.loads(json_str)
     except (json.JSONDecodeError, ValueError) as e:
-        logger.warning(f"AI SE配置JSON解析失敗: {e}")
+        logger.warning("AI SE配置JSON解析失敗: %s", e)
         return []
 
     # SEファイル名のセット（バリデーション用）
     valid_se_names = {p.name for p in se_files}
     se_path_map = {p.name: str(p) for p in se_files}
 
+    raw_placements = data.get("placements", []) if isinstance(data, dict) else []
     placements = []
-    for item in data.get("placements", []):
-        se_name = item.get("se_file", "")
+    for item in raw_placements:
+        se_name = item.get("se_file", "") if isinstance(item, dict) else ""
         if se_name not in valid_se_names:
-            logger.debug(f"不明なSEファイルをスキップ: {se_name}")
+            logger.debug("不明なSEファイルをスキップ: %s", se_name)
             continue
 
-        timestamp = float(item.get("timestamp", 0))
+        try:
+            timestamp = float(item.get("timestamp", 0))
+        except (ValueError, TypeError):
+            logger.debug("不正なtimestamp値をスキップ: %s", item.get("timestamp"))
+            continue
         if timestamp < 0:
             continue
 
@@ -151,7 +161,7 @@ def plan_se_placements(
             SEPlacement(
                 se_file=se_path_map.get(se_name, se_name),
                 timestamp=timestamp,
-                reason=item.get("reason", ""),
+                reason=str(item.get("reason", "")),
             )
         )
 

@@ -73,11 +73,11 @@ class TestIntelligentAudioOptimizer:
                 # 最適化で例外を発生させる
                 mock_optimize.side_effect = Exception("Optimization failed")
 
-                # librosaフォールバックのモック
+                # librosaフォールバックのモック（ローカルインポートなのでbuiltinsでパッチ）
                 fallback_audio = np.zeros((16000 * 60,), dtype=np.float32)
-                with patch("core.audio_optimizer.librosa") as mock_librosa:
-                    mock_librosa.load.return_value = (fallback_audio, 16000)
-
+                mock_librosa = MagicMock()
+                mock_librosa.load.return_value = (fallback_audio, 16000)
+                with patch.dict("sys.modules", {"librosa": mock_librosa}):
                     # 実行
                     audio_data, info = optimizer.prepare_audio(mock_video_path)
 

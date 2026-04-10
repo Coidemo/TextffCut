@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import re
 import subprocess
 import tempfile
 from dataclasses import dataclass
@@ -51,17 +52,41 @@ class AnchorResult:
     description: str
 
 
+def _extract_json(text: str) -> str:
+    """AIレスポンスからJSON文字列を抽出する。"""
+    # ```json ... ``` または ``` ... ``` ブロックを探す
+    m = re.search(r"```(?:json)?\s*(.*?)```", text, re.DOTALL)
+    if m:
+        return m.group(1).strip()
+    # 直接JSONを探す
+    start = text.find("{")
+    end = text.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        return text[start : end + 1]
+    raise ValueError(f"AIレスポンスからJSONを抽出できません: {text[:200]}")
+
+
 def _extract_frame(video_path: Path, time_sec: float = 5.0) -> bytes:
     """動画から指定時刻のフレームをJPEGとして抽出する。"""
-    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=True) as tmp:
+    tmp = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
+    tmp_path = Path(tmp.name)
+    tmp.close()
+    try:
         cmd = [
             "ffmpeg", "-y", "-ss", str(time_sec),
             "-i", str(video_path),
             "-frames:v", "1", "-q:v", "2",
-            tmp.name,
+            str(tmp_path),
         ]
         subprocess.run(cmd, capture_output=True, check=True)
-        return Path(tmp.name).read_bytes()
+        data = tmp_path.read_bytes()
+        if not data:
+            raise RuntimeError(
+                f"フレーム抽出に失敗: {video_path} の {time_sec}秒地点にフレームがありません"
+            )
+        return data
+    finally:
+        tmp_path.unlink(missing_ok=True)
 
 
 def _load_prompt() -> str:
@@ -89,6 +114,7 @@ def detect_anchor(
     Returns:
         AnchorResult: 検出結果
     """
+    logger.info("アンカー検出開始: %s (%.1f秒)", video_path.name, frame_time)
     frame_bytes = _extract_frame(video_path, frame_time)
     b64 = base64.b64encode(frame_bytes).decode()
     prompt = _load_prompt()
@@ -112,15 +138,7 @@ def detect_anchor(
     )
 
     text = response.choices[0].message.content or ""
-
-    # JSON抽出（```json ... ``` ブロックまたは直接JSON）
-    if "```" in text:
-        json_str = text.split("```json")[-1].split("```")[0].strip()
-    else:
-        start = text.find("{")
-        end = text.rfind("}") + 1
-        json_str = text[start:end]
-
+    json_str = _extract_json(text)
     data = json.loads(json_str)
 
     ax = float(data.get("anchor_x", 0.5))
@@ -128,8 +146,10 @@ def detect_anchor(
     ax = max(0.0, min(1.0, ax))
     ay = max(0.0, min(1.0, ay))
 
-    return AnchorResult(
+    result = AnchorResult(
         anchor_x=ax,
         anchor_y=ay,
-        description=data.get("description", ""),
+        description=str(data.get("description", "")),
     )
+    logger.info("アンカー検出結果: (%.2f, %.2f) — %s", ax, ay, result.description)
+    return result

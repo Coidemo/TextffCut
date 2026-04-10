@@ -67,14 +67,22 @@ class TestVADImplementationIntegration(unittest.TestCase):
             patch("core.transcription_smart_boundary.SmartBoundaryTranscriber") as mock_transcriber_class,
             patch("core.auto_optimizer.AutoOptimizer") as mock_optimizer_class,
             patch("core.memory_monitor.MemoryMonitor") as mock_monitor_class,
-            patch("core.alignment_processor.AlignmentProcessor"),
+            patch("core.alignment_processor.AlignmentProcessor") as mock_alignment_class,
             patch("subprocess.run"),
-            patch("os.path.exists", return_value=True),
-            patch("os.stat") as mock_stat,
+            patch("config.Config") as mock_config_class,
         ):
 
-            # ファイルサイズのモック
-            mock_stat.return_value.st_size = 1000000
+            # Configのモック
+            mock_config = MagicMock()
+            mock_config.transcription.use_api = False
+            mock_config.transcription.api_provider = "openai"
+            mock_config.transcription.api_key = None
+            mock_config.transcription.model_size = "medium"
+            mock_config.transcription.language = "ja"
+            mock_config.transcription.compute_type = "int8"
+            mock_config.transcription.sample_rate = 16000
+            mock_config.transcription.isolation_mode = "none"
+            mock_config_class.return_value = mock_config
 
             # オプティマイザのモック
             mock_optimizer = MagicMock()
@@ -83,7 +91,7 @@ class TestVADImplementationIntegration(unittest.TestCase):
                 "align_chunk_seconds": 60,
                 "max_workers": 1,
                 "batch_size": 8,
-                "compute_type": "float16",  # 動的に変更
+                "compute_type": "int8",
             }
             mock_optimizer.diagnostic_mode = False
             mock_optimizer_class.return_value = mock_optimizer
@@ -93,6 +101,21 @@ class TestVADImplementationIntegration(unittest.TestCase):
             mock_monitor.get_memory_usage.return_value = 65.0
             mock_monitor.get_average_usage.return_value = 70.0
             mock_monitor_class.return_value = mock_monitor
+
+            # AlignmentProcessorのモック
+            mock_alignment = MagicMock()
+            mock_alignment.run_diagnostic.return_value = {
+                "diagnostic_completed": True,
+                "optimal_batch_size": 8,
+                "model_memory": 30.0,
+                "audio_memory": 10.0,
+                "batch_memory_per_segment": 5.0,
+            }
+            aligned_segment = MagicMock(
+                text="テスト", words=[{"word": "テスト", "start": 0.0, "end": 1.0}]
+            )
+            mock_alignment.align.return_value = [aligned_segment]
+            mock_alignment_class.return_value = mock_alignment
 
             # トランスクライバーのモック
             mock_transcriber = MagicMock()
@@ -135,7 +158,8 @@ class TestVADImplementationIntegration(unittest.TestCase):
 
             # トランスクライバーが正しく初期化されたことを確認
             mock_transcriber_class.assert_called_once()
-            self.assertEqual(mock_transcriber_class.call_args[0][1], mock_optimizer)
+            # config is the first positional arg, optimizer and memory_monitor are keyword args
+            self.assertEqual(mock_transcriber_class.call_args[1]["optimizer"], mock_optimizer)
             self.assertEqual(mock_transcriber_class.call_args[1]["memory_monitor"], mock_monitor)
 
             # transcribeが正しく呼ばれたことを確認
@@ -151,12 +175,12 @@ class TestVADImplementationIntegration(unittest.TestCase):
         for i in range(3):
             optimizer.get_optimal_params(50.0 + i * 5)
 
-        # 異なるメモリ使用率でのcompute_type確認
+        # CPU環境（torch.cuda.is_available() == False）では常にint8が返される
         test_cases = [
             (85.0, "int8"),  # 高メモリ使用率
-            (75.0, "float16"),  # 中メモリ使用率
-            (65.0, "float16"),  # 通常使用率
-            (50.0, "float16"),  # 低使用率
+            (75.0, "int8"),  # 中メモリ使用率 - CPU環境ではint8
+            (65.0, "int8"),  # 通常使用率 - CPU環境ではint8
+            (50.0, "int8"),  # 低使用率 - CPU環境ではint8
         ]
 
         for memory_percent, expected_compute_type in test_cases:
@@ -196,19 +220,30 @@ class TestVADImplementationIntegration(unittest.TestCase):
         with (
             patch("core.transcription.Transcriber") as mock_transcriber_class,
             patch("core.alignment_processor.AlignmentProcessor") as mock_alignment_class,
-            patch("os.path.exists", return_value=True),
-            patch("os.stat") as mock_stat,
+            patch("config.Config") as mock_config_class,
         ):
 
-            mock_stat.return_value.st_size = 1000000
+            # Configのモック
+            mock_config = MagicMock()
+            mock_config.transcription.use_api = True
+            mock_config.transcription.api_provider = "openai"
+            mock_config.transcription.api_key = "test-key"
+            mock_config.transcription.model_size = "medium"
+            mock_config.transcription.language = "ja"
+            mock_config.transcription.compute_type = "int8"
+            mock_config.transcription.sample_rate = 16000
+            mock_config.transcription.isolation_mode = "none"
+            mock_config_class.return_value = mock_config
 
             # Transcriberのモック
             mock_transcriber = MagicMock()
             mock_result = MagicMock()
             mock_result.segments = [MagicMock(text="テスト", words=None)]
             mock_result.language = "ja"
+            mock_result.processing_time = 5.0
             mock_result.to_v2_format.return_value = MagicMock(segments=mock_result.segments)
             mock_result.validate_has_words.return_value = (False, ["No words"])
+            mock_result.to_dict.return_value = {"segments": [], "language": "ja"}
             mock_transcriber.transcribe.return_value = mock_result
             mock_transcriber_class.return_value = mock_transcriber
 
@@ -221,9 +256,10 @@ class TestVADImplementationIntegration(unittest.TestCase):
                 "audio_memory": 10.0,
                 "batch_memory_per_segment": 5.0,
             }
-            mock_alignment.align.return_value = [
-                MagicMock(text="テスト", words=[{"word": "テスト", "start": 0.0, "end": 1.0}])
-            ]
+            aligned_segment = MagicMock(
+                text="テスト", words=[{"word": "テスト", "start": 0.0, "end": 1.0}]
+            )
+            mock_alignment.align.return_value = [aligned_segment]
             mock_alignment_class.return_value = mock_alignment
 
             import sys
@@ -251,10 +287,12 @@ class TestVADImplementationIntegration(unittest.TestCase):
             # ffprobeの結果（60秒の音声）
             mock_duration = MagicMock()
             mock_duration.stdout = "60.0"
+            mock_duration.returncode = 0
 
             # ffmpegの結果（無音なし = 全体が音声）
             mock_silence = MagicMock()
             mock_silence.stdout = ""  # 無音検出なし
+            mock_silence.returncode = 0
 
             mock_run.side_effect = [mock_duration, mock_silence]
 

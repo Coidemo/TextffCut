@@ -556,13 +556,9 @@ class TestCLIParser:
         args = parser.parse_args(["video.mp4"])
 
         assert args.model == "medium"
-        assert args.workers == 1
         assert args.use_cache is True
-        assert args.retry == 0
-        assert args.fail_fast is False
-        assert args.dry_run is False
+        assert args.simulate is False
         assert args.quiet is False
-        assert args.json_progress is False
 
     def test_model_option(self):
         """-m オプションでモデルを指定できる"""
