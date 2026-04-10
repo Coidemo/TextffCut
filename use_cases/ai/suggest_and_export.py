@@ -187,10 +187,16 @@ class SuggestAndExportUseCase:
                     client=self.gateway.client,
                 )
                 # 正規化座標(0.0-1.0) → FCPXMLピクセル座標(中心=0,0)に変換
-                res_w, res_h = (1080, 1920) if request.timeline_resolution == "vertical" else (1920, 1080)
+                # ソース動画の解像度を使用（タイムライン解像度ではない）
+                from core.video import VideoInfo
+                try:
+                    vi = VideoInfo.from_file(request.video_path)
+                    src_w, src_h = vi.width, vi.height
+                except Exception:
+                    src_w, src_h = 1920, 1080
                 actual_anchor = (
-                    (result.anchor_x - 0.5) * res_w,
-                    -(result.anchor_y - 0.5) * res_h,
+                    (result.anchor_x - 0.5) * src_w,
+                    -(result.anchor_y - 0.5) * src_h,
                 )
                 logger.info(f"アンカー自動検出: {actual_anchor} — {result.description}")
             except Exception as e:

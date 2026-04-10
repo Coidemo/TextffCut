@@ -354,11 +354,23 @@ class ExportSettingsPresenter(BasePresenter[ExportSettingsViewModel]):
                         import openai
 
                         client = openai.OpenAI(api_key=api_key)
+                        video_p = _Path(str(self.view_model.video_path))
                         result = detect_anchor(
-                            video_path=_Path(str(self.view_model.video_path)),
+                            video_path=video_p,
                             client=client,
                         )
-                        anchor = (result.anchor_x, result.anchor_y)
+                        # 正規化座標(0.0-1.0) → FCPXMLピクセル座標(中心=0,0)に変換
+                        # ソース動画の解像度を使用（タイムライン解像度ではない）
+                        from core.video import VideoInfo
+                        try:
+                            vi = VideoInfo.from_file(str(video_p))
+                            src_w, src_h = vi.width, vi.height
+                        except Exception:
+                            src_w, src_h = 1920, 1080
+                        anchor = (
+                            (result.anchor_x - 0.5) * src_w,
+                            -(result.anchor_y - 0.5) * src_h,
+                        )
                         logger.info(f"アンカー自動検出: {anchor} — {result.description}")
                 except Exception as e:
                     logger.warning(f"アンカー自動検出スキップ: {e}")
