@@ -209,8 +209,8 @@ def _ensure_contrast(
             for tc in text_colors:
                 ratio = _contrast_ratio(tc, line.outer_outline_color)
                 if ratio < _TEXT_VS_OUTLINE_THRESHOLD:
-                    tc_luminance = _relative_luminance(tc)
-                    new_color = "#FFFFFF" if tc_luminance > 0.5 else "#000000"
+                    outline_luminance = _relative_luminance(line.outer_outline_color)
+                    new_color = "#FFFFFF" if outline_luminance < 0.5 else "#000000"
                     if not seg.gradient and seg.color == tc:
                         logger.info(
                             "コントラスト補正: テキスト色 %s → %s (比率%.2f < %.1f)",
@@ -234,7 +234,9 @@ def _measure_content_height(
     offset_y: int = 0,
 ) -> int:
     """デザインをレンダリングして実際のコンテンツ高さを測定する"""
-    tmp_path = Path(tempfile.mktemp(suffix=".png"))
+    fd, tmp_str = tempfile.mkstemp(suffix=".png")
+    os.close(fd)
+    tmp_path = Path(tmp_str)
     try:
         render_title_image(design, tmp_path, width=canvas_width, height=canvas_height,
                            font_dir=font_dir, offset_y=offset_y)
@@ -264,7 +266,7 @@ def _ensure_fit_height(
         content_h = _measure_content_height(
             design, canvas_width, canvas_height, font_dir, offset_y
         )
-        if content_h <= target_height:
+        if content_h <= 0 or content_h <= target_height:
             return design
 
         scale = (target_height / content_h) * 0.95
