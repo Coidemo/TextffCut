@@ -144,6 +144,144 @@ def extract_frame_colors(frame_path: Path, num_colors: int = 5) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# コントラスト計算・自動補正
+# ---------------------------------------------------------------------------
+
+_OUTLINE_VS_BG_THRESHOLD = 3.0
+_TEXT_VS_OUTLINE_THRESHOLD = 2.0
+
+
+def _relative_luminance(hex_color: str) -> float:
+    """WCAG 2.0 相対輝度を計算 (0.0=黒, 1.0=白)"""
+    r, g, b = _hex_to_rgb(hex_color)
+
+    def srgb(c: int) -> float:
+        c_norm = c / 255.0
+        return c_norm / 12.92 if c_norm <= 0.04045 else ((c_norm + 0.055) / 1.055) ** 2.4
+
+    return 0.2126 * srgb(r) + 0.7152 * srgb(g) + 0.0722 * srgb(b)
+
+
+def _contrast_ratio(color1: str, color2: str) -> float:
+    """WCAG 2.0 コントラスト比を計算 (1.0〜21.0)"""
+    l1 = _relative_luminance(color1)
+    l2 = _relative_luminance(color2)
+    lighter = max(l1, l2)
+    darker = min(l1, l2)
+    return (lighter + 0.05) / (darker + 0.05)
+
+
+def _ensure_contrast(
+    design: TitleImageDesign, frame_colors: list[str]
+) -> TitleImageDesign:
+    """テキスト色と背景色のコントラストが低い場合に自動補正する"""
+    import copy
+
+    if not frame_colors:
+        return design
+
+    bg_luminance = _relative_luminance(frame_colors[0])
+    bg_is_light = bg_luminance > 0.4
+
+    design = copy.deepcopy(design)
+
+    for line in design.lines:
+        outline_color = line.outer_outline_color
+        min_contrast_vs_bg = min(
+            _contrast_ratio(outline_color, fc) for fc in frame_colors
+        )
+
+        if min_contrast_vs_bg < _OUTLINE_VS_BG_THRESHOLD:
+            new_outline = "#000000" if bg_is_light else "#FFFFFF"
+            logger.info(
+                "コントラスト補正: アウトライン %s → %s (比率%.2f < %.1f)",
+                outline_color, new_outline, min_contrast_vs_bg, _OUTLINE_VS_BG_THRESHOLD,
+            )
+            line.outer_outline_color = new_outline
+
+        for seg in line.segments:
+            text_colors = []
+            if seg.gradient:
+                text_colors.extend(list(seg.gradient))
+            elif seg.color and seg.color.startswith("#"):
+                text_colors.append(seg.color)
+
+            for tc in text_colors:
+                ratio = _contrast_ratio(tc, line.outer_outline_color)
+                if ratio < _TEXT_VS_OUTLINE_THRESHOLD:
+                    outline_luminance = _relative_luminance(line.outer_outline_color)
+                    new_color = "#FFFFFF" if outline_luminance < 0.5 else "#000000"
+                    if not seg.gradient and seg.color == tc:
+                        logger.info(
+                            "コントラスト補正: テキスト色 %s → %s (比率%.2f < %.1f)",
+                            tc, new_color, ratio, _TEXT_VS_OUTLINE_THRESHOLD,
+                        )
+                        seg.color = new_color
+
+    return design
+
+
+# ---------------------------------------------------------------------------
+# 高さ制限の自動補正
+# ---------------------------------------------------------------------------
+
+
+def _measure_content_height(
+    design: TitleImageDesign,
+    canvas_width: int = 1080,
+    canvas_height: int = 1920,
+    font_dir: Path | None = None,
+    offset_y: int = 0,
+) -> int:
+    """デザインをレンダリングして実際のコンテンツ高さを測定する"""
+    fd, tmp_str = tempfile.mkstemp(suffix=".png")
+    os.close(fd)
+    tmp_path = Path(tmp_str)
+    try:
+        render_title_image(design, tmp_path, width=canvas_width, height=canvas_height,
+                           font_dir=font_dir, offset_y=offset_y)
+        with Image.open(tmp_path) as img:
+            bbox = img.getbbox()
+            if bbox:
+                return bbox[3]
+        return 0
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+
+def _ensure_fit_height(
+    design: TitleImageDesign,
+    target_height: int,
+    canvas_width: int = 1080,
+    canvas_height: int = 1920,
+    font_dir: Path | None = None,
+    offset_y: int = 0,
+) -> TitleImageDesign:
+    """コンテンツがtarget_heightに収まるようにフォントサイズを縮小する"""
+    import copy
+
+    design = copy.deepcopy(design)
+
+    for _ in range(5):
+        content_h = _measure_content_height(
+            design, canvas_width, canvas_height, font_dir, offset_y
+        )
+        if content_h <= 0 or content_h <= target_height:
+            return design
+
+        scale = (target_height / content_h) * 0.95
+        logger.info(
+            "高さ補正: %dpx → target %dpx (縮小率%.3f)", content_h, target_height, scale,
+        )
+        for line in design.lines:
+            for seg in line.segments:
+                seg.font_size = max(30, int(seg.font_size * scale))
+        design.line_spacing = max(0, int(design.line_spacing * scale))
+
+    return design
+
+
+# ---------------------------------------------------------------------------
 # AIタイトルデザイン
 # ---------------------------------------------------------------------------
 
@@ -958,6 +1096,12 @@ def generate_title_image(
         design = create_fallback_design(title)
         logger.info(f"フォールバックデザイン使用: {title}")
 
+    # コントラスト補正 + 高さ制限
+    if frame_colors:
+        design = _ensure_contrast(design, frame_colors)
+    if target_size:
+        design = _ensure_fit_height(design, target_size[1], width, height, font_dir, offset_y)
+
     # 描画
     try:
         result_path, img_w, img_h = render_title_image(
@@ -1018,6 +1162,10 @@ def _generate_with_pipeline(
             return None
 
         logger.info(f"Stage 1: {len(candidates)}個の有効な候補を取得")
+
+        # コントラスト補正（Stage 2 前に適用）
+        if frame_colors:
+            candidates = [_ensure_contrast(c, frame_colors) for c in candidates]
 
         # Stage 2: フィルタリング（レンダリング済み画像 + 全tmpディレクトリ）
         logger.info("Stage 2: フィルタリング中...")
@@ -1285,10 +1433,16 @@ def generate_title_images_batch(
             output_path = output_dir / f"{i+1:02d}_{sanitized}.png"
 
             if designs[i] is not None:
-                # キャッシュありの場合はそのまま描画
+                # キャッシュありの場合: コントラスト補正 + 高さ制限を適用して描画
+                cached_design = designs[i]
+                if frame_colors:
+                    cached_design = _ensure_contrast(cached_design, frame_colors)
+                cached_design = _ensure_fit_height(
+                    cached_design, target_size[1], width, height, font_dir, offset_y,
+                )
                 try:
                     result_path, img_w, img_h = render_title_image(
-                        design=designs[i],
+                        design=cached_design,
                         output_path=output_path,
                         width=width,
                         height=height,
@@ -1321,6 +1475,11 @@ def generate_title_images_batch(
                 else:
                     # パイプライン失敗時はフォールバック
                     fb_design = create_fallback_design(s.title)
+                    if frame_colors:
+                        fb_design = _ensure_contrast(fb_design, frame_colors)
+                    fb_design = _ensure_fit_height(
+                        fb_design, target_size[1], width, height, font_dir, offset_y,
+                    )
                     result_path, img_w, img_h = render_title_image(
                         design=fb_design, output_path=output_path,
                         width=width, height=height, font_dir=font_dir,
@@ -1354,11 +1513,15 @@ def generate_title_images_batch(
         except Exception as e:
             logger.warning(f"バッチAI呼び出し失敗: {e}")
 
-    # フォールバック + 描画
+    # フォールバック + コントラスト補正 + 描画
     result_paths: dict[int, Path] = {}
     for i, s in enumerate(suggestions):
         if designs[i] is None:
             designs[i] = create_fallback_design(s.title)
+
+        # コントラスト補正
+        if frame_colors:
+            designs[i] = _ensure_contrast(designs[i], frame_colors)
 
         sanitized = sanitize_fn(s.title)
         output_path = output_dir / f"{i+1:02d}_{sanitized}.png"
