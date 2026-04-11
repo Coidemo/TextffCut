@@ -60,6 +60,8 @@ class JapaneseLineBreakRules:
     def _analyze(cls, text: str) -> Any:
         """テキスト解析（LRUキャッシュ付き、maxsize=16）"""
         if text in cls._doc_cache:
+            cls._doc_cache_order.remove(text)
+            cls._doc_cache_order.append(text)
             return cls._doc_cache[text]
         nlp = cls._get_nlp()
         if not nlp:

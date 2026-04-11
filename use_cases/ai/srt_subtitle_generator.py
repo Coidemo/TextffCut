@@ -21,6 +21,9 @@ logger = logging.getLogger(__name__)
 DEFAULT_MAX_CHARS_PER_LINE = 11
 DEFAULT_MAX_LINES = 2
 
+# 事前並列化で文字起こし失敗を示すセンチネル値
+_SRT_TRANSCRIPTION_FAILED: list[dict] = []
+
 
 @dataclass
 class TextBlock:
@@ -50,12 +53,14 @@ def generate_srt(
     if not suggestion.time_ranges:
         return None
 
-    # 事前文字起こし結果があればそれを使用
-    if precomputed_segments is not None:
+    # 事前文字起こし結果があればそれを使用（失敗済みならWhisper再試行をスキップ）
+    if precomputed_segments is _SRT_TRANSCRIPTION_FAILED:
+        pass  # フォールバックへ
+    elif precomputed_segments is not None:
         return _generate_from_segments(precomputed_segments, output_path, max_chars_per_line, max_lines)
 
     # 切り抜き後の音声を結合して再文字起こし→正確なタイムスタンプを取得
-    if video_path:
+    elif video_path:
         segments = _transcribe_output_audio(suggestion.time_ranges, video_path)
         if segments:
             return _generate_from_segments(segments, output_path, max_chars_per_line, max_lines)

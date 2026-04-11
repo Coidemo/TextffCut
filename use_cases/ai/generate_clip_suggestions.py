@@ -122,7 +122,6 @@ class GenerateClipSuggestionsUseCase:
             text = self._transcribe_candidate(candidates[i], video_path)
             return (i, text) if text else (i, candidates[i].text[:200])
 
-        transcriptions = []
         with ThreadPoolExecutor(max_workers=min(len(candidates), 4)) as executor:
             transcriptions = list(executor.map(_transcribe, range(len(candidates))))
 
