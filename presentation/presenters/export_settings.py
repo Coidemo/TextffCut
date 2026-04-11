@@ -355,12 +355,17 @@ class ExportSettingsPresenter(BasePresenter[ExportSettingsViewModel]):
 
                         client = openai.OpenAI(api_key=api_key)
                         video_p = _Path(str(self.view_model.video_path))
+                        # 時間範囲の中間時刻をフレーム抽出点に使用
+                        _frame_t = 5.0
+                        if legacy_ranges:
+                            _first_r = legacy_ranges[0]
+                            _frame_t = (_first_r[0] + _first_r[1]) / 2
                         result = detect_anchor(
                             video_path=video_p,
                             client=client,
+                            frame_time=_frame_t,
                         )
-                        # 正規化座標(0.0-1.0) → FCPXMLピクセル座標(中心=0,0)に変換
-                        # ソース動画の解像度を使用（タイムライン解像度ではない）
+                        # 正規化座標(0-1) → FCPXML座標系に変換
                         from core.video import VideoInfo
                         try:
                             vi = VideoInfo.from_file(str(video_p))
@@ -368,8 +373,8 @@ class ExportSettingsPresenter(BasePresenter[ExportSettingsViewModel]):
                         except Exception:
                             src_w, src_h = 1920, 1080
                         anchor = (
-                            (result.anchor_x - 0.5) * src_w,
-                            -(result.anchor_y - 0.5) * src_h,
+                            (result.anchor_x - 0.5) * 100 / scale[0],
+                            -(result.anchor_y - 0.5) * 100 * src_w / src_h / scale[1],
                         )
                         logger.info(f"アンカー自動検出: {anchor} — {result.description}")
                 except Exception as e:

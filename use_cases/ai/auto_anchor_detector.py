@@ -33,7 +33,7 @@ DEFAULT_PROMPT = """\
 ```json
 {
   "anchor_x": 0.5,
-  "anchor_y": 0.3,
+  "anchor_y": 0.5,
   "description": "判定理由の簡潔な説明"
 }
 ```
@@ -135,19 +135,19 @@ def detect_anchor(
         ],
         max_tokens=256,
         temperature=0.2,
-        response_format={"type": "json_object"},
     )
 
     text = response.choices[0].message.content or ""
+    logger.info("アンカー検出APIレスポンス: %s", text[:200])
     try:
         json_str = _extract_json(text)
         data = json.loads(json_str)
     except (ValueError, json.JSONDecodeError) as e:
-        logger.warning("アンカー検出JSON解析失敗: %s", e)
-        return AnchorResult(anchor_x=0.5, anchor_y=0.3, description="解析失敗、デフォルト使用")
+        logger.warning("アンカー検出JSON解析失敗: %s — レスポンス: %s", e, text[:200])
+        return AnchorResult(anchor_x=0.5, anchor_y=0.5, description="解析失敗、デフォルト使用")
 
     ax = float(data.get("anchor_x", 0.5))
-    ay = float(data.get("anchor_y", 0.3))
+    ay = float(data.get("anchor_y", 0.5))
     ax = max(0.0, min(1.0, ax))
     ay = max(0.0, min(1.0, ay))
 

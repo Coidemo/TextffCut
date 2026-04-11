@@ -370,8 +370,8 @@ class TestDetectAnchor:
         assert call_kwargs["max_tokens"] == 256
         assert call_kwargs["temperature"] == pytest.approx(0.2)
 
-    def test_response_format_is_json_object(self, tmp_path):
-        """response_format が json_object に設定されること"""
+    def test_response_format_not_set(self, tmp_path):
+        """response_format が設定されないこと（Vision+json_objectの互換性問題を回避）"""
         video_path = tmp_path / "video.mp4"
         video_path.touch()
         client = _make_mock_client(_make_valid_response_json())
@@ -380,7 +380,7 @@ class TestDetectAnchor:
             detect_anchor(video_path, client)
 
         call_kwargs = client.chat.completions.create.call_args[1]
-        assert call_kwargs.get("response_format") == {"type": "json_object"}
+        assert "response_format" not in call_kwargs
 
     def test_frame_base64_included_in_message(self, tmp_path):
         """フレーム画像が base64 エンコードされてメッセージに含まれること"""
@@ -521,7 +521,7 @@ class TestDetectAnchor:
 
         assert isinstance(result, AnchorResult)
         assert result.anchor_x == pytest.approx(0.5)
-        assert result.anchor_y == pytest.approx(0.3)
+        assert result.anchor_y == pytest.approx(0.5)
         assert "デフォルト" in result.description
 
     def test_malformed_json_returns_default(self, tmp_path):
@@ -534,7 +534,7 @@ class TestDetectAnchor:
             result = detect_anchor(video_path, client)
 
         assert result.anchor_x == pytest.approx(0.5)
-        assert result.anchor_y == pytest.approx(0.3)
+        assert result.anchor_y == pytest.approx(0.5)
 
     def test_empty_response_returns_default(self, tmp_path):
         """API が空文字列を返した場合にフォールバックすること"""
@@ -551,7 +551,7 @@ class TestDetectAnchor:
 
         assert isinstance(result, AnchorResult)
         assert result.anchor_x == pytest.approx(0.5)
-        assert result.anchor_y == pytest.approx(0.3)
+        assert result.anchor_y == pytest.approx(0.5)
 
     def test_none_response_returns_default(self, tmp_path):
         """API が None コンテンツを返した場合にフォールバックすること"""
@@ -633,7 +633,7 @@ class TestDetectAnchor:
         assert result.anchor_x == pytest.approx(0.5)
 
     def test_missing_anchor_y_uses_default(self, tmp_path):
-        """JSON に anchor_y がない場合にデフォルト 0.3 が使われること"""
+        """JSON に anchor_y がない場合にデフォルト 0.5 が使われること"""
         video_path = tmp_path / "video.mp4"
         video_path.touch()
         content = json.dumps({"anchor_x": 0.6, "description": "anchor_y なし"})
@@ -642,7 +642,7 @@ class TestDetectAnchor:
         with self._patch_extract_frame():
             result = detect_anchor(video_path, client)
 
-        assert result.anchor_y == pytest.approx(0.3)
+        assert result.anchor_y == pytest.approx(0.5)
 
     def test_missing_description_uses_empty_string(self, tmp_path):
         """JSON に description がない場合に空文字列が使われること"""

@@ -182,12 +182,18 @@ class SuggestAndExportUseCase:
             try:
                 from use_cases.ai.auto_anchor_detector import detect_anchor
 
+                # 最初の候補の中間時刻をフレーム抽出点に使用
+                frame_t = 5.0
+                if suggestions and suggestions[0].time_ranges:
+                    first_range = suggestions[0].time_ranges[0]
+                    frame_t = (first_range[0] + first_range[1]) / 2
                 result = detect_anchor(
                     video_path=request.video_path,
                     client=self.gateway.client,
+                    frame_time=frame_t,
                 )
-                # 正規化座標(0.0-1.0) → FCPXMLピクセル座標(中心=0,0)に変換
-                # ソース動画の解像度を使用（タイムライン解像度ではない）
+                # 正規化座標(0-1) → FCPXML座標系に変換
+                # FCPXML anchor座標系: X=percentage*100基準, Y=aspect比補正
                 from core.video import VideoInfo
                 try:
                     vi = VideoInfo.from_file(request.video_path)
@@ -195,8 +201,8 @@ class SuggestAndExportUseCase:
                 except Exception:
                     src_w, src_h = 1920, 1080
                 actual_anchor = (
-                    (result.anchor_x - 0.5) * src_w,
-                    -(result.anchor_y - 0.5) * src_h,
+                    (result.anchor_x - 0.5) * 100 / request.scale[0],
+                    -(result.anchor_y - 0.5) * 100 * src_w / src_h / request.scale[1],
                 )
                 logger.info(f"アンカー自動検出: {actual_anchor} — {result.description}")
             except Exception as e:

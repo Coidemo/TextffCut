@@ -16,7 +16,7 @@
 ```json
 {
   "anchor_x": 0.5,
-  "anchor_y": 0.3,
+  "anchor_y": 0.5,
   "description": "判定理由の簡潔な説明"
 }
 ```

@@ -754,7 +754,13 @@ def _merge_short_entries(
         )
 
     changed = True
+    max_iterations = 50
+    iteration = 0
     while changed:
+        iteration += 1
+        if iteration > max_iterations:
+            logger.warning("短エントリ統合ループが収束しません（%d回）。打ち切ります。", max_iterations)
+            break
         changed = False
         new_entries = []
         i = 0
