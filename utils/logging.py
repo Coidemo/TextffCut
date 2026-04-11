@@ -60,25 +60,25 @@ class TextffCutLogger:
 
         self.log_file = log_file
 
-    def debug(self, message: str) -> None:
+    def debug(self, message: str, *args: object) -> None:
         """デバッグレベルのログ"""
-        self.logger.debug(message)
+        self.logger.debug(message, *args)
 
-    def info(self, message: str) -> None:
+    def info(self, message: str, *args: object) -> None:
         """情報レベルのログ"""
-        self.logger.info(message)
+        self.logger.info(message, *args)
 
-    def warning(self, message: str) -> None:
+    def warning(self, message: str, *args: object) -> None:
         """警告レベルのログ"""
-        self.logger.warning(message)
+        self.logger.warning(message, *args)
 
-    def error(self, message: str, exc_info: bool = True) -> None:
+    def error(self, message: str, *args: object, exc_info: bool = True) -> None:
         """エラーレベルのログ"""
-        self.logger.error(message, exc_info=exc_info)
+        self.logger.error(message, *args, exc_info=exc_info)
 
-    def critical(self, message: str, exc_info: bool = True) -> None:
+    def critical(self, message: str, *args: object, exc_info: bool = True) -> None:
         """クリティカルレベルのログ"""
-        self.logger.critical(message, exc_info=exc_info)
+        self.logger.critical(message, *args, exc_info=exc_info)
 
 
 # グローバルロガーインスタンス

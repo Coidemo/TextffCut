@@ -152,6 +152,7 @@ def run_setup() -> None:
     console.print("\n[bold]2. OpenAI APIキー[/]")
     console.print("  [dim]clipコマンド: 約2-5円/回、API文字起こし: 約$0.006/分[/]")
     from utils.api_key_manager import api_key_manager
+
     current_api_key = api_key_manager.load_api_key() or config.get("openai_api_key", "")
     if current_api_key:
         console.print(f"  現在の設定: [green]{_mask_key(current_api_key)}[/]")
@@ -229,6 +230,7 @@ def _format_summary(config: dict) -> str:
 
     # APIキー（暗号化ファイル → config.json）
     from utils.api_key_manager import api_key_manager as _akm
+
     api_key = _akm.load_api_key() or config.get("openai_api_key", "")
     if api_key:
         lines.append(f"OpenAI API: [green]{_mask_key(api_key)}[/]")

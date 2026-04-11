@@ -236,7 +236,10 @@ class TestDrawTextWithOutline:
         img, draw = self._make_draw()
         font = self._get_font()
         _draw_text_with_outline(
-            draw, (10, 10), "Hi", font,
+            draw,
+            (10, 10),
+            "Hi",
+            font,
             fill="#FFFFFF",
             outer_width=0,
             inner_width=0,
@@ -249,16 +252,25 @@ class TestDrawTextWithOutline:
 
         img_no, draw_no = self._make_draw()
         _draw_text_with_outline(
-            draw_no, (10, 10), "Hi", font,
-            fill="#FFFFFF", outer_width=0, inner_width=0,
+            draw_no,
+            (10, 10),
+            "Hi",
+            font,
+            fill="#FFFFFF",
+            outer_width=0,
+            inner_width=0,
         )
         px_no = self._count_non_transparent(img_no)
 
         img_out, draw_out = self._make_draw()
         _draw_text_with_outline(
-            draw_out, (10, 10), "Hi", font,
+            draw_out,
+            (10, 10),
+            "Hi",
+            font,
             fill="#FFFFFF",
-            outer_color="#000000", outer_width=4,
+            outer_color="#000000",
+            outer_width=4,
             inner_width=0,
         )
         px_out = self._count_non_transparent(img_out)
@@ -271,19 +283,29 @@ class TestDrawTextWithOutline:
 
         img_single, draw_single = self._make_draw()
         _draw_text_with_outline(
-            draw_single, (10, 10), "Hi", font,
+            draw_single,
+            (10, 10),
+            "Hi",
+            font,
             fill="#FFFFFF",
-            outer_color="#000000", outer_width=3,
-            inner_color="#FFFFFF", inner_width=0,
+            outer_color="#000000",
+            outer_width=3,
+            inner_color="#FFFFFF",
+            inner_width=0,
         )
         px_single = self._count_non_transparent(img_single)
 
         img_double, draw_double = self._make_draw()
         _draw_text_with_outline(
-            draw_double, (10, 10), "Hi", font,
+            draw_double,
+            (10, 10),
+            "Hi",
+            font,
             fill="#FFFFFF",
-            outer_color="#000000", outer_width=3,
-            inner_color="#FF0000", inner_width=2,
+            outer_color="#000000",
+            outer_width=3,
+            inner_color="#FF0000",
+            inner_width=2,
         )
         px_double = self._count_non_transparent(img_double)
 
@@ -295,8 +317,13 @@ class TestDrawTextWithOutline:
         font = self._get_font()
         img, draw = self._make_draw(size=(300, 100))
         _draw_text_with_outline(
-            draw, (50, 20), "X", font,
-            fill="#FFFFFF", outer_width=0, inner_width=0,
+            draw,
+            (50, 20),
+            "X",
+            font,
+            fill="#FFFFFF",
+            outer_width=0,
+            inner_width=0,
         )
         data = list(img.getdata())
         width = img.width
@@ -316,10 +343,15 @@ class TestDrawTextWithOutline:
         font = self._get_font()
         img, draw = self._make_draw()
         _draw_text_with_outline(
-            draw, (10, 10), "Hi", font,
+            draw,
+            (10, 10),
+            "Hi",
+            font,
             fill="#FFFFFF",
-            outer_color="#FF0000", outer_width=4,
-            inner_color="#0000FF", inner_width=2,
+            outer_color="#FF0000",
+            outer_width=4,
+            inner_color="#0000FF",
+            inner_width=2,
         )
         pixels = list(img.getdata())
         colors = {px[:3] for px in pixels if px[3] > 0}

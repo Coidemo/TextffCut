@@ -503,7 +503,7 @@ class TestBuildFilterComplexBGM:
         filters, _, aud = build_filter_complex(
             base_idx=0,
             resolution=(1080, 1920),
-            frame_idx=1,   # ビデオフィルタが必要（そうでなければ空タプル）
+            frame_idx=1,  # ビデオフィルタが必要（そうでなければ空タプル）
             bgm_idx=2,
             bgm_volume_db=-25,
         )
@@ -721,8 +721,7 @@ class TestBuildFilterComplexAllCombined:
     def test_all_labels_present(self):
         """全フィルタラベルが filter_complex に含まれる"""
         filters, _, _ = self._build_all()
-        expected_labels = ["scaled", "frame_scaled", "framed", "title_scaled", "titled",
-                           "sub0", "bgm_vol", "se0"]
+        expected_labels = ["scaled", "frame_scaled", "framed", "title_scaled", "titled", "sub0", "bgm_vol", "se0"]
         for label in expected_labels:
             assert label in filters, f"ラベル '{label}' が filter_complex に見つからない"
 

@@ -2,9 +2,13 @@
 日本語の自然な改行処理
 
 禁則処理ルールに基づいて、日本語テキストを自然な位置で改行する。
+GiNZA（spaCy）による文節境界・品詞情報を活用。
 """
 
+from __future__ import annotations
+
 import re
+from typing import Any
 
 from utils.logging import get_logger
 
@@ -31,54 +35,133 @@ class JapaneseLineBreakRules:
     # 一般的な助詞（分割を優先する位置）
     PARTICLES = set("はがをにでとも")
 
-    # 形態素解析器（遅延初期化）
-    _tokenizer = None
+    # spaCy/GiNZA NLPモデル（遅延初期化）
+    _nlp_model = None
+    # 直前の解析キャッシュ
+    _doc_cache_text = None
+    _doc_cache_doc = None
 
     @classmethod
-    def _get_tokenizer(cls):
-        """形態素解析器の取得（シングルトン）"""
-        if cls._tokenizer is None:
+    def _get_nlp(cls) -> Any:
+        """spaCy/GiNZA NLPモデルの取得（シングルトン）"""
+        if cls._nlp_model is None:
             try:
-                from janome.tokenizer import Tokenizer
+                import spacy
 
-                cls._tokenizer = Tokenizer()
-                logger.info("janome形態素解析器を初期化しました")
-            except ImportError:
-                logger.warning("janomeがインストールされていません。基本的な改行処理のみ使用します。")
-                cls._tokenizer = False
-        return cls._tokenizer
+                cls._nlp_model = spacy.load("ja_ginza", exclude=["compound_splitter"])
+                logger.info("GiNZA NLPモデルを初期化しました")
+            except (ImportError, OSError) as e:
+                logger.warning(f"GiNZAの初期化に失敗しました: {e}")
+                cls._nlp_model = False
+        return cls._nlp_model
+
+    @classmethod
+    def _analyze(cls, text: str) -> Any:
+        """テキスト解析（直前キャッシュ付き）"""
+        if cls._doc_cache_text == text:
+            return cls._doc_cache_doc
+        nlp = cls._get_nlp()
+        if not nlp:
+            return None
+        doc = nlp(text)
+        cls._doc_cache_text = text
+        cls._doc_cache_doc = doc
+        return doc
+
+    @staticmethod
+    def _normalize_pos_tag(tag: str) -> str:
+        """UniDic tag_ → IPADIC互換形式（大分類-小分類）
+
+        例:
+            名詞-普通名詞-サ変可能 → 名詞-普通名詞
+            動詞-非自立可能 → 動詞-非自立
+            感動詞-フィラー → フィラー
+            助詞-格助詞 → 助詞-格助詞
+        """
+        if tag == "感動詞-フィラー":
+            return "フィラー"
+        # 非自立可能 → 非自立
+        tag = tag.replace("-非自立可能", "-非自立")
+        parts = tag.split("-")
+        # 大分類-小分類 のみ（第3レベル以下は無視）
+        if len(parts) >= 2 and parts[1] != "*":
+            return f"{parts[0]}-{parts[1]}"
+        return parts[0]
+
+    @classmethod
+    def _get_tokenizer(cls) -> _CompatTokenizer | bool:
+        """後方互換シム（srt_diff_exporter用）"""
+        nlp = cls._get_nlp()
+        if not nlp:
+            return False
+        return cls._CompatTokenizer(cls)
+
+    class _CompatTokenizer:
+        """janome互換のトークナイザーシム"""
+
+        def __init__(self, parent_cls: type) -> None:
+            self._cls = parent_cls
+
+        def tokenize(self, text: str) -> list[JapaneseLineBreakRules._CompatToken]:
+            doc = self._cls._analyze(text)
+            if doc is None:
+                return []
+            return [self._cls._CompatToken(t) for t in doc]
+
+    class _CompatToken:
+        """janome互換のトークンシム"""
+
+        def __init__(self, spacy_token: Any) -> None:
+            self.surface = spacy_token.text
+            # janome互換: カンマ区切り品詞文字列
+            tag = JapaneseLineBreakRules._normalize_pos_tag(spacy_token.tag_)
+            parts = tag.split("-")
+            padded = parts + ["*"] * (4 - len(parts))
+            self.part_of_speech = ",".join(padded[:4])
 
     @classmethod
     def get_word_boundaries(cls, text: str) -> list[int]:
         """形態素解析による単語境界の取得"""
-        tokenizer = cls._get_tokenizer()
-        if not tokenizer:
+        doc = cls._analyze(text)
+        if doc is None:
             return []
 
         boundaries = []
-        pos = 0
-        for token in tokenizer.tokenize(text):
-            pos += len(token.surface)
+        for token in doc:
+            pos = token.idx + len(token.text)
             boundaries.append(pos)
-            logger.debug(f"単語: '{token.surface}' 境界位置: {pos}")
+            logger.debug(f"単語: '{token.text}' 境界位置: {pos}")
         return boundaries
 
     @classmethod
     def get_word_boundaries_with_pos(cls, text: str) -> list[tuple[int, str, str]]:
         """形態素解析による単語境界と品詞情報の取得"""
-        tokenizer = cls._get_tokenizer()
-        if not tokenizer:
+        doc = cls._analyze(text)
+        if doc is None:
             return []
 
         boundaries = []
-        pos = 0
-        for token in tokenizer.tokenize(text):
-            pos += len(token.surface)
-            # (境界位置, 表層形, 品詞)
-            pos_tag = token.part_of_speech.split(",")[0]
-            boundaries.append((pos, token.surface, pos_tag))
-            logger.debug(f"単語: '{token.surface}' 品詞: {pos_tag} 境界位置: {pos}")
+        for token in doc:
+            pos = token.idx + len(token.text)
+            pos_tag = cls._normalize_pos_tag(token.tag_)
+            boundaries.append((pos, token.text, pos_tag))
+            logger.debug(f"単語: '{token.text}' 品詞: {pos_tag} 境界位置: {pos}")
         return boundaries
+
+    @classmethod
+    def get_bunsetu_boundaries(cls, text: str) -> set[int]:
+        """文節の開始文字位置を返す（最初の文節を除く）"""
+        doc = cls._analyze(text)
+        if doc is None:
+            return set()
+        from ginza import bunsetu_spans
+
+        bounds = set()
+        for sent in doc.sents:
+            for span in bunsetu_spans(sent):
+                if span.start_char > 0:
+                    bounds.add(span.start_char)
+        return bounds
 
     @classmethod
     def evaluate_break_position(cls, boundaries: list[tuple[int, str, str]], position: int) -> float:

@@ -141,14 +141,24 @@ def _concat_clips(
             clip_path = tmpdir / f"clip_{i:04d}.mp4"
             duration = end - start
             cmd = [
-                "ffmpeg", "-y",
-                "-ss", str(start),
-                "-t", str(duration),
-                "-i", str(video_path),
-                "-c:v", "libx264", "-crf", "18",
-                "-c:a", "aac",
-                "-r", str(fps),
-                "-avoid_negative_ts", "make_zero",
+                "ffmpeg",
+                "-y",
+                "-ss",
+                str(start),
+                "-t",
+                str(duration),
+                "-i",
+                str(video_path),
+                "-c:v",
+                "libx264",
+                "-crf",
+                "18",
+                "-c:a",
+                "aac",
+                "-r",
+                str(fps),
+                "-avoid_negative_ts",
+                "make_zero",
                 str(clip_path),
             ]
             _run_ffmpeg(cmd, timeout=max(30, int(duration * 5)))
@@ -168,10 +178,16 @@ def _concat_clips(
 
         # 結合
         cmd = [
-            "ffmpeg", "-y",
-            "-f", "concat", "-safe", "0",
-            "-i", str(concat_list),
-            "-c", "copy",
+            "ffmpeg",
+            "-y",
+            "-f",
+            "concat",
+            "-safe",
+            "0",
+            "-i",
+            str(concat_list),
+            "-c",
+            "copy",
             str(output_path),
         ]
         total_dur = sum(e - s for s, e in time_ranges)
@@ -276,21 +292,29 @@ def _compose_final(
         cmd.extend(["-map", f"{base_idx}:v", "-map", f"{base_idx}:a"])
 
     # --- 出力設定 ---
-    cmd.extend([
-        "-c:v", video_codec,
-        "-crf", str(crf),
-        "-c:a", audio_codec,
-        "-b:a", "192k",
-        "-r", str(fps),
-        "-shortest",
-        str(output_path),
-    ])
+    cmd.extend(
+        [
+            "-c:v",
+            video_codec,
+            "-crf",
+            str(crf),
+            "-c:a",
+            audio_codec,
+            "-b:a",
+            "192k",
+            "-r",
+            str(fps),
+            "-shortest",
+            str(output_path),
+        ]
+    )
 
     # ベース動画の長さからタイムアウトを推定
     probe = subprocess.run(
-        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
-         "-of", "csv=p=0", str(base_video)],
-        capture_output=True, text=True, timeout=10,
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(base_video)],
+        capture_output=True,
+        text=True,
+        timeout=10,
     )
     try:
         duration = float(probe.stdout.strip())
@@ -333,16 +357,17 @@ def build_filter_complex(
 
     # スケール（解像度合わせ）
     scale_label = "scaled"
-    filters.append(f"{current_video}scale={w}:{h}:force_original_aspect_ratio=decrease,"
-                   f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2[{scale_label}]")
+    filters.append(
+        f"{current_video}scale={w}:{h}:force_original_aspect_ratio=decrease,"
+        f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2[{scale_label}]"
+    )
     current_video = f"[{scale_label}]"
 
     # フレームオーバーレイ（全編）
     if frame_idx is not None:
         out_label = "framed"
         filters.append(
-            f"[{frame_idx}:v]scale={w}:{h}[frame_scaled];"
-            f"{current_video}[frame_scaled]overlay=0:0[{out_label}]"
+            f"[{frame_idx}:v]scale={w}:{h}[frame_scaled];" f"{current_video}[frame_scaled]overlay=0:0[{out_label}]"
         )
         current_video = f"[{out_label}]"
 
@@ -386,18 +411,14 @@ def build_filter_complex(
             se_vol = db_to_linear(se_volume_db)
             delay_ms = int(placement.timestamp * 1000)
             se_label = f"se{i}"
-            filters.append(
-                f"[{idx}:a]volume={se_vol:.6f},"
-                f"adelay={delay_ms}|{delay_ms}[{se_label}]"
-            )
+            filters.append(f"[{idx}:a]volume={se_vol:.6f}," f"adelay={delay_ms}|{delay_ms}[{se_label}]")
             audio_parts.append(f"[{se_label}]")
 
     if len(audio_parts) > 1:
         audio_out = "outa"
         amix_inputs = "".join(audio_parts)
         filters.append(
-            f"{amix_inputs}amix=inputs={len(audio_parts)}:"
-            f"duration=first:dropout_transition=2[{audio_out}]"
+            f"{amix_inputs}amix=inputs={len(audio_parts)}:" f"duration=first:dropout_transition=2[{audio_out}]"
         )
     else:
         audio_out = f"{base_idx}:a"

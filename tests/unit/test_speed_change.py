@@ -30,8 +30,7 @@ class TestCreateSpeedChangedVideo(unittest.TestCase):
     @patch("core.video.ensure_directory")
     def test_cache_skips_ffmpeg(self, mock_ensure, mock_run):
         """既存ファイルがあればFFmpegをスキップ"""
-        with patch.object(Path, "exists", return_value=True), \
-             patch.object(Path, "stat") as mock_stat:
+        with patch.object(Path, "exists", return_value=True), patch.object(Path, "stat") as mock_stat:
             mock_stat.return_value = MagicMock(st_size=1000)
             result = self.vp.create_speed_changed_video("/tmp/in.mp4", "/tmp/out.mp4", 1.2)
 
@@ -235,8 +234,11 @@ class TestSimpleFcpxmlScaleAndTimeline(unittest.TestCase):
 
         try:
             uc._export_simple_fcpxml(
-                suggestion, Path("/tmp/video.mp4"), output_path,
-                scale=(2.0, 2.0), anchor=(10.0, 5.0),
+                suggestion,
+                Path("/tmp/video.mp4"),
+                output_path,
+                scale=(2.0, 2.0),
+                anchor=(10.0, 5.0),
             )
             xml = output_path.read_text()
             self.assertIn('scale="2 2"', xml)
@@ -258,7 +260,9 @@ class TestSimpleFcpxmlScaleAndTimeline(unittest.TestCase):
 
         try:
             uc._export_simple_fcpxml(
-                suggestion, Path("/tmp/video.mp4"), output_path,
+                suggestion,
+                Path("/tmp/video.mp4"),
+                output_path,
                 timeline_resolution="vertical",
             )
             xml = output_path.read_text()
@@ -283,7 +287,9 @@ class TestSimpleFcpxmlScaleAndTimeline(unittest.TestCase):
 
         try:
             uc._export_simple_fcpxml(
-                suggestion, Path("/tmp/video.mp4"), output_path,
+                suggestion,
+                Path("/tmp/video.mp4"),
+                output_path,
             )
             xml = output_path.read_text()
             self.assertIn('width="1920"', xml)

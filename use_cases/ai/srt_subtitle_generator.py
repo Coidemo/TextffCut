@@ -285,6 +285,123 @@ def generate_srt_entries_from_segments(
     return _entries_from_char_times(full_text, char_times, seg_bounds, max_chars_per_line, max_lines)
 
 
+# 字幕内で除去する安全なフィラー（長い順）
+SUBTITLE_FILLER_WORDS = sorted(
+    [
+        "やっぱり",
+        "やっぱ",
+        "えーっと",
+        "えっとね",
+        "えーと",
+        "えっと",
+        "あのー",
+        "なんかその",
+        "なんかこう",
+        "なんか",
+        "あのね",
+        "えー",
+    ],
+    key=len,
+    reverse=True,
+)
+
+
+def _remove_inline_fillers(
+    full_text: str,
+    char_times: list[tuple[float, float]],
+    seg_bounds: set[int],
+) -> tuple[str, list[tuple[float, float]], set[int]]:
+    """テキスト内のフィラーを除去し、char_timesとseg_boundsを調整する。
+
+    Returns:
+        (除去後テキスト, 調整後char_times, 調整後seg_bounds)
+    """
+    if not full_text:
+        return full_text, char_times, seg_bounds
+
+    # 除去する区間を収集 [(start_pos, end_pos), ...]
+    remove_ranges: list[tuple[int, int]] = []
+
+    # 1. GiNZA形態素解析でフィラーPOSを検出
+    try:
+        from core.japanese_line_break import JapaneseLineBreakRules
+
+        doc = JapaneseLineBreakRules._analyze(full_text)
+        if doc is not None:
+            for token in doc:
+                tag = JapaneseLineBreakRules._normalize_pos_tag(token.tag_)
+                if tag == "フィラー":
+                    remove_ranges.append((token.idx, token.idx + len(token.text)))
+    except ImportError:
+        pass
+
+    # 2. SUBTITLE_FILLER_WORDSによる追加検出
+    for filler in SUBTITLE_FILLER_WORDS:
+        start = 0
+        while True:
+            idx = full_text.find(filler, start)
+            if idx == -1:
+                break
+            filler_end = idx + len(filler)
+            # 既にカバーされていなければ追加
+            already_covered = any(rs <= idx and filler_end <= re for rs, re in remove_ranges)
+            if not already_covered:
+                remove_ranges.append((idx, filler_end))
+            start = filler_end
+
+    if not remove_ranges:
+        return full_text, char_times, seg_bounds
+
+    # 重複・重なりを統合してソート
+    remove_ranges.sort()
+    merged: list[tuple[int, int]] = []
+    for s, e in remove_ranges:
+        if merged and s <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], e))
+        else:
+            merged.append((s, e))
+
+    # 除去範囲に含まれる位置を集合化
+    remove_set = set()
+    for s, e in merged:
+        for i in range(s, e):
+            remove_set.add(i)
+
+    # 新しいテキスト・char_timesを構築
+    new_text_chars = []
+    new_char_times = []
+    # 位置マッピング: old_pos → new_pos
+    pos_map = {}
+    new_pos = 0
+    for old_pos in range(len(full_text)):
+        if old_pos not in remove_set:
+            new_text_chars.append(full_text[old_pos])
+            new_char_times.append(char_times[old_pos])
+            pos_map[old_pos] = new_pos
+            new_pos += 1
+
+    # seg_boundsを調整
+    new_seg_bounds = set()
+    for bound in seg_bounds:
+        # boundは「ここから新セグメント」の位置
+        # bound以上で最初の残存位置を探す
+        mapped = None
+        for check_pos in range(bound, len(full_text)):
+            if check_pos in pos_map:
+                mapped = pos_map[check_pos]
+                break
+        if mapped is not None and mapped > 0:
+            new_seg_bounds.add(mapped)
+    # 末尾を追加
+    new_len = len(new_text_chars)
+    if new_len > 0:
+        new_seg_bounds.add(new_len)
+    new_seg_bounds.discard(0)
+
+    new_text = "".join(new_text_chars)
+    return new_text, new_char_times, new_seg_bounds
+
+
 def _entries_from_char_times(
     full_text: str,
     char_times: list[tuple[float, float]],
@@ -293,6 +410,11 @@ def _entries_from_char_times(
     max_lines: int,
 ) -> list[SRTEntry]:
     """char_timesベースでSRTEntryリストを生成する（共通処理）。"""
+    # フィラー除去
+    full_text, char_times, seg_bounds = _remove_inline_fillers(full_text, char_times, seg_bounds)
+    if not full_text:
+        return []
+
     micro_blocks = _phase1_split(full_text, seg_bounds, max_chars_per_line)
     lines = _phase2_merge_to_lines(micro_blocks, max_chars_per_line, seg_bounds)
     entries = _phase3_dp_group(lines, char_times, max_chars_per_line, max_lines)
@@ -339,7 +461,7 @@ def _generate_from_char_times(
 
 
 def _tokenize(text: str) -> list[tuple[int, str, str]]:
-    """janomeで形態素解析。
+    """GiNZAで形態素解析。
 
     Returns:
         [(boundary_pos, surface, pos_tag), ...]
@@ -353,6 +475,18 @@ def _tokenize(text: str) -> list[tuple[int, str, str]]:
 
     # フォールバック: 1文字ずつ
     return [(i + 1, text[i], "") for i in range(len(text))]
+
+
+def _parse_pos(tag: str) -> tuple[str, str]:
+    """品詞タグを (大分類, サブカテゴリ) に分解する。
+
+    例: "助詞-格助詞" → ("助詞", "格助詞")
+        "名詞" → ("名詞", "")
+    """
+    if "-" in tag:
+        parts = tag.split("-", 1)
+        return parts[0], parts[1]
+    return tag, ""
 
 
 def _phase1_split(full_text: str, seg_bounds: set[int], max_chars: int = DEFAULT_MAX_CHARS_PER_LINE) -> list[TextBlock]:
@@ -376,7 +510,15 @@ def _phase1_split(full_text: str, seg_bounds: set[int], max_chars: int = DEFAULT
                 boundaries.append(fill)
     boundaries = sorted(set(boundaries))
 
-    # 分割点スコア
+    # 文節境界を取得
+    try:
+        from core.japanese_line_break import JapaneseLineBreakRules
+
+        bunsetu_bounds = JapaneseLineBreakRules.get_bunsetu_boundaries(full_text)
+    except ImportError:
+        bunsetu_bounds = set()
+
+    # 分割点スコア（文節ベース）
     cut_scores = {}
     bp_dict = {pos: (surface, pos_tag) for pos, surface, pos_tag in bp}
 
@@ -384,34 +526,29 @@ def _phase1_split(full_text: str, seg_bounds: set[int], max_chars: int = DEFAULT
         score = 0.0
         if b in seg_bounds:
             score += 50
-        # 次の単語の品詞を取得
-        next_tag = ""
-        for pos2, _, tag2 in bp:
-            if pos2 > b:
-                next_tag = tag2
-                break
 
         surface, pos_tag = bp_dict.get(b, ("", ""))
-        if pos_tag == "助詞":
-            score += 30
-        elif pos_tag in ("動詞", "形容詞"):
-            # 動詞/形容詞の後に動詞・助動詞が続く場合は切りにくい（活用形の途中）
-            if next_tag in ("動詞", "助動詞"):
-                score -= 15
-            else:
+        pos_major, pos_sub = _parse_pos(pos_tag)
+
+        if b in bunsetu_bounds:
+            # 文節境界 = 自然な分割点
+            score += 20
+            # 品詞ボーナス
+            if pos_major == "助詞" and pos_sub == "接続助詞" and surface not in ("て", "で"):
+                score += 20  # から/けど/ので → 計40
+            elif pos_major == "助詞" and pos_sub == "終助詞":
+                score += 20  # な/ね/よ → 計40
+            elif pos_major == "助詞" and pos_sub == "係助詞":
+                score += 10  # は/も → 計30
+            elif pos_major == "フィラー":
                 score += 15
-        elif pos_tag == "助動詞":
-            # 助動詞の後に助動詞が続く場合も切りにくい
-            if next_tag == "助動詞":
-                score -= 15
-            else:
-                score += 10
-        elif pos_tag == "名詞":
-            # 名詞+名詞の間で切るのはペナルティ（複合語）
-            if next_tag == "名詞":
-                score -= 10
-            else:
-                score += 8
+        else:
+            # 文節内部 = 分割を強く抑制
+            score -= 30
+            # フィラーの後は文節内でも許容
+            if pos_major == "フィラー":
+                score += 45  # net: +15
+
         cut_scores[b] = score
 
     # DP（11文字以下で分割）
@@ -570,6 +707,16 @@ SENTENCE_ENDINGS = [
     "だよ",
     "だよね",
     "よね",
+    "んですけれども",
+    "ですけれども",
+    "んですけども",
+    "ですけども",
+    "けれども",
+    "けども",
+    "だけど",
+    "からね",
+    "しかない",
+    "らしい",
 ]
 
 

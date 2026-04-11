@@ -338,11 +338,7 @@ class ExportSettingsPresenter(BasePresenter[ExportSettingsViewModel]):
             auto_anchor = fcpxml_settings.get("auto_anchor", False)
 
             # アンカー自動検出（vertical + 手動指定なし + auto_anchor有効時）
-            if (
-                auto_anchor
-                and timeline_resolution == "vertical"
-                and anchor == (0.0, 0.0)
-            ):
+            if auto_anchor and timeline_resolution == "vertical" and anchor == (0.0, 0.0):
                 try:
                     from pathlib import Path as _Path
 
@@ -367,6 +363,7 @@ class ExportSettingsPresenter(BasePresenter[ExportSettingsViewModel]):
                         )
                         from use_cases.ai.auto_anchor_detector import anchor_to_fcpxml
                         from core.video import VideoInfo
+
                         try:
                             vi = VideoInfo.from_file(str(video_p))
                             src_w, src_h = vi.width, vi.height
@@ -374,7 +371,11 @@ class ExportSettingsPresenter(BasePresenter[ExportSettingsViewModel]):
                             logger.warning("VideoInfo取得失敗、デフォルト1920x1080を使用")
                             src_w, src_h = 1920, 1080
                         anchor = anchor_to_fcpxml(
-                            result.anchor_x, result.anchor_y, src_w, src_h, scale,
+                            result.anchor_x,
+                            result.anchor_y,
+                            src_w,
+                            src_h,
+                            scale,
                         )
                         logger.info("アンカー自動検出: %s — %s", anchor, result.description)
                 except Exception as e:

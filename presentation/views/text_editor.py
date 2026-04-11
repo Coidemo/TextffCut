@@ -577,6 +577,7 @@ class TextEditorView:
 
         # APIキーチェック（api_key_manager → config.json → 環境変数）
         from utils.api_key_manager import api_key_manager
+
         api_key = api_key_manager.load_api_key()
         if not api_key:
             api_key = get_config_value("openai_api_key")
@@ -630,31 +631,50 @@ class TextEditorView:
         with col_opts2:
             remove_silence = st.checkbox("無音削除", value=saved_silence, key="ai_clip_silence")
         with col_opts3:
-            speed = st.number_input("再生速度", min_value=0.5, max_value=2.0, value=saved_speed, step=0.1, key="ai_clip_speed")
+            speed = st.number_input(
+                "再生速度", min_value=0.5, max_value=2.0, value=saved_speed, step=0.1, key="ai_clip_speed"
+            )
 
         # ズーム・アンカー・タイムライン設定
         col_zoom1, col_zoom2, col_zoom3, col_zoom4 = st.columns(4)
         with col_zoom1:
             zoom_percent = st.number_input(
-                "ズーム (%)", min_value=50, max_value=300, value=saved_zoom, step=10,
-                help="100% = 元のサイズ、200% = 2倍拡大", key="ai_clip_zoom",
+                "ズーム (%)",
+                min_value=50,
+                max_value=300,
+                value=saved_zoom,
+                step=10,
+                help="100% = 元のサイズ、200% = 2倍拡大",
+                key="ai_clip_zoom",
             )
         with col_zoom2:
             anchor_x = st.number_input(
-                "アンカー X", min_value=-100.0, max_value=100.0, value=float(saved_anchor_x), step=0.1,
-                help="横方向の位置調整（0 = 中央）", key="ai_clip_anchor_x",
+                "アンカー X",
+                min_value=-100.0,
+                max_value=100.0,
+                value=float(saved_anchor_x),
+                step=0.1,
+                help="横方向の位置調整（0 = 中央）",
+                key="ai_clip_anchor_x",
             )
         with col_zoom3:
             anchor_y = st.number_input(
-                "アンカー Y", min_value=-100.0, max_value=100.0, value=float(saved_anchor_y), step=0.1,
-                help="縦方向の位置調整（0 = 中央）", key="ai_clip_anchor_y",
+                "アンカー Y",
+                min_value=-100.0,
+                max_value=100.0,
+                value=float(saved_anchor_y),
+                step=0.1,
+                help="縦方向の位置調整（0 = 中央）",
+                key="ai_clip_anchor_y",
             )
         with col_zoom4:
             timeline_options = ["横（16:9）", "縦（9:16）"]
             timeline_index = 1 if saved_timeline == "vertical" else 0
             timeline_orientation = st.selectbox(
-                "タイムライン", options=timeline_options,
-                index=timeline_index, key="ai_clip_timeline",
+                "タイムライン",
+                options=timeline_options,
+                index=timeline_index,
+                key="ai_clip_timeline",
             )
             timeline_resolution = "vertical" if "縦" in timeline_orientation else "horizontal"
 
@@ -703,16 +723,26 @@ class TextEditorView:
             t_cols = st.columns(3)
             with t_cols[0]:
                 title_target_w = st.number_input(
-                    "タイトル幅", value=saved_tw, min_value=100, key="ai_clip_title_target_w",
+                    "タイトル幅",
+                    value=saved_tw,
+                    min_value=100,
+                    key="ai_clip_title_target_w",
                 )
             with t_cols[1]:
                 title_target_h = st.number_input(
-                    "タイトル高さ", value=saved_th, min_value=100, key="ai_clip_title_target_h",
+                    "タイトル高さ",
+                    value=saved_th,
+                    min_value=100,
+                    key="ai_clip_title_target_h",
                 )
             with t_cols[2]:
                 title_offset_y = st.number_input(
-                    "Y位置オフセット", value=saved_oy, min_value=-500, max_value=500,
-                    step=10, help="正の値で下方向に移動（px）",
+                    "Y位置オフセット",
+                    value=saved_oy,
+                    min_value=-500,
+                    max_value=500,
+                    step=10,
+                    help="正の値で下方向に移動（px）",
                     key="ai_clip_title_offset_y",
                 )
             settings_manager.set("ai_clip_title_target_w", int(title_target_w))
@@ -904,8 +934,7 @@ class TextEditorView:
                     actual_speed = round(speed, 2)
                     for suggestion in suggestions:
                         suggestion.time_ranges = [
-                            (s / actual_speed, e / actual_speed)
-                            for s, e in suggestion.time_ranges
+                            (s / actual_speed, e / actual_speed) for s, e in suggestion.time_ranges
                         ]
                         suggestion.total_duration = sum(e - s for s, e in suggestion.time_ranges)
                     progress_text.write(f"✅ {speed_label}速度変更完了")
@@ -963,20 +992,19 @@ class TextEditorView:
                     )
                     failed_count = total - len(title_image_paths)
                     if failed_count > 0:
-                        progress_text.write(
-                            f"⚠️ タイトル画像: {len(title_image_paths)}枚成功、{failed_count}枚失敗"
-                        )
+                        progress_text.write(f"⚠️ タイトル画像: {len(title_image_paths)}枚成功、{failed_count}枚失敗")
                     else:
                         progress_text.write(f"✅ タイトル画像: {len(title_image_paths)}枚生成完了")
 
                 # Phase 3.8: アンカー自動検出
                 actual_anchor = anchor
-                logger.info("アンカー自動検出条件: auto_anchor=%s, timeline=%s, anchor=%s", auto_anchor, timeline_resolution, anchor)
-                if (
-                    auto_anchor
-                    and timeline_resolution == "vertical"
-                    and anchor == (0.0, 0.0)
-                ):
+                logger.info(
+                    "アンカー自動検出条件: auto_anchor=%s, timeline=%s, anchor=%s",
+                    auto_anchor,
+                    timeline_resolution,
+                    anchor,
+                )
+                if auto_anchor and timeline_resolution == "vertical" and anchor == (0.0, 0.0):
                     try:
                         from use_cases.ai.auto_anchor_detector import detect_anchor as _detect_anchor, anchor_to_fcpxml
 
@@ -991,8 +1019,15 @@ class TextEditorView:
                             client=gateway.client,
                             frame_time=_frame_t,
                         )
-                        logger.info("アンカー検出結果: frame_t=%.1fs, AI=(%.3f, %.3f), desc=%s", _frame_t, anchor_result.anchor_x, anchor_result.anchor_y, anchor_result.description)
+                        logger.info(
+                            "アンカー検出結果: frame_t=%.1fs, AI=(%.3f, %.3f), desc=%s",
+                            _frame_t,
+                            anchor_result.anchor_x,
+                            anchor_result.anchor_y,
+                            anchor_result.description,
+                        )
                         from core.video import VideoInfo
+
                         try:
                             vi = VideoInfo.from_file(str(video_path_obj))
                             src_w, src_h = vi.width, vi.height
@@ -1000,7 +1035,11 @@ class TextEditorView:
                             logger.warning("VideoInfo取得失敗、デフォルト1920x1080を使用")
                             src_w, src_h = 1920, 1080
                         actual_anchor = anchor_to_fcpxml(
-                            anchor_result.anchor_x, anchor_result.anchor_y, src_w, src_h, scale,
+                            anchor_result.anchor_x,
+                            anchor_result.anchor_y,
+                            src_w,
+                            src_h,
+                            scale,
                         )
                         progress_text.write(
                             f"✅ アンカー検出: ({actual_anchor[0]:.1f}, {actual_anchor[1]:.1f}) — {anchor_result.description}"
@@ -1032,8 +1071,12 @@ class TextEditorView:
                         title_settings = {"title_path": str(title_path)}
                     fcpxml_path = fcpxml_dir / f"{i:02d}_{sanitized}.fcpxml"
                     success = use_case._export_fcpxml(
-                        suggestion, actual_video_path, fcpxml_path, media_config,
-                        scale=scale, anchor=actual_anchor,
+                        suggestion,
+                        actual_video_path,
+                        fcpxml_path,
+                        media_config,
+                        scale=scale,
+                        anchor=actual_anchor,
                         timeline_resolution=timeline_resolution,
                         title_settings=title_settings,
                         ai_se_placements=ai_se_placements,

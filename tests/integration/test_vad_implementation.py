@@ -111,9 +111,7 @@ class TestVADImplementationIntegration(unittest.TestCase):
                 "audio_memory": 10.0,
                 "batch_memory_per_segment": 5.0,
             }
-            aligned_segment = MagicMock(
-                text="テスト", words=[{"word": "テスト", "start": 0.0, "end": 1.0}]
-            )
+            aligned_segment = MagicMock(text="テスト", words=[{"word": "テスト", "start": 0.0, "end": 1.0}])
             mock_alignment.align.return_value = [aligned_segment]
             mock_alignment_class.return_value = mock_alignment
 
@@ -259,9 +257,7 @@ class TestVADImplementationIntegration(unittest.TestCase):
                 "audio_memory": 10.0,
                 "batch_memory_per_segment": 5.0,
             }
-            aligned_segment = MagicMock(
-                text="テスト", words=[{"word": "テスト", "start": 0.0, "end": 1.0}]
-            )
+            aligned_segment = MagicMock(text="テスト", words=[{"word": "テスト", "start": 0.0, "end": 1.0}])
             mock_alignment.align.return_value = [aligned_segment]
             mock_alignment_class.return_value = mock_alignment
 

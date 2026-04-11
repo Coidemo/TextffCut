@@ -73,17 +73,22 @@ def _extract_frame(video_path: Path, time_sec: float = 5.0) -> bytes:
     tmp.close()
     try:
         cmd = [
-            "ffmpeg", "-y", "-ss", str(time_sec),
-            "-i", str(video_path),
-            "-frames:v", "1", "-q:v", "2",
+            "ffmpeg",
+            "-y",
+            "-ss",
+            str(time_sec),
+            "-i",
+            str(video_path),
+            "-frames:v",
+            "1",
+            "-q:v",
+            "2",
             str(tmp_path),
         ]
         subprocess.run(cmd, capture_output=True, check=True)
         data = tmp_path.read_bytes()
         if not data:
-            raise RuntimeError(
-                f"フレーム抽出に失敗: {video_path} の {time_sec}秒地点にフレームがありません"
-            )
+            raise RuntimeError(f"フレーム抽出に失敗: {video_path} の {time_sec}秒地点にフレームがありません")
         return data
     finally:
         tmp_path.unlink(missing_ok=True)
