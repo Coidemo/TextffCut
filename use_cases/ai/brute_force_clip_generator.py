@@ -20,7 +20,7 @@ from use_cases.ai.filler_constants import FILLER_ONLY_TEXTS
 logger = logging.getLogger(__name__)
 
 MAX_CANDIDATES = 80  # 生成する最大候補数
-TOP_N_FOR_AI = 5     # AIに評価させる上位件数
+TOP_N_FOR_AI = 5  # AIに評価させる上位件数
 
 
 @dataclass
@@ -28,7 +28,7 @@ class ClipCandidate:
     """1つの切り抜き候補"""
 
     segments: list[TranscriptionSegment]  # 使用するセグメント（順序保持）
-    segment_indices: list[int]            # 元のtranscriptionでのインデックス
+    segment_indices: list[int]  # 元のtranscriptionでのインデックス
     text: str
     time_ranges: list[tuple[float, float]]
     total_duration: float
@@ -210,11 +210,23 @@ def _calculate_score(
         score -= 10
 
     # 末尾の自然さ（±10点）
-    GOOD_ENDINGS = ["です", "ます", "ですね", "ますね", "ですよね", "よね",
-                    "ました", "思います", "んですよ", "んです", "ですか",
-                    "ですかね", "ませんか", "しれません"]
-    BAD_ENDINGS = ["ので", "けど", "から", "って", "のが", "みたいな",
-                   "けれども", "とか", "んですけど"]
+    GOOD_ENDINGS = [
+        "です",
+        "ます",
+        "ですね",
+        "ますね",
+        "ですよね",
+        "よね",
+        "ました",
+        "思います",
+        "んですよ",
+        "んです",
+        "ですか",
+        "ですかね",
+        "ませんか",
+        "しれません",
+    ]
+    BAD_ENDINGS = ["ので", "けど", "から", "って", "のが", "みたいな", "けれども", "とか", "んですけど"]
     last_text = candidate.text.rstrip()
     if any(last_text.endswith(g) for g in GOOD_ENDINGS):
         score += 10
@@ -222,10 +234,7 @@ def _calculate_score(
         score -= 15
 
     # フィラー残存ペナルティ（強めに減点）
-    filler_count = sum(
-        1 for seg in candidate.segments
-        if seg.text.strip() in FILLER_ONLY_TEXTS
-    )
+    filler_count = sum(1 for seg in candidate.segments if seg.text.strip() in FILLER_ONLY_TEXTS)
     score -= filler_count * 5
 
     # テキスト内のフィラー語彙ペナルティ

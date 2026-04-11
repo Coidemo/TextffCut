@@ -96,8 +96,10 @@ class TranscriptionGatewayAdapter(ITranscriptionGateway):
 
             # レガシー結果をドメインエンティティに変換
             # video_idを動画パスから生成
-            video_id = str(video_path).replace('/', '_').replace('\\', '_')
-            domain_result = self._converter.legacy_to_domain(legacy_result, video_id=video_id, processing_time=processing_time)
+            video_id = str(video_path).replace("/", "_").replace("\\", "_")
+            domain_result = self._converter.legacy_to_domain(
+                legacy_result, video_id=video_id, processing_time=processing_time
+            )
 
             # 変換の妥当性を検証（デバッグモードのみ）
             # TextffCutLoggerではisEnabledForが使えないため、環境変数でチェック
@@ -167,7 +169,7 @@ class TranscriptionGatewayAdapter(ITranscriptionGateway):
 
             # ドメインエンティティに変換
             # video_idを動画パスから生成
-            video_id = str(video_path).replace('/', '_').replace('\\', '_')
+            video_id = str(video_path).replace("/", "_").replace("\\", "_")
             domain_result = self._converter.legacy_to_domain(legacy_result, video_id=video_id)
 
             logger.debug(f"ドメインエンティティに変換しました: {cache_path}")

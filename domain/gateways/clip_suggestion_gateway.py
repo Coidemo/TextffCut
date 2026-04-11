@@ -19,9 +19,7 @@ class ClipSuggestionGatewayInterface(ABC):
         pass
 
     @abstractmethod
-    def select_best_variant(
-        self, topic_title: str, variants: list[dict]
-    ) -> int | None:
+    def select_best_variant(self, topic_title: str, variants: list[dict]) -> int | None:
         """複数のクリップパターンからベストを選定する。
 
         Args:

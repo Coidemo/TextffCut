@@ -248,7 +248,7 @@ class TestBuildCandidate:
     def test_merge_close_ranges(self):
         """0.5秒以内のギャップはマージされる"""
         seg1 = _make_segment("A", 0.0, 3.0)
-        seg2 = _make_segment("B", 3.3, 6.0)   # 0.3s gap
+        seg2 = _make_segment("B", 3.3, 6.0)  # 0.3s gap
         seg3 = _make_segment("C", 7.0, 10.0)  # 1.0s gap
         c = _build_candidate([(0, seg1), (1, seg2), (2, seg3)])
         assert c is not None
@@ -299,8 +299,7 @@ class TestCalculateScore:
         """time_rangesが1つだとボーナス"""
         c1 = self._make_candidate(time_ranges=[(0, 45)])
         c_multi = self._make_candidate(
-            time_ranges=[(0, 10), (12, 22), (24, 34), (36, 45), (47, 57),
-                         (59, 65), (67, 72), (74, 80), (82, 88)],
+            time_ranges=[(0, 10), (12, 22), (24, 34), (36, 45), (47, 57), (59, 65), (67, 72), (74, 80), (82, 88)],
             total_duration=45.0,
         )
         assert _calculate_score(c1, 30.0, 60.0) > _calculate_score(c_multi, 30.0, 60.0)
@@ -357,9 +356,18 @@ class TestGenerateCandidates:
 
     def test_filler_segments_excluded(self):
         """フィラーセグメントは除外される"""
-        texts = ["えー", "今日は", "まあ", "AIの話です", "うーん",
-                 "すごいですね", "はい", "以上です", "ありがとう",
-                 "テスト長い文章です" * 3]
+        texts = [
+            "えー",
+            "今日は",
+            "まあ",
+            "AIの話です",
+            "うーん",
+            "すごいですね",
+            "はい",
+            "以上です",
+            "ありがとう",
+            "テスト長い文章です" * 3,
+        ]
         transcription = _make_transcription(texts, duration_each=5.0)
         topic = TopicRange.create(
             title="テスト",
@@ -400,6 +408,7 @@ class TestGenerateCandidates:
     def test_max_candidates_limit(self):
         """返される候補数はTOP_N_FOR_AI以下"""
         from use_cases.ai.brute_force_clip_generator import TOP_N_FOR_AI
+
         texts = ["セグメント" + str(i) for i in range(30)]
         transcription = _make_transcription(texts, duration_each=3.0)
         topic = TopicRange.create(

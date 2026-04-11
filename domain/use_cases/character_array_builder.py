@@ -148,7 +148,11 @@ class CharacterArrayBuilder:
                     char_str = char_obj.char
                     char_start = char_obj.start
                     char_end = char_obj.end
-                    char_conf = char_obj.confidence if hasattr(char_obj, "confidence") and char_obj.confidence is not None else 1.0
+                    char_conf = (
+                        char_obj.confidence
+                        if hasattr(char_obj, "confidence") and char_obj.confidence is not None
+                        else 1.0
+                    )
                 else:
                     char_str = char_obj.get("char", "")
                     char_start = char_obj.get("start", 0)

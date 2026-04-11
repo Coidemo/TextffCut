@@ -44,6 +44,7 @@ def generate_srt(
     video_path: Path | None = None,
     max_chars_per_line: int = DEFAULT_MAX_CHARS_PER_LINE,
     max_lines: int = DEFAULT_MAX_LINES,
+    speed: float = 1.0,
 ) -> Path | None:
     if not suggestion.time_ranges:
         return None
@@ -52,13 +53,11 @@ def generate_srt(
     if video_path:
         segments = _transcribe_output_audio(suggestion.time_ranges, video_path)
         if segments:
-            return _generate_from_segments(
-                segments, output_path, max_chars_per_line, max_lines
-            )
+            return _generate_from_segments(segments, output_path, max_chars_per_line, max_lines)
 
     # フォールバック: 元の文字起こしを使用
-    tmap = _build_timeline_map(suggestion.time_ranges)
-    parts = _collect_parts(suggestion.time_ranges, tmap, transcription)
+    tmap = build_timeline_map(suggestion.time_ranges)
+    parts = collect_parts(suggestion.time_ranges, tmap, transcription, speed=speed)
     if not parts:
         return None
 
@@ -67,8 +66,12 @@ def generate_srt(
         return None
 
     return _generate_from_char_times(
-        full_text, char_times, seg_bounds, output_path,
-        max_chars_per_line, max_lines,
+        full_text,
+        char_times,
+        seg_bounds,
+        output_path,
+        max_chars_per_line,
+        max_lines,
     )
 
 
@@ -87,6 +90,7 @@ def _transcribe_output_audio(
 
     try:
         from dotenv import load_dotenv
+
         load_dotenv()
     except ImportError:
         pass
@@ -98,6 +102,7 @@ def _transcribe_output_audio(
 
     try:
         from openai import OpenAI
+
         client = OpenAI(api_key=api_key)
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -109,12 +114,27 @@ def _transcribe_output_audio(
             for i, (start, end) in enumerate(time_ranges):
                 p = f"{tmpdir}/p{i}.wav"
                 proc = subprocess.run(
-                    ["ffmpeg", "-y", "-ss", str(start), "-t", str(end - start),
-                     "-i", str(video_path), "-vn", "-ar", "16000", "-ac", "1", p],
-                    capture_output=True, timeout=ffmpeg_timeout,
+                    [
+                        "ffmpeg",
+                        "-y",
+                        "-ss",
+                        str(start),
+                        "-t",
+                        str(end - start),
+                        "-i",
+                        str(video_path),
+                        "-vn",
+                        "-ar",
+                        "16000",
+                        "-ac",
+                        "1",
+                        p,
+                    ],
+                    capture_output=True,
+                    timeout=ffmpeg_timeout,
                 )
                 if proc.returncode != 0:
-                    logger.warning(f"ffmpeg extract failed (part {i})")
+                    logger.warning("ffmpeg extract failed (part %d)", i)
                     return None
                 parts.append(p)
 
@@ -123,9 +143,21 @@ def _transcribe_output_audio(
                 for p in parts:
                     f.write(f"file '{p}'\n")
             proc = subprocess.run(
-                ["ffmpeg", "-y", "-f", "concat", "-safe", "0",
-                 "-i", f"{tmpdir}/list.txt", "-c", "copy", f"{tmpdir}/out.wav"],
-                capture_output=True, timeout=ffmpeg_timeout,
+                [
+                    "ffmpeg",
+                    "-y",
+                    "-f",
+                    "concat",
+                    "-safe",
+                    "0",
+                    "-i",
+                    f"{tmpdir}/list.txt",
+                    "-c",
+                    "copy",
+                    f"{tmpdir}/out.wav",
+                ],
+                capture_output=True,
+                timeout=ffmpeg_timeout,
             )
             if proc.returncode != 0:
                 logger.warning("ffmpeg concat failed")
@@ -200,9 +232,86 @@ def _generate_from_segments(
         return None
 
     return _generate_from_char_times(
-        full_text, char_times, seg_bounds, output_path,
-        max_chars_per_line, max_lines,
+        full_text,
+        char_times,
+        seg_bounds,
+        output_path,
+        max_chars_per_line,
+        max_lines,
     )
+
+
+def generate_srt_entries_from_segments(
+    segments: list[dict],
+    max_chars_per_line: int = DEFAULT_MAX_CHARS_PER_LINE,
+    max_lines: int = DEFAULT_MAX_LINES,
+) -> list[SRTEntry]:
+    """Whisperセグメントから字幕エントリーのリストを返す（ファイル書き出しなし）。
+
+    Args:
+        segments: [{"text": str, "start": float, "end": float}, ...] セグメントリスト
+        max_chars_per_line: 1行あたり最大文字数
+        max_lines: 最大行数
+
+    Returns:
+        SRTEntryのリスト
+    """
+    if not segments:
+        return []
+
+    full_text = ""
+    char_times = []
+    seg_bounds = set()
+
+    for seg in segments:
+        text = seg["text"]
+        if not text:
+            continue
+        seg_bounds.add(len(full_text))
+        start = seg["start"]
+        end = seg["end"]
+        dur = end - start
+        n = max(len(text), 1)
+        for i in range(len(text)):
+            char_times.append((start + dur * i / n, start + dur * (i + 1) / n))
+        full_text += text
+
+    seg_bounds.add(len(full_text))
+    seg_bounds.discard(0)
+
+    if not full_text:
+        return []
+
+    return _entries_from_char_times(full_text, char_times, seg_bounds, max_chars_per_line, max_lines)
+
+
+def _entries_from_char_times(
+    full_text: str,
+    char_times: list[tuple[float, float]],
+    seg_bounds: set[int],
+    max_chars_per_line: int,
+    max_lines: int,
+) -> list[SRTEntry]:
+    """char_timesベースでSRTEntryリストを生成する（共通処理）。"""
+    micro_blocks = _phase1_split(full_text, seg_bounds, max_chars_per_line)
+    lines = _phase2_merge_to_lines(micro_blocks, max_chars_per_line, seg_bounds)
+    entries = _phase3_dp_group(lines, char_times, max_chars_per_line, max_lines)
+
+    if not entries:
+        return []
+
+    # 隣接エントリ間の隙間を埋める
+    for i in range(len(entries) - 1):
+        if entries[i + 1].start_time > entries[i].end_time:
+            entries[i].end_time = entries[i + 1].start_time
+
+    # 短すぎるエントリを前後と統合
+    entries = _merge_short_entries(entries, max_chars_per_line, max_lines)
+
+    for i, e in enumerate(entries, 1):
+        e.index = i
+
+    return entries
 
 
 def _generate_from_char_times(
@@ -214,29 +323,20 @@ def _generate_from_char_times(
     max_lines: int,
 ) -> Path | None:
     """char_timesベースで字幕を生成する（共通処理）。"""
-    micro_blocks = _phase1_split(full_text, seg_bounds, max_chars_per_line)
-    lines = _phase2_merge_to_lines(micro_blocks, max_chars_per_line, seg_bounds)
-    entries = _phase3_dp_group(lines, char_times, max_chars_per_line, max_lines)
+    entries = _entries_from_char_times(full_text, char_times, seg_bounds, max_chars_per_line, max_lines)
 
     if not entries:
         return None
 
-    # 隣接エントリ間の隙間を埋める
-    for i in range(len(entries) - 1):
-        if entries[i + 1].start_time > entries[i].end_time:
-            entries[i].end_time = entries[i + 1].start_time
-
-    for i, e in enumerate(entries, 1):
-        e.index = i
-
     _write_srt(entries, output_path)
-    logger.info(f"SRT生成: {len(entries)}エントリ → {output_path.name}")
+    logger.info("SRT生成: %dエントリ → %s", len(entries), output_path.name)
     return output_path
 
 
 # =============================================
 # Phase 1: 全テキストをDP探索で最小ブロックに分割
 # =============================================
+
 
 def _tokenize(text: str) -> list[tuple[int, str, str]]:
     """janomeで形態素解析。
@@ -246,6 +346,7 @@ def _tokenize(text: str) -> list[tuple[int, str, str]]:
     """
     try:
         from core.japanese_line_break import JapaneseLineBreakRules
+
         return JapaneseLineBreakRules.get_word_boundaries_with_pos(text)
     except ImportError:
         pass
@@ -363,6 +464,7 @@ def _phase1_split(full_text: str, seg_bounds: set[int], max_chars: int = DEFAULT
 # Phase 2: 隣接ブロックをDPで結合して11文字以下の1行に
 # =============================================
 
+
 def _phase2_merge_to_lines(
     blocks: list[TextBlock],
     max_chars: int,
@@ -443,15 +545,31 @@ def _phase2_merge_to_lines(
 
 # 文の区切りパターン（これで終わる行は次の行と結合しない）
 SENTENCE_ENDINGS = [
-    "です", "ですよ", "ですね", "ですけど", "ですか", "ですかね",
-    "ですよね", "ますよね",
-    "ます", "ました", "ません", "ましたね",
-    "のか", "のかとか",
-    "いいな", "だな", "かな",
-    "んですけど", "んですが",
+    "です",
+    "ですよ",
+    "ですね",
+    "ですけど",
+    "ですか",
+    "ですかね",
+    "ですよね",
+    "ますよね",
+    "ます",
+    "ました",
+    "ません",
+    "ましたね",
+    "のか",
+    "のかとか",
+    "いいな",
+    "だな",
+    "かな",
+    "んですけど",
+    "んですが",
     "ないので",
-    "しょう", "ください",
-    "だよ", "だよね", "よね",
+    "しょう",
+    "ください",
+    "だよ",
+    "だよね",
+    "よね",
 ]
 
 
@@ -482,9 +600,7 @@ def _phase3_dp_group(
         prev_score, prev_entries = dp[i]
 
         # 選択肢A: 行iを単独エントリ
-        entry_a = _make_srt_entry(
-            len(prev_entries) + 1, [lines[i]], char_times
-        )
+        entry_a = _make_srt_entry(len(prev_entries) + 1, [lines[i]], char_times)
         score_a = prev_score + _line_group_score(lines[i].text, None)
         next_a = i + 1
         if next_a not in dp or score_a > dp[next_a][0]:
@@ -503,9 +619,7 @@ def _phase3_dp_group(
                         [lines[i], lines[i + 1]],
                         char_times,
                     )
-                    score_b = prev_score + _line_group_score(
-                        lines[i].text, lines[i + 1].text
-                    )
+                    score_b = prev_score + _line_group_score(lines[i].text, lines[i + 1].text)
                     next_b = i + 2
                     if next_b not in dp or score_b > dp[next_b][0]:
                         dp[next_b] = (score_b, prev_entries + [entry_b])
@@ -571,8 +685,7 @@ def _line_group_score(line1: str, line2: str | None) -> float:
 
 def _ends_with_particle(text: str) -> bool:
     """行が助詞（は、が、を、に、で、から、の等）で終わるか。"""
-    particles = ["のは", "には", "では", "とは", "から", "まで",
-                 "は", "が", "を", "に", "で", "と", "も", "の"]
+    particles = ["のは", "には", "では", "とは", "から", "まで", "は", "が", "を", "に", "で", "と", "も", "の"]
     for p in particles:
         if text.endswith(p):
             return True
@@ -593,11 +706,122 @@ def _make_srt_entry(index, line_blocks, char_times):
     return SRTEntry(index=index, start_time=tl_start, end_time=tl_end, text=text)
 
 
+MIN_ENTRY_DURATION = 0.7  # 最小表示時間（秒）
+
+
+def _merge_short_entries(
+    entries: list[SRTEntry],
+    max_chars_per_line: int,
+    max_lines: int,
+) -> list[SRTEntry]:
+    """短すぎるエントリを前後と統合する。"""
+    if len(entries) <= 1:
+        return entries
+
+    max_total_chars = max_chars_per_line * max_lines
+
+    def _text_lines(e: SRTEntry) -> list[str]:
+        return e.text.split("\n")
+
+    def _can_merge(a: SRTEntry, b: SRTEntry) -> bool:
+        """2つのエントリを統合可能か（文字数制限チェック）"""
+        a_lines = _text_lines(a)
+        b_lines = _text_lines(b)
+        combined_lines = a_lines + b_lines
+        if len(combined_lines) > max_lines:
+            # 行数超過 → 最終行同士を結合して収まるか
+            merged_last = a_lines[-1] + b_lines[0]
+            if len(merged_last) > max_chars_per_line:
+                return False
+            combined_lines = a_lines[:-1] + [merged_last] + b_lines[1:]
+            if len(combined_lines) > max_lines:
+                return False
+        return all(len(line) <= max_chars_per_line for line in combined_lines)
+
+    def _do_merge(a: SRTEntry, b: SRTEntry) -> SRTEntry:
+        """2つのエントリを統合する"""
+        a_lines = _text_lines(a)
+        b_lines = _text_lines(b)
+        combined_lines = a_lines + b_lines
+        if len(combined_lines) > max_lines:
+            merged_last = a_lines[-1] + b_lines[0]
+            combined_lines = a_lines[:-1] + [merged_last] + b_lines[1:]
+        return SRTEntry(
+            index=0,
+            start_time=a.start_time,
+            end_time=b.end_time,
+            text="\n".join(combined_lines),
+        )
+
+    changed = True
+    max_iterations = 50
+    iteration = 0
+    while changed:
+        iteration += 1
+        if iteration > max_iterations:
+            logger.warning("短エントリ統合ループが収束しません（%d回）。打ち切ります。", max_iterations)
+            break
+        changed = False
+        new_entries = []
+        i = 0
+        while i < len(entries):
+            e = entries[i]
+            dur = e.end_time - e.start_time
+
+            if dur < MIN_ENTRY_DURATION - 1e-3 and len(entries) > 1:
+                # 前のエントリと統合を試みる
+                if new_entries and _can_merge(new_entries[-1], e):
+                    new_entries[-1] = _do_merge(new_entries[-1], e)
+                    changed = True
+                    i += 1
+                    continue
+                # 次のエントリと統合を試みる
+                if i + 1 < len(entries) and _can_merge(e, entries[i + 1]):
+                    merged = _do_merge(e, entries[i + 1])
+                    new_entries.append(merged)
+                    changed = True
+                    i += 2
+                    continue
+                # 統合不可 → 表示時間を延長（前後から借りる）
+                desired_end = e.start_time + MIN_ENTRY_DURATION
+                if i + 1 < len(entries) and desired_end <= entries[i + 1].end_time:
+                    # 次エントリの開始を後ろにずらす
+                    entries[i + 1] = SRTEntry(
+                        index=0,
+                        start_time=desired_end,
+                        end_time=entries[i + 1].end_time,
+                        text=entries[i + 1].text,
+                    )
+                    e = SRTEntry(index=0, start_time=e.start_time, end_time=desired_end, text=e.text)
+                    changed = True
+                elif new_entries:
+                    # 前エントリの終了を前にずらして自分を延長
+                    desired_start = e.end_time - MIN_ENTRY_DURATION
+                    if desired_start >= new_entries[-1].start_time:
+                        new_entries[-1] = SRTEntry(
+                            index=0,
+                            start_time=new_entries[-1].start_time,
+                            end_time=desired_start,
+                            text=new_entries[-1].text,
+                        )
+                        e = SRTEntry(index=0, start_time=desired_start, end_time=e.end_time, text=e.text)
+                        changed = True
+
+            new_entries.append(e)
+            i += 1
+        entries = new_entries
+
+    return entries
+
+
 # =============================================
 # ユーティリティ
 # =============================================
 
+
 def _char_time(pos, char_times, start):
+    if not char_times:
+        return 0.0
     if pos < 0:
         pos = 0
     if pos >= len(char_times):
@@ -605,7 +829,7 @@ def _char_time(pos, char_times, start):
     return char_times[pos][0] if start else char_times[pos][1]
 
 
-def _build_timeline_map(time_ranges):
+def build_timeline_map(time_ranges):
     m = []
     tl = 0.0
     for s, e in time_ranges:
@@ -617,25 +841,35 @@ def _build_timeline_map(time_ranges):
 def _to_tl(orig, tmap):
     for os_, oe, tl in tmap:
         if os_ - 0.1 <= orig <= oe + 0.1:
-            return tl + (orig - os_)
+            return tl + max(0.0, orig - os_)
     return None
 
 
-def _collect_parts(time_ranges, tmap, transcription):
+def collect_parts(time_ranges, tmap, transcription, speed=1.0):
+    if speed <= 0:
+        raise ValueError(f"speed must be > 0, got {speed}")
     from use_cases.ai.filler_constants import FILLER_ONLY_TEXTS
+
     parts = []
     for seg in transcription.segments:
+        if seg.text.strip() in FILLER_ONLY_TEXTS:
+            continue
+        # セグメントが複数クリップにまたがる場合があるので全マッチを収集
+        matched_tl = []
         for tr_s, tr_e in time_ranges:
-            if seg.end > tr_s and seg.start < tr_e:
-                if seg.text.strip() not in FILLER_ONLY_TEXTS:
-                    # セグメントがtime_rangeの端からはみ出す場合はクリップ
-                    clipped_start = max(seg.start, tr_s)
-                    clipped_end = min(seg.end, tr_e)
-                    tl_s = _to_tl(clipped_start, tmap)
-                    tl_e = _to_tl(clipped_end, tmap)
-                    if tl_s is not None and tl_e is not None:
-                        parts.append((seg.text, tl_s, tl_e))
-                break
+            # time_rangesは速度調整済み（/ speed）だが、segは元のタイムスタンプ
+            orig_s = tr_s * speed
+            orig_e = tr_e * speed
+            if seg.end > orig_s and seg.start < orig_e:
+                clipped_start = max(seg.start, orig_s)
+                clipped_end = min(seg.end, orig_e)
+                tl_s = _to_tl(clipped_start / speed, tmap)
+                tl_e = _to_tl(clipped_end / speed, tmap)
+                if tl_s is not None and tl_e is not None:
+                    matched_tl.append((tl_s, tl_e))
+        if matched_tl:
+            # 全マッチの最初の開始〜最後の終了でテキスト全体をカバー
+            parts.append((seg.text, matched_tl[0][0], matched_tl[-1][1]))
     return parts
 
 

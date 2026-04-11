@@ -1312,7 +1312,6 @@ class TextProcessor:
 
         return errors
 
-
     def auto_fix_marker_newlines(self, text: str) -> str:
         """
         マーカー配置の問題を自動修正
@@ -1375,4 +1374,3 @@ class TextProcessor:
                     fixed_lines.append(sub_line)
 
         return "\n".join(fixed_lines)
-

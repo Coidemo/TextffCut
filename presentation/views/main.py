@@ -49,10 +49,10 @@ class MainView(BaseView[MainViewModel]):
         """カスタムCSSを適用"""
         # テーマ検出器をインポート
         from utils.theme_detector import ThemeDetector
-        
+
         # テーマ検出
         is_dark = ThemeDetector.is_dark_mode()
-        
+
         # 共通CSS
         css = """
         <style>
@@ -185,7 +185,7 @@ class MainView(BaseView[MainViewModel]):
         </style>
         """
         st.markdown(css, unsafe_allow_html=True)
-        
+
         # テーマ別CSS
         if is_dark:
             # ダークテーマ用CSS

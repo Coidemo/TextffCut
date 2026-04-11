@@ -9,7 +9,7 @@ def get_icon_svg() -> str:
     """
     テーマに応じたアイコンSVGを返す
     CSS media queriesのみを使用したシンプルな実装
-    
+
     Returns:
         SVG文字列
     """

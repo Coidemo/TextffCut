@@ -930,7 +930,7 @@ class TextEditorView:
                     progress_text.write(f"🎨 {media_config.summary()}")
 
                 # Phase 3.7: タイトル画像生成（バッチ1回のAI呼び出し）
-                from use_cases.ai.suggest_and_export import _sanitize_filename
+                from use_cases.ai.suggest_and_export import sanitize_filename
 
                 title_image_paths: dict[int, Path] = {}
                 if enable_title_image:
@@ -957,7 +957,7 @@ class TextEditorView:
                         model=gateway.model,
                         font_dir=font_dir,
                         frame_path=frame_path_for_title,
-                        sanitize_fn=_sanitize_filename,
+                        sanitize_fn=sanitize_filename,
                         target_size=title_target_size,
                         offset_y=title_offset_y,
                     )
@@ -971,30 +971,60 @@ class TextEditorView:
 
                 # Phase 3.8: アンカー自動検出
                 actual_anchor = anchor
+                logger.info("アンカー自動検出条件: auto_anchor=%s, timeline=%s, anchor=%s", auto_anchor, timeline_resolution, anchor)
                 if (
                     auto_anchor
                     and timeline_resolution == "vertical"
                     and anchor == (0.0, 0.0)
                 ):
                     try:
-                        from use_cases.ai.auto_anchor_detector import detect_anchor as _detect_anchor
+                        from use_cases.ai.auto_anchor_detector import detect_anchor as _detect_anchor, anchor_to_fcpxml
 
                         progress_text.write("📍 アンカー位置を自動検出中...")
+                        # 最初の候補の中間時刻をフレーム抽出点に使用
+                        _frame_t = 5.0
+                        if suggestions and suggestions[0].time_ranges:
+                            _first_range = suggestions[0].time_ranges[0]
+                            _frame_t = (_first_range[0] + _first_range[1]) / 2
                         anchor_result = _detect_anchor(
                             video_path=video_path_obj,
                             client=gateway.client,
+                            frame_time=_frame_t,
                         )
-                        actual_anchor = (anchor_result.anchor_x, anchor_result.anchor_y)
+                        logger.info("アンカー検出結果: frame_t=%.1fs, AI=(%.3f, %.3f), desc=%s", _frame_t, anchor_result.anchor_x, anchor_result.anchor_y, anchor_result.description)
+                        from core.video import VideoInfo
+                        try:
+                            vi = VideoInfo.from_file(str(video_path_obj))
+                            src_w, src_h = vi.width, vi.height
+                        except Exception:
+                            logger.warning("VideoInfo取得失敗、デフォルト1920x1080を使用")
+                            src_w, src_h = 1920, 1080
+                        actual_anchor = anchor_to_fcpxml(
+                            anchor_result.anchor_x, anchor_result.anchor_y, src_w, src_h, scale,
+                        )
                         progress_text.write(
                             f"✅ アンカー検出: ({actual_anchor[0]:.1f}, {actual_anchor[1]:.1f}) — {anchor_result.description}"
                         )
                     except Exception as e:
+                        logger.error("アンカー自動検出エラー: %s", e, exc_info=True)
                         progress_text.write(f"⚠️ アンカー自動検出スキップ: {e}")
 
                 exported_files: list[Path] = []
                 for i, suggestion in enumerate(suggestions, 1):
                     progress_text.write(f"📄 FCPXML生成中... ({i}/{total})")
-                    sanitized = _sanitize_filename(suggestion.title)
+                    sanitized = sanitize_filename(suggestion.title)
+
+                    # AI SE配置を計算（SEファイルがある場合）
+                    ai_se_placements = None
+                    if enable_se and media_config and media_config.additional_audio_settings:
+                        progress_text.write(f"🔊 AI SE配置中... ({i}/{total})")
+                        ai_se_placements = use_case._compute_ai_se_placements(
+                            suggestion=suggestion,
+                            transcription=actual_result,
+                            media_config=media_config,
+                            ai_model=gateway.model,
+                            speed=float(speed),
+                        )
 
                     title_path = title_image_paths.get(i)
                     title_settings = None
@@ -1006,6 +1036,7 @@ class TextEditorView:
                         scale=scale, anchor=actual_anchor,
                         timeline_resolution=timeline_resolution,
                         title_settings=title_settings,
+                        ai_se_placements=ai_se_placements,
                     )
                     if success:
                         exported_files.append(fcpxml_path)
@@ -1019,6 +1050,7 @@ class TextEditorView:
                             transcription=actual_result,
                             output_path=srt_path,
                             video_path=actual_video_path,
+                            speed=float(speed),
                         )
 
                 # キャッシュ保存

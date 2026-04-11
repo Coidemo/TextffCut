@@ -48,7 +48,6 @@ class ITextProcessorGateway(Protocol):
         """
         ...
 
-
     def normalize_text(self, text: str) -> str:
         """
         テキストを正規化

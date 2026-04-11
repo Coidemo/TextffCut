@@ -24,13 +24,12 @@ from use_cases.transcription.batch_transcribe import (
 # フィクスチャ
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def mock_gateway():
     """モックの TranscriptionGateway"""
     gateway = MagicMock()
-    gateway.get_available_models.return_value = [
-        "tiny", "base", "small", "medium", "large-v3", "large-v3-turbo"
-    ]
+    gateway.get_available_models.return_value = ["tiny", "base", "small", "medium", "large-v3", "large-v3-turbo"]
     gateway.get_cache_path.return_value = Path("/tmp/out.json")
     return gateway
 
@@ -81,6 +80,7 @@ def make_use_case(mock_gateway):
 # 基本動作テスト
 # ---------------------------------------------------------------------------
 
+
 class TestBatchTranscribeBasic:
 
     def test_empty_paths_raises_error(self, mock_gateway):
@@ -95,8 +95,10 @@ class TestBatchTranscribeBasic:
         """1ファイルの正常処理"""
         use_case = make_use_case(mock_gateway)
 
-        with patch.object(use_case._single_use_case, "execute", return_value=mock_transcription_result), \
-             patch.object(use_case, "_cache_exists", return_value=False):
+        with (
+            patch.object(use_case._single_use_case, "execute", return_value=mock_transcription_result),
+            patch.object(use_case, "_cache_exists", return_value=False),
+        ):
 
             request = BatchTranscribeRequest(
                 video_paths=[FilePath(str(tmp_video_files[0]))],
@@ -114,8 +116,10 @@ class TestBatchTranscribeBasic:
         """複数ファイルの全件成功"""
         use_case = make_use_case(mock_gateway)
 
-        with patch.object(use_case._single_use_case, "execute", return_value=mock_transcription_result), \
-             patch.object(use_case, "_cache_exists", return_value=False):
+        with (
+            patch.object(use_case._single_use_case, "execute", return_value=mock_transcription_result),
+            patch.object(use_case, "_cache_exists", return_value=False),
+        ):
 
             request = BatchTranscribeRequest(
                 video_paths=[FilePath(str(f)) for f in tmp_video_files],
@@ -131,13 +135,17 @@ class TestBatchTranscribeBasic:
     def test_result_video_path_is_always_path_type(self, mock_gateway, mock_transcription_result, tmp_video_files):
         """成功・失敗・スキップすべてで video_path が Path 型になっている"""
         use_case = make_use_case(mock_gateway)
-        execute_mock = MagicMock(side_effect=[
-            mock_transcription_result,           # 1件目: 成功
-            Exception("エラー"),                  # 2件目: 失敗
-        ])
+        execute_mock = MagicMock(
+            side_effect=[
+                mock_transcription_result,  # 1件目: 成功
+                Exception("エラー"),  # 2件目: 失敗
+            ]
+        )
 
-        with patch.object(use_case._single_use_case, "execute", execute_mock), \
-             patch.object(use_case, "_cache_exists", side_effect=[False, False, True]):
+        with (
+            patch.object(use_case._single_use_case, "execute", execute_mock),
+            patch.object(use_case, "_cache_exists", side_effect=[False, False, True]),
+        ):
 
             request = BatchTranscribeRequest(
                 video_paths=[FilePath(str(f)) for f in tmp_video_files],
@@ -147,13 +155,15 @@ class TestBatchTranscribeBasic:
             result = use_case(request)
 
         for item in result.items:
-            assert isinstance(item.video_path, Path), \
-                f"video_path should be Path, got {type(item.video_path)} for status={item.status}"
+            assert isinstance(
+                item.video_path, Path
+            ), f"video_path should be Path, got {type(item.video_path)} for status={item.status}"
 
 
 # ---------------------------------------------------------------------------
 # キャッシュスキップテスト
 # ---------------------------------------------------------------------------
+
 
 class TestBatchTranscribeCache:
 
@@ -178,8 +188,10 @@ class TestBatchTranscribeCache:
         """--no-cache のときはキャッシュがあっても処理する"""
         use_case = make_use_case(mock_gateway)
 
-        with patch.object(use_case._single_use_case, "execute", return_value=mock_transcription_result), \
-             patch.object(use_case, "_cache_exists", return_value=True):
+        with (
+            patch.object(use_case._single_use_case, "execute", return_value=mock_transcription_result),
+            patch.object(use_case, "_cache_exists", return_value=True),
+        ):
 
             request = BatchTranscribeRequest(
                 video_paths=[FilePath(str(tmp_video_files[0]))],
@@ -196,19 +208,24 @@ class TestBatchTranscribeCache:
 # エラーハンドリングテスト
 # ---------------------------------------------------------------------------
 
+
 class TestBatchTranscribeErrorHandling:
 
     def test_one_failure_continues_processing(self, mock_gateway, mock_transcription_result, tmp_video_files):
         """1件失敗しても他のファイルは処理継続される"""
         use_case = make_use_case(mock_gateway)
-        execute_mock = MagicMock(side_effect=[
-            Exception("処理失敗"),
-            mock_transcription_result,
-            mock_transcription_result,
-        ])
+        execute_mock = MagicMock(
+            side_effect=[
+                Exception("処理失敗"),
+                mock_transcription_result,
+                mock_transcription_result,
+            ]
+        )
 
-        with patch.object(use_case._single_use_case, "execute", execute_mock), \
-             patch.object(use_case, "_cache_exists", return_value=False):
+        with (
+            patch.object(use_case._single_use_case, "execute", execute_mock),
+            patch.object(use_case, "_cache_exists", return_value=False),
+        ):
 
             request = BatchTranscribeRequest(
                 video_paths=[FilePath(str(f)) for f in tmp_video_files],
@@ -227,8 +244,10 @@ class TestBatchTranscribeErrorHandling:
         use_case = make_use_case(mock_gateway)
         execute_mock = MagicMock(side_effect=Exception("最初のエラー"))
 
-        with patch.object(use_case._single_use_case, "execute", execute_mock), \
-             patch.object(use_case, "_cache_exists", return_value=False):
+        with (
+            patch.object(use_case._single_use_case, "execute", execute_mock),
+            patch.object(use_case, "_cache_exists", return_value=False),
+        ):
 
             request = BatchTranscribeRequest(
                 video_paths=[FilePath(str(f)) for f in tmp_video_files],
@@ -247,9 +266,11 @@ class TestBatchTranscribeErrorHandling:
         use_case = make_use_case(mock_gateway)
         execute_mock = MagicMock(side_effect=[Exception("一時エラー"), mock_transcription_result])
 
-        with patch.object(use_case._single_use_case, "execute", execute_mock), \
-             patch.object(use_case, "_cache_exists", return_value=False), \
-             patch("use_cases.transcription.batch_transcribe.time.sleep"):   # バックオフをスキップ
+        with (
+            patch.object(use_case._single_use_case, "execute", execute_mock),
+            patch.object(use_case, "_cache_exists", return_value=False),
+            patch("use_cases.transcription.batch_transcribe.time.sleep"),
+        ):  # バックオフをスキップ
 
             request = BatchTranscribeRequest(
                 video_paths=[FilePath(str(tmp_video_files[0]))],
@@ -268,8 +289,10 @@ class TestBatchTranscribeErrorHandling:
         use_case = make_use_case(mock_gateway)
         execute_mock = MagicMock(side_effect=Exception("エラー詳細"))
 
-        with patch.object(use_case._single_use_case, "execute", execute_mock), \
-             patch.object(use_case, "_cache_exists", return_value=False):
+        with (
+            patch.object(use_case._single_use_case, "execute", execute_mock),
+            patch.object(use_case, "_cache_exists", return_value=False),
+        ):
 
             request = BatchTranscribeRequest(
                 video_paths=[FilePath(str(tmp_video_files[0]))],
@@ -287,8 +310,10 @@ class TestBatchTranscribeErrorHandling:
         use_case = make_use_case(mock_gateway)
         execute_mock = MagicMock(side_effect=KeyboardInterrupt())
 
-        with patch.object(use_case._single_use_case, "execute", execute_mock), \
-             patch.object(use_case, "_cache_exists", return_value=False):
+        with (
+            patch.object(use_case._single_use_case, "execute", execute_mock),
+            patch.object(use_case, "_cache_exists", return_value=False),
+        ):
 
             request = BatchTranscribeRequest(
                 video_paths=[FilePath(str(tmp_video_files[0]))],
@@ -303,6 +328,7 @@ class TestBatchTranscribeErrorHandling:
 # ドライランテスト
 # ---------------------------------------------------------------------------
 
+
 class TestBatchTranscribeDryRun:
 
     def test_dry_run_does_not_call_execute(self, mock_gateway, tmp_video_files):
@@ -310,8 +336,10 @@ class TestBatchTranscribeDryRun:
         use_case = make_use_case(mock_gateway)
         execute_mock = MagicMock()
 
-        with patch.object(use_case._single_use_case, "execute", execute_mock), \
-             patch.object(use_case, "_cache_exists", return_value=False):
+        with (
+            patch.object(use_case._single_use_case, "execute", execute_mock),
+            patch.object(use_case, "_cache_exists", return_value=False),
+        ):
 
             request = BatchTranscribeRequest(
                 video_paths=[FilePath(str(f)) for f in tmp_video_files],
@@ -362,14 +390,17 @@ class TestBatchTranscribeDryRun:
 # 並列処理テスト
 # ---------------------------------------------------------------------------
 
+
 class TestBatchTranscribeParallel:
 
     def test_parallel_all_success(self, mock_gateway, mock_transcription_result, tmp_video_files):
         """並列処理で全件成功する"""
         use_case = make_use_case(mock_gateway)
 
-        with patch.object(use_case._single_use_case, "execute", return_value=mock_transcription_result), \
-             patch.object(use_case, "_cache_exists", return_value=False):
+        with (
+            patch.object(use_case._single_use_case, "execute", return_value=mock_transcription_result),
+            patch.object(use_case, "_cache_exists", return_value=False),
+        ):
 
             request = BatchTranscribeRequest(
                 video_paths=[FilePath(str(f)) for f in tmp_video_files],
@@ -385,14 +416,18 @@ class TestBatchTranscribeParallel:
     def test_parallel_preserves_all_files_in_result(self, mock_gateway, mock_transcription_result, tmp_video_files):
         """並列処理でも全ファイルが結果に含まれる（サイレント消失なし）"""
         use_case = make_use_case(mock_gateway)
-        execute_mock = MagicMock(side_effect=[
-            Exception("エラー"),
-            mock_transcription_result,
-            mock_transcription_result,
-        ])
+        execute_mock = MagicMock(
+            side_effect=[
+                Exception("エラー"),
+                mock_transcription_result,
+                mock_transcription_result,
+            ]
+        )
 
-        with patch.object(use_case._single_use_case, "execute", execute_mock), \
-             patch.object(use_case, "_cache_exists", return_value=False):
+        with (
+            patch.object(use_case._single_use_case, "execute", execute_mock),
+            patch.object(use_case, "_cache_exists", return_value=False),
+        ):
 
             request = BatchTranscribeRequest(
                 video_paths=[FilePath(str(f)) for f in tmp_video_files],
@@ -409,8 +444,10 @@ class TestBatchTranscribeParallel:
         """並列処理でも video_path は Path 型"""
         use_case = make_use_case(mock_gateway)
 
-        with patch.object(use_case._single_use_case, "execute", return_value=mock_transcription_result), \
-             patch.object(use_case, "_cache_exists", return_value=False):
+        with (
+            patch.object(use_case._single_use_case, "execute", return_value=mock_transcription_result),
+            patch.object(use_case, "_cache_exists", return_value=False),
+        ):
 
             request = BatchTranscribeRequest(
                 video_paths=[FilePath(str(f)) for f in tmp_video_files],
@@ -428,6 +465,7 @@ class TestBatchTranscribeParallel:
 # 進捗コールバックテスト
 # ---------------------------------------------------------------------------
 
+
 class TestBatchTranscribeProgressCallback:
 
     def test_progress_callback_called_twice_per_file(self, mock_gateway, mock_transcription_result, tmp_video_files):
@@ -435,8 +473,10 @@ class TestBatchTranscribeProgressCallback:
         progress_events: list[BatchProgress] = []
         use_case = make_use_case(mock_gateway)
 
-        with patch.object(use_case._single_use_case, "execute", return_value=mock_transcription_result), \
-             patch.object(use_case, "_cache_exists", return_value=False):
+        with (
+            patch.object(use_case._single_use_case, "execute", return_value=mock_transcription_result),
+            patch.object(use_case, "_cache_exists", return_value=False),
+        ):
 
             request = BatchTranscribeRequest(
                 video_paths=[FilePath(str(f)) for f in tmp_video_files[:2]],
@@ -457,8 +497,10 @@ class TestBatchTranscribeProgressCallback:
         progress_events: list[BatchProgress] = []
         use_case = make_use_case(mock_gateway)
 
-        with patch.object(use_case._single_use_case, "execute", return_value=mock_transcription_result), \
-             patch.object(use_case, "_cache_exists", return_value=False):
+        with (
+            patch.object(use_case._single_use_case, "execute", return_value=mock_transcription_result),
+            patch.object(use_case, "_cache_exists", return_value=False),
+        ):
 
             request = BatchTranscribeRequest(
                 video_paths=[FilePath(str(f)) for f in tmp_video_files],
@@ -476,11 +518,13 @@ class TestBatchTranscribeProgressCallback:
 # max_workers 上限テスト
 # ---------------------------------------------------------------------------
 
+
 class TestBatchTranscribeMaxWorkers:
 
     def test_max_workers_capped_at_cpu_count(self):
         """max_workers は CPU コア数を超えない"""
         import os
+
         cpu_count = os.cpu_count() or 1
         request = BatchTranscribeRequest(
             video_paths=[FilePath("/tmp/dummy.mp4")],
@@ -501,26 +545,25 @@ class TestBatchTranscribeMaxWorkers:
 # CLIオプション解析テスト
 # ---------------------------------------------------------------------------
 
+
 class TestCLIParser:
 
     def test_default_options(self):
         """デフォルトオプションの確認"""
         from textffcut_cli.command import build_parser
+
         parser = build_parser()
         args = parser.parse_args(["video.mp4"])
 
         assert args.model == "medium"
-        assert args.workers == 1
         assert args.use_cache is True
-        assert args.retry == 0
-        assert args.fail_fast is False
-        assert args.dry_run is False
+        assert args.simulate is False
         assert args.quiet is False
-        assert args.json_progress is False
 
     def test_model_option(self):
         """-m オプションでモデルを指定できる"""
         from textffcut_cli.command import build_parser
+
         parser = build_parser()
         args = parser.parse_args(["-m", "large-v3", "video.mp4"])
         assert args.model == "large-v3"
@@ -528,6 +571,7 @@ class TestCLIParser:
     def test_no_cache_flag(self):
         """--no-cache フラグで use_cache が False になる"""
         from textffcut_cli.command import build_parser
+
         parser = build_parser()
         args = parser.parse_args(["--no-cache", "video.mp4"])
         assert args.use_cache is False

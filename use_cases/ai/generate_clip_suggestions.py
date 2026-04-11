@@ -41,10 +41,7 @@ class GenerateClipSuggestionsUseCase:
         prompt_path: str | None = None,
     ) -> list[ClipSuggestion]:
 
-        segments_dicts = [
-            {"text": seg.text, "start": seg.start, "end": seg.end}
-            for seg in transcription.segments
-        ]
+        segments_dicts = [{"text": seg.text, "start": seg.start, "end": seg.end} for seg in transcription.segments]
 
         # Phase 1: AI話題検出
         request = TopicDetectionRequest(
@@ -66,9 +63,7 @@ class GenerateClipSuggestionsUseCase:
         # Phase 2 & 3: 各話題に対して候補生成→AI選定
         suggestions = []
         for topic in detection_result.topics:
-            suggestion = self._process_topic(
-                topic, transcription, video_path, min_duration, max_duration
-            )
+            suggestion = self._process_topic(topic, transcription, video_path, min_duration, max_duration)
             if suggestion:
                 suggestions.append(suggestion)
 
@@ -84,9 +79,7 @@ class GenerateClipSuggestionsUseCase:
     ) -> ClipSuggestion | None:
 
         # Phase 2: 力任せ候補生成
-        candidates = generate_candidates(
-            topic, transcription, min_duration, max_duration
-        )
+        candidates = generate_candidates(topic, transcription, min_duration, max_duration)
 
         if not candidates:
             logger.warning(f"候補なし: {topic.title}")
@@ -97,9 +90,7 @@ class GenerateClipSuggestionsUseCase:
             best = candidates[0]
         else:
             # Phase 3: 上位候補の出来上がり音声をAIに評価させる
-            best = self._ai_select_best(
-                topic.title, candidates, video_path
-            )
+            best = self._ai_select_best(topic.title, candidates, video_path)
 
         if not best:
             return None
@@ -142,8 +133,7 @@ class GenerateClipSuggestionsUseCase:
         for i, text in transcriptions:
             cand = candidates[i]
             options.append(
-                f"候補{i+1}（{cand.total_duration:.0f}秒、{len(cand.time_ranges)}クリップ）:\n"
-                f"{text[:300]}"
+                f"候補{i+1}（{cand.total_duration:.0f}秒、{len(cand.time_ranges)}クリップ）:\n" f"{text[:300]}"
             )
 
         try:
@@ -153,10 +143,7 @@ class GenerateClipSuggestionsUseCase:
                 candidates_text=candidates_text,
             )
             selected = max(0, min(selected_num - 1, len(candidates) - 1))
-            logger.info(
-                f"AI選定: 候補{selected+1} "
-                f"({candidates[selected].total_duration:.0f}s)"
-            )
+            logger.info(f"AI選定: 候補{selected+1} " f"({candidates[selected].total_duration:.0f}s)")
             return candidates[selected]
 
         except Exception as e:
@@ -171,6 +158,7 @@ class GenerateClipSuggestionsUseCase:
         """候補の出来上がり音声を文字起こしする。"""
         import os
         from dotenv import load_dotenv
+
         load_dotenv()
         from openai import OpenAI
 
@@ -186,12 +174,31 @@ class GenerateClipSuggestionsUseCase:
                 for i, (start, end) in enumerate(candidate.time_ranges):
                     p = f"{tmpdir}/p{i}.wav"
                     proc = subprocess.run(
-                        ["ffmpeg", "-y", "-ss", str(start), "-t", str(end - start),
-                         "-i", str(video_path), "-vn", "-ar", "16000", "-ac", "1", p],
-                        capture_output=True, timeout=15,
+                        [
+                            "ffmpeg",
+                            "-y",
+                            "-ss",
+                            str(start),
+                            "-t",
+                            str(end - start),
+                            "-i",
+                            str(video_path),
+                            "-vn",
+                            "-ar",
+                            "16000",
+                            "-ac",
+                            "1",
+                            p,
+                        ],
+                        capture_output=True,
+                        timeout=15,
                     )
                     if proc.returncode != 0:
-                        stderr = proc.stderr.decode(errors="replace")[:200] if isinstance(proc.stderr, bytes) else str(proc.stderr)[:200]
+                        stderr = (
+                            proc.stderr.decode(errors="replace")[:200]
+                            if isinstance(proc.stderr, bytes)
+                            else str(proc.stderr)[:200]
+                        )
                         logger.debug(f"ffmpeg extract failed (part {i}): {stderr}")
                         return None
                     parts.append(p)
@@ -200,18 +207,36 @@ class GenerateClipSuggestionsUseCase:
                     for p in parts:
                         f.write(f"file '{p}'\n")
                 proc = subprocess.run(
-                    ["ffmpeg", "-y", "-f", "concat", "-safe", "0",
-                     "-i", f"{tmpdir}/list.txt", "-c", "copy", f"{tmpdir}/out.wav"],
-                    capture_output=True, timeout=15,
+                    [
+                        "ffmpeg",
+                        "-y",
+                        "-f",
+                        "concat",
+                        "-safe",
+                        "0",
+                        "-i",
+                        f"{tmpdir}/list.txt",
+                        "-c",
+                        "copy",
+                        f"{tmpdir}/out.wav",
+                    ],
+                    capture_output=True,
+                    timeout=15,
                 )
                 if proc.returncode != 0:
-                    stderr = proc.stderr.decode(errors="replace")[:200] if isinstance(proc.stderr, bytes) else str(proc.stderr)[:200]
+                    stderr = (
+                        proc.stderr.decode(errors="replace")[:200]
+                        if isinstance(proc.stderr, bytes)
+                        else str(proc.stderr)[:200]
+                    )
                     logger.debug(f"ffmpeg concat failed: {stderr}")
                     return None
 
                 with open(f"{tmpdir}/out.wav", "rb") as f:
                     resp = client.audio.transcriptions.create(
-                        model="whisper-1", file=f, language="ja",
+                        model="whisper-1",
+                        file=f,
+                        language="ja",
                         response_format="text",
                     )
                 return resp if isinstance(resp, str) else str(resp)

@@ -84,11 +84,12 @@ class ExportSettingsPresenter(BasePresenter[ExportSettingsViewModel]):
         self.view_model.video_path = (
             Path(self.session_manager.get_video_path()) if self.session_manager.get_video_path() else None
         )
-        
+
         # 動画の長さを取得
         if self.view_model.video_path:
             try:
                 from core.video import VideoInfo
+
                 video_info = VideoInfo.from_file(str(self.view_model.video_path))
                 self.view_model.video_duration = video_info.duration
             except Exception:
@@ -329,20 +330,65 @@ class ExportSettingsPresenter(BasePresenter[ExportSettingsViewModel]):
 
             # FCPXML設定を取得（セッション状態から）
             import streamlit as st
+
             fcpxml_settings = st.session_state.get("fcpxml_settings", {})
             scale = fcpxml_settings.get("scale", (1.0, 1.0))
             anchor = fcpxml_settings.get("anchor", (0.0, 0.0))
             timeline_resolution = fcpxml_settings.get("timeline_resolution", "horizontal")
-            
+            auto_anchor = fcpxml_settings.get("auto_anchor", False)
+
+            # アンカー自動検出（vertical + 手動指定なし + auto_anchor有効時）
+            if (
+                auto_anchor
+                and timeline_resolution == "vertical"
+                and anchor == (0.0, 0.0)
+            ):
+                try:
+                    from pathlib import Path as _Path
+
+                    from use_cases.ai.auto_anchor_detector import detect_anchor
+                    from utils.api_key_manager import api_key_manager
+
+                    api_key = api_key_manager.load_api_key()
+                    if api_key:
+                        import openai
+
+                        client = openai.OpenAI(api_key=api_key)
+                        video_p = _Path(str(self.view_model.video_path))
+                        # 時間範囲の中間時刻をフレーム抽出点に使用
+                        _frame_t = 5.0
+                        if legacy_ranges:
+                            _first_r = legacy_ranges[0]
+                            _frame_t = (_first_r[0] + _first_r[1]) / 2
+                        result = detect_anchor(
+                            video_path=video_p,
+                            client=client,
+                            frame_time=_frame_t,
+                        )
+                        from use_cases.ai.auto_anchor_detector import anchor_to_fcpxml
+                        from core.video import VideoInfo
+                        try:
+                            vi = VideoInfo.from_file(str(video_p))
+                            src_w, src_h = vi.width, vi.height
+                        except Exception:
+                            logger.warning("VideoInfo取得失敗、デフォルト1920x1080を使用")
+                            src_w, src_h = 1920, 1080
+                        anchor = anchor_to_fcpxml(
+                            result.anchor_x, result.anchor_y, src_w, src_h, scale,
+                        )
+                        logger.info("アンカー自動検出: %s — %s", anchor, result.description)
+                except Exception as e:
+                    logger.warning("アンカー自動検出スキップ: %s", e)
+
             # オーバーレイ設定を取得
             overlay_settings = st.session_state.get("fcpxml_overlay_settings", {})
-            
+
             # BGM設定を取得
             bgm_settings = st.session_state.get("fcpxml_bgm_settings", {})
-            
+
             # 追加オーディオ設定を取得
             additional_audio_settings = st.session_state.get("fcpxml_additional_audio_settings", {})
-            
+
             # FCPXMLを生成（隙間を詰めて配置）
             self.fcpxml_export_gateway.export(
                 FilePath(str(self.view_model.video_path)),

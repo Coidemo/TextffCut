@@ -17,9 +17,12 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from PIL import Image, ImageChops, ImageDraw, ImageFont
-
 logger = logging.getLogger(__name__)
+
+try:
+    from PIL import Image, ImageChops, ImageDraw, ImageFont
+except ImportError:  # pragma: no cover
+    Image = ImageChops = ImageDraw = ImageFont = None  # type: ignore[assignment,misc]
 
 # ---------------------------------------------------------------------------
 # データ構造
@@ -90,9 +93,18 @@ def find_font(weight: str = "Eb", font_dir: Path | None = None) -> str:
     if hiragino.exists():
         return str(hiragino)
 
-    # 4. 最終フォールバック: Pillowデフォルトフォント
+    # 4. 最終フォールバック: システム上の任意の日本語フォント
+    for fallback in [
+        Path("/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc"),
+        Path("/System/Library/Fonts/Hiragino Sans GB.ttc"),
+        Path("/System/Library/Fonts/AppleSDGothicNeo.ttc"),
+        Path("/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc"),  # Linux (Noto)
+        Path("/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc"),  # Linux variant
+    ]:
+        if fallback.exists():
+            return str(fallback)
     logger.warning(f"フォントが見つかりません: {filename}。デフォルトフォントを使用します。")
-    return ""  # ImageFont.truetype("") は失敗するが、呼び出し元でキャッチされる
+    return ""
 
 
 # ---------------------------------------------------------------------------
@@ -102,6 +114,8 @@ def find_font(weight: str = "Eb", font_dir: Path | None = None) -> str:
 
 def extract_frame_colors(frame_path: Path, num_colors: int = 5) -> list[str]:
     """frame.pngから支配色を抽出し、hex文字列リストで返す"""
+    if Image is None:
+        raise ImportError("Pillow is required for title image generation. Install it with: pip install Pillow>=10.0.0")
     try:
         with Image.open(frame_path) as raw_img:
             img = raw_img.convert("RGBA")
@@ -255,7 +269,8 @@ def design_title_layout_candidates(
     if prompt_path.exists():
         prompt_template = prompt_path.read_text(encoding="utf-8")
     else:
-        raise FileNotFoundError(f"プロンプトファイルが見つかりません: {prompt_path}")
+        logger.warning("title_image_candidates.md が見つかりません。デフォルトプロンプトで1候補生成に切り替えます。")
+        prompt_template = _DEFAULT_PROMPT
 
     frame_info = "なし（デフォルトの配色で設計してください）"
     if frame_colors:
@@ -446,7 +461,7 @@ def evaluate_candidates_with_vision(
         logger.warning(f"Vision AI評価失敗: {e}")
 
     # フォールバック: エンコード成功した最初の候補
-    return encoded_candidates[0][0]
+    return encoded_candidates[0][0] if encoded_candidates else candidate_images[0][0]
 
 
 def _parse_design_json(raw: dict) -> TitleImageDesign:
@@ -631,6 +646,8 @@ def render_title_image(
     Returns:
         (output_path, image_width, image_height) — 画像サイズ（常にwidth x height）
     """
+    if Image is None:
+        raise ImportError("Pillow is required for title image generation. Install it with: pip install Pillow>=10.0.0")
     img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
 
@@ -647,7 +664,10 @@ def render_title_image(
 
         for seg in line.segments:
             font_path = find_font(seg.weight, font_dir)
-            font = ImageFont.truetype(font_path, seg.font_size)
+            if font_path:
+                font = ImageFont.truetype(font_path, seg.font_size)
+            else:
+                font = ImageFont.load_default(size=seg.font_size)
             fonts.append(font)
 
             bbox = font.getbbox(seg.text)
@@ -666,7 +686,10 @@ def render_title_image(
             for i, seg in enumerate(line.segments):
                 new_size = max(30, int(seg.font_size * scale_factor))
                 font_path = find_font(seg.weight, font_dir)
-                fonts[i] = ImageFont.truetype(font_path, new_size)
+                if font_path:
+                    fonts[i] = ImageFont.truetype(font_path, new_size)
+                else:
+                    fonts[i] = ImageFont.load_default(size=new_size)
                 bbox = fonts[i].getbbox(seg.text)
                 seg_widths[i] = bbox[2] - bbox[0]
                 seg_heights[i] = bbox[3] - bbox[1]

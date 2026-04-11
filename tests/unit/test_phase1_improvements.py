@@ -4,6 +4,7 @@ Phase 1改善のテスト
 依存パッケージ（rich, cryptography等）がなくても実行可能なテスト。
 ロジックの直接テストとファイルI/Oテストに集中する。
 """
+
 from __future__ import annotations
 
 import json
@@ -22,6 +23,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 # ===== version_helpers テスト（直接ロジックテスト） =====
 
+
 class TestVersionHelpers:
     """version_helpersのロジックテスト（importを避けて直接テスト）"""
 
@@ -30,7 +32,7 @@ class TestVersionHelpers:
         content = (PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8")
         match = re.search(r'^version\s*=\s*"([^"]+)"', content, re.MULTILINE)
         assert match is not None
-        assert match.group(1) == "2.0.0"
+        assert match.group(1) == "2.0.1"
 
     def test_pyproject_toml_regex_various_formats(self):
         """さまざまなTOML形式に対応"""
@@ -50,6 +52,7 @@ class TestVersionHelpers:
 
     def test_format_version_display_logic(self):
         """バージョン表示フォーマットのロジック"""
+
         def format_version_display(version: str, include_prefix: bool = True) -> str:
             if version.startswith("v"):
                 return version if include_prefix else version[1:]
@@ -63,6 +66,7 @@ class TestVersionHelpers:
 
     def test_parse_version_logic(self):
         """バージョンパースのロジック"""
+
         def parse_version(version_string: str):
             version = version_string.lstrip("v")
             parts = version.split(".")
@@ -80,6 +84,7 @@ class TestVersionHelpers:
 
 
 # ===== setup_command テスト（ファイルI/Oのみ） =====
+
 
 class TestSetupConfig:
     """setup設定管理のテスト"""
@@ -108,6 +113,7 @@ class TestSetupConfig:
 
     def test_mask_key_logic(self):
         """APIキーマスク表示ロジック"""
+
         def mask_key(key: str) -> str:
             if len(key) <= 8:
                 return "****"
@@ -143,6 +149,7 @@ class TestSetupConfig:
 
 
 # ===== upgrade_command テスト =====
+
 
 class TestUpgradeCheck:
     """upgradeチェック結果の保存/読み込みテスト"""
@@ -187,6 +194,7 @@ class TestUpgradeCheck:
 
 # ===== command.py ルーティングテスト =====
 
+
 class TestCommandStructure:
     """command.pyの構造テスト"""
 
@@ -223,6 +231,7 @@ class TestCommandStructure:
 
 # ===== GUI統合テスト =====
 
+
 class TestGUIClipIntegration:
     """GUI AI切り抜き統合のテスト"""
 
@@ -242,6 +251,7 @@ class TestGUIClipIntegration:
 
 
 # ===== suggest_command テスト =====
+
 
 class TestSuggestCommandDefaults:
     """suggest_commandのデフォルト動作テスト"""

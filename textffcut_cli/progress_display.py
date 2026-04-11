@@ -22,8 +22,8 @@ from rich.text import Text
 if TYPE_CHECKING:
     from use_cases.transcription.batch_transcribe import BatchItemResult, BatchProgress, BatchTranscribeResult
 
-console = Console(stderr=True)   # 進捗は stderr に出力（stdout はデータ用に空ける）
-_json_lock = threading.Lock()    # JSON Lines 出力をスレッドセーフにする
+console = Console(stderr=True)  # 進捗は stderr に出力（stdout はデータ用に空ける）
+_json_lock = threading.Lock()  # JSON Lines 出力をスレッドセーフにする
 
 
 class ProgressDisplay:
@@ -38,12 +38,14 @@ class ProgressDisplay:
 
     def start(self, total: int, model: str) -> None:
         if self.json_progress:
-            self._emit_json({
-                "type": "start",
-                "total": total,
-                "model": model,
-                "timestamp": datetime.now().isoformat(),
-            })
+            self._emit_json(
+                {
+                    "type": "start",
+                    "total": total,
+                    "model": model,
+                    "timestamp": datetime.now().isoformat(),
+                }
+            )
             return
 
         if self.quiet:
@@ -67,14 +69,16 @@ class ProgressDisplay:
 
     def update(self, progress: "BatchProgress") -> None:
         if self.json_progress:
-            self._emit_json({
-                "type": "progress",
-                "file": progress.current_file,
-                "status": progress.current_status,
-                "index": progress.completed + progress.failed + progress.skipped,
-                "total": progress.total,
-                "elapsed": round(progress.elapsed_seconds, 1),
-            })
+            self._emit_json(
+                {
+                    "type": "progress",
+                    "file": progress.current_file,
+                    "status": progress.current_status,
+                    "index": progress.completed + progress.failed + progress.skipped,
+                    "total": progress.total,
+                    "elapsed": round(progress.elapsed_seconds, 1),
+                }
+            )
             return
 
         if self.quiet or self._progress is None or self._task_id is None:
@@ -88,10 +92,7 @@ class ProgressDisplay:
             "skipped": "[dim]- スキップ[/]",
         }.get(progress.current_status, progress.current_status)
 
-        desc = (
-            f"[{completed_total}/{progress.total}] "
-            f"{status_icon}  {progress.current_file or ''}"
-        )
+        desc = f"[{completed_total}/{progress.total}] " f"{status_icon}  {progress.current_file or ''}"
         self._progress.update(self._task_id, description=desc, completed=completed_total)
 
     def finish(self, result: "BatchTranscribeResult") -> None:
@@ -100,13 +101,15 @@ class ProgressDisplay:
             self._live.stop()
 
         if self.json_progress:
-            self._emit_json({
-                "type": "summary",
-                "succeeded": result.succeeded,
-                "failed": result.failed,
-                "skipped": result.skipped,
-                "total_elapsed": round(result.total_processing_time, 1),
-            })
+            self._emit_json(
+                {
+                    "type": "summary",
+                    "succeeded": result.succeeded,
+                    "failed": result.failed,
+                    "skipped": result.skipped,
+                    "total_elapsed": round(result.total_processing_time, 1),
+                }
+            )
             return
 
         if self.quiet:

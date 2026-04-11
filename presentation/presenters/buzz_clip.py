@@ -192,19 +192,17 @@ class BuzzClipPresenter(BasePresenter[BuzzClipViewModel]):
         # セッションからも削除
         if self.session_manager:
             self.session_manager.set("buzz_clip_state", None)
-    
+
     def generate_prompt_for_external_ai(self, transcription_segments: list[dict[str, Any]]) -> str:
         """外部AIサービス用のプロンプトを生成"""
         logger.info("Generating prompt for external AI service")
-        
+
         from utils.prompt_loader import PromptLoader
-        
+
         loader = PromptLoader()
         prompt = loader.load_buzz_clip_prompt(transcription_segments)
-        
-        return prompt
-    
 
+        return prompt
 
     def get_cache_path(self, video_path: str | Path, transcription_model: str = None) -> Path:
         """キャッシュファイルのパスを取得"""

@@ -28,6 +28,16 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def _safe_volume_db(value: object) -> str:
+    """adjust-volume amount用の安全な文字列を返す。dB範囲 [-96, 12] にクランプ。"""
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        v = 0.0
+    v = max(-96.0, min(12.0, v))
+    return f"{v:g}"
+
+
 def optimize_fraction(value: float, base_fps: int = 30) -> str:
     """浮動小数点数を最適化された分数文字列に変換
 
@@ -84,6 +94,7 @@ class FCPXMLExporter:
         bgm_settings: dict | None = None,
         additional_audio_settings: dict | None = None,
         title_settings: dict | None = None,
+        ai_se_placements: list | None = None,
     ) -> bool:
         """
         FCPXMLファイルをエクスポート
@@ -120,6 +131,7 @@ class FCPXMLExporter:
                 bgm_settings,
                 additional_audio_settings,
                 title_settings,
+                ai_se_placements,
             )
 
             # ファイルに保存
@@ -155,6 +167,7 @@ class FCPXMLExporter:
         bgm_settings: dict | None = None,
         additional_audio_settings: dict | None = None,
         title_settings: dict | None = None,
+        ai_se_placements: list | None = None,
     ) -> str:
         """FCPXMLコンテンツを構築（DaVinci Resolve完全互換）"""
         # 総時間を計算
@@ -493,7 +506,7 @@ class FCPXMLExporter:
                         f'{indent}<asset-clip duration="{remaining_duration_str}" lane="3" '
                         f'name="{_xml_attr(Path(bgm_path).name)}" ref="{bgm_resource_id}" '
                         f'start="0/1s" offset="{offset_str}" enabled="1">\n'
-                        f'{indent}    <adjust-volume amount="{bgm_volume}"/>\n'
+                        f'{indent}    <adjust-volume amount="{_safe_volume_db(bgm_volume)}"/>\n'
                         f"{indent}</asset-clip>\n"
                     )
 
@@ -507,7 +520,7 @@ class FCPXMLExporter:
                     f'{indent}<asset-clip duration="{bgm_duration_str}" lane="3" '
                     f'name="{_xml_attr(Path(bgm_path).name)}" ref="{bgm_resource_id}" '
                     f'start="0/1s" offset="0/1s" enabled="1">\n'
-                    f'{indent}    <adjust-volume amount="{bgm_volume}"/>\n'
+                    f'{indent}    <adjust-volume amount="{_safe_volume_db(bgm_volume)}"/>\n'
                     f"{indent}</asset-clip>\n"
                 )
 
@@ -533,11 +546,36 @@ class FCPXMLExporter:
                     f'start="0/1s" offset="{offset_str}" enabled="1">\n'
                 )
                 if volume != 0:
-                    xml_content += f'{indent}    <adjust-volume amount="{volume}"/>\n'
+                    xml_content += f'{indent}    <adjust-volume amount="{_safe_volume_db(volume)}"/>\n'
                 xml_content += f"{indent}</asset-clip>\n"
 
                 # 次のクリップの開始位置は、現在のクリップの終了位置 + 隙間
                 current_offset += audio_duration + gap_duration
+
+        # AI配置SE（レーン5: 字幕内容に基づいてタイミング決定）
+        if ai_se_placements and additional_audio_resource_ids:
+            for placement in ai_se_placements:
+                se_path = placement.se_file
+                if se_path not in additional_audio_resource_ids:
+                    logger.warning(f"AI SE配置: リソース未登録のSEファイル: {se_path}、スキップ")
+                    continue
+
+                resource_id, audio_info, volume = additional_audio_resource_ids[se_path]
+                se_duration = min(audio_info.duration, total_duration - placement.timestamp)
+                if se_duration <= 0:
+                    continue
+
+                duration_str = optimize_fraction(se_duration, timeline_fps)
+                offset_str = optimize_fraction(placement.timestamp, timeline_fps)
+
+                xml_content += (
+                    f'{indent}<asset-clip duration="{duration_str}" lane="5" '
+                    f'name="{_xml_attr(Path(se_path).name)}" ref="{resource_id}" '
+                    f'start="0/1s" offset="{offset_str}" enabled="1">\n'
+                )
+                if volume != 0:
+                    xml_content += f'{indent}    <adjust-volume amount="{_safe_volume_db(volume)}"/>\n'
+                xml_content += f"{indent}</asset-clip>\n"
 
         xml_content += """                    </spine>
                 </sequence>

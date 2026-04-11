@@ -73,18 +73,14 @@ def run_quality_loop(
         audio_issues = []
         try:
             from use_cases.ai.audio_naturalness import analyze_join_naturalness
+
             joins = analyze_join_naturalness(video_path, suggestion.time_ranges)
-            audio_issues = [
-                f"クリップ{j.index+1}→{j.index+2}の結合部: {j.detail}"
-                for j in joins if not j.is_natural
-            ]
+            audio_issues = [f"クリップ{j.index+1}→{j.index+2}の結合部: {j.detail}" for j in joins if not j.is_natural]
         except Exception as e:
             logger.debug(f"音響分析スキップ: {e}")
 
         # AI品質判定（出来上がりテキスト + 音響分析結果）
-        result = _ai_quality_check(
-            suggestion.title, transcribed, gateway, audio_issues
-        )
+        result = _ai_quality_check(suggestion.title, transcribed, gateway, audio_issues)
 
         if result.is_ok:
             logger.info(f"品質OK (iteration {iteration}): {suggestion.title}")
@@ -93,9 +89,7 @@ def run_quality_loop(
         logger.info(f"品質問題 (iteration {iteration}): {result.issues}")
 
         # AI修正提案に基づいて修正
-        modified = _apply_ai_fixes(
-            suggestion, transcription, result, gateway, video_path, max_duration
-        )
+        modified = _apply_ai_fixes(suggestion, transcription, result, gateway, video_path, max_duration)
         if not modified:
             logger.info(f"修正不可 → 終了: {suggestion.title}")
             break
@@ -128,6 +122,7 @@ def _transcribe_output(
     try:
         import os
         from dotenv import load_dotenv
+
         load_dotenv()
         from openai import OpenAI
 
@@ -143,12 +138,31 @@ def _transcribe_output(
             for i, (start, end) in enumerate(suggestion.time_ranges):
                 part_path = f"{tmpdir}/p{i}.wav"
                 proc = subprocess.run(
-                    ["ffmpeg", "-y", "-ss", str(start), "-t", str(end - start),
-                     "-i", str(video_path), "-vn", "-ar", "16000", "-ac", "1", part_path],
-                    capture_output=True, timeout=15,
+                    [
+                        "ffmpeg",
+                        "-y",
+                        "-ss",
+                        str(start),
+                        "-t",
+                        str(end - start),
+                        "-i",
+                        str(video_path),
+                        "-vn",
+                        "-ar",
+                        "16000",
+                        "-ac",
+                        "1",
+                        part_path,
+                    ],
+                    capture_output=True,
+                    timeout=15,
                 )
                 if proc.returncode != 0:
-                    stderr = proc.stderr.decode(errors="replace")[:200] if isinstance(proc.stderr, bytes) else str(proc.stderr)[:200]
+                    stderr = (
+                        proc.stderr.decode(errors="replace")[:200]
+                        if isinstance(proc.stderr, bytes)
+                        else str(proc.stderr)[:200]
+                    )
                     logger.warning(f"ffmpeg extract failed (part {i}): {stderr}")
                     return None
                 parts.append(part_path)
@@ -160,18 +174,24 @@ def _transcribe_output(
 
             combined_path = f"{tmpdir}/combined.wav"
             proc = subprocess.run(
-                ["ffmpeg", "-y", "-f", "concat", "-safe", "0",
-                 "-i", list_path, "-c", "copy", combined_path],
-                capture_output=True, timeout=15,
+                ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", list_path, "-c", "copy", combined_path],
+                capture_output=True,
+                timeout=15,
             )
             if proc.returncode != 0:
-                stderr = proc.stderr.decode(errors="replace")[:200] if isinstance(proc.stderr, bytes) else str(proc.stderr)[:200]
+                stderr = (
+                    proc.stderr.decode(errors="replace")[:200]
+                    if isinstance(proc.stderr, bytes)
+                    else str(proc.stderr)[:200]
+                )
                 logger.warning(f"ffmpeg concat failed: {stderr}")
                 return None
 
             with open(combined_path, "rb") as f:
                 resp = client.audio.transcriptions.create(
-                    model="whisper-1", file=f, language="ja",
+                    model="whisper-1",
+                    file=f,
+                    language="ja",
                     response_format="text",
                     prompt="えー、あの、まあ、なんか、えっと、",
                 )
@@ -248,9 +268,7 @@ def _apply_ai_fixes(
 
     # 冗長 or 音響不自然 → 中間カット
     if (has_redundancy or has_audio_issue) and len(suggestion.time_ranges) > 3:
-        _trim_duration(suggestion, transcription,
-                       suggestion.total_duration,
-                       gateway, video_path)
+        _trim_duration(suggestion, transcription, suggestion.total_duration, gateway, video_path)
         return True
 
     return False
@@ -287,8 +305,7 @@ def _trim_duration(
     # 各クリップのテキストを取得
     clip_texts = []
     for i, (tr_start, tr_end) in enumerate(suggestion.time_ranges):
-        texts = [seg.text for seg in transcription.segments
-                 if seg.end > tr_start and seg.start < tr_end]
+        texts = [seg.text for seg in transcription.segments if seg.end > tr_start and seg.start < tr_end]
         clip_texts.append(f"[{i}] ({tr_end - tr_start:.1f}s) {''.join(texts)[:80]}")
 
     excess = suggestion.total_duration - max_duration
@@ -375,40 +392,26 @@ def _extend_range_backward(
     current_start = "".join(current_start_texts)[:150]
 
     try:
-        cand_desc = "\n".join(
-            f"[{i}] ({seg.start:.0f}s) {seg.text}"
-            for i, seg in enumerate(candidates)
-        )
+        cand_desc = "\n".join(f"[{i}] ({seg.start:.0f}s) {seg.text}" for i, seg in enumerate(candidates))
 
         # judge_segment_relevanceを利用して不要セグメントを判定
         # ただしここでは「含めるべき」を選ぶため、逆に全体から除外を引く
         seg_dicts = [
-            {"index": i, "text": seg.text, "start": seg.start, "end": seg.end}
-            for i, seg in enumerate(candidates)
+            {"index": i, "text": seg.text, "start": seg.start, "end": seg.end} for i, seg in enumerate(candidates)
         ]
         remove_indices = gateway.judge_segment_relevance(
             title=f"{suggestion.title}（前方文脈補完）",
             segments=seg_dicts,
         )
 
-        include_indices = [
-            i for i in range(len(candidates))
-            if i not in set(remove_indices)
-        ]
+        include_indices = [i for i in range(len(candidates)) if i not in set(remove_indices)]
 
         if include_indices:
-            prepend = [
-                (candidates[i].start, candidates[i].end)
-                for i in include_indices
-            ]
+            prepend = [(candidates[i].start, candidates[i].end) for i in include_indices]
             if prepend:
                 suggestion.time_ranges = prepend + suggestion.time_ranges
-                suggestion.total_duration = sum(
-                    e - s for s, e in suggestion.time_ranges
-                )
-                logger.info(
-                    f"  前方延長: {len(prepend)}セグメント追加"
-                )
+                suggestion.total_duration = sum(e - s for s, e in suggestion.time_ranges)
+                logger.info(f"  前方延長: {len(prepend)}セグメント追加")
                 return True
 
     except Exception as e:

@@ -88,14 +88,14 @@ class FCPXMLExportGatewayAdapter(IFCPXMLExportGateway):
 
             # FCPXMLを生成（exportメソッドが直接ファイルに書き込む）
             success = exporter.export(
-                segments, 
-                output_path, 
-                scale=scale, 
-                anchor=anchor, 
+                segments,
+                output_path,
+                scale=scale,
+                anchor=anchor,
                 timeline_resolution=timeline_resolution,
                 overlay_settings=overlay_settings,
                 bgm_settings=bgm_settings,
-                additional_audio_settings=additional_audio_settings
+                additional_audio_settings=additional_audio_settings,
             )
 
             if not success:

@@ -20,20 +20,20 @@ def test_imports():
         import core.text_processor
         import core.auto_optimizer
         import core.transcription_smart_boundary
-        
+
         # DIコンテナ
         import di.containers
-        
+
         # プレゼンテーション層
         import presentation.presenters.main
         import presentation.views.main
-        
+
         # アダプター
         import adapters.gateways.transcription.transcription_gateway
-        
+
         # 設定
         import config
-        
+
         print("✓ All imports successful")
         return True
     except ImportError as e:
@@ -45,9 +45,7 @@ def test_ffmpeg_available():
     """FFmpegが利用可能かを確認"""
     print("\nTesting FFmpeg availability...")
     try:
-        result = subprocess.run(['ffmpeg', '-version'], 
-                              capture_output=True, 
-                              text=True)
+        result = subprocess.run(["ffmpeg", "-version"], capture_output=True, text=True)
         if result.returncode == 0:
             print("✓ FFmpeg is available")
             return True
@@ -64,13 +62,14 @@ def test_config_loading():
     print("\nTesting configuration loading...")
     try:
         from config import Config
+
         config = Config()
-        
+
         # 基本的な設定項目の確認
-        assert hasattr(config, 'transcription')
-        assert hasattr(config.transcription, 'model_size')
-        assert hasattr(config.transcription, 'language')
-        
+        assert hasattr(config, "transcription")
+        assert hasattr(config.transcription, "model_size")
+        assert hasattr(config.transcription, "language")
+
         print("✓ Configuration loaded successfully")
         return True
     except Exception as e:
@@ -84,16 +83,16 @@ def test_vad_implementation():
     try:
         from core.auto_optimizer import AutoOptimizer
         from core.constants import ChunkSizeLimits
-        
+
         # AutoOptimizerの初期化
         optimizer = AutoOptimizer("medium")
-        
+
         # 基本的なパラメータ確認
         params = optimizer.get_optimal_params(50.0)
-        assert 'chunk_seconds' in params
-        assert 'compute_type' in params
-        assert params['chunk_seconds'] <= ChunkSizeLimits.MAXIMUM  # 30秒以下
-        
+        assert "chunk_seconds" in params
+        assert "compute_type" in params
+        assert params["chunk_seconds"] <= ChunkSizeLimits.MAXIMUM  # 30秒以下
+
         print("✓ VAD implementation check passed")
         return True
     except Exception as e:
@@ -106,13 +105,14 @@ def test_di_container():
     print("\nTesting DI container...")
     try:
         from di.containers import ApplicationContainer
+
         container = ApplicationContainer()
-        
+
         # 基本的なプロバイダーの確認
-        assert hasattr(container, 'gateways')
-        assert hasattr(container, 'use_cases')
-        assert hasattr(container, 'services')
-        
+        assert hasattr(container, "gateways")
+        assert hasattr(container, "use_cases")
+        assert hasattr(container, "services")
+
         print("✓ DI container initialized successfully")
         return True
     except Exception as e:
@@ -123,7 +123,7 @@ def test_di_container():
 def main():
     """スモークテストを実行"""
     print("Running TextffCut smoke tests...\n")
-    
+
     tests = [
         test_imports,
         test_ffmpeg_available,
@@ -131,7 +131,7 @@ def main():
         test_vad_implementation,
         test_di_container,
     ]
-    
+
     results = []
     for test in tests:
         try:
@@ -139,15 +139,15 @@ def main():
         except Exception as e:
             print(f"✗ Unexpected error in {test.__name__}: {e}")
             results.append(False)
-    
+
     # 結果の集計
     passed = sum(results)
     total = len(results)
-    
+
     print(f"\n{'='*50}")
     print(f"Results: {passed}/{total} tests passed")
     print(f"{'='*50}")
-    
+
     # すべてのテストが成功した場合のみ0を返す
     if passed == total:
         print("\n✓ All smoke tests passed!")

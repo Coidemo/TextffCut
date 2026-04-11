@@ -11,42 +11,42 @@ from typing import Optional
 
 class ThemeDetector:
     """テーマ検出を統一的に行うクラス"""
-    
+
     @staticmethod
     def is_dark_mode() -> bool:
         """
         現在のテーマがダークモードかどうかを判定
-        
+
         Returns:
             ダークモードの場合True、ライトモードの場合False
         """
         # 1. セッション状態で明示的に指定されている場合を最優先
         if "theme_mode" in st.session_state:
             return st.session_state.theme_mode == "dark"
-        
+
         # 2. Streamlitのquery paramsをチェック（URLパラメータでテーマが指定されている場合）
         if "theme" in st.query_params:
             return st.query_params["theme"] == "dark"
-        
+
         # 3. JavaScriptを使った検出結果がセッション状態にある場合
         if "detected_theme" in st.session_state:
             return st.session_state.detected_theme == "dark"
-        
+
         # 4. デフォルトはライトモード
         # 注: Streamlitの設定ファイル（.streamlit/config.toml）での設定は
         # 現在のAPIでは直接取得できないため、JavaScriptでの検出に依存
         return False
-    
+
     @staticmethod
     def get_theme_mode() -> str:
         """
         現在のテーマモードを文字列で取得
-        
+
         Returns:
             "dark" または "light"
         """
         return "dark" if ThemeDetector.is_dark_mode() else "light"
-    
+
     @staticmethod
     def inject_theme_detector() -> None:
         """
@@ -99,7 +99,7 @@ class ThemeDetector:
                         try {
                             const bgColor = window.getComputedStyle(document.body).backgroundColor;
                             // RGB値を解析
-                            const rgb = bgColor.match(/\d+/g);
+                            const rgb = bgColor.match(/\\d+/g);
                             if (rgb && rgb.length >= 3) {
                                 // 暗い色かどうかを判定（しきい値: 128）
                                 const brightness = (parseInt(rgb[0]) + parseInt(rgb[1]) + parseInt(rgb[2])) / 3;
@@ -244,7 +244,7 @@ class ThemeDetector:
             """
             st.markdown(detector_script, unsafe_allow_html=True)
             st.session_state.theme_detector_injected = True
-    
+
     @staticmethod
     def apply_theme_specific_css() -> None:
         """

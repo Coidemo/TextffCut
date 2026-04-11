@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 from use_cases.ai.filler_constants import FILLER_WORDS as PURE_FILLERS  # noqa: F401
 
 # 音響チェックの閾値
-MAX_RMS_DIFF_DB = 10.0   # この差以上は不自然
+MAX_RMS_DIFF_DB = 10.0  # この差以上は不自然
 MAX_PITCH_DIFF_HZ = 60.0  # この差以上は不自然
 
 
@@ -44,9 +44,7 @@ def polish_fillers(
         return suggestion
 
     # time_ranges内のセグメントからフィラー箇所を検出
-    filler_cuts = _detect_fillers_in_ranges(
-        suggestion.time_ranges, transcription
-    )
+    filler_cuts = _detect_fillers_in_ranges(suggestion.time_ranges, transcription)
 
     if not filler_cuts:
         return suggestion
@@ -58,18 +56,13 @@ def polish_fillers(
 
     for filler_text, filler_start, filler_end in filler_cuts:
         # カットを試みる
-        new_ranges = _apply_single_cut(
-            suggestion.time_ranges, filler_start, filler_end
-        )
+        new_ranges = _apply_single_cut(suggestion.time_ranges, filler_start, filler_end)
 
         if new_ranges == suggestion.time_ranges:
             continue  # 変化なし
 
         # 音響チェック: カット前後の音が自然につながるか
-        is_natural = _check_cut_acoustics(
-            video_path, suggestion.time_ranges, new_ranges,
-            filler_start, filler_end
-        )
+        is_natural = _check_cut_acoustics(video_path, suggestion.time_ranges, new_ranges, filler_start, filler_end)
 
         if is_natural:
             suggestion.time_ranges = new_ranges
@@ -81,10 +74,7 @@ def polish_fillers(
             logger.debug(f"  ✗ 取消: 「{filler_text}」({filler_start:.2f}s) 音響不自然")
 
     if applied > 0 or reverted > 0:
-        logger.info(
-            f"フィラー仕上げ結果: {applied}カット適用, {reverted}取消 "
-            f"→ {suggestion.total_duration:.1f}s"
-        )
+        logger.info(f"フィラー仕上げ結果: {applied}カット適用, {reverted}取消 " f"→ {suggestion.total_duration:.1f}s")
 
     return suggestion
 
@@ -106,7 +96,7 @@ def _detect_fillers_in_ranges(
                 continue
 
             text = seg.text
-            words = getattr(seg, 'words', None) or []
+            words = getattr(seg, "words", None) or []
             if not words:
                 continue
 
@@ -115,7 +105,7 @@ def _detect_fillers_in_ranges(
             while pos < len(text):
                 matched_filler = None
                 for filler in PURE_FILLERS:
-                    if text[pos:pos + len(filler)] == filler:
+                    if text[pos : pos + len(filler)] == filler:
                         matched_filler = filler
                         break
 
@@ -149,8 +139,8 @@ def _get_filler_time(
     first_word = words[char_pos]
     last_word = words[char_pos + filler_len - 1]
 
-    f_start = first_word.start if hasattr(first_word, 'start') else first_word.get('start')
-    f_end = last_word.end if hasattr(last_word, 'end') else last_word.get('end')
+    f_start = first_word.start if hasattr(first_word, "start") else first_word.get("start")
+    f_end = last_word.end if hasattr(last_word, "end") else last_word.get("end")
 
     return f_start, f_end
 
@@ -195,19 +185,47 @@ def _check_cut_acoustics(
             before_start = max(0, cut_start - 0.3)
             before_path = f"{tmpdir}/before.wav"
             subprocess.run(
-                ["ffmpeg", "-y", "-ss", str(before_start), "-t", "0.3",
-                 "-i", str(video_path), "-vn", "-ar", "16000", "-ac", "1",
-                 before_path],
-                capture_output=True, timeout=10,
+                [
+                    "ffmpeg",
+                    "-y",
+                    "-ss",
+                    str(before_start),
+                    "-t",
+                    "0.3",
+                    "-i",
+                    str(video_path),
+                    "-vn",
+                    "-ar",
+                    "16000",
+                    "-ac",
+                    "1",
+                    before_path,
+                ],
+                capture_output=True,
+                timeout=10,
             )
 
             # カット点の後の音声（cut_endの後0.3秒）
             after_path = f"{tmpdir}/after.wav"
             subprocess.run(
-                ["ffmpeg", "-y", "-ss", str(cut_end), "-t", "0.3",
-                 "-i", str(video_path), "-vn", "-ar", "16000", "-ac", "1",
-                 after_path],
-                capture_output=True, timeout=10,
+                [
+                    "ffmpeg",
+                    "-y",
+                    "-ss",
+                    str(cut_end),
+                    "-t",
+                    "0.3",
+                    "-i",
+                    str(video_path),
+                    "-vn",
+                    "-ar",
+                    "16000",
+                    "-ac",
+                    "1",
+                    after_path,
+                ],
+                capture_output=True,
+                timeout=10,
             )
 
             y_before, sr = librosa.load(before_path, sr=16000)
@@ -217,8 +235,8 @@ def _check_cut_acoustics(
                 return True  # 短すぎる場合は許可
 
             # 音圧チェック
-            rms_before = np.sqrt(np.mean(y_before ** 2))
-            rms_after = np.sqrt(np.mean(y_after ** 2))
+            rms_before = np.sqrt(np.mean(y_before**2))
+            rms_after = np.sqrt(np.mean(y_after**2))
             if rms_before > 0 and rms_after > 0:
                 rms_diff = abs(20 * np.log10(rms_after / rms_before))
                 if rms_diff > MAX_RMS_DIFF_DB:

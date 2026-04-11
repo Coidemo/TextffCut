@@ -32,7 +32,7 @@ class VideoInputView:
 
         # ViewModelの変更を監視
         self.view_model.subscribe(self)
-        
+
     def update(self, view_model: VideoInputViewModel) -> None:
         """
         ViewModelの変更通知を受け取る

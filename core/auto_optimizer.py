@@ -182,7 +182,7 @@ class AutoOptimizer:
 
         # パラメータ調整
         new_params = self._adjust_parameters(adjustment_type)
-        
+
         # メモリ使用率に基づいてcompute_typeを動的に選択
         new_params["compute_type"] = self._determine_compute_type(current_memory_percent)
 
@@ -416,27 +416,30 @@ class AutoOptimizer:
             "align_chunk_seconds": int(predicted_chunk_seconds * 1.5),
             "max_workers": 1 if growth_rate > 2 else self.current_params["max_workers"],
             "batch_size": batch_size,
-            "compute_type": self._determine_compute_type(100 - available_memory_headroom),  # デバイスとメモリに応じて選択
+            "compute_type": self._determine_compute_type(
+                100 - available_memory_headroom
+            ),  # デバイスとメモリに応じて選択
         }
 
     def _determine_compute_type(self, memory_percent: float) -> str:
         """
         メモリ使用率に基づいて最適なcompute_typeを決定
-        
+
         Args:
             memory_percent: 現在のメモリ使用率（0-100）
-            
+
         Returns:
             compute_type文字列（"int8", "float16", "float32"）
         """
         # CPUかGPUかを判定
         import torch
+
         is_cpu = not torch.cuda.is_available()
-        
+
         # CPUの場合はfloat16をサポートしていないのでint8を使用
         if is_cpu:
             return "int8"
-        
+
         # GPU使用時のメモリ使用率による判定
         if memory_percent > MemoryThresholds.HIGH:  # 80%以上
             return "int8"  # 最もメモリ効率的

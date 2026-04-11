@@ -69,38 +69,38 @@ def process_alignment(config_data: dict[str, Any]) -> dict[str, Any]:
 
         logger.info(f"アライメント処理開始: {len(segments)}セグメント")
         send_progress(0.0, "アライメント処理を開始しています...")
-        
+
         # アライメント用に音声を最適化（メモリ効率化）
         from core.audio_optimizer import IntelligentAudioOptimizer
         from pathlib import Path
-        
+
         optimizer = IntelligentAudioOptimizer()
         logger.info("アライメント用音声の最適化を開始")
         send_progress(0.05, "アライメント用に音声を最適化中...")
-        
+
         try:
             # 音声を最適化（16kHz/モノラル/16bit）
             optimized_audio, optimization_info = optimizer.prepare_audio(Path(audio_path))
-            
-            if optimization_info.get('optimized', False):
+
+            if optimization_info.get("optimized", False):
                 logger.info(f"音声最適化完了: {optimization_info.get('reduction_percent', 0):.0f}%削減")
                 send_progress(0.1, f"音声最適化完了（メモリ{optimization_info.get('reduction_percent', 0):.0f}%削減）")
             else:
                 logger.info(f"音声最適化スキップ: {optimization_info.get('reason', '')}")
                 send_progress(0.1, "音声読み込み完了")
-                
+
             # 最適化された音声データをnumpyとして保存し、アライメントで使用
             # AlignmentProcessorは音声ファイルパスを期待するため、一時ファイルとして保存
             import tempfile
             import soundfile as sf
-            
-            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_audio:
+
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_audio:
                 sf.write(temp_audio.name, optimized_audio, 16000)
                 temp_audio_path = temp_audio.name
-                
+
             # 以降の処理で temp_audio_path を使用
             audio_path = temp_audio_path
-            
+
         except Exception as e:
             logger.warning(f"音声最適化エラー: {e}. 元の音声ファイルを使用します。")
             send_progress(0.1, "音声最適化をスキップ、元ファイルを使用")
@@ -156,12 +156,12 @@ def process_alignment(config_data: dict[str, Any]) -> dict[str, Any]:
 
         # 一時ファイルのクリーンアップ
         try:
-            if 'temp_audio_path' in locals() and os.path.exists(temp_audio_path):
+            if "temp_audio_path" in locals() and os.path.exists(temp_audio_path):
                 os.unlink(temp_audio_path)
                 logger.info("一時音声ファイルを削除しました")
         except Exception as cleanup_error:
             logger.warning(f"一時ファイルのクリーンアップエラー: {cleanup_error}")
-        
+
         return {
             "success": True,
             "segments": result_segments,

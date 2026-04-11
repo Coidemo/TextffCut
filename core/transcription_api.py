@@ -143,23 +143,25 @@ class APITranscriber:
 
             # API用に音声を圧縮（メモリ効率化）
             from core.audio_optimizer import IntelligentAudioOptimizer
+
             optimizer = IntelligentAudioOptimizer()
-            
+
             if progress_callback:
                 progress_callback(0.05, "API送信用に音声を圧縮中...")
-            
+
             # API送信用に音声を圧縮（MP3形式、32kbps）
             compressed_path = optimizer.prepare_audio_for_api(Path(audio_path))
             compressed_size = os.path.getsize(compressed_path) / (1024 * 1024)
-            
+
             if progress_callback:
                 progress_callback(0.1, f"音声圧縮完了（{original_size:.1f}MB → {compressed_size:.1f}MB）")
-            
+
             try:
                 # 圧縮された音声ファイルで文字起こし
                 import librosa
+
                 audio, _ = librosa.load(str(compressed_path), sr=16000, mono=True)
-                
+
                 # チャンク処理でアライメントも含めて実行
                 # 重要: original_audio_pathは元の動画ファイルパスを使用
                 result = self._transcribe_with_chunks(
@@ -298,7 +300,6 @@ class APITranscriber:
         if progress_callback:
             progress_callback(0.15, f"チャンク分割完了: {total_chunks}個のチャンク")
 
-
         # デフォルト処理（API+アライメントを同一プロセスで実行 - 高速・安定）
         temp_dir = tempfile.mkdtemp(prefix="textffcut_api_chunks_")
 
@@ -334,9 +335,7 @@ class APITranscriber:
                 # 各チャンクのAPI処理を送信
                 futures = []
                 for chunk_file, start_offset, chunk_idx in chunk_files:
-                    future = executor.submit(
-                        self._transcribe_chunk_api, client, chunk_file, start_offset, chunk_idx
-                    )
+                    future = executor.submit(self._transcribe_chunk_api, client, chunk_file, start_offset, chunk_idx)
                     futures.append(future)
 
                 # 完了したものから結果を取得
@@ -416,9 +415,7 @@ class APITranscriber:
             if progress_callback:
                 progress_callback(0.92, "アライメント処理中...")
 
-            aligned_segments = self._align_with_mlx(
-                validated_segments, original_audio_path, progress_callback
-            )
+            aligned_segments = self._align_with_mlx(validated_segments, original_audio_path, progress_callback)
 
             if progress_callback:
                 progress_callback(1.0, "チャンク並列処理完了")
@@ -552,14 +549,12 @@ class APITranscriber:
         logger.info(f"mlx-forced-alignerでアライメント開始: {len(segments)}セグメント")
 
         # ForcedAlignerをキャッシュ（wav2vec2モデル1.2GBの再ロードを防止）
-        if not hasattr(self, '_mlx_aligner'):
+        if not hasattr(self, "_mlx_aligner"):
             self._mlx_aligner = ForcedAligner()
         aligner = self._mlx_aligner
 
         segments_for_align = [
-            {"start": seg.start, "end": seg.end, "text": seg.text.strip()}
-            for seg in segments
-            if seg.text.strip()
+            {"start": seg.start, "end": seg.end, "text": seg.text.strip()} for seg in segments if seg.text.strip()
         ]
 
         try:
@@ -587,7 +582,6 @@ class APITranscriber:
         except Exception as e:
             logger.warning(f"アライメント処理でエラーが発生しました。元のセグメントを使用します: {e}")
             return segments
-
 
     def _detect_silence_in_range(
         self, audio: np.ndarray, start: float, end: float, sample_rate: int
@@ -696,4 +690,3 @@ class APITranscriber:
             current_time += word_duration
 
         return estimated_words
-

@@ -96,21 +96,21 @@ class TextEditorPresenter(BasePresenter[TextEditorViewModel]):
             try:
                 from domain.use_cases.character_array_builder import CharacterArrayBuilder
                 from adapters.converters.transcription_converter import TranscriptionConverter
-                
+
                 # ドメイン形式に変換（必要な場合）
-                if hasattr(actual_result, 'segments') and not hasattr(actual_result, 'computed_duration'):
+                if hasattr(actual_result, "segments") and not hasattr(actual_result, "computed_duration"):
                     # レガシー形式の場合は変換
                     converter = TranscriptionConverter()
                     domain_result = converter.from_legacy(actual_result)
                 else:
                     domain_result = actual_result
-                
+
                 # CharacterArrayBuilderで再構築
                 builder = CharacterArrayBuilder()
                 char_array, reconstructed_text = builder.build_from_transcription(domain_result)
                 full_text = reconstructed_text
                 logger.info(f"[TextEditorPresenter.initialize] Words情報から再構築: {len(full_text)}文字")
-                
+
             except Exception as e:
                 logger.warning(f"CharacterArrayBuilder failed: {e}. Falling back to segment text concatenation.")
                 # フォールバック：セグメントのテキストを結合
@@ -123,7 +123,7 @@ class TextEditorPresenter(BasePresenter[TextEditorViewModel]):
             logger.info(f"[TextEditorPresenter.initialize] Full text length: {len(full_text) if full_text else 0}")
             if not full_text:
                 logger.error("[TextEditorPresenter.initialize] full_textが空です！")
-            
+
             self.view_model.full_text = full_text
 
             # セッション状態から編集済みテキストを読み込む
@@ -142,7 +142,11 @@ class TextEditorPresenter(BasePresenter[TextEditorViewModel]):
                         self._process_edited_text()
 
             # 初期テキストがあれば設定（初期処理スキップフラグがない場合のみ）
-            if self.view_model.edited_text and self.session_manager and not self.session_manager.get("_skip_initial_text_processing", False):
+            if (
+                self.view_model.edited_text
+                and self.session_manager
+                and not self.session_manager.get("_skip_initial_text_processing", False)
+            ):
                 self._process_edited_text()
 
             self.view_model.notify()
@@ -193,9 +197,9 @@ class TextEditorPresenter(BasePresenter[TextEditorViewModel]):
             return
 
         logger.info(f"Processing edited text with length: {len(edited_text)}")
-        
+
         # SequenceMatcherTextProcessorGatewayの場合、TranscriptionResultを設定
-        if hasattr(self.text_processor_gateway, 'set_transcription_result'):
+        if hasattr(self.text_processor_gateway, "set_transcription_result"):
             self.text_processor_gateway.set_transcription_result(self.view_model.transcription_result)
 
         # 区切り文字を検出
@@ -383,9 +387,6 @@ class TextEditorPresenter(BasePresenter[TextEditorViewModel]):
         # SessionManagerも更新
         if self.session_manager and time_ranges:
             self.session_manager.set_time_ranges(time_ranges)
-
-
-
 
     def get_processed_data(self) -> dict[str, Any]:
         """

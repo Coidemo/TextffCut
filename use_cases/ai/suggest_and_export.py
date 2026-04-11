@@ -164,7 +164,7 @@ class SuggestAndExportUseCase:
                     model=request.ai_model,
                     font_dir=request.preset_dir / "fonts" if request.preset_dir else None,
                     frame_path=frame_path,
-                    sanitize_fn=_sanitize_filename,
+                    sanitize_fn=sanitize_filename,
                     target_size=request.title_target_size,
                     offset_y=request.title_offset_y,
                 )
@@ -180,21 +180,49 @@ class SuggestAndExportUseCase:
             and request.anchor == (0.0, 0.0)
         ):
             try:
-                from use_cases.ai.auto_anchor_detector import detect_anchor
+                from use_cases.ai.auto_anchor_detector import detect_anchor, anchor_to_fcpxml
 
+                # 最初の候補の中間時刻をフレーム抽出点に使用
+                frame_t = 5.0
+                if suggestions and suggestions[0].time_ranges:
+                    first_range = suggestions[0].time_ranges[0]
+                    frame_t = (first_range[0] + first_range[1]) / 2
                 result = detect_anchor(
                     video_path=request.video_path,
                     client=self.gateway.client,
+                    frame_time=frame_t,
                 )
-                actual_anchor = (result.anchor_x, result.anchor_y)
-                logger.info(f"アンカー自動検出: {actual_anchor} — {result.description}")
+                from core.video import VideoInfo
+                try:
+                    vi = VideoInfo.from_file(request.video_path)
+                    src_w, src_h = vi.width, vi.height
+                except Exception:
+                    logger.warning("VideoInfo取得失敗、デフォルト1920x1080を使用")
+                    src_w, src_h = 1920, 1080
+                actual_anchor = anchor_to_fcpxml(
+                    result.anchor_x, result.anchor_y, src_w, src_h, request.scale,
+                )
+                logger.info("アンカー自動検出: %s — %s", actual_anchor, result.description)
             except Exception as e:
-                logger.warning(f"アンカー自動検出スキップ: {e}")
+                logger.warning("アンカー自動検出スキップ: %s", e)
 
-        # Phase 6: FCPXML + SRT生成
+        # Phase 6: AI SE配置 + FCPXML + SRT生成
         exported_files: list[Path] = []
         for i, suggestion in enumerate(suggestions, 1):
-            sanitized = _sanitize_filename(suggestion.title)
+            sanitized = sanitize_filename(suggestion.title)
+
+            # AI SE配置を計算（SEファイルがある場合）
+            ai_se_placements = None
+            if request.enable_se and media_config and media_config.additional_audio_settings:
+                ai_se_placements = self._compute_ai_se_placements(
+                    suggestion=suggestion,
+                    transcription=request.transcription,
+                    media_config=media_config,
+                    srt_max_chars=request.srt_max_chars,
+                    srt_max_lines=request.srt_max_lines,
+                    ai_model=request.ai_model,
+                    speed=request.speed,
+                )
 
             # FCPXML（速度変更済み動画を参照）
             title_path = title_image_paths.get(i)
@@ -207,6 +235,7 @@ class SuggestAndExportUseCase:
                 scale=request.scale, anchor=actual_anchor,
                 timeline_resolution=request.timeline_resolution,
                 title_settings=title_settings,
+                ai_se_placements=ai_se_placements,
             )
             if success:
                 exported_files.append(fcpxml_path)
@@ -223,6 +252,7 @@ class SuggestAndExportUseCase:
                     video_path=actual_video_path,
                     max_chars_per_line=request.srt_max_chars,
                     max_lines=request.srt_max_lines,
+                    speed=request.speed,
                 )
 
         return SuggestAndExportResult(
@@ -232,6 +262,73 @@ class SuggestAndExportUseCase:
             detection_processing_time=detection.processing_time,
             detection_cost_usd=detection.estimated_cost_usd,
         )
+
+    def _compute_ai_se_placements(
+        self,
+        suggestion: ClipSuggestion,
+        transcription: TranscriptionResult,
+        media_config,
+        srt_max_chars: int = 11,
+        srt_max_lines: int = 2,
+        ai_model: str = "gpt-4.1-mini",
+        speed: float = 1.0,
+    ) -> list | None:
+        """字幕データからAI SE配置を計算する"""
+        try:
+            from use_cases.ai.se_placement import plan_se_placements
+            from use_cases.ai.srt_subtitle_generator import (
+                build_timeline_map,
+                collect_parts,
+                generate_srt_entries_from_segments,
+            )
+            from use_cases.ai.subtitle_image_renderer import SubtitleEntry
+
+            se_files = [
+                Path(p)
+                for p in media_config.additional_audio_settings.get("audio_files", [])
+                if Path(p).exists()
+            ]
+            if not se_files:
+                return None
+
+            tmap = build_timeline_map(suggestion.time_ranges)
+            parts = collect_parts(suggestion.time_ranges, tmap, transcription, speed=speed)
+            if not parts:
+                return None
+
+            segments = [
+                {"text": text, "start": tl_s, "end": tl_e}
+                for text, tl_s, tl_e in parts
+            ]
+            srt_entries = generate_srt_entries_from_segments(
+                segments,
+                max_chars_per_line=srt_max_chars,
+                max_lines=srt_max_lines,
+            )
+            if not srt_entries:
+                return None
+
+            sub_entries = [
+                SubtitleEntry(
+                    index=e.index,
+                    start_time=e.start_time,
+                    end_time=e.end_time,
+                    text=e.text,
+                )
+                for e in srt_entries
+            ]
+
+            placements = plan_se_placements(
+                client=self.gateway.client,
+                subtitle_entries=sub_entries,
+                se_files=se_files,
+                model=ai_model,
+            )
+            return placements if placements else None
+
+        except Exception as e:
+            logger.warning(f"AI SE配置スキップ: {e}")
+            return None
 
     def _apply_silence_removal(self, suggestion: ClipSuggestion, video_path: Path, base_dir: Path) -> None:
         """1つの候補に無音削除を適用する。"""
@@ -277,6 +374,7 @@ class SuggestAndExportUseCase:
         anchor: tuple[float, float] = (0.0, 0.0),
         timeline_resolution: str = "horizontal",
         title_settings: dict | None = None,
+        ai_se_placements: list | None = None,
     ) -> bool:
         if not suggestion.time_ranges:
             return False
@@ -310,13 +408,16 @@ class SuggestAndExportUseCase:
                 bgm_settings=media_config.bgm_settings if media_config else None,
                 additional_audio_settings=media_config.additional_audio_settings if media_config else None,
                 title_settings=title_settings,
+                ai_se_placements=ai_se_placements,
             )
         except Exception as e:
             logger.warning(f"FCPXMLExporter failed ({e}), using simple FCPXML")
             return self._export_simple_fcpxml(
                 suggestion, video_path, output_path,
+                media_config=media_config,
                 scale=scale, anchor=anchor, timeline_resolution=timeline_resolution,
                 title_settings=title_settings,
+                ai_se_placements=ai_se_placements,
             )
 
     def _export_simple_fcpxml(
@@ -324,10 +425,12 @@ class SuggestAndExportUseCase:
         suggestion: ClipSuggestion,
         video_path: Path,
         output_path: Path,
+        media_config: "MediaAssetConfig | None" = None,  # noqa: F821
         scale: tuple[float, float] = (1.0, 1.0),
         anchor: tuple[float, float] = (0.0, 0.0),
         timeline_resolution: str = "horizontal",
         title_settings: dict | None = None,
+        ai_se_placements: list | None = None,
     ) -> bool:
         """ffprobeなしで簡易FCPXMLを生成する（DaVinci Resolve互換）"""
         from fractions import Fraction
@@ -350,7 +453,7 @@ class SuggestAndExportUseCase:
         encoded_path = quote(str(video_path), safe="/:")
         video_url = f"file://{encoded_path}"
 
-        from core.export import ExportSegment
+        from core.export import ExportSegment, _safe_volume_db
 
         segments = []
         timeline_pos = 0.0
@@ -388,6 +491,9 @@ class SuggestAndExportUseCase:
             fmt_w, fmt_h = 1920, 1080
             fmt_name = "FFVideoFormat1080p30"
 
+        # 次のリソースID（r0=format, r1=video）
+        next_rid = 2
+
         # タイトル画像リソース（フルサイズ透過PNG — position="0 0"で配置）
         title_asset_xml = ""
         title_spine_xml = ""
@@ -395,21 +501,101 @@ class SuggestAndExportUseCase:
             title_path = title_settings["title_path"]
             if Path(title_path).exists():
                 title_url = f"file://{quote(str(Path(title_path).resolve()), safe='/:')}"
+                title_rid = f"r{next_rid}"
+                next_rid += 1
 
                 title_asset_xml = (
-                    f'        <asset duration="0/1s" id="r2" '
+                    f'        <asset duration="0/1s" id="{title_rid}" '
                     f'name="{_attr(Path(title_path).name)}" start="0/1s" hasVideo="1" format="r0">\n'
                     f'            <media-rep kind="original-media" src="{_attr(title_url)}"/>\n'
                     f'        </asset>\n'
                 )
                 title_spine_xml = (
                     f'                        <video duration="{to_frac(total_dur)}" lane="2" '
-                    f'name="{_attr(Path(title_path).name)}" ref="r2" '
+                    f'name="{_attr(Path(title_path).name)}" ref="{title_rid}" '
                     f'start="0/1s" offset="0/1s" enabled="1">\n'
                     f'                            <adjust-conform type="none"/>\n'
                     f'                            <adjust-transform position="0 0" scale="1 1" anchor="0 0"/>\n'
                     f'                        </video>\n'
                 )
+
+        # SE リソース登録 + レーン4（SE一覧）+ レーン5（AI配置SE）
+        se_asset_xml = ""
+        se_lane4_xml = ""
+        se_lane5_xml = ""
+        se_rid_map: dict[str, tuple[str, float]] = {}  # path -> (resource_id, duration)
+
+        if media_config and media_config.additional_audio_settings:
+            audio_files = media_config.additional_audio_settings.get("audio_files", [])
+            volume = media_config.additional_audio_settings.get("volume", -20)
+
+            for audio_path in audio_files:
+                ap = Path(audio_path)
+                if not ap.exists():
+                    continue
+                rid = f"r{next_rid}"
+                next_rid += 1
+
+                audio_url = f"file://{quote(str(ap.resolve()), safe='/:')}"
+
+                # デフォルト1秒のduration（ffprobeなしの簡易版）
+                se_duration = 1.0
+                try:
+                    from core.video import VideoInfo
+                    info = VideoInfo.from_file(audio_path)
+                    se_duration = info.duration
+                except Exception:
+                    pass
+
+                se_rid_map[str(ap)] = (rid, se_duration)
+
+                se_asset_xml += (
+                    f'        <asset duration="{to_frac(se_duration)}" id="{rid}" '
+                    f'name="{_attr(ap.name)}" start="0/1s" hasAudio="1" '
+                    f'audioSources="1" audioChannels="2">\n'
+                    f'            <media-rep kind="original-media" src="{_attr(audio_url)}"/>\n'
+                    f'        </asset>\n'
+                )
+
+            # レーン4: SE一覧（5フレーム間隔で並べる）
+            current_offset = 0.0
+            gap_duration = 5 / 30  # 5フレーム
+            for audio_path in audio_files:
+                norm_path = str(Path(audio_path))
+                if norm_path not in se_rid_map:
+                    continue
+                rid, se_dur = se_rid_map[norm_path]
+                audio_duration = min(se_dur, total_dur - current_offset)
+                if audio_duration <= 0:
+                    break
+                se_lane4_xml += (
+                    f'                        <asset-clip duration="{to_frac(audio_duration)}" lane="4" '
+                    f'name="{_attr(Path(audio_path).name)}" ref="{rid}" '
+                    f'start="0/1s" offset="{to_frac(current_offset)}" enabled="1">\n'
+                )
+                if volume != 0:
+                    se_lane4_xml += f'                            <adjust-volume amount="{_safe_volume_db(volume)}"/>\n'
+                se_lane4_xml += f'                        </asset-clip>\n'
+                current_offset += audio_duration + gap_duration
+
+            # レーン5: AI配置SE
+            if ai_se_placements:
+                for placement in ai_se_placements:
+                    se_path = placement.se_file
+                    if se_path not in se_rid_map:
+                        continue
+                    rid, se_dur = se_rid_map[se_path]
+                    placed_dur = min(se_dur, total_dur - placement.timestamp)
+                    if placed_dur <= 0:
+                        continue
+                    se_lane5_xml += (
+                        f'                        <asset-clip duration="{to_frac(placed_dur)}" lane="5" '
+                        f'name="{_attr(Path(se_path).name)}" ref="{rid}" '
+                        f'start="0/1s" offset="{to_frac(placement.timestamp)}" enabled="1">\n'
+                    )
+                    if volume != 0:
+                        se_lane5_xml += f'                            <adjust-volume amount="{_safe_volume_db(volume)}"/>\n'
+                    se_lane5_xml += f'                        </asset-clip>\n'
 
         xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE fcpxml>
@@ -419,13 +605,13 @@ class SuggestAndExportUseCase:
         <asset id="r1" name="{video_name}" start="0/1s" hasVideo="1" format="r0" hasAudio="1" audioSources="1" audioChannels="2">
             <media-rep kind="original-media" src="{_attr(video_url)}"/>
         </asset>
-{title_asset_xml}    </resources>
+{title_asset_xml}{se_asset_xml}    </resources>
     <library>
         <event name="TextffCut">
             <project name="{title_escaped}">
                 <sequence duration="{to_frac(total_dur)}" tcStart="0/1s" format="r0" tcFormat="NDF">
                     <spine>
-{clips_xml}{title_spine_xml}                    </spine>
+{clips_xml}{title_spine_xml}{se_lane4_xml}{se_lane5_xml}                    </spine>
                 </sequence>
             </project>
         </event>
@@ -447,7 +633,7 @@ class SuggestAndExportUseCase:
         path.write_text(json.dumps(cache_data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def _sanitize_filename(title: str, max_length: int = 50) -> str:
+def sanitize_filename(title: str, max_length: int = 50) -> str:
     title = unicodedata.normalize("NFKC", title)
     title = re.sub(r'[<>:"/\\|?*]', "", title)
     title = title.replace(" ", "_").replace("　", "_")
