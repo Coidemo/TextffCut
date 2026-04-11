@@ -18,8 +18,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## バージョン情報
 
-### v2.0.1 (2026-04-08) — 最新安定版
-- **タグ**: `v2.0.1`
+### v2.0.2 (2026-04-12) — 最新安定版
+- **タグ**: `v2.0.2`
+- 処理パイプライン高速化（GiNZA LRUキャッシュ、FFmpeg/Whisper API並列化）
+
+### v2.0.1 (2026-04-08)
 - Apple Silicon Mac専用（Docker廃止）
 - MLX Whisperによる文字起こし
 - AI自動切り抜き（`textffcut clip`）
