@@ -204,6 +204,21 @@ class SuggestAndExportUseCase:
             except Exception as e:
                 logger.warning("アンカー自動検出スキップ: %s", e)
 
+        # Phase 6: SRT用の再文字起こしを事前並列実行
+        srt_segments_map: dict[int, list[dict] | None] = {}
+        if request.generate_srt:
+            from concurrent.futures import ThreadPoolExecutor
+
+            from use_cases.ai.srt_subtitle_generator import _transcribe_output_audio
+
+            def _transcribe_for_srt(idx_sugg: tuple[int, ClipSuggestion]) -> tuple[int, list[dict] | None]:
+                idx, sugg = idx_sugg
+                return idx, _transcribe_output_audio(sugg.time_ranges, actual_video_path)
+
+            with ThreadPoolExecutor(max_workers=min(len(suggestions), 4)) as executor:
+                for idx, segments in executor.map(_transcribe_for_srt, enumerate(suggestions)):
+                    srt_segments_map[idx] = segments
+
         # Phase 6: AI SE配置 + FCPXML + SRT生成
         exported_files: list[Path] = []
         for i, suggestion in enumerate(suggestions, 1):
@@ -255,6 +270,7 @@ class SuggestAndExportUseCase:
                     max_chars_per_line=request.srt_max_chars,
                     max_lines=request.srt_max_lines,
                     speed=request.speed,
+                    precomputed_segments=srt_segments_map.get(i - 1),
                 )
 
         return SuggestAndExportResult(

@@ -115,15 +115,16 @@ class GenerateClipSuggestionsUseCase:
         video_path: Path,
     ) -> ClipCandidate | None:
         """上位候補の出来上がり音声を文字起こしし、AIに最良を選ばせる。"""
+        from concurrent.futures import ThreadPoolExecutor
 
-        # 各候補を文字起こし
+        # 各候補を並列に文字起こし
+        def _transcribe(i: int) -> tuple[int, str]:
+            text = self._transcribe_candidate(candidates[i], video_path)
+            return (i, text) if text else (i, candidates[i].text[:200])
+
         transcriptions = []
-        for i, cand in enumerate(candidates):
-            text = self._transcribe_candidate(cand, video_path)
-            if text:
-                transcriptions.append((i, text))
-            else:
-                transcriptions.append((i, cand.text[:200]))
+        with ThreadPoolExecutor(max_workers=min(len(candidates), 4)) as executor:
+            transcriptions = list(executor.map(_transcribe, range(len(candidates))))
 
         if not transcriptions:
             return candidates[0]
@@ -170,38 +171,12 @@ class GenerateClipSuggestionsUseCase:
             client = OpenAI(api_key=api_key)
 
             with tempfile.TemporaryDirectory() as tmpdir:
-                parts = []
-                for i, (start, end) in enumerate(candidate.time_ranges):
-                    p = f"{tmpdir}/p{i}.wav"
-                    proc = subprocess.run(
-                        [
-                            "ffmpeg",
-                            "-y",
-                            "-ss",
-                            str(start),
-                            "-t",
-                            str(end - start),
-                            "-i",
-                            str(video_path),
-                            "-vn",
-                            "-ar",
-                            "16000",
-                            "-ac",
-                            "1",
-                            p,
-                        ],
-                        capture_output=True,
-                        timeout=15,
-                    )
-                    if proc.returncode != 0:
-                        stderr = (
-                            proc.stderr.decode(errors="replace")[:200]
-                            if isinstance(proc.stderr, bytes)
-                            else str(proc.stderr)[:200]
-                        )
-                        logger.debug(f"ffmpeg extract failed (part {i}): {stderr}")
-                        return None
-                    parts.append(p)
+                # FFmpeg並列抽出ヘルパーを使用
+                from use_cases.ai.srt_subtitle_generator import _extract_audio_parts_parallel
+
+                parts = _extract_audio_parts_parallel(candidate.time_ranges, video_path, tmpdir, ffmpeg_timeout=15)
+                if parts is None:
+                    return None
 
                 with open(f"{tmpdir}/list.txt", "w") as f:
                     for p in parts:
