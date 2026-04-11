@@ -158,3 +158,30 @@ def detect_anchor(
     )
     logger.info("アンカー検出結果: (%.2f, %.2f) — %s", ax, ay, result.description)
     return result
+
+
+def anchor_to_fcpxml(
+    anchor_x: float,
+    anchor_y: float,
+    src_w: int,
+    src_h: int,
+    scale: tuple[float, float],
+) -> tuple[float, float]:
+    """正規化座標(0-1)をFCPXMLアンカー座標系に変換する。
+
+    Args:
+        anchor_x: 正規化X座標 (0.0=左端, 1.0=右端)
+        anchor_y: 正規化Y座標 (0.0=上端, 1.0=下端)
+        src_w: ソース動画の幅(px)
+        src_h: ソース動画の高さ(px)
+        scale: ズーム倍率 (x, y)
+
+    Returns:
+        FCPXML座標系の (anchor_x, anchor_y)
+    """
+    sx = scale[0] if scale[0] > 0 else 1.0
+    sy = scale[1] if scale[1] > 0 else 1.0
+    return (
+        (anchor_x - 0.5) * 100 / sx,
+        -(anchor_y - 0.5) * 100 * src_w / src_h / sy,
+    )

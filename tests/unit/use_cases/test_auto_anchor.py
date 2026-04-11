@@ -21,6 +21,7 @@ from use_cases.ai.auto_anchor_detector import (
     _extract_frame,
     _extract_json,
     _load_prompt,
+    anchor_to_fcpxml,
     detect_anchor,
 )
 
@@ -683,3 +684,97 @@ class TestDetectAnchor:
             detect_anchor(video_path, client, frame_time=12.5)
 
         mock_extract.assert_called_once_with(video_path, 12.5)
+
+
+# ---------------------------------------------------------------------------
+# anchor_to_fcpxml 変換関数
+# ---------------------------------------------------------------------------
+
+
+class TestAnchorToFcpxml:
+    """正規化座標→FCPXML座標系の変換テスト"""
+
+    def test_center_returns_zero(self):
+        """中央(0.5, 0.5)はFCPXML(0, 0)になる"""
+        x, y = anchor_to_fcpxml(0.5, 0.5, 1920, 1080, (2.4, 2.4))
+        assert x == pytest.approx(0.0)
+        assert y == pytest.approx(0.0)
+
+    def test_left_of_center(self):
+        """左寄り(0.4, 0.5)は負のXになる"""
+        x, y = anchor_to_fcpxml(0.4, 0.5, 1920, 1080, (2.4, 2.4))
+        assert x == pytest.approx(-10.0 / 2.4)
+        assert y == pytest.approx(0.0)
+
+    def test_right_of_center(self):
+        """右寄り(0.7, 0.5)は正のXになる"""
+        x, y = anchor_to_fcpxml(0.7, 0.5, 1920, 1080, (2.4, 2.4))
+        assert x == pytest.approx(20.0 / 2.4)
+        assert y == pytest.approx(0.0)
+
+    def test_top_of_center(self):
+        """上寄り(0.5, 0.3)は正のYになる（FCPXML座標系はY反転）"""
+        x, y = anchor_to_fcpxml(0.5, 0.3, 1920, 1080, (2.4, 2.4))
+        assert x == pytest.approx(0.0)
+        assert y > 0  # 上方向は正
+
+    def test_bottom_of_center(self):
+        """下寄り(0.5, 0.7)は負のYになる"""
+        x, y = anchor_to_fcpxml(0.5, 0.7, 1920, 1080, (2.4, 2.4))
+        assert x == pytest.approx(0.0)
+        assert y < 0  # 下方向は負
+
+    def test_scale_affects_result(self):
+        """スケールが大きいほどFCPXML値は小さくなる"""
+        x1, _ = anchor_to_fcpxml(0.4, 0.5, 1920, 1080, (1.0, 1.0))
+        x2, _ = anchor_to_fcpxml(0.4, 0.5, 1920, 1080, (2.0, 2.0))
+        assert abs(x1) > abs(x2)
+
+    def test_scale_one(self):
+        """スケール1.0のとき、元の式と一致する"""
+        x, y = anchor_to_fcpxml(0.4, 0.3, 1920, 1080, (1.0, 1.0))
+        assert x == pytest.approx(-10.0)
+        assert y == pytest.approx(20.0 * 1920 / 1080)
+
+    def test_zero_scale_uses_fallback(self):
+        """スケール0はゼロ除算せず、1.0にフォールバックする"""
+        x, y = anchor_to_fcpxml(0.4, 0.5, 1920, 1080, (0.0, 0.0))
+        assert x == pytest.approx(-10.0)
+        assert y == pytest.approx(0.0)
+
+    def test_negative_scale_uses_fallback(self):
+        """負のスケールもフォールバックする"""
+        x, y = anchor_to_fcpxml(0.4, 0.5, 1920, 1080, (-1.0, -1.0))
+        assert x == pytest.approx(-10.0)
+        assert y == pytest.approx(0.0)
+
+    def test_aspect_ratio_4_3(self):
+        """4:3アスペクト比でも正しく計算される"""
+        x, y = anchor_to_fcpxml(0.5, 0.3, 1440, 1080, (2.0, 2.0))
+        expected_y = 20.0 * 1440 / 1080 / 2.0
+        assert y == pytest.approx(expected_y)
+
+    def test_aspect_ratio_1_1(self):
+        """1:1アスペクト比"""
+        x, y = anchor_to_fcpxml(0.5, 0.3, 1080, 1080, (2.0, 2.0))
+        expected_y = 20.0 * 1080 / 1080 / 2.0
+        assert y == pytest.approx(expected_y)
+
+    def test_extreme_corner_top_left(self):
+        """左上端(0.0, 0.0)"""
+        x, y = anchor_to_fcpxml(0.0, 0.0, 1920, 1080, (2.0, 2.0))
+        assert x == pytest.approx(-50.0 / 2.0)
+        assert y == pytest.approx(50.0 * 1920 / 1080 / 2.0)
+
+    def test_extreme_corner_bottom_right(self):
+        """右下端(1.0, 1.0)"""
+        x, y = anchor_to_fcpxml(1.0, 1.0, 1920, 1080, (2.0, 2.0))
+        assert x == pytest.approx(50.0 / 2.0)
+        assert y == pytest.approx(-50.0 * 1920 / 1080 / 2.0)
+
+    def test_asymmetric_scale(self):
+        """X/Yで異なるスケール"""
+        x, y = anchor_to_fcpxml(0.3, 0.3, 1920, 1080, (2.0, 3.0))
+        assert x == pytest.approx(-20.0 / 2.0)
+        expected_y = 20.0 * 1920 / 1080 / 3.0
+        assert y == pytest.approx(expected_y)

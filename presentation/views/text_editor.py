@@ -971,14 +971,14 @@ class TextEditorView:
 
                 # Phase 3.8: アンカー自動検出
                 actual_anchor = anchor
-                logger.info(f"アンカー自動検出条件: auto_anchor={auto_anchor}, timeline={timeline_resolution}, anchor={anchor}")
+                logger.info("アンカー自動検出条件: auto_anchor=%s, timeline=%s, anchor=%s", auto_anchor, timeline_resolution, anchor)
                 if (
                     auto_anchor
                     and timeline_resolution == "vertical"
                     and anchor == (0.0, 0.0)
                 ):
                     try:
-                        from use_cases.ai.auto_anchor_detector import detect_anchor as _detect_anchor
+                        from use_cases.ai.auto_anchor_detector import detect_anchor as _detect_anchor, anchor_to_fcpxml
 
                         progress_text.write("📍 アンカー位置を自動検出中...")
                         # 最初の候補の中間時刻をフレーム抽出点に使用
@@ -991,23 +991,22 @@ class TextEditorView:
                             client=gateway.client,
                             frame_time=_frame_t,
                         )
-                        logger.info(f"アンカー検出結果: frame_t={_frame_t:.1f}s, AI=({anchor_result.anchor_x:.3f}, {anchor_result.anchor_y:.3f}), desc={anchor_result.description}")
-                        # 正規化座標(0-1) → FCPXML座標系に変換
+                        logger.info("アンカー検出結果: frame_t=%.1fs, AI=(%.3f, %.3f), desc=%s", _frame_t, anchor_result.anchor_x, anchor_result.anchor_y, anchor_result.description)
                         from core.video import VideoInfo
                         try:
                             vi = VideoInfo.from_file(str(video_path_obj))
                             src_w, src_h = vi.width, vi.height
                         except Exception:
+                            logger.warning("VideoInfo取得失敗、デフォルト1920x1080を使用")
                             src_w, src_h = 1920, 1080
-                        actual_anchor = (
-                            (anchor_result.anchor_x - 0.5) * 100 / scale[0],
-                            -(anchor_result.anchor_y - 0.5) * 100 * src_w / src_h / scale[1],
+                        actual_anchor = anchor_to_fcpxml(
+                            anchor_result.anchor_x, anchor_result.anchor_y, src_w, src_h, scale,
                         )
                         progress_text.write(
                             f"✅ アンカー検出: ({actual_anchor[0]:.1f}, {actual_anchor[1]:.1f}) — {anchor_result.description}"
                         )
                     except Exception as e:
-                        logger.error(f"アンカー自動検出エラー: {e}", exc_info=True)
+                        logger.error("アンカー自動検出エラー: %s", e, exc_info=True)
                         progress_text.write(f"⚠️ アンカー自動検出スキップ: {e}")
 
                 exported_files: list[Path] = []

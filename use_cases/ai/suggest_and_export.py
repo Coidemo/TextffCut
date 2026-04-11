@@ -180,7 +180,7 @@ class SuggestAndExportUseCase:
             and request.anchor == (0.0, 0.0)
         ):
             try:
-                from use_cases.ai.auto_anchor_detector import detect_anchor
+                from use_cases.ai.auto_anchor_detector import detect_anchor, anchor_to_fcpxml
 
                 # 最初の候補の中間時刻をフレーム抽出点に使用
                 frame_t = 5.0
@@ -192,21 +192,19 @@ class SuggestAndExportUseCase:
                     client=self.gateway.client,
                     frame_time=frame_t,
                 )
-                # 正規化座標(0-1) → FCPXML座標系に変換
-                # FCPXML anchor座標系: X=percentage*100基準, Y=aspect比補正
                 from core.video import VideoInfo
                 try:
                     vi = VideoInfo.from_file(request.video_path)
                     src_w, src_h = vi.width, vi.height
                 except Exception:
+                    logger.warning("VideoInfo取得失敗、デフォルト1920x1080を使用")
                     src_w, src_h = 1920, 1080
-                actual_anchor = (
-                    (result.anchor_x - 0.5) * 100 / request.scale[0],
-                    -(result.anchor_y - 0.5) * 100 * src_w / src_h / request.scale[1],
+                actual_anchor = anchor_to_fcpxml(
+                    result.anchor_x, result.anchor_y, src_w, src_h, request.scale,
                 )
-                logger.info(f"アンカー自動検出: {actual_anchor} — {result.description}")
+                logger.info("アンカー自動検出: %s — %s", actual_anchor, result.description)
             except Exception as e:
-                logger.warning(f"アンカー自動検出スキップ: {e}")
+                logger.warning("アンカー自動検出スキップ: %s", e)
 
         # Phase 6: AI SE配置 + FCPXML + SRT生成
         exported_files: list[Path] = []
@@ -455,7 +453,7 @@ class SuggestAndExportUseCase:
         encoded_path = quote(str(video_path), safe="/:")
         video_url = f"file://{encoded_path}"
 
-        from core.export import ExportSegment
+        from core.export import ExportSegment, _safe_volume_db
 
         segments = []
         timeline_pos = 0.0
@@ -576,7 +574,7 @@ class SuggestAndExportUseCase:
                     f'start="0/1s" offset="{to_frac(current_offset)}" enabled="1">\n'
                 )
                 if volume != 0:
-                    se_lane4_xml += f'                            <adjust-volume amount="{volume}"/>\n'
+                    se_lane4_xml += f'                            <adjust-volume amount="{_safe_volume_db(volume)}"/>\n'
                 se_lane4_xml += f'                        </asset-clip>\n'
                 current_offset += audio_duration + gap_duration
 
@@ -596,7 +594,7 @@ class SuggestAndExportUseCase:
                         f'start="0/1s" offset="{to_frac(placement.timestamp)}" enabled="1">\n'
                     )
                     if volume != 0:
-                        se_lane5_xml += f'                            <adjust-volume amount="{volume}"/>\n'
+                        se_lane5_xml += f'                            <adjust-volume amount="{_safe_volume_db(volume)}"/>\n'
                     se_lane5_xml += f'                        </asset-clip>\n'
 
         xml = f"""<?xml version="1.0" encoding="UTF-8"?>

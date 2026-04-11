@@ -365,20 +365,20 @@ class ExportSettingsPresenter(BasePresenter[ExportSettingsViewModel]):
                             client=client,
                             frame_time=_frame_t,
                         )
-                        # 正規化座標(0-1) → FCPXML座標系に変換
+                        from use_cases.ai.auto_anchor_detector import anchor_to_fcpxml
                         from core.video import VideoInfo
                         try:
                             vi = VideoInfo.from_file(str(video_p))
                             src_w, src_h = vi.width, vi.height
                         except Exception:
+                            logger.warning("VideoInfo取得失敗、デフォルト1920x1080を使用")
                             src_w, src_h = 1920, 1080
-                        anchor = (
-                            (result.anchor_x - 0.5) * 100 / scale[0],
-                            -(result.anchor_y - 0.5) * 100 * src_w / src_h / scale[1],
+                        anchor = anchor_to_fcpxml(
+                            result.anchor_x, result.anchor_y, src_w, src_h, scale,
                         )
-                        logger.info(f"アンカー自動検出: {anchor} — {result.description}")
+                        logger.info("アンカー自動検出: %s — %s", anchor, result.description)
                 except Exception as e:
-                    logger.warning(f"アンカー自動検出スキップ: {e}")
+                    logger.warning("アンカー自動検出スキップ: %s", e)
 
             # オーバーレイ設定を取得
             overlay_settings = st.session_state.get("fcpxml_overlay_settings", {})

@@ -134,7 +134,7 @@ def _transcribe_output_audio(
                     timeout=ffmpeg_timeout,
                 )
                 if proc.returncode != 0:
-                    logger.warning(f"ffmpeg extract failed (part {i})")
+                    logger.warning("ffmpeg extract failed (part %d)", i)
                     return None
                 parts.append(p)
 
@@ -329,7 +329,7 @@ def _generate_from_char_times(
         return None
 
     _write_srt(entries, output_path)
-    logger.info(f"SRT生成: {len(entries)}エントリ → {output_path.name}")
+    logger.info("SRT生成: %dエントリ → %s", len(entries), output_path.name)
     return output_path
 
 
