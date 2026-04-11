@@ -74,8 +74,11 @@ class JapaneseLineBreakRules:
         pos = 0
         for token in tokenizer.tokenize(text):
             pos += len(token.surface)
-            # (境界位置, 表層形, 品詞)
-            pos_tag = token.part_of_speech.split(",")[0]
+            # (境界位置, 表層形, 品詞) — サブカテゴリ付き
+            pos_parts = token.part_of_speech.split(",")
+            pos_major = pos_parts[0]
+            pos_sub = pos_parts[1] if len(pos_parts) > 1 and pos_parts[1] != "*" else ""
+            pos_tag = f"{pos_major}-{pos_sub}" if pos_sub else pos_major
             boundaries.append((pos, token.surface, pos_tag))
             logger.debug(f"単語: '{token.surface}' 品詞: {pos_tag} 境界位置: {pos}")
         return boundaries
