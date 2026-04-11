@@ -1,8 +1,10 @@
 """SRT字幕生成のテスト
 
 Phase 1スコアリング改善、SENTENCE_ENDINGS追加、フィラー除去のテスト。
+GiNZA文節ベーススコアリング、POS正規化のテスト。
 """
 
+from core.japanese_line_break import JapaneseLineBreakRules
 from use_cases.ai.srt_subtitle_generator import (
     SENTENCE_ENDINGS,
     _ends_with_sentence,
@@ -193,9 +195,7 @@ class TestInlineFillerRemoval:
 class TestEndToEnd:
     """実セグメントデータでの統合テスト"""
 
-    def _make_char_times_for_segments(
-        self, segments: list[dict]
-    ) -> tuple[str, list[tuple[float, float]], set[int]]:
+    def _make_char_times_for_segments(self, segments: list[dict]) -> tuple[str, list[tuple[float, float]], set[int]]:
         """セグメントからfull_text, char_times, seg_boundsを構築"""
         full_text = ""
         char_times = []
@@ -256,3 +256,90 @@ class TestEndToEnd:
         for e in entries:
             for line in e.text.split("\n"):
                 assert len(line) <= 11, f"11文字超過: '{line}' ({len(line)}文字)"
+
+
+class TestPosNormalization:
+    """GiNZA UniDic→IPADIC POS正規化のテスト"""
+
+    def test_filler_normalization(self):
+        """感動詞-フィラー → フィラー"""
+        assert JapaneseLineBreakRules._normalize_pos_tag("感動詞-フィラー") == "フィラー"
+
+    def test_non_independent_normalization(self):
+        """非自立可能 → 非自立"""
+        assert JapaneseLineBreakRules._normalize_pos_tag("動詞-非自立可能") == "動詞-非自立"
+
+    def test_three_level_tag_truncation(self):
+        """3レベルタグを大分類-小分類に切り詰め"""
+        assert JapaneseLineBreakRules._normalize_pos_tag("名詞-普通名詞-サ変可能") == "名詞-普通名詞"
+
+    def test_simple_tag_passthrough(self):
+        """助詞-格助詞はそのまま"""
+        assert JapaneseLineBreakRules._normalize_pos_tag("助詞-格助詞") == "助詞-格助詞"
+
+    def test_single_level_tag(self):
+        """助動詞はそのまま"""
+        assert JapaneseLineBreakRules._normalize_pos_tag("助動詞") == "助動詞"
+
+
+class TestBunsetuBoundaries:
+    """GiNZA文節境界のテスト"""
+
+    def test_basic_bunsetu(self):
+        """基本的な文節分割"""
+        bounds = JapaneseLineBreakRules.get_bunsetu_boundaries("露出をしている")
+        # 「露出を|している」→ 文節境界は3（「し」の位置）
+        assert 3 in bounds, f"文節境界が期待通りでない: {bounds}"
+
+    def test_te_iru_same_bunsetu(self):
+        """「している」が同一文節内に収まる"""
+        bounds = JapaneseLineBreakRules.get_bunsetu_boundaries("露出をしている")
+        # 「している」内部（位置4=「て」の後、位置5=「い」の後）は文節境界にならない
+        assert 4 not in bounds, f"「して|いる」が文節分割された: {bounds}"
+
+    def test_setsuzoku_joshi_boundary(self):
+        """接続助詞「から」の後が文節境界"""
+        bounds = JapaneseLineBreakRules.get_bunsetu_boundaries("問題があるからこれは対応する")
+        # 「あるから|」の後に文節境界がある
+        assert any(b > 5 for b in bounds), f"「から」後に文節境界がない: {bounds}"
+
+    def test_omotta_n_dakke_na_single_bunsetu(self):
+        """「思ったんだっけな」が1文節にまとまる"""
+        bounds = JapaneseLineBreakRules.get_bunsetu_boundaries("思ったんだっけな")
+        # 全体が1文節なら内部に文節境界はない
+        assert len(bounds) == 0, f"「思ったんだっけな」が分割された: {bounds}"
+
+    def test_empty_text(self):
+        """空テキストでエラーにならない"""
+        bounds = JapaneseLineBreakRules.get_bunsetu_boundaries("")
+        assert bounds == set()
+
+
+class TestCompatTokenizer:
+    """後方互換トークナイザーシムのテスト"""
+
+    def test_tokenizer_returns_compat(self):
+        """_get_tokenizer()がシムを返す"""
+        tokenizer = JapaneseLineBreakRules._get_tokenizer()
+        assert tokenizer is not False
+
+    def test_compat_token_surface(self):
+        """互換トークンのsurface属性"""
+        tokenizer = JapaneseLineBreakRules._get_tokenizer()
+        tokens = list(tokenizer.tokenize("テスト"))
+        assert any(t.surface == "テスト" for t in tokens)
+
+    def test_compat_token_part_of_speech_format(self):
+        """互換トークンのpart_of_speechがカンマ区切り形式"""
+        tokenizer = JapaneseLineBreakRules._get_tokenizer()
+        tokens = list(tokenizer.tokenize("いいかな"))
+        for t in tokens:
+            parts = t.part_of_speech.split(",")
+            assert len(parts) == 4, f"part_of_speechが4要素でない: {t.part_of_speech}"
+
+    def test_compat_shuujoshi_detection(self):
+        """srt_diff_exporter互換: 終助詞のin検索が動作"""
+        tokenizer = JapaneseLineBreakRules._get_tokenizer()
+        tokens = list(tokenizer.tokenize("いいかな"))
+        shuujoshi_found = any("終助詞" in t.part_of_speech for t in tokens)
+        assert shuujoshi_found, "終助詞が検出されなかった"

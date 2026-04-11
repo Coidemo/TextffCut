@@ -187,8 +187,7 @@ class ExportSettingsView:
             # 画像オーバーレイ設定
             with st.expander("🖼️ 画像オーバーレイ（オプション）", expanded=False):
                 st.info(
-                    "💡 videosと並列の preset/ フォルダに"
-                    " frame.png（透過背景）を配置すると自動的に読み込まれます。"
+                    "💡 videosと並列の preset/ フォルダに" " frame.png（透過背景）を配置すると自動的に読み込まれます。"
                 )
 
                 overlay_settings = {}
@@ -200,12 +199,10 @@ class ExportSettingsView:
                     st.info("💡 ロゴなどの要素は背景フレーム画像に含めてください。")
                 elif self.view_model.video_path:
                     from utils.media_asset_detector import _resolve_preset_dir
+
                     preset_dir = _resolve_preset_dir(self.view_model.video_path)
                     if preset_dir.exists():
-                        st.info(
-                            "frame.png が見つかりません。"
-                            " preset/frame.png を配置してください。"
-                        )
+                        st.info("frame.png が見つかりません。" " preset/frame.png を配置してください。")
                     else:
                         st.info(
                             "preset/ フォルダが見つかりません。"
@@ -292,11 +289,11 @@ class ExportSettingsView:
                     additional_audio_settings["muted"] = False
                 elif self.view_model.video_path:
                     from utils.media_asset_detector import _resolve_preset_dir as _rpd
+
                     preset_dir_2 = _rpd(self.view_model.video_path)
                     if preset_dir_2.exists():
                         st.info(
-                            "追加のMP3ファイルが見つかりません。"
-                            " preset/ フォルダ内にMP3ファイルを配置してください。"
+                            "追加のMP3ファイルが見つかりません。" " preset/ フォルダ内にMP3ファイルを配置してください。"
                         )
                     else:
                         st.info("preset/ フォルダが見つかりません。")

@@ -69,9 +69,7 @@ def _format_subtitles(subtitle_entries) -> str:
     """字幕エントリをテキスト形式にフォーマットする。"""
     lines = []
     for e in subtitle_entries:
-        lines.append(
-            f"#{e.index} [{e.start_time:.1f}s - {e.end_time:.1f}s] {e.text}"
-        )
+        lines.append(f"#{e.index} [{e.start_time:.1f}s - {e.end_time:.1f}s] {e.text}")
     return "\n".join(lines)
 
 
@@ -102,9 +100,7 @@ def plan_se_placements(
         return []
 
     prompt_template = _load_prompt()
-    prompt = prompt_template.replace(
-        "{SUBTITLES}", _format_subtitles(subtitle_entries)
-    ).replace(
+    prompt = prompt_template.replace("{SUBTITLES}", _format_subtitles(subtitle_entries)).replace(
         "{SE_FILES}", _format_se_files(se_files)
     )
 

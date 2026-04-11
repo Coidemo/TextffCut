@@ -43,11 +43,7 @@ def _make_client(response_json: dict | str | None = None, raise_error: Exception
     if raise_error is not None:
         client.chat.completions.create.side_effect = raise_error
     else:
-        content = (
-            json.dumps(response_json)
-            if isinstance(response_json, dict)
-            else (response_json or "")
-        )
+        content = json.dumps(response_json) if isinstance(response_json, dict) else (response_json or "")
         msg = MagicMock()
         msg.content = content
         choice = MagicMock()
@@ -317,17 +313,13 @@ class TestUnknownSeFileName:
 
     def test_unknown_name_skipped(self):
         se_files = _make_se_files(["valid.mp3"])
-        client = _make_client(
-            {"placements": [{"se_file": "unknown.mp3", "timestamp": 1.0, "reason": "?"}]}
-        )
+        client = _make_client({"placements": [{"se_file": "unknown.mp3", "timestamp": 1.0, "reason": "?"}]})
         result = plan_se_placements(client, [_make_entry(1, 0.0, 5.0, "テスト")], se_files)
         assert result == []
 
     def test_empty_se_name_skipped(self):
         se_files = _make_se_files(["valid.mp3"])
-        client = _make_client(
-            {"placements": [{"se_file": "", "timestamp": 1.0}]}
-        )
+        client = _make_client({"placements": [{"se_file": "", "timestamp": 1.0}]})
         result = plan_se_placements(client, [_make_entry(1, 0.0, 5.0, "テスト")], se_files)
         assert result == []
 
@@ -359,34 +351,26 @@ class TestInvalidTimestamp:
 
     def test_negative_timestamp_skipped(self):
         se_files = _make_se_files(["e.mp3"])
-        client = _make_client(
-            {"placements": [{"se_file": "e.mp3", "timestamp": -0.1}]}
-        )
+        client = _make_client({"placements": [{"se_file": "e.mp3", "timestamp": -0.1}]})
         result = plan_se_placements(client, [_make_entry(1, 0.0, 5.0, "あ")], se_files)
         assert result == []
 
     def test_string_timestamp_not_castable_skipped(self):
         se_files = _make_se_files(["e.mp3"])
-        client = _make_client(
-            {"placements": [{"se_file": "e.mp3", "timestamp": "abc"}]}
-        )
+        client = _make_client({"placements": [{"se_file": "e.mp3", "timestamp": "abc"}]})
         result = plan_se_placements(client, [_make_entry(1, 0.0, 5.0, "あ")], se_files)
         assert result == []
 
     def test_none_timestamp_skipped(self):
         se_files = _make_se_files(["e.mp3"])
-        client = _make_client(
-            {"placements": [{"se_file": "e.mp3", "timestamp": None}]}
-        )
+        client = _make_client({"placements": [{"se_file": "e.mp3", "timestamp": None}]})
         result = plan_se_placements(client, [_make_entry(1, 0.0, 5.0, "あ")], se_files)
         assert result == []
 
     def test_zero_timestamp_allowed(self):
         """timestamp=0.0 は有効として受け入れられる。"""
         se_files = _make_se_files(["e.mp3"])
-        client = _make_client(
-            {"placements": [{"se_file": "e.mp3", "timestamp": 0.0}]}
-        )
+        client = _make_client({"placements": [{"se_file": "e.mp3", "timestamp": 0.0}]})
         result = plan_se_placements(client, [_make_entry(1, 0.0, 5.0, "あ")], se_files)
         assert len(result) == 1
         assert result[0].timestamp == pytest.approx(0.0)
@@ -394,9 +378,7 @@ class TestInvalidTimestamp:
     def test_string_numeric_timestamp_cast_and_accepted(self):
         """'1.5' のように数値文字列は float に変換されて受け入れられる。"""
         se_files = _make_se_files(["e.mp3"])
-        client = _make_client(
-            {"placements": [{"se_file": "e.mp3", "timestamp": "1.5"}]}
-        )
+        client = _make_client({"placements": [{"se_file": "e.mp3", "timestamp": "1.5"}]})
         result = plan_se_placements(client, [_make_entry(1, 0.0, 5.0, "あ")], se_files)
         assert len(result) == 1
         assert result[0].timestamp == pytest.approx(1.5)
@@ -478,9 +460,7 @@ class TestNonDictAiResponse:
         """トップレベルがリストのとき空リスト。"""
         se_files = _make_se_files(["e.mp3"])
         # JSON トップレベルをリストにした文字列をそのまま渡す
-        client = _make_client(
-            response_json='[{"se_file": "e.mp3", "timestamp": 1.0}]'
-        )
+        client = _make_client(response_json='[{"se_file": "e.mp3", "timestamp": 1.0}]')
         result = plan_se_placements(client, [_make_entry(1, 0.0, 5.0, "あ")], se_files)
         assert result == []
 
@@ -577,9 +557,7 @@ class TestPromptLoading:
     def test_uses_file_prompt_when_file_exists(self, tmp_path):
         """プロンプトファイルが存在する場合はファイル内容が使われる。"""
         prompt_file = tmp_path / "se_placement.md"
-        prompt_file.write_text(
-            "カスタムプロンプト\n{SUBTITLES}\n{SE_FILES}", encoding="utf-8"
-        )
+        prompt_file.write_text("カスタムプロンプト\n{SUBTITLES}\n{SE_FILES}", encoding="utf-8")
         se_files = _make_se_files(["e.mp3"])
         client = _make_client({"placements": []})
 

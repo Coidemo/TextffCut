@@ -92,12 +92,7 @@ class TestExtractJson:
 
     def test_generic_code_block(self):
         """``` ... ``` （json 指定なし）ブロックから JSON を抽出できること"""
-        text = (
-            "結果:\n"
-            "```\n"
-            '{"anchor_x": 0.6, "anchor_y": 0.5, "description": "中央"}\n'
-            "```"
-        )
+        text = "結果:\n" "```\n" '{"anchor_x": 0.6, "anchor_y": 0.5, "description": "中央"}\n' "```"
         result = _extract_json(text)
         data = json.loads(result)
         assert data["anchor_x"] == pytest.approx(0.6)
@@ -111,7 +106,7 @@ class TestExtractJson:
 
     def test_whitespace_stripped_from_code_block(self):
         """コードブロック内の前後の空白が除去されること"""
-        text = "```json\n\n  {\"anchor_x\": 0.5}\n\n```"
+        text = '```json\n\n  {"anchor_x": 0.5}\n\n```'
         result = _extract_json(text)
         assert result.startswith("{")
         assert result.endswith("}")
@@ -203,6 +198,7 @@ class TestExtractFrame:
 
     def test_empty_output_raises_runtime_error(self, tmp_path):
         """ffmpeg が空ファイルを出力した場合に RuntimeError を送出すること"""
+
         def fake_run(cmd, capture_output, check):
             # 一時ファイルを空のまま残す（write_bytes 不要）
             Path(cmd[-1]).write_bytes(b"")
@@ -413,10 +409,7 @@ class TestDetectAnchor:
         video_path = tmp_path / "video.mp4"
         video_path.touch()
         content = (
-            "分析結果:\n"
-            "```json\n"
-            '{"anchor_x": 0.55, "anchor_y": 0.35, "description": "コードブロック"}\n'
-            "```"
+            "分析結果:\n" "```json\n" '{"anchor_x": 0.55, "anchor_y": 0.35, "description": "コードブロック"}\n' "```"
         )
         client = _make_mock_client(content)
 
@@ -433,9 +426,7 @@ class TestDetectAnchor:
         """anchor_x が 1.0 を超える場合に 1.0 にクランプされること"""
         video_path = tmp_path / "video.mp4"
         video_path.touch()
-        client = _make_mock_client(
-            _make_valid_response_json(anchor_x=1.5, anchor_y=0.5)
-        )
+        client = _make_mock_client(_make_valid_response_json(anchor_x=1.5, anchor_y=0.5))
 
         with self._patch_extract_frame():
             result = detect_anchor(video_path, client)
@@ -446,9 +437,7 @@ class TestDetectAnchor:
         """anchor_y が 1.0 を超える場合に 1.0 にクランプされること"""
         video_path = tmp_path / "video.mp4"
         video_path.touch()
-        client = _make_mock_client(
-            _make_valid_response_json(anchor_x=0.5, anchor_y=2.0)
-        )
+        client = _make_mock_client(_make_valid_response_json(anchor_x=0.5, anchor_y=2.0))
 
         with self._patch_extract_frame():
             result = detect_anchor(video_path, client)
@@ -459,9 +448,7 @@ class TestDetectAnchor:
         """anchor_x が 0.0 未満の場合に 0.0 にクランプされること"""
         video_path = tmp_path / "video.mp4"
         video_path.touch()
-        client = _make_mock_client(
-            _make_valid_response_json(anchor_x=-0.5, anchor_y=0.5)
-        )
+        client = _make_mock_client(_make_valid_response_json(anchor_x=-0.5, anchor_y=0.5))
 
         with self._patch_extract_frame():
             result = detect_anchor(video_path, client)
@@ -472,9 +459,7 @@ class TestDetectAnchor:
         """anchor_y が 0.0 未満の場合に 0.0 にクランプされること"""
         video_path = tmp_path / "video.mp4"
         video_path.touch()
-        client = _make_mock_client(
-            _make_valid_response_json(anchor_x=0.5, anchor_y=-1.0)
-        )
+        client = _make_mock_client(_make_valid_response_json(anchor_x=0.5, anchor_y=-1.0))
 
         with self._patch_extract_frame():
             result = detect_anchor(video_path, client)
@@ -485,9 +470,7 @@ class TestDetectAnchor:
         """両座標が同時に範囲外の場合に両方クランプされること"""
         video_path = tmp_path / "video.mp4"
         video_path.touch()
-        client = _make_mock_client(
-            _make_valid_response_json(anchor_x=99.0, anchor_y=-99.0)
-        )
+        client = _make_mock_client(_make_valid_response_json(anchor_x=99.0, anchor_y=-99.0))
 
         with self._patch_extract_frame():
             result = detect_anchor(video_path, client)
@@ -499,9 +482,7 @@ class TestDetectAnchor:
         """境界値（0.0、1.0）はクランプされないこと"""
         video_path = tmp_path / "video.mp4"
         video_path.touch()
-        client = _make_mock_client(
-            _make_valid_response_json(anchor_x=0.0, anchor_y=1.0)
-        )
+        client = _make_mock_client(_make_valid_response_json(anchor_x=0.0, anchor_y=1.0))
 
         with self._patch_extract_frame():
             result = detect_anchor(video_path, client)

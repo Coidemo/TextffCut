@@ -118,10 +118,7 @@ class SuggestAndExportUseCase:
 
             # 全候補のtime_rangesを速度に合わせて調整（FFmpegと同じ丸め値を使用）
             for suggestion in suggestions:
-                suggestion.time_ranges = [
-                    (s / speed, e / speed)
-                    for s, e in suggestion.time_ranges
-                ]
+                suggestion.time_ranges = [(s / speed, e / speed) for s, e in suggestion.time_ranges]
                 suggestion.total_duration = sum(e - s for s, e in suggestion.time_ranges)
 
         # キャッシュ保存
@@ -174,11 +171,7 @@ class SuggestAndExportUseCase:
 
         # Phase 5.8: アンカー自動検出（vertical + 手動指定なし + auto_anchor有効時）
         actual_anchor = request.anchor
-        if (
-            request.auto_anchor
-            and request.timeline_resolution == "vertical"
-            and request.anchor == (0.0, 0.0)
-        ):
+        if request.auto_anchor and request.timeline_resolution == "vertical" and request.anchor == (0.0, 0.0):
             try:
                 from use_cases.ai.auto_anchor_detector import detect_anchor, anchor_to_fcpxml
 
@@ -193,6 +186,7 @@ class SuggestAndExportUseCase:
                     frame_time=frame_t,
                 )
                 from core.video import VideoInfo
+
                 try:
                     vi = VideoInfo.from_file(request.video_path)
                     src_w, src_h = vi.width, vi.height
@@ -200,7 +194,11 @@ class SuggestAndExportUseCase:
                     logger.warning("VideoInfo取得失敗、デフォルト1920x1080を使用")
                     src_w, src_h = 1920, 1080
                 actual_anchor = anchor_to_fcpxml(
-                    result.anchor_x, result.anchor_y, src_w, src_h, request.scale,
+                    result.anchor_x,
+                    result.anchor_y,
+                    src_w,
+                    src_h,
+                    request.scale,
                 )
                 logger.info("アンカー自動検出: %s — %s", actual_anchor, result.description)
             except Exception as e:
@@ -231,8 +229,12 @@ class SuggestAndExportUseCase:
                 title_settings = {"title_path": str(title_path)}
             fcpxml_path = fcpxml_dir / f"{i:02d}_{sanitized}.fcpxml"
             success = self._export_fcpxml(
-                suggestion, actual_video_path, fcpxml_path, media_config,
-                scale=request.scale, anchor=actual_anchor,
+                suggestion,
+                actual_video_path,
+                fcpxml_path,
+                media_config,
+                scale=request.scale,
+                anchor=actual_anchor,
                 timeline_resolution=request.timeline_resolution,
                 title_settings=title_settings,
                 ai_se_placements=ai_se_placements,
@@ -284,9 +286,7 @@ class SuggestAndExportUseCase:
             from use_cases.ai.subtitle_image_renderer import SubtitleEntry
 
             se_files = [
-                Path(p)
-                for p in media_config.additional_audio_settings.get("audio_files", [])
-                if Path(p).exists()
+                Path(p) for p in media_config.additional_audio_settings.get("audio_files", []) if Path(p).exists()
             ]
             if not se_files:
                 return None
@@ -296,10 +296,7 @@ class SuggestAndExportUseCase:
             if not parts:
                 return None
 
-            segments = [
-                {"text": text, "start": tl_s, "end": tl_e}
-                for text, tl_s, tl_e in parts
-            ]
+            segments = [{"text": text, "start": tl_s, "end": tl_e} for text, tl_s, tl_e in parts]
             srt_entries = generate_srt_entries_from_segments(
                 segments,
                 max_chars_per_line=srt_max_chars,
@@ -413,9 +410,13 @@ class SuggestAndExportUseCase:
         except Exception as e:
             logger.warning(f"FCPXMLExporter failed ({e}), using simple FCPXML")
             return self._export_simple_fcpxml(
-                suggestion, video_path, output_path,
+                suggestion,
+                video_path,
+                output_path,
                 media_config=media_config,
-                scale=scale, anchor=anchor, timeline_resolution=timeline_resolution,
+                scale=scale,
+                anchor=anchor,
+                timeline_resolution=timeline_resolution,
                 title_settings=title_settings,
                 ai_se_placements=ai_se_placements,
             )
@@ -508,7 +509,7 @@ class SuggestAndExportUseCase:
                     f'        <asset duration="0/1s" id="{title_rid}" '
                     f'name="{_attr(Path(title_path).name)}" start="0/1s" hasVideo="1" format="r0">\n'
                     f'            <media-rep kind="original-media" src="{_attr(title_url)}"/>\n'
-                    f'        </asset>\n'
+                    f"        </asset>\n"
                 )
                 title_spine_xml = (
                     f'                        <video duration="{to_frac(total_dur)}" lane="2" '
@@ -516,7 +517,7 @@ class SuggestAndExportUseCase:
                     f'start="0/1s" offset="0/1s" enabled="1">\n'
                     f'                            <adjust-conform type="none"/>\n'
                     f'                            <adjust-transform position="0 0" scale="1 1" anchor="0 0"/>\n'
-                    f'                        </video>\n'
+                    f"                        </video>\n"
                 )
 
         # SE リソース登録 + レーン4（SE一覧）+ レーン5（AI配置SE）
@@ -542,6 +543,7 @@ class SuggestAndExportUseCase:
                 se_duration = 1.0
                 try:
                     from core.video import VideoInfo
+
                     info = VideoInfo.from_file(audio_path)
                     se_duration = info.duration
                 except Exception:
@@ -554,7 +556,7 @@ class SuggestAndExportUseCase:
                     f'name="{_attr(ap.name)}" start="0/1s" hasAudio="1" '
                     f'audioSources="1" audioChannels="2">\n'
                     f'            <media-rep kind="original-media" src="{_attr(audio_url)}"/>\n'
-                    f'        </asset>\n'
+                    f"        </asset>\n"
                 )
 
             # レーン4: SE一覧（5フレーム間隔で並べる）
@@ -575,7 +577,7 @@ class SuggestAndExportUseCase:
                 )
                 if volume != 0:
                     se_lane4_xml += f'                            <adjust-volume amount="{_safe_volume_db(volume)}"/>\n'
-                se_lane4_xml += f'                        </asset-clip>\n'
+                se_lane4_xml += f"                        </asset-clip>\n"
                 current_offset += audio_duration + gap_duration
 
             # レーン5: AI配置SE
@@ -594,8 +596,10 @@ class SuggestAndExportUseCase:
                         f'start="0/1s" offset="{to_frac(placement.timestamp)}" enabled="1">\n'
                     )
                     if volume != 0:
-                        se_lane5_xml += f'                            <adjust-volume amount="{_safe_volume_db(volume)}"/>\n'
-                    se_lane5_xml += f'                        </asset-clip>\n'
+                        se_lane5_xml += (
+                            f'                            <adjust-volume amount="{_safe_volume_db(volume)}"/>\n'
+                        )
+                    se_lane5_xml += f"                        </asset-clip>\n"
 
         xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE fcpxml>

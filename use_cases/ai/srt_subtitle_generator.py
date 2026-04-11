@@ -323,20 +323,16 @@ def _remove_inline_fillers(
     # 除去する区間を収集 [(start_pos, end_pos), ...]
     remove_ranges: list[tuple[int, int]] = []
 
-    # 1. janome形態素解析でフィラーPOSを検出
+    # 1. GiNZA形態素解析でフィラーPOSを検出
     try:
         from core.japanese_line_break import JapaneseLineBreakRules
 
-        tokenizer = JapaneseLineBreakRules._get_tokenizer()
-        if tokenizer:
-            pos = 0
-            for token in tokenizer.tokenize(full_text):
-                token_start = pos
-                token_end = pos + len(token.surface)
-                pos_parts = token.part_of_speech.split(",")
-                if pos_parts[0] == "フィラー":
-                    remove_ranges.append((token_start, token_end))
-                pos = token_end
+        doc = JapaneseLineBreakRules._analyze(full_text)
+        if doc is not None:
+            for token in doc:
+                tag = JapaneseLineBreakRules._normalize_pos_tag(token.tag_)
+                if tag == "フィラー":
+                    remove_ranges.append((token.idx, token.idx + len(token.text)))
     except ImportError:
         pass
 
@@ -466,7 +462,7 @@ def _generate_from_char_times(
 
 
 def _tokenize(text: str) -> list[tuple[int, str, str]]:
-    """janomeで形態素解析。
+    """GiNZAで形態素解析。
 
     Returns:
         [(boundary_pos, surface, pos_tag), ...]
@@ -515,7 +511,15 @@ def _phase1_split(full_text: str, seg_bounds: set[int], max_chars: int = DEFAULT
                 boundaries.append(fill)
     boundaries = sorted(set(boundaries))
 
-    # 分割点スコア
+    # 文節境界を取得
+    try:
+        from core.japanese_line_break import JapaneseLineBreakRules
+
+        bunsetu_bounds = JapaneseLineBreakRules.get_bunsetu_boundaries(full_text)
+    except ImportError:
+        bunsetu_bounds = set()
+
+    # 分割点スコア（文節ベース）
     cut_scores = {}
     bp_dict = {pos: (surface, pos_tag) for pos, surface, pos_tag in bp}
 
@@ -523,100 +527,29 @@ def _phase1_split(full_text: str, seg_bounds: set[int], max_chars: int = DEFAULT
         score = 0.0
         if b in seg_bounds:
             score += 50
-        # 次の単語の品詞・表層形を取得
-        next_tag = ""
-        next_surface = ""
-        for pos2, surf2, tag2 in bp:
-            if pos2 > b:
-                next_tag = tag2
-                next_surface = surf2
-                break
 
         surface, pos_tag = bp_dict.get(b, ("", ""))
         pos_major, pos_sub = _parse_pos(pos_tag)
-        next_major, next_sub = _parse_pos(next_tag)
 
-        if pos_major == "助詞":
-            if pos_sub == "接続助詞":
-                if surface in ("て", "で"):
-                    # て形+補助動詞 保護（「て+いる」「て+いく」）
-                    score -= 15
-                else:
-                    # から/けど/ので/けれども → 文の切れ目
-                    score += 40
-            elif pos_sub == "終助詞":
-                # な/ね/よ → 文末で強い分割点
-                score += 40
-            elif pos_sub == "格助詞":
-                # を/に/で/と/へ → 動詞との結合を保護
-                score += 5
-            elif pos_sub == "係助詞":
-                # は/も
-                score += 25
-            else:
-                score += 30
-        elif pos_major == "フィラー":
-            score += 35
-        elif pos_major in ("動詞", "形容詞"):
-            if pos_sub == "非自立":
-                # 補助動詞（いる/いく/しまう）の後は切りにくい
-                if next_major == "助詞" and next_sub == "接続助詞" and next_surface in ("て", "で"):
-                    # 非自立動詞+て/で も保護（「し続け|て」→「し続けて|」）
-                    score -= 40
-                elif next_major in ("動詞", "助動詞"):
-                    score -= 15
-                else:
-                    score += 5
-            elif next_major == "助詞" and next_sub == "接続助詞" and next_surface in ("て", "で", "たって", "たら"):
-                # パターンA: 動詞+て/で/たって/たら 分離防止（「書い|て」「勝っ|たって」防止）
-                score -= 40
-            elif next_major == "名詞" and next_sub == "非自立":
-                # 動詞+名詞-非自立(ん/方) 保護（「思う|ん」→「思うん|」）
-                score -= 20
-            elif next_major in ("動詞", "助動詞"):
-                score -= 25
-            elif next_major == "名詞" and next_sub != "非自立":
-                # 動詞/形容詞+普通名詞 保護（「なりたい|状態」防止）
-                score -= 5
-            else:
+        if b in bunsetu_bounds:
+            # 文節境界 = 自然な分割点
+            score += 20
+            # 品詞ボーナス
+            if pos_major == "助詞" and pos_sub == "接続助詞" and surface not in ("て", "で"):
+                score += 20  # から/けど/ので → 計40
+            elif pos_major == "助詞" and pos_sub == "終助詞":
+                score += 20  # な/ね/よ → 計40
+            elif pos_major == "助詞" and pos_sub == "係助詞":
+                score += 10  # は/も → 計30
+            elif pos_major == "フィラー":
                 score += 15
-        elif pos_major == "助動詞":
-            if next_major == "助動詞":
-                score -= 15
-            elif next_major == "名詞" and next_sub == "非自立":
-                # パターンC: 助動詞+名詞-非自立 分離防止（「た|ん」「た|方」→「たん|」「た方|」）
-                score -= 20
-            elif next_major == "助詞" and next_sub != "終助詞":
-                # 助動詞+助詞(終助詞以外)を保護
-                # 格助詞/係助詞/接続助詞に加え、副助詞(とか/など)もカバー
-                score -= 10
-            elif next_major == "名詞" and next_sub != "非自立":
-                # 助動詞+名詞(普通)保護（「なりたい|状態」→「なりたい状態|」）
-                score -= 5
-            else:
-                score += 10
-        elif pos_major == "名詞":
-            if pos_sub == "非自立":
-                if surface == "ん" and next_major == "助動詞":
-                    # 「ん|です」は許容（た|んの-20よりはマシ。ただし積極的には切らない）
-                    score += 0
-                elif next_major == "助動詞":
-                    # よう/こと/もの + 助動詞 保護（「よう|な」防止）
-                    score -= 20
-                elif next_major == "助詞":
-                    score -= 10
-                else:
-                    score += 5
-            elif next_major == "助詞":
-                # パターンB: 名詞+助詞 分離防止（「スピード|が」→「スピードが|」）
-                score -= 15
-            elif next_major == "名詞":
-                score -= 10
-            elif next_major == "助動詞":
-                # 名詞(not非自立)+助動詞 保護（「最近|だと」→「最近だと|」）
-                score -= 10
-            else:
-                score += 8
+        else:
+            # 文節内部 = 分割を強く抑制
+            score -= 30
+            # フィラーの後は文節内でも許容
+            if pos_major == "フィラー":
+                score += 45  # net: +15
+
         cut_scores[b] = score
 
     # DP（11文字以下で分割）

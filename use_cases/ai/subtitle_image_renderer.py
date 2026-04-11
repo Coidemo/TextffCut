@@ -67,11 +67,11 @@ def _ensure_pil():
     """PILがインストールされているか確認し、モジュールを返す。"""
     try:
         from PIL import Image, ImageDraw, ImageFont
+
         return Image, ImageDraw, ImageFont
     except ImportError:
         raise ImportError(
-            "Pillow is required for subtitle image rendering. "
-            "Install it with: pip install Pillow>=10.0.0"
+            "Pillow is required for subtitle image rendering. " "Install it with: pip install Pillow>=10.0.0"
         ) from None
 
 
@@ -87,7 +87,8 @@ def _resolve_font(weight: str = "Bd", size: int = 48):
             return ImageFont.truetype(fb, size)
     logger.warning(
         "日本語フォントが見つかりません。字幕画像の日本語が正しく表示されない可能性があります。"
-        "推奨: %s にフォントを配置してください。", FONT_DIR / font_name,
+        "推奨: %s にフォントを配置してください。",
+        FONT_DIR / font_name,
     )
     return ImageFont.load_default(size=size)
 
@@ -176,7 +177,10 @@ def render_subtitle_image(
         lw = line_widths[i]
         x = (width - lw) // 2
         _draw_text_with_outline(
-            draw, (x, y), line, font,
+            draw,
+            (x, y),
+            line,
+            font,
             fill=style.text_color,
             outer_color=style.outer_outline_color,
             outer_width=style.outer_outline_width,
@@ -236,7 +240,10 @@ def render_subtitle_images_batch(
             lw = line_widths[j]
             x = (width - lw) // 2
             _draw_text_with_outline(
-                draw, (x, y), line, font,
+                draw,
+                (x, y),
+                line,
+                font,
                 fill=style.text_color,
                 outer_color=style.outer_outline_color,
                 outer_width=style.outer_outline_width,

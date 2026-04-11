@@ -125,9 +125,7 @@ class TestParseDesignJson:
         raw = {
             "lines": [
                 {
-                    "segments": [
-                        {"text": "テスト", "font_size": 80, "color": "#FFFFFF", "weight": "Eb"}
-                    ],
+                    "segments": [{"text": "テスト", "font_size": 80, "color": "#FFFFFF", "weight": "Eb"}],
                     "outer_outline_color": "#000000",
                     "outer_outline_width": 8,
                 }
@@ -141,15 +139,7 @@ class TestParseDesignJson:
         assert design.lines[0].segments[0].font_size == 80
 
     def test_gradient_parsing(self):
-        raw = {
-            "lines": [
-                {
-                    "segments": [
-                        {"text": "グラデ", "gradient": ["#FFD700", "#FF6600"]}
-                    ]
-                }
-            ]
-        }
+        raw = {"lines": [{"segments": [{"text": "グラデ", "gradient": ["#FFD700", "#FF6600"]}]}]}
         design = _parse_design_json(raw)
         assert design.lines[0].segments[0].gradient == ("#FFD700", "#FF6600")
 
@@ -157,9 +147,7 @@ class TestParseDesignJson:
         raw = {
             "lines": [
                 {
-                    "segments": [
-                        {"text": "大きすぎ", "font_size": 300}
-                    ],
+                    "segments": [{"text": "大きすぎ", "font_size": 300}],
                     "outer_outline_width": 50,
                 }
             ],
@@ -175,9 +163,7 @@ class TestParseDesignJson:
         raw = {
             "lines": [
                 {
-                    "segments": [
-                        {"text": "小さすぎ", "font_size": 10}
-                    ],
+                    "segments": [{"text": "小さすぎ", "font_size": 10}],
                 }
             ],
         }
@@ -269,15 +255,7 @@ class TestRenderTitleImage:
 
     def test_auto_shrink_wide_text(self, tmp_path):
         """幅を超えるテキストが自動縮小されること"""
-        design = TitleImageDesign(
-            lines=[
-                TitleLine(
-                    segments=[
-                        TitleTextSegment(text="あ" * 30, font_size=120)
-                    ]
-                )
-            ]
-        )
+        design = TitleImageDesign(lines=[TitleLine(segments=[TitleTextSegment(text="あ" * 30, font_size=120)])])
         output = tmp_path / "shrink.png"
         result_path, _, _ = render_title_image(design, output, width=300, height=500)
         assert result_path.exists()
@@ -328,9 +306,7 @@ class TestGenerateTitleImage:
         cache_data = {
             "lines": [
                 {
-                    "segments": [
-                        {"text": "キャッシュ", "font_size": 72, "color": "#FFFFFF", "weight": "Eb"}
-                    ],
+                    "segments": [{"text": "キャッシュ", "font_size": 72, "color": "#FFFFFF", "weight": "Eb"}],
                     "outer_outline_width": 4,
                 }
             ],
@@ -459,14 +435,18 @@ class TestDesignTitleLayout:
         """正常なAIレスポンスでデザインが返ること"""
         mock_client = MagicMock()
         mock_client.chat.completions.create.return_value = self._mock_response(
-            json.dumps({
-                "lines": [{"segments": [{"text": "テスト", "font_size": 80}]}],
-                "line_spacing": 10,
-                "padding_top": 60,
-            })
+            json.dumps(
+                {
+                    "lines": [{"segments": [{"text": "テスト", "font_size": 80}]}],
+                    "line_spacing": 10,
+                    "padding_top": 60,
+                }
+            )
         )
         design = design_title_layout(
-            client=mock_client, title="テスト", keywords=["AI"],
+            client=mock_client,
+            title="テスト",
+            keywords=["AI"],
         )
         assert len(design.lines) == 1
         assert design.lines[0].segments[0].text == "テスト"
@@ -476,9 +456,11 @@ class TestDesignTitleLayout:
         """AIがタイトル文字を変更した場合にValueErrorが発生すること"""
         mock_client = MagicMock()
         mock_client.chat.completions.create.return_value = self._mock_response(
-            json.dumps({
-                "lines": [{"segments": [{"text": "改変された", "font_size": 80}]}],
-            })
+            json.dumps(
+                {
+                    "lines": [{"segments": [{"text": "改変された", "font_size": 80}]}],
+                }
+            )
         )
         with pytest.raises(ValueError, match="AIがタイトル文字を変更"):
             design_title_layout(client=mock_client, title="テスト", keywords=[])
@@ -495,12 +477,16 @@ class TestDesignTitleLayout:
         """カスタムプロンプトテンプレートが使われること"""
         mock_client = MagicMock()
         mock_client.chat.completions.create.return_value = self._mock_response(
-            json.dumps({
-                "lines": [{"segments": [{"text": "OK", "font_size": 72}]}],
-            })
+            json.dumps(
+                {
+                    "lines": [{"segments": [{"text": "OK", "font_size": 72}]}],
+                }
+            )
         )
         design_title_layout(
-            client=mock_client, title="OK", keywords=[],
+            client=mock_client,
+            title="OK",
+            keywords=[],
             prompt_template="Custom: {TITLE} {KEYWORDS} {FRAME_COLORS} {JSON_SCHEMA} {ORIENTATION}",
         )
         call_args = mock_client.chat.completions.create.call_args
@@ -511,12 +497,16 @@ class TestDesignTitleLayout:
         """frame_colorsがプロンプトに含まれること"""
         mock_client = MagicMock()
         mock_client.chat.completions.create.return_value = self._mock_response(
-            json.dumps({
-                "lines": [{"segments": [{"text": "色", "font_size": 72}]}],
-            })
+            json.dumps(
+                {
+                    "lines": [{"segments": [{"text": "色", "font_size": 72}]}],
+                }
+            )
         )
         design_title_layout(
-            client=mock_client, title="色", keywords=[],
+            client=mock_client,
+            title="色",
+            keywords=[],
             frame_colors=["#FF0000", "#00FF00"],
             prompt_template="{TITLE}{KEYWORDS}{FRAME_COLORS}{JSON_SCHEMA}{ORIENTATION}",
         )
@@ -535,12 +525,14 @@ class TestDesignTitleLayoutsBatch:
         """バッチAI呼び出しが正常に動作すること"""
         mock_client = MagicMock()
         mock_client.chat.completions.create.return_value = self._mock_response(
-            json.dumps({
-                "designs": [
-                    {"lines": [{"segments": [{"text": "タイトルA", "font_size": 80}]}]},
-                    {"lines": [{"segments": [{"text": "タイトルB", "font_size": 72}]}]},
-                ]
-            })
+            json.dumps(
+                {
+                    "designs": [
+                        {"lines": [{"segments": [{"text": "タイトルA", "font_size": 80}]}]},
+                        {"lines": [{"segments": [{"text": "タイトルB", "font_size": 72}]}]},
+                    ]
+                }
+            )
         )
         results = design_title_layouts_batch(
             client=mock_client,
@@ -556,12 +548,14 @@ class TestDesignTitleLayoutsBatch:
         """一部タイトルのパースが失敗してもNoneで返ること"""
         mock_client = MagicMock()
         mock_client.chat.completions.create.return_value = self._mock_response(
-            json.dumps({
-                "designs": [
-                    {"lines": [{"segments": [{"text": "OK", "font_size": 80}]}]},
-                    {"lines": []},  # 空行 → ValueError
-                ]
-            })
+            json.dumps(
+                {
+                    "designs": [
+                        {"lines": [{"segments": [{"text": "OK", "font_size": 80}]}]},
+                        {"lines": []},  # 空行 → ValueError
+                    ]
+                }
+            )
         )
         results = design_title_layouts_batch(
             client=mock_client,
@@ -575,11 +569,13 @@ class TestDesignTitleLayoutsBatch:
         """AIがタイトル文字を変更した場合にNoneが返ること"""
         mock_client = MagicMock()
         mock_client.chat.completions.create.return_value = self._mock_response(
-            json.dumps({
-                "designs": [
-                    {"lines": [{"segments": [{"text": "改変", "font_size": 80}]}]},
-                ]
-            })
+            json.dumps(
+                {
+                    "designs": [
+                        {"lines": [{"segments": [{"text": "改変", "font_size": 80}]}]},
+                    ]
+                }
+            )
         )
         results = design_title_layouts_batch(
             client=mock_client,
@@ -594,18 +590,22 @@ class TestDesignTitleLayoutsBatch:
         mock_client.chat.completions.create.return_value = self._mock_response(None)
         with pytest.raises(ValueError, match="AIレスポンスが空"):
             design_title_layouts_batch(
-                client=mock_client, titles=["テスト"], keywords_list=[[]],
+                client=mock_client,
+                titles=["テスト"],
+                keywords_list=[[]],
             )
 
     def test_fewer_designs_than_titles(self):
         """AIの返すデザイン数がタイトル数より少ない場合"""
         mock_client = MagicMock()
         mock_client.chat.completions.create.return_value = self._mock_response(
-            json.dumps({
-                "designs": [
-                    {"lines": [{"segments": [{"text": "A", "font_size": 72}]}]},
-                ]
-            })
+            json.dumps(
+                {
+                    "designs": [
+                        {"lines": [{"segments": [{"text": "A", "font_size": 72}]}]},
+                    ]
+                }
+            )
         )
         results = design_title_layouts_batch(
             client=mock_client,
@@ -644,11 +644,14 @@ class TestGenerateTitleImagesBatch:
         output_dir = tmp_path / "titles"
         output_dir.mkdir()
         # キャッシュを作成
-        cache_data = json.dumps({
-            "lines": [{"segments": [{"text": "キャッシュ済み", "font_size": 72}]}],
-            "line_spacing": 10,
-            "padding_top": 60,
-        }, ensure_ascii=False)
+        cache_data = json.dumps(
+            {
+                "lines": [{"segments": [{"text": "キャッシュ済み", "font_size": 72}]}],
+                "line_spacing": 10,
+                "padding_top": 60,
+            },
+            ensure_ascii=False,
+        )
         (output_dir / "01_キャッシュ済み.title.json").write_text(cache_data)
 
         suggestions = self._make_suggestions(["キャッシュ済み"])
@@ -679,12 +682,14 @@ class TestDesignCacheRoundTrip:
     def test_basic_roundtrip(self, tmp_path):
         """保存→読み込みでデザインが復元されること"""
         design = TitleImageDesign(
-            lines=[TitleLine(
-                segments=[TitleTextSegment(text="テスト", font_size=80, color="#FF0000", weight="Bd")],
-                outer_outline_width=6,
-                inner_outline_width=3,
-                inner_outline_color="#FFFFFF",
-            )],
+            lines=[
+                TitleLine(
+                    segments=[TitleTextSegment(text="テスト", font_size=80, color="#FF0000", weight="Bd")],
+                    outer_outline_width=6,
+                    inner_outline_width=3,
+                    inner_outline_color="#FFFFFF",
+                )
+            ],
             line_spacing=15,
             padding_top=100,
         )
@@ -707,9 +712,7 @@ class TestDesignCacheRoundTrip:
     def test_gradient_roundtrip(self, tmp_path):
         """gradient tuple→list→tupleの変換が正しいこと"""
         design = TitleImageDesign(
-            lines=[TitleLine(
-                segments=[TitleTextSegment(text="グラデ", gradient=("#FFD700", "#FF6600"))]
-            )]
+            lines=[TitleLine(segments=[TitleTextSegment(text="グラデ", gradient=("#FFD700", "#FF6600"))])]
         )
         cache_path = tmp_path / "grad.title.json"
         _save_design_cache(design, cache_path)
@@ -720,9 +723,7 @@ class TestDesignCacheRoundTrip:
 
     def test_null_gradient_roundtrip(self, tmp_path):
         """gradient=Noneがラウンドトリップで保持されること"""
-        design = TitleImageDesign(
-            lines=[TitleLine(segments=[TitleTextSegment(text="普通")])]
-        )
+        design = TitleImageDesign(lines=[TitleLine(segments=[TitleTextSegment(text="普通")])])
         cache_path = tmp_path / "null.title.json"
         _save_design_cache(design, cache_path)
 
@@ -738,7 +739,10 @@ class TestRenderImageAssertions:
         """フォールバックデザインが実際にピクセルを描画すること"""
         output = tmp_path / "fb.png"
         result = generate_title_image(
-            title="テストタイトル", keywords=[], output_path=output, client=None,
+            title="テストタイトル",
+            keywords=[],
+            output_path=output,
+            client=None,
         )
         assert result is not None
         img = Image.open(result)
@@ -753,21 +757,41 @@ class TestRenderImageAssertions:
         """AI設計→キャッシュ→描画→画像検証のフルフロー"""
         mock_client = MagicMock()
         mock_client.chat.completions.create.return_value = MagicMock(
-            choices=[MagicMock(message=MagicMock(content=json.dumps({
-                "lines": [
-                    {"segments": [
-                        {"text": "衝撃", "font_size": 90, "gradient": ["#FFD700", "#FF6600"], "weight": "Eb"},
-                        {"text": "の事実", "font_size": 60, "color": "#FFFFFF", "weight": "Bd"},
-                    ], "outer_outline_width": 8, "inner_outline_width": 4},
-                ],
-                "line_spacing": 12,
-                "padding_top": 80,
-            })))]
+            choices=[
+                MagicMock(
+                    message=MagicMock(
+                        content=json.dumps(
+                            {
+                                "lines": [
+                                    {
+                                        "segments": [
+                                            {
+                                                "text": "衝撃",
+                                                "font_size": 90,
+                                                "gradient": ["#FFD700", "#FF6600"],
+                                                "weight": "Eb",
+                                            },
+                                            {"text": "の事実", "font_size": 60, "color": "#FFFFFF", "weight": "Bd"},
+                                        ],
+                                        "outer_outline_width": 8,
+                                        "inner_outline_width": 4,
+                                    },
+                                ],
+                                "line_spacing": 12,
+                                "padding_top": 80,
+                            }
+                        )
+                    )
+                )
+            ]
         )
         output = tmp_path / "e2e.png"
         result = generate_title_image(
-            title="衝撃の事実", keywords=["衝撃"], output_path=output,
-            client=mock_client, orientation="vertical",
+            title="衝撃の事実",
+            keywords=["衝撃"],
+            output_path=output,
+            client=mock_client,
+            orientation="vertical",
         )
         assert result is not None
         img = Image.open(result)
@@ -790,13 +814,15 @@ class TestDesignTitleLayoutCandidates:
         """複数候補が正常に生成されること"""
         mock_client = MagicMock()
         mock_client.chat.completions.create.return_value = self._mock_response(
-            json.dumps({
-                "designs": [
-                    {"lines": [{"segments": [{"text": "テスト", "font_size": 160}]}]},
-                    {"lines": [{"segments": [{"text": "テスト", "font_size": 120}]}]},
-                    {"lines": [{"segments": [{"text": "テスト", "font_size": 90}]}]},
-                ]
-            })
+            json.dumps(
+                {
+                    "designs": [
+                        {"lines": [{"segments": [{"text": "テスト", "font_size": 160}]}]},
+                        {"lines": [{"segments": [{"text": "テスト", "font_size": 120}]}]},
+                        {"lines": [{"segments": [{"text": "テスト", "font_size": 90}]}]},
+                    ]
+                }
+            )
         )
         results = design_title_layout_candidates(
             client=mock_client,
@@ -812,13 +838,15 @@ class TestDesignTitleLayoutCandidates:
         """文字不一致の候補はスキップされること"""
         mock_client = MagicMock()
         mock_client.chat.completions.create.return_value = self._mock_response(
-            json.dumps({
-                "designs": [
-                    {"lines": [{"segments": [{"text": "テスト", "font_size": 160}]}]},
-                    {"lines": [{"segments": [{"text": "改変された", "font_size": 120}]}]},
-                    {"lines": [{"segments": [{"text": "テスト", "font_size": 90}]}]},
-                ]
-            })
+            json.dumps(
+                {
+                    "designs": [
+                        {"lines": [{"segments": [{"text": "テスト", "font_size": 160}]}]},
+                        {"lines": [{"segments": [{"text": "改変された", "font_size": 120}]}]},
+                        {"lines": [{"segments": [{"text": "テスト", "font_size": 90}]}]},
+                    ]
+                }
+            )
         )
         results = design_title_layout_candidates(
             client=mock_client,
@@ -834,7 +862,9 @@ class TestDesignTitleLayoutCandidates:
         mock_client.chat.completions.create.return_value = self._mock_response(None)
         with pytest.raises(ValueError, match="AIレスポンスが空"):
             design_title_layout_candidates(
-                client=mock_client, title="テスト", keywords=[],
+                client=mock_client,
+                title="テスト",
+                keywords=[],
                 target_size=(1080, 438),
             )
 
@@ -845,9 +875,7 @@ class TestFilterFittingCandidates:
     def test_filters_by_height(self, tmp_path):
         """ターゲット高さを超える候補がフィルタされること"""
         # 小さいフォントの候補（収まる）
-        small_design = TitleImageDesign(
-            lines=[TitleLine(segments=[TitleTextSegment(text="テスト", font_size=80)])]
-        )
+        small_design = TitleImageDesign(lines=[TitleLine(segments=[TitleTextSegment(text="テスト", font_size=80)])])
         # 大きいフォントの候補（はみ出す可能性）
         large_design = TitleImageDesign(
             lines=[
@@ -962,15 +990,19 @@ class TestOffsetY:
         # offset_y=0: コンテンツは上部に収まるはず
         results_no_offset, _ = filter_fitting_candidates(
             candidates=[design],
-            target_width=1080, target_height=300,
-            canvas_width=1080, canvas_height=1920,
+            target_width=1080,
+            target_height=300,
+            canvas_width=1080,
+            canvas_height=1920,
             offset_y=0,
         )
         # offset_y=500: コンテンツが大幅に下にずれ、target_heightを超える
         results_large_offset, _ = filter_fitting_candidates(
             candidates=[design],
-            target_width=1080, target_height=300,
-            canvas_width=1080, canvas_height=1920,
+            target_width=1080,
+            target_height=300,
+            canvas_width=1080,
+            canvas_height=1920,
             offset_y=500,
         )
         # offset_y=0 はフィットする候補を返す
@@ -986,8 +1018,11 @@ class TestOffsetY:
         """generate_title_imageにoffset_yを渡して画像生成できること"""
         output = tmp_path / "offset.png"
         result = generate_title_image(
-            title="テスト", keywords=[], output_path=output,
-            client=None, offset_y=80,
+            title="テスト",
+            keywords=[],
+            output_path=output,
+            client=None,
+            offset_y=80,
         )
         assert result is not None
         assert result.exists()
@@ -1009,9 +1044,7 @@ class TestEvaluateCandidatesWithVision:
 
         mock_client = MagicMock()
         mock_client.chat.completions.create.return_value = MagicMock(
-            choices=[MagicMock(message=MagicMock(
-                content=json.dumps({"best_index": 1, "reason": "可読性が高い"})
-            ))]
+            choices=[MagicMock(message=MagicMock(content=json.dumps({"best_index": 1, "reason": "可読性が高い"})))]
         )
         result = evaluate_candidates_with_vision(
             client=mock_client,
@@ -1057,7 +1090,9 @@ class TestEvaluateCandidatesWithVision:
         """空の候補リストで0を返すこと"""
         mock_client = MagicMock()
         result = evaluate_candidates_with_vision(
-            client=mock_client, candidate_images=[], title="テスト",
+            client=mock_client,
+            candidate_images=[],
+            title="テスト",
         )
         assert result == 0
 
@@ -1071,19 +1106,20 @@ class TestGenerateTitleImageWithTargetSize:
         mock_client = MagicMock()
         # 最初のAPI呼び出し: 候補生成
         candidates_response = MagicMock()
-        candidates_response.choices[0].message.content = json.dumps({
-            "designs": [
-                {"lines": [{"segments": [{"text": "テスト", "font_size": 120}]}]},
-                {"lines": [{"segments": [{"text": "テスト", "font_size": 90}]}]},
-            ]
-        })
+        candidates_response.choices[0].message.content = json.dumps(
+            {
+                "designs": [
+                    {"lines": [{"segments": [{"text": "テスト", "font_size": 120}]}]},
+                    {"lines": [{"segments": [{"text": "テスト", "font_size": 90}]}]},
+                ]
+            }
+        )
         # 2番目のAPI呼び出し: Vision AI評価
         vision_response = MagicMock()
-        vision_response.choices[0].message.content = json.dumps({
-            "best_index": 0, "reason": "インパクトが強い"
-        })
+        vision_response.choices[0].message.content = json.dumps({"best_index": 0, "reason": "インパクトが強い"})
         mock_client.chat.completions.create.side_effect = [
-            candidates_response, vision_response,
+            candidates_response,
+            vision_response,
         ]
 
         output = tmp_path / "pipeline.png"
@@ -1124,18 +1160,18 @@ class TestGenerateTitleImageWithTargetSize:
         # 各タイトルに対して2回のAPI呼び出し（候補生成 + Vision評価）
         def make_candidates_response(title):
             r = MagicMock()
-            r.choices[0].message.content = json.dumps({
-                "designs": [
-                    {"lines": [{"segments": [{"text": title, "font_size": 100}]}]},
-                ]
-            })
+            r.choices[0].message.content = json.dumps(
+                {
+                    "designs": [
+                        {"lines": [{"segments": [{"text": title, "font_size": 100}]}]},
+                    ]
+                }
+            )
             return r
 
         def make_vision_response():
             r = MagicMock()
-            r.choices[0].message.content = json.dumps({
-                "best_index": 0, "reason": "OK"
-            })
+            r.choices[0].message.content = json.dumps({"best_index": 0, "reason": "OK"})
             return r
 
         mock_client.chat.completions.create.side_effect = [
@@ -1171,9 +1207,7 @@ class TestVisionAIEdgeCases:
 
         mock_client = MagicMock()
         mock_client.chat.completions.create.return_value = MagicMock(
-            choices=[MagicMock(message=MagicMock(
-                content=json.dumps({"best_index": 99, "reason": "範囲外"})
-            ))]
+            choices=[MagicMock(message=MagicMock(content=json.dumps({"best_index": 99, "reason": "範囲外"})))]
         )
         result = evaluate_candidates_with_vision(
             client=mock_client,
@@ -1195,9 +1229,7 @@ class TestVisionAIEdgeCases:
 
         mock_client = MagicMock()
         mock_client.chat.completions.create.return_value = MagicMock(
-            choices=[MagicMock(message=MagicMock(
-                content=json.dumps({"best_index": -1, "reason": "負の値"})
-            ))]
+            choices=[MagicMock(message=MagicMock(content=json.dumps({"best_index": -1, "reason": "負の値"})))]
         )
         result = evaluate_candidates_with_vision(
             client=mock_client,
@@ -1214,9 +1246,7 @@ class TestVisionAIEdgeCases:
 
         mock_client = MagicMock()
         mock_client.chat.completions.create.return_value = MagicMock(
-            choices=[MagicMock(message=MagicMock(
-                content="候補1が最適です"  # JSONではない自由文
-            ))]
+            choices=[MagicMock(message=MagicMock(content="候補1が最適です"))]  # JSONではない自由文
         )
         result = evaluate_candidates_with_vision(
             client=mock_client,
@@ -1237,9 +1267,7 @@ class TestVisionAIEdgeCases:
         mock_client = MagicMock()
         # Vision AIは2枚目（表示順index=1）を選択
         mock_client.chat.completions.create.return_value = MagicMock(
-            choices=[MagicMock(message=MagicMock(
-                content=json.dumps({"best_index": 1, "reason": "2枚目が良い"})
-            ))]
+            choices=[MagicMock(message=MagicMock(content=json.dumps({"best_index": 1, "reason": "2枚目が良い"})))]
         )
         result = evaluate_candidates_with_vision(
             client=mock_client,
@@ -1259,9 +1287,7 @@ class TestFilterEdgeCases:
 
     def test_target_width_zero_no_crash(self):
         """target_width=0でクラッシュしないこと"""
-        design = TitleImageDesign(
-            lines=[TitleLine(segments=[TitleTextSegment(text="テスト", font_size=80)])]
-        )
+        design = TitleImageDesign(lines=[TitleLine(segments=[TitleTextSegment(text="テスト", font_size=80)])])
         # target_width=0 でもゼロ除算にならないこと
         results, tmp_dirs = filter_fitting_candidates(
             candidates=[design],
@@ -1283,12 +1309,14 @@ class TestPipelineEmptyResults:
         mock_client = MagicMock()
         # 全候補が文字不一致
         candidates_response = MagicMock()
-        candidates_response.choices[0].message.content = json.dumps({
-            "designs": [
-                {"lines": [{"segments": [{"text": "改変A", "font_size": 120}]}]},
-                {"lines": [{"segments": [{"text": "改変B", "font_size": 90}]}]},
-            ]
-        })
+        candidates_response.choices[0].message.content = json.dumps(
+            {
+                "designs": [
+                    {"lines": [{"segments": [{"text": "改変A", "font_size": 120}]}]},
+                    {"lines": [{"segments": [{"text": "改変B", "font_size": 90}]}]},
+                ]
+            }
+        )
         mock_client.chat.completions.create.side_effect = [candidates_response]
 
         output = tmp_path / "empty_stage1.png"
@@ -1309,11 +1337,14 @@ class TestPipelineEmptyResults:
         output_dir.mkdir()
 
         # キャッシュを作成
-        cache_data = json.dumps({
-            "lines": [{"segments": [{"text": "キャッシュ", "font_size": 72}]}],
-            "line_spacing": 10,
-            "padding_top": 60,
-        }, ensure_ascii=False)
+        cache_data = json.dumps(
+            {
+                "lines": [{"segments": [{"text": "キャッシュ", "font_size": 72}]}],
+                "line_spacing": 10,
+                "padding_top": 60,
+            },
+            ensure_ascii=False,
+        )
         (output_dir / "01_キャッシュ.title.json").write_text(cache_data)
 
         suggestions = []

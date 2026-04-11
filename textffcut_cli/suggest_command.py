@@ -86,6 +86,7 @@ def build_suggest_parser() -> argparse.ArgumentParser:
         default=True,
         help="無音削除を無効にする（デフォルト: 有効）",
     )
+
     def _speed_type(value: str) -> float:
         f = float(value)
         if not (0.5 <= f <= 2.0):
@@ -98,6 +99,7 @@ def build_suggest_parser() -> argparse.ArgumentParser:
         default=1.0,
         help="再生速度（0.5〜2.0、デフォルト: 1.0、例: 1.2で1.2倍速）",
     )
+
     def _zoom_type(value: str) -> int:
         i = int(value)
         if not (10 <= i <= 500):
@@ -332,7 +334,9 @@ def _process_single_video(
             tw, th = args.title_target_size.split("x")
             title_target_size = (int(tw), int(th))
         except (ValueError, AttributeError):
-            console.print(f"[yellow]⚠ --title-target-size の形式が不正です: {args.title_target_size}。デフォルト(1080x438)を使用[/]")
+            console.print(
+                f"[yellow]⚠ --title-target-size の形式が不正です: {args.title_target_size}。デフォルト(1080x438)を使用[/]"
+            )
             title_target_size = (1080, 438)
 
     request = SuggestAndExportRequest(

@@ -171,9 +171,7 @@ def _contrast_ratio(color1: str, color2: str) -> float:
     return (lighter + 0.05) / (darker + 0.05)
 
 
-def _ensure_contrast(
-    design: TitleImageDesign, frame_colors: list[str]
-) -> TitleImageDesign:
+def _ensure_contrast(design: TitleImageDesign, frame_colors: list[str]) -> TitleImageDesign:
     """テキスト色と背景色のコントラストが低い場合に自動補正する"""
     import copy
 
@@ -187,15 +185,16 @@ def _ensure_contrast(
 
     for line in design.lines:
         outline_color = line.outer_outline_color
-        min_contrast_vs_bg = min(
-            _contrast_ratio(outline_color, fc) for fc in frame_colors
-        )
+        min_contrast_vs_bg = min(_contrast_ratio(outline_color, fc) for fc in frame_colors)
 
         if min_contrast_vs_bg < _OUTLINE_VS_BG_THRESHOLD:
             new_outline = "#000000" if bg_is_light else "#FFFFFF"
             logger.info(
                 "コントラスト補正: アウトライン %s → %s (比率%.2f < %.1f)",
-                outline_color, new_outline, min_contrast_vs_bg, _OUTLINE_VS_BG_THRESHOLD,
+                outline_color,
+                new_outline,
+                min_contrast_vs_bg,
+                _OUTLINE_VS_BG_THRESHOLD,
             )
             line.outer_outline_color = new_outline
 
@@ -214,7 +213,10 @@ def _ensure_contrast(
                     if not seg.gradient and seg.color == tc:
                         logger.info(
                             "コントラスト補正: テキスト色 %s → %s (比率%.2f < %.1f)",
-                            tc, new_color, ratio, _TEXT_VS_OUTLINE_THRESHOLD,
+                            tc,
+                            new_color,
+                            ratio,
+                            _TEXT_VS_OUTLINE_THRESHOLD,
                         )
                         seg.color = new_color
 
@@ -238,8 +240,9 @@ def _measure_content_height(
     os.close(fd)
     tmp_path = Path(tmp_str)
     try:
-        render_title_image(design, tmp_path, width=canvas_width, height=canvas_height,
-                           font_dir=font_dir, offset_y=offset_y)
+        render_title_image(
+            design, tmp_path, width=canvas_width, height=canvas_height, font_dir=font_dir, offset_y=offset_y
+        )
         with Image.open(tmp_path) as img:
             bbox = img.getbbox()
             if bbox:
@@ -263,15 +266,16 @@ def _ensure_fit_height(
     design = copy.deepcopy(design)
 
     for _ in range(5):
-        content_h = _measure_content_height(
-            design, canvas_width, canvas_height, font_dir, offset_y
-        )
+        content_h = _measure_content_height(design, canvas_width, canvas_height, font_dir, offset_y)
         if content_h <= 0 or content_h <= target_height:
             return design
 
         scale = (target_height / content_h) * 0.95
         logger.info(
-            "高さ補正: %dpx → target %dpx (縮小率%.3f)", content_h, target_height, scale,
+            "高さ補正: %dpx → target %dpx (縮小率%.3f)",
+            content_h,
+            target_height,
+            scale,
         )
         for line in design.lines:
             for seg in line.segments:
@@ -506,10 +510,7 @@ def filter_fitting_candidates(
         return [], all_tmp_dirs
 
     # ターゲットエリア（上部エリア）に収まるものをフィルタ
-    fitting = [
-        (d, p, w, h) for d, p, w, h in all_rendered
-        if h <= target_height
-    ]
+    fitting = [(d, p, w, h) for d, p, w, h in all_rendered if h <= target_height]
 
     if fitting:
         return fitting, all_tmp_dirs
@@ -544,13 +545,15 @@ def evaluate_candidates_with_vision(
         try:
             with open(img_path, "rb") as f:
                 img_data = base64.b64encode(f.read()).decode("utf-8")
-            image_contents.append({
-                "type": "image_url",
-                "image_url": {
-                    "url": f"data:image/png;base64,{img_data}",
-                    "detail": "low",
-                },
-            })
+            image_contents.append(
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:image/png;base64,{img_data}",
+                        "detail": "low",
+                    },
+                }
+            )
             encoded_candidates.append((idx, img_path))
         except Exception as e:
             logger.warning(f"画像#{idx}: base64エンコード失敗: {e}")
@@ -571,7 +574,7 @@ def evaluate_candidates_with_vision(
         "2. 可読性（文字が読みやすいか）\n"
         "3. 色の調和・バランス\n"
         "4. テキストの収まり具合\n\n"
-        "JSONで回答してください: {\"best_index\": N, \"reason\": \"理由\"}\n"
+        'JSONで回答してください: {"best_index": N, "reason": "理由"}\n'
         "best_indexは0始まりで、画像の表示順です。"
     )
 
@@ -922,8 +925,12 @@ def _draw_segment(
     if inner_outline_width > 0:
         inner_mask = Image.new("L", (rw, rh), 0)
         ImageDraw.Draw(inner_mask).text(
-            (lx, ly), text, font=font, fill=255,
-            stroke_width=inner_outline_width, stroke_fill=255,
+            (lx, ly),
+            text,
+            font=font,
+            fill=255,
+            stroke_width=inner_outline_width,
+            stroke_fill=255,
         )
     else:
         inner_mask = text_mask.copy()
@@ -932,8 +939,12 @@ def _draw_segment(
     if total_stroke > 0:
         outer_mask = Image.new("L", (rw, rh), 0)
         ImageDraw.Draw(outer_mask).text(
-            (lx, ly), text, font=font, fill=255,
-            stroke_width=total_stroke, stroke_fill=255,
+            (lx, ly),
+            text,
+            font=font,
+            fill=255,
+            stroke_width=total_stroke,
+            stroke_fill=255,
         )
     else:
         outer_mask = inner_mask.copy()
@@ -1203,8 +1214,7 @@ def _generate_with_pipeline(
         output_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(best_rendered_path, output_path)
         logger.info(
-            f"パイプライン完了: {output_path.name} ({canvas_w}x{canvas_h}) "
-            f"[候補{best_idx+1}/{len(fitting)}選択]"
+            f"パイプライン完了: {output_path.name} ({canvas_w}x{canvas_h}) " f"[候補{best_idx+1}/{len(fitting)}選択]"
         )
         return output_path
 
@@ -1390,6 +1400,7 @@ def generate_title_images_batch(
         {1: Path, 2: Path, ...} 生成成功した画像のマッピング
     """
     if sanitize_fn is None:
+
         def sanitize_fn(t: str) -> str:
             return t.replace("/", "_").replace("\\", "_")[:50] or "untitled"
 
@@ -1414,7 +1425,7 @@ def generate_title_images_batch(
 
     for i, s in enumerate(suggestions):
         sanitized = sanitize_fn(s.title)
-        cache_path = (output_dir / f"{i+1:02d}_{sanitized}.title.json")
+        cache_path = output_dir / f"{i+1:02d}_{sanitized}.title.json"
         if cache_path.exists():
             try:
                 raw = json.loads(cache_path.read_text(encoding="utf-8"))
@@ -1438,7 +1449,12 @@ def generate_title_images_batch(
                 if frame_colors:
                     cached_design = _ensure_contrast(cached_design, frame_colors)
                 cached_design = _ensure_fit_height(
-                    cached_design, target_size[1], width, height, font_dir, offset_y,
+                    cached_design,
+                    target_size[1],
+                    width,
+                    height,
+                    font_dir,
+                    offset_y,
                 )
                 try:
                     result_path, img_w, img_h = render_title_image(
@@ -1478,11 +1494,19 @@ def generate_title_images_batch(
                     if frame_colors:
                         fb_design = _ensure_contrast(fb_design, frame_colors)
                     fb_design = _ensure_fit_height(
-                        fb_design, target_size[1], width, height, font_dir, offset_y,
+                        fb_design,
+                        target_size[1],
+                        width,
+                        height,
+                        font_dir,
+                        offset_y,
                     )
                     result_path, img_w, img_h = render_title_image(
-                        design=fb_design, output_path=output_path,
-                        width=width, height=height, font_dir=font_dir,
+                        design=fb_design,
+                        output_path=output_path,
+                        width=width,
+                        height=height,
+                        font_dir=font_dir,
                         offset_y=offset_y,
                     )
                     result_paths[i + 1] = result_path

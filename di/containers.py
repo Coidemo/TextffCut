@@ -191,7 +191,9 @@ class ApplicationContainer(containers.DeclarativeContainer):
 
     # Presentation層コンテナ（Streamlit がインストールされている場合のみ）
     if PresentationContainer is not None:
-        presentation = providers.Container(PresentationContainer, gateways=gateways, use_cases=use_cases, services=services)
+        presentation = providers.Container(
+            PresentationContainer, gateways=gateways, use_cases=use_cases, services=services
+        )
 
     # Streamlit連携用プロバイダー
     api_key_provider = providers.Singleton(

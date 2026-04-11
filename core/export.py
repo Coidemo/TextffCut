@@ -19,6 +19,7 @@ def _xml_attr(value: str) -> str:
     """
     return xml_escape(value, {'"': "&quot;"})
 
+
 # utils.environmentのインポートは実行時に行う（循環依存回避のため）
 from utils.time_utils import frames_to_timecode
 
