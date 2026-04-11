@@ -92,8 +92,11 @@ class TestSplitTitle:
         assert result == ["短い"]
 
     def test_split_on_punctuation(self):
-        result = _split_title("これは長い文章で「テスト」を含む例です")
+        title = "これは長い文章で「テスト」を含む例です"
+        result = _split_title(title)
         assert len(result) >= 2
+        # 句読点分割でも文字が欠落しないこと
+        assert "".join(result) == title
 
     def test_no_character_loss(self):
         """均等分割で文字が欠落しないこと（25文字・分割点なし）"""
@@ -159,9 +162,23 @@ class TestParseDesignJson:
             "padding_top": 999,
         }
         design = _parse_design_json(raw)
-        assert design.lines[0].segments[0].font_size == 220  # clamped
+        assert design.lines[0].segments[0].font_size == 220  # clamped upper
         assert design.lines[0].outer_outline_width == 10  # clamped
         assert design.padding_top == 200  # clamped
+
+    def test_clamp_lower_bound(self):
+        """font_sizeが下限(80)にクランプされること"""
+        raw = {
+            "lines": [
+                {
+                    "segments": [
+                        {"text": "小さすぎ", "font_size": 10}
+                    ],
+                }
+            ],
+        }
+        design = _parse_design_json(raw)
+        assert design.lines[0].segments[0].font_size == 80  # clamped lower
 
     def test_empty_lines_raises(self):
         with pytest.raises(ValueError):
@@ -1185,6 +1202,53 @@ class TestVisionAIEdgeCases:
         )
         assert result == 0
 
+    def test_non_json_response_falls_back(self, tmp_path):
+        """Vision AIが非JSONレスポンスを返した場合にフォールバックすること"""
+        for i in range(2):
+            img = Image.new("RGBA", (100, 50), (255, 0, 0, 255))
+            img.save(str(tmp_path / f"c{i}.png"))
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = MagicMock(
+            choices=[MagicMock(message=MagicMock(
+                content="候補1が最適です"  # JSONではない自由文
+            ))]
+        )
+        result = evaluate_candidates_with_vision(
+            client=mock_client,
+            candidate_images=[(0, tmp_path / "c0.png"), (1, tmp_path / "c1.png")],
+            title="テスト",
+        )
+        # json.loads失敗 → except → フォールバック
+        assert result == 0
+
+    def test_partial_encode_failure_correct_index(self, tmp_path):
+        """一部画像のbase64エンコード失敗時にインデックスがずれないこと"""
+        # 画像0と画像2は正常、画像1は存在しない
+        img = Image.new("RGBA", (100, 50), (255, 0, 0, 255))
+        img.save(str(tmp_path / "c0.png"))
+        img.save(str(tmp_path / "c2.png"))
+        # c1.pngは作成しない（base64エンコード失敗を再現）
+
+        mock_client = MagicMock()
+        # Vision AIは2枚目（表示順index=1）を選択
+        mock_client.chat.completions.create.return_value = MagicMock(
+            choices=[MagicMock(message=MagicMock(
+                content=json.dumps({"best_index": 1, "reason": "2枚目が良い"})
+            ))]
+        )
+        result = evaluate_candidates_with_vision(
+            client=mock_client,
+            candidate_images=[
+                (0, tmp_path / "c0.png"),
+                (1, tmp_path / "c1.png"),  # 存在しない → エンコード失敗
+                (2, tmp_path / "c2.png"),
+            ],
+            title="テスト",
+        )
+        # AIは表示された2枚のうちindex=1（=c2.png、元インデックス2）を選択
+        assert result == 2  # c1.pngではなくc2.pngの元インデックスが返る
+
 
 class TestFilterEdgeCases:
     """フィルタリングのエッジケーステスト"""
@@ -1266,3 +1330,23 @@ class TestPipelineEmptyResults:
         assert results[1].exists()
         # パイプラインAPI呼び出しは不要
         mock_client.chat.completions.create.assert_not_called()
+
+
+class TestXmlAttrEscape:
+    """XML属性値のダブルクォートエスケープテスト"""
+
+    def test_xml_attr_escapes_double_quotes(self):
+        """_xml_attrがダブルクォートを&quot;にエスケープすること"""
+        from core.export import _xml_attr
+
+        assert _xml_attr('test"value') == "test&quot;value"
+        assert _xml_attr("no quotes") == "no quotes"
+        assert _xml_attr('<script>"alert"</script>') == "&lt;script&gt;&quot;alert&quot;&lt;/script&gt;"
+
+    def test_xml_attr_escapes_standard_entities(self):
+        """_xml_attrが標準エンティティもエスケープすること"""
+        from core.export import _xml_attr
+
+        assert "&amp;" in _xml_attr("a&b")
+        assert "&lt;" in _xml_attr("a<b")
+        assert "&gt;" in _xml_attr("a>b")
