@@ -300,7 +300,6 @@ SUBTITLE_FILLER_WORDS = sorted(
         "なんか",
         "あのね",
         "えー",
-        "あの",
     ],
     key=len,
     reverse=True,

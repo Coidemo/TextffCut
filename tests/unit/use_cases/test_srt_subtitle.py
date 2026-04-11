@@ -137,13 +137,14 @@ class TestInlineFillerRemoval:
         new_text, new_ct, new_sb = _remove_inline_fillers(text, char_times, seg_bounds)
         assert "えーと" not in new_text
         assert "なんか" not in new_text
-        assert "あの" not in new_text
+        # 「あの」はGiNZAが連体詞と判定するため、リスト除去の対象外
+        # （指示代名詞「あの人」の誤除去を防ぐ）
         assert "これは" in new_text
         assert "すごい" in new_text
 
     def test_char_times_shift(self):
         """char_timesがフィラー除去後に正しくシフトされるか"""
-        text = "あのテスト"  # "あの" = 2文字除去
+        text = "えーとテスト"  # "えーと" = 3文字除去
         char_times = self._make_char_times(text)
         seg_bounds = {len(text)}
 
