@@ -11,8 +11,12 @@ from use_cases.ai.title_image_generator import (
     TitleImageDesign,
     TitleLine,
     TitleTextSegment,
+    _contrast_ratio,
+    _ensure_contrast,
+    _ensure_fit_height,
     _hex_to_rgb,
     _parse_design_json,
+    _relative_luminance,
     _safe_int,
     _save_design_cache,
     _scale_outline,
@@ -1350,3 +1354,140 @@ class TestXmlAttrEscape:
         assert "&amp;" in _xml_attr("a&b")
         assert "&lt;" in _xml_attr("a<b")
         assert "&gt;" in _xml_attr("a>b")
+
+
+class TestRelativeLuminance:
+    """WCAG 2.0 相対輝度のテスト"""
+
+    def test_black(self):
+        assert _relative_luminance("#000000") == pytest.approx(0.0)
+
+    def test_white(self):
+        assert _relative_luminance("#FFFFFF") == pytest.approx(1.0)
+
+    def test_red(self):
+        lum = _relative_luminance("#FF0000")
+        assert 0.2 < lum < 0.22
+
+    def test_green(self):
+        lum = _relative_luminance("#00FF00")
+        assert 0.71 < lum < 0.73
+
+    def test_blue(self):
+        lum = _relative_luminance("#0000FF")
+        assert 0.07 < lum < 0.08
+
+    def test_mid_gray(self):
+        lum = _relative_luminance("#808080")
+        assert 0.2 < lum < 0.25
+
+
+class TestContrastRatio:
+    """WCAG 2.0 コントラスト比のテスト"""
+
+    def test_black_white(self):
+        assert _contrast_ratio("#000000", "#FFFFFF") == pytest.approx(21.0)
+
+    def test_white_black(self):
+        """順序に関係なく同じ結果"""
+        assert _contrast_ratio("#FFFFFF", "#000000") == pytest.approx(21.0)
+
+    def test_same_color(self):
+        assert _contrast_ratio("#FF8800", "#FF8800") == pytest.approx(1.0)
+
+    def test_low_contrast_orange_on_orange(self):
+        """オレンジ背景にオレンジ縁取り — 低コントラスト"""
+        ratio = _contrast_ratio("#e06000", "#e0c040")
+        assert ratio < 3.0
+
+    def test_high_contrast_black_on_orange(self):
+        """オレンジ背景に黒縁取り — 高コントラスト"""
+        ratio = _contrast_ratio("#000000", "#e0c040")
+        assert ratio > 3.0
+
+
+class TestEnsureContrast:
+    """コントラスト自動補正のテスト"""
+
+    def _make_design(self, outline_color="#e06000", text_color="#FFFFFF", gradient=None):
+        return TitleImageDesign(
+            lines=[
+                TitleLine(
+                    segments=[TitleTextSegment(text="テスト", color=text_color, gradient=gradient)],
+                    outer_outline_color=outline_color,
+                    outer_outline_width=8,
+                ),
+            ],
+        )
+
+    def test_low_contrast_outline_is_corrected(self):
+        """背景と同色のアウトラインが黒に補正される"""
+        design = self._make_design(outline_color="#e06000")
+        frame_colors = ["#e0c040", "#e08000", "#e06000"]
+        result = _ensure_contrast(design, frame_colors)
+        assert result.lines[0].outer_outline_color == "#000000"
+
+    def test_high_contrast_outline_unchanged(self):
+        """十分なコントラストのアウトラインは変更されない"""
+        design = self._make_design(outline_color="#000000")
+        frame_colors = ["#e0c040", "#e08000"]
+        result = _ensure_contrast(design, frame_colors)
+        assert result.lines[0].outer_outline_color == "#000000"
+
+    def test_dark_background_gets_white_outline(self):
+        """暗い背景では白アウトラインに補正される"""
+        design = self._make_design(outline_color="#202020")
+        frame_colors = ["#101010", "#1a1a1a"]
+        result = _ensure_contrast(design, frame_colors)
+        assert result.lines[0].outer_outline_color == "#FFFFFF"
+
+    def test_empty_frame_colors_no_change(self):
+        """frame_colorsが空ならそのまま返す"""
+        design = self._make_design(outline_color="#e06000")
+        result = _ensure_contrast(design, [])
+        assert result.lines[0].outer_outline_color == "#e06000"
+
+    def test_original_design_not_mutated(self):
+        """元のデザインオブジェクトは変更されない"""
+        design = self._make_design(outline_color="#e06000")
+        frame_colors = ["#e0c040", "#e08000"]
+        result = _ensure_contrast(design, frame_colors)
+        assert design.lines[0].outer_outline_color == "#e06000"
+        assert result.lines[0].outer_outline_color == "#000000"
+
+
+class TestEnsureFitHeight:
+    """高さ制限の自動補正テスト"""
+
+    def _make_design(self, font_size=200, num_lines=3):
+        lines = []
+        for _ in range(num_lines):
+            lines.append(
+                TitleLine(
+                    segments=[TitleTextSegment(text="テスト", font_size=font_size)],
+                    outer_outline_color="#000000",
+                    outer_outline_width=8,
+                ),
+            )
+        return TitleImageDesign(lines=lines, line_spacing=14, padding_top=60)
+
+    def test_oversized_design_is_scaled_down(self, tmp_path):
+        """高さ超過のデザインが縮小される"""
+        design = self._make_design(font_size=200, num_lines=3)
+        result = _ensure_fit_height(design, target_height=400, canvas_width=540, canvas_height=960)
+        # フォントサイズが元より小さくなる
+        for line in result.lines:
+            for seg in line.segments:
+                assert seg.font_size < 200
+
+    def test_small_design_unchanged(self, tmp_path):
+        """高さ以内のデザインは変更されない"""
+        design = self._make_design(font_size=60, num_lines=1)
+        result = _ensure_fit_height(design, target_height=400, canvas_width=540, canvas_height=960)
+        assert result.lines[0].segments[0].font_size == 60
+
+    def test_original_design_not_mutated(self, tmp_path):
+        """元のデザインオブジェクトは変更されない"""
+        design = self._make_design(font_size=200, num_lines=3)
+        _ensure_fit_height(design, target_height=400, canvas_width=540, canvas_height=960)
+        assert design.lines[0].segments[0].font_size == 200
