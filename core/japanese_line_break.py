@@ -37,9 +37,10 @@ class JapaneseLineBreakRules:
 
     # spaCy/GiNZA NLPモデル（遅延初期化）
     _nlp_model = None
-    # 直前の解析キャッシュ
-    _doc_cache_text = None
-    _doc_cache_doc = None
+    # LRUキャッシュ（maxsize=16）
+    _doc_cache: dict[str, Any] = {}
+    _doc_cache_order: list[str] = []
+    _DOC_CACHE_MAX = 16
 
     @classmethod
     def _get_nlp(cls) -> Any:
@@ -48,7 +49,7 @@ class JapaneseLineBreakRules:
             try:
                 import spacy
 
-                cls._nlp_model = spacy.load("ja_ginza", exclude=["compound_splitter"])
+                cls._nlp_model = spacy.load("ja_ginza", exclude=["compound_splitter", "ner"])
                 logger.info("GiNZA NLPモデルを初期化しました")
             except (ImportError, OSError) as e:
                 logger.warning(f"GiNZAの初期化に失敗しました: {e}")
@@ -57,15 +58,20 @@ class JapaneseLineBreakRules:
 
     @classmethod
     def _analyze(cls, text: str) -> Any:
-        """テキスト解析（直前キャッシュ付き）"""
-        if cls._doc_cache_text == text:
-            return cls._doc_cache_doc
+        """テキスト解析（LRUキャッシュ付き、maxsize=16）"""
+        if text in cls._doc_cache:
+            cls._doc_cache_order.remove(text)
+            cls._doc_cache_order.append(text)
+            return cls._doc_cache[text]
         nlp = cls._get_nlp()
         if not nlp:
             return None
         doc = nlp(text)
-        cls._doc_cache_text = text
-        cls._doc_cache_doc = doc
+        cls._doc_cache[text] = doc
+        cls._doc_cache_order.append(text)
+        if len(cls._doc_cache_order) > cls._DOC_CACHE_MAX:
+            old = cls._doc_cache_order.pop(0)
+            cls._doc_cache.pop(old, None)
         return doc
 
     @staticmethod
@@ -162,6 +168,30 @@ class JapaneseLineBreakRules:
                 if span.start_char > 0:
                     bounds.add(span.start_char)
         return bounds
+
+    @classmethod
+    def get_word_boundaries_and_bunsetu(cls, text: str) -> tuple[list[tuple[int, str, str]], set[int]]:
+        """形態素境界と文節境界を1回の解析で取得
+
+        Returns:
+            ([(boundary_pos, surface, pos_tag), ...], {bunsetu_start_char, ...})
+        """
+        doc = cls._analyze(text)
+        if doc is None:
+            return [], set()
+        from ginza import bunsetu_spans
+
+        boundaries = []
+        for token in doc:
+            pos = token.idx + len(token.text)
+            pos_tag = cls._normalize_pos_tag(token.tag_)
+            boundaries.append((pos, token.text, pos_tag))
+        bounds = set()
+        for sent in doc.sents:
+            for span in bunsetu_spans(sent):
+                if span.start_char > 0:
+                    bounds.add(span.start_char)
+        return boundaries, bounds
 
     @classmethod
     def evaluate_break_position(cls, boundaries: list[tuple[int, str, str]], position: int) -> float:

@@ -21,6 +21,9 @@ logger = logging.getLogger(__name__)
 DEFAULT_MAX_CHARS_PER_LINE = 11
 DEFAULT_MAX_LINES = 2
 
+# 事前並列化で文字起こし失敗を示すセンチネル値
+_SRT_TRANSCRIPTION_FAILED: list[dict] = []
+
 
 @dataclass
 class TextBlock:
@@ -45,12 +48,19 @@ def generate_srt(
     max_chars_per_line: int = DEFAULT_MAX_CHARS_PER_LINE,
     max_lines: int = DEFAULT_MAX_LINES,
     speed: float = 1.0,
+    precomputed_segments: list[dict] | None = None,
 ) -> Path | None:
     if not suggestion.time_ranges:
         return None
 
+    # 事前文字起こし結果があればそれを使用（失敗済みならWhisper再試行をスキップ）
+    if precomputed_segments is _SRT_TRANSCRIPTION_FAILED:
+        pass  # フォールバックへ
+    elif precomputed_segments is not None:
+        return _generate_from_segments(precomputed_segments, output_path, max_chars_per_line, max_lines)
+
     # 切り抜き後の音声を結合して再文字起こし→正確なタイムスタンプを取得
-    if video_path:
+    elif video_path:
         segments = _transcribe_output_audio(suggestion.time_ranges, video_path)
         if segments:
             return _generate_from_segments(segments, output_path, max_chars_per_line, max_lines)
@@ -73,6 +83,56 @@ def generate_srt(
         max_chars_per_line,
         max_lines,
     )
+
+
+def _extract_audio_parts_parallel(
+    time_ranges: list[tuple[float, float]],
+    video_path: Path,
+    tmpdir: str,
+    ffmpeg_timeout: int = 30,
+) -> list[str] | None:
+    """複数time_rangesの音声をThreadPoolExecutorで並列抽出する。
+
+    Returns:
+        抽出したWAVファイルパスのリスト。1つでも失敗したらNone。
+    """
+    import subprocess
+    from concurrent.futures import ThreadPoolExecutor
+
+    def _extract_one(args: tuple[int, float, float]) -> str | None:
+        i, start, end = args
+        p = f"{tmpdir}/p{i}.wav"
+        proc = subprocess.run(
+            [
+                "ffmpeg",
+                "-y",
+                "-ss",
+                str(start),
+                "-t",
+                str(end - start),
+                "-i",
+                str(video_path),
+                "-vn",
+                "-ar",
+                "16000",
+                "-ac",
+                "1",
+                p,
+            ],
+            capture_output=True,
+            timeout=ffmpeg_timeout,
+        )
+        if proc.returncode != 0:
+            logger.warning("ffmpeg extract failed (part %d)", i)
+            return None
+        return p
+
+    with ThreadPoolExecutor(max_workers=min(len(time_ranges), 4)) as executor:
+        results = list(executor.map(_extract_one, [(i, s, e) for i, (s, e) in enumerate(time_ranges)]))
+
+    if any(r is None for r in results):
+        return None
+    return results
 
 
 def _transcribe_output_audio(
@@ -106,37 +166,13 @@ def _transcribe_output_audio(
         client = OpenAI(api_key=api_key)
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            # 各rangeの音声を抽出
+            # 各rangeの音声を並列抽出
             total_duration = sum(end - start for start, end in time_ranges)
             ffmpeg_timeout = max(30, int(total_duration * 2))
 
-            parts = []
-            for i, (start, end) in enumerate(time_ranges):
-                p = f"{tmpdir}/p{i}.wav"
-                proc = subprocess.run(
-                    [
-                        "ffmpeg",
-                        "-y",
-                        "-ss",
-                        str(start),
-                        "-t",
-                        str(end - start),
-                        "-i",
-                        str(video_path),
-                        "-vn",
-                        "-ar",
-                        "16000",
-                        "-ac",
-                        "1",
-                        p,
-                    ],
-                    capture_output=True,
-                    timeout=ffmpeg_timeout,
-                )
-                if proc.returncode != 0:
-                    logger.warning("ffmpeg extract failed (part %d)", i)
-                    return None
-                parts.append(p)
+            parts = _extract_audio_parts_parallel(time_ranges, video_path, tmpdir, ffmpeg_timeout)
+            if parts is None:
+                return None
 
             # 結合
             with open(f"{tmpdir}/list.txt", "w") as f:
@@ -494,7 +530,15 @@ def _phase1_split(full_text: str, seg_bounds: set[int], max_chars: int = DEFAULT
     if n == 0:
         return []
 
-    bp = _tokenize(full_text)
+    # 統合API: 形態素境界と文節境界を1回の解析で取得
+    try:
+        from core.japanese_line_break import JapaneseLineBreakRules
+
+        bp, bunsetu_bounds = JapaneseLineBreakRules.get_word_boundaries_and_bunsetu(full_text)
+    except ImportError:
+        bp = _tokenize(full_text)
+        bunsetu_bounds = set()
+
     boundaries = sorted(set([b for b, _, _ in bp if 0 < b < n]))
 
     if not boundaries:
@@ -509,14 +553,6 @@ def _phase1_split(full_text: str, seg_bounds: set[int], max_chars: int = DEFAULT
             for fill in range(all_b[idx] + 1, all_b[idx + 1]):
                 boundaries.append(fill)
     boundaries = sorted(set(boundaries))
-
-    # 文節境界を取得
-    try:
-        from core.japanese_line_break import JapaneseLineBreakRules
-
-        bunsetu_bounds = JapaneseLineBreakRules.get_bunsetu_boundaries(full_text)
-    except ImportError:
-        bunsetu_bounds = set()
 
     # 分割点スコア（文節ベース）
     cut_scores = {}
