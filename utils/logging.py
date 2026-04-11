@@ -72,13 +72,13 @@ class TextffCutLogger:
         """警告レベルのログ"""
         self.logger.warning(message, *args)
 
-    def error(self, message: str, exc_info: bool = True) -> None:
+    def error(self, message: str, *args: object, exc_info: bool = True) -> None:
         """エラーレベルのログ"""
-        self.logger.error(message, exc_info=exc_info)
+        self.logger.error(message, *args, exc_info=exc_info)
 
-    def critical(self, message: str, exc_info: bool = True) -> None:
+    def critical(self, message: str, *args: object, exc_info: bool = True) -> None:
         """クリティカルレベルのログ"""
-        self.logger.critical(message, exc_info=exc_info)
+        self.logger.critical(message, *args, exc_info=exc_info)
 
 
 # グローバルロガーインスタンス
