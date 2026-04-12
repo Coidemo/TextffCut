@@ -243,4 +243,17 @@ def _calculate_score(
         count = text.count(filler)
         score -= count * 2
 
+    # 冒頭/末尾ノイズペナルティ
+    NOISE_KEYWORDS = {"すいません", "すみません", "マイク", "聞きづらい", "聞こえ", "音声"}
+    first_text = candidate.segments[0].text if candidate.segments else ""
+    last_text = candidate.segments[-1].text if candidate.segments else ""
+    for kw in NOISE_KEYWORDS:
+        if kw in first_text:
+            score -= 10
+            break
+    for kw in NOISE_KEYWORDS:
+        if kw in last_text:
+            score -= 5
+            break
+
     return max(0, min(100, score))
