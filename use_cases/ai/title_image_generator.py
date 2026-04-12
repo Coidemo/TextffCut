@@ -345,6 +345,7 @@ def design_title_layout(
         raise ValueError("AIレスポンスが空です")
     raw = json.loads(content)
     design = _parse_design_json(raw)
+    design = _snap_segments_to_word_boundaries(design)
 
     # バリデーション: AIが文字を書き換えていないか確認
     reconstructed = "".join(seg.text for line in design.lines for seg in line.segments)
@@ -444,6 +445,7 @@ def design_title_layout_candidates(
     for i, design_raw in enumerate(designs_raw):
         try:
             design = _parse_design_json(design_raw)
+            design = _snap_segments_to_word_boundaries(design)
             # バリデーション: 文字一致チェック
             reconstructed = "".join(seg.text for line in design.lines for seg in line.segments)
             if reconstructed != title:
@@ -647,6 +649,105 @@ def _parse_design_json(raw: dict) -> TitleImageDesign:
         lines=lines,
         line_spacing=_clamp(_safe_int(raw.get("line_spacing"), 10), 0, 50),
         padding_top=_clamp(_safe_int(raw.get("padding_top"), 60), 0, 200),
+    )
+
+
+def _snap_segments_to_word_boundaries(design: TitleImageDesign) -> TitleImageDesign:
+    """AIセグメント境界をGiNZA単語境界にスナップする。
+
+    AIが単語の途中で色を切り替えることを防ぐ。
+    """
+    try:
+        from core.japanese_line_break import JapaneseLineBreakRules
+    except ImportError:
+        return design  # GiNZA未インストール時はそのまま返す
+
+    new_lines = []
+    for line in design.lines:
+        if len(line.segments) <= 1:
+            new_lines.append(line)
+            continue
+
+        line_text = "".join(seg.text for seg in line.segments)
+        word_bounds = JapaneseLineBreakRules.get_word_boundaries(line_text)
+        if not word_bounds:
+            new_lines.append(line)  # 解析失敗時はそのまま
+            continue
+
+        valid_bounds = {0} | set(word_bounds)  # 0 と全トークン末端
+
+        # 現在のセグメント境界を算出
+        seg_boundaries = []
+        pos = 0
+        for seg in line.segments:
+            pos += len(seg.text)
+            seg_boundaries.append(pos)
+
+        # 内部境界（最後＝行末を除く）をスナップ
+        snapped = []
+        for b in seg_boundaries[:-1]:
+            if b in valid_bounds:
+                snapped.append(b)
+            else:
+                nearest = min(valid_bounds, key=lambda v: abs(v - b))
+                if nearest == 0:
+                    # 0にスナップすると空セグメントになるので次の境界を探す
+                    candidates = sorted(v for v in valid_bounds if v > 0)
+                    nearest = candidates[0] if candidates else b
+                snapped.append(nearest)
+        snapped.append(len(line_text))  # 行末
+
+        # 重複除去＆ソート、0を除外
+        snapped = sorted(set(snapped))
+        snapped = [b for b in snapped if b > 0]
+
+        # 新セグメント構築（スタイルは中間点が属する元セグメントから継承）
+        new_segments = []
+        prev = 0
+        for boundary in snapped:
+            if boundary <= prev:
+                continue
+            text = line_text[prev:boundary]
+            midpoint = (prev + boundary) / 2
+
+            # midpointが属する元セグメントを特定
+            orig_pos = 0
+            source_seg = line.segments[0]  # フォールバック
+            for orig_seg in line.segments:
+                orig_end = orig_pos + len(orig_seg.text)
+                if orig_pos <= midpoint < orig_end:
+                    source_seg = orig_seg
+                    break
+                orig_pos = orig_end
+
+            new_segments.append(
+                TitleTextSegment(
+                    text=text,
+                    font_size=source_seg.font_size,
+                    color=source_seg.color,
+                    gradient=source_seg.gradient,
+                    weight=source_seg.weight,
+                )
+            )
+            prev = boundary
+
+        if new_segments:
+            new_lines.append(
+                TitleLine(
+                    segments=new_segments,
+                    outer_outline_color=line.outer_outline_color,
+                    outer_outline_width=line.outer_outline_width,
+                    inner_outline_color=line.inner_outline_color,
+                    inner_outline_width=line.inner_outline_width,
+                )
+            )
+        else:
+            new_lines.append(line)
+
+    return TitleImageDesign(
+        lines=new_lines,
+        line_spacing=design.line_spacing,
+        padding_top=design.padding_top,
     )
 
 
@@ -1358,6 +1459,7 @@ def design_title_layouts_batch(
             continue
         try:
             design = _parse_design_json(designs_raw[i])
+            design = _snap_segments_to_word_boundaries(design)
             # バリデーション
             reconstructed = "".join(seg.text for line in design.lines for seg in line.segments)
             if reconstructed != title:
