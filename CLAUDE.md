@@ -18,8 +18,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## バージョン情報
 
-### v2.0.2 (2026-04-12) — 最新安定版
-- **タグ**: `v2.0.2`
+### v2.0.3 (2026-04-12) — 最新安定版
+- **タグ**: `v2.0.3`
+- タイトル画像の色セグメント境界をGiNZA単語境界にスナップ
+
+### v2.0.2 (2026-04-12)
 - 処理パイプライン高速化（GiNZA LRUキャッシュ、FFmpeg/Whisper API並列化）
 
 ### v2.0.1 (2026-04-08)
