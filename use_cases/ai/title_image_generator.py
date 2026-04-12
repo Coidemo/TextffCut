@@ -1459,6 +1459,7 @@ def design_title_layouts_batch(
             continue
         try:
             design = _parse_design_json(designs_raw[i])
+            design = _snap_segments_to_word_boundaries(design)
             # バリデーション
             reconstructed = "".join(seg.text for line in design.lines for seg in line.segments)
             if reconstructed != title:
