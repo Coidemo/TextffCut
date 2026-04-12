@@ -20,6 +20,16 @@ LAST_CHECK_FILE = Path.home() / ".textffcut" / "last_version_check.json"
 CHECK_INTERVAL_HOURS = 24
 
 
+def _is_newer(latest: str, current: str) -> bool:
+    """latestがcurrentより新しいかセマンティックバージョンで比較"""
+    try:
+        lat = tuple(int(x) for x in latest.split("."))
+        cur = tuple(int(x) for x in current.split("."))
+        return lat > cur
+    except (ValueError, AttributeError):
+        return latest != current
+
+
 def _get_current_version() -> str:
     """現在のバージョンを取得"""
     try:
@@ -94,7 +104,7 @@ def check_for_updates_on_startup() -> None:
             # ただし新しいバージョンがある場合は通知
             latest = last.get("latest_version")
             current = _get_current_version()
-            if latest and current != "unknown" and latest != current:
+            if latest and current != "unknown" and _is_newer(latest, current):
                 console.print(f"[yellow]💡 TextffCut {latest} が利用可能です " f"(現在: {current})[/]")
                 console.print("   更新: [cyan]textffcut upgrade[/]\n")
             return
@@ -104,7 +114,7 @@ def check_for_updates_on_startup() -> None:
     latest = _check_latest_version()
     _save_check_result(current, latest)
 
-    if latest and current != "unknown" and latest != current:
+    if latest and current != "unknown" and _is_newer(latest, current):
         console.print(f"[yellow]💡 TextffCut {latest} が利用可能です " f"(現在: {current})[/]")
         console.print("   更新: [cyan]textffcut upgrade[/]\n")
 
@@ -125,7 +135,7 @@ def run_upgrade(argv: list[str]) -> None:
             console.print("[yellow]最新バージョンの取得に失敗しました[/]")
             sys.exit(1)
 
-        if latest == current:
+        if not _is_newer(latest, current):
             console.print(f"[green]✓ 最新バージョンです ({current})[/]")
         else:
             console.print(f"最新バージョン: [green]{latest}[/]")
