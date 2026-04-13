@@ -55,6 +55,7 @@ class SuggestAndExportRequest:
     title_target_size: tuple[int, int] | None = None  # タイトル画像ターゲットサイズ (width, height)
     title_offset_y: int = 0  # タイトル表示位置の垂直オフセット（px、正=下方向）
     auto_anchor: bool = False  # 被写体位置からアンカーを自動検出（vertical時のみ有効）
+    enable_quality_loop: bool = True  # AI品質チェックループ（デフォルト有効）
 
 
 @dataclass
@@ -96,6 +97,26 @@ class SuggestAndExportUseCase:
 
         for i, suggestion in enumerate(suggestions):
             suggestions[i] = polish_fillers(suggestion, request.transcription, request.video_path)
+
+        # Phase 4.5: 品質チェックループ（オプション）
+        if request.enable_quality_loop:
+            from use_cases.ai.clip_quality_loop import run_quality_loop
+
+            refined = []
+            for suggestion in suggestions:
+                result = run_quality_loop(
+                    suggestion,
+                    request.video_path,
+                    request.transcription,
+                    self.gateway,
+                    request.min_duration,
+                    request.max_duration,
+                )
+                if result:
+                    refined.append(result)
+                else:
+                    logger.warning(f"品質ループでスキップ: {suggestion.title}")
+            suggestions = refined if refined else suggestions
 
         # Phase 5: 無音削除（最終候補にのみ適用）
         if request.remove_silence:

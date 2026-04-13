@@ -69,12 +69,6 @@
 
 ## セグメント一覧
 
-各行は `[開始インデックス-終了インデックス] (開始秒-終了秒) テキスト` の形式で、約30秒ごとにまとめて表示しています。
-
-**重要:**
-- セグメントのインデックスは 0 から {TOTAL_SEGMENTS_MINUS_1} までです。
-- segment_start_index と segment_end_index には**この表示のチャンク境界にとらわれず、任意のセグメントインデックスを指定**してください。
-- 例えば [0-11] と [12-25] をまたいで、segment_start_index: 8, segment_end_index: 20 のような指定が可能です。
-- 話題が自然に始まり自然に終わる範囲を選んでください。
+{SEGMENT_FORMAT_DESCRIPTION}
 
 {SEGMENTS}

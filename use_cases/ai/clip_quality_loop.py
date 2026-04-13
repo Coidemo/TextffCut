@@ -49,9 +49,11 @@ def run_quality_loop(
 ) -> ClipSuggestion | None:
     """出来上がり音声の文字起こし→AI判定による品質ループ。"""
 
+    fix_counts: dict[str, int] = {}
+
     for iteration in range(MAX_ITERATIONS):
         # 出来上がり音声を文字起こし
-        transcribed = _transcribe_output(suggestion, video_path)
+        transcribed = _transcribe_output(suggestion, video_path, gateway)
         if not transcribed:
             logger.warning(f"文字起こし失敗: {suggestion.title}")
             break
@@ -60,11 +62,11 @@ def run_quality_loop(
         total = suggestion.total_duration
         if total > max_duration:
             logger.info(f"duration_over ({total:.0f}s > {max_duration:.0f}s): {suggestion.title}")
-            _trim_duration(suggestion, transcription, max_duration, gateway, video_path)
+            _trim_duration(suggestion, transcription, max_duration, gateway, video_path, min_duration=min_duration)
             continue
         if total < min_duration:
             logger.info(f"duration_under ({total:.0f}s < {min_duration:.0f}s): {suggestion.title}")
-            extended = _extend_range(suggestion, transcription, min_duration)
+            extended = _extend_range(suggestion, transcription, min_duration, topic_end_time=suggestion.topic_end_time)
             if not extended:
                 break
             continue
@@ -89,7 +91,16 @@ def run_quality_loop(
         logger.info(f"品質問題 (iteration {iteration}): {result.issues}")
 
         # AI修正提案に基づいて修正
-        modified = _apply_ai_fixes(suggestion, transcription, result, gateway, video_path, max_duration)
+        modified = _apply_ai_fixes(
+            suggestion,
+            transcription,
+            result,
+            gateway,
+            video_path,
+            max_duration,
+            min_duration=min_duration,
+            fix_counts=fix_counts,
+        )
         if not modified:
             logger.info(f"修正不可 → 終了: {suggestion.title}")
             break
@@ -101,7 +112,7 @@ def run_quality_loop(
         return None
 
     # デュレーションOKなら最終判定（incomplete_contentのみ）
-    transcribed = _transcribe_output(suggestion, video_path)
+    transcribed = _transcribe_output(suggestion, video_path, gateway)
     if transcribed:
         final = _ai_quality_check(suggestion.title, transcribed, gateway)
         if not final.is_ok and "incomplete" in str(final.issues).lower():
@@ -114,23 +125,28 @@ def run_quality_loop(
 def _transcribe_output(
     suggestion: ClipSuggestion,
     video_path: Path,
+    gateway: ClipSuggestionGatewayInterface | None = None,
 ) -> str | None:
     """出来上がり音声をffmpegで結合→Whisper文字起こし。"""
     if not suggestion.time_ranges:
         return None
 
     try:
-        import os
-        from dotenv import load_dotenv
+        # gateway.client を使用（APIキーマネージャ経由で認証済み）
+        if gateway and hasattr(gateway, "client"):
+            client = gateway.client
+        else:
+            import os
 
-        load_dotenv()
-        from openai import OpenAI
+            from dotenv import load_dotenv
 
-        api_key = os.environ.get("OPENAI_API_KEY") or os.environ.get("TEXTFFCUT_API_KEY")
-        if not api_key:
-            return None
+            load_dotenv()
+            from openai import OpenAI
 
-        client = OpenAI(api_key=api_key)
+            api_key = os.environ.get("OPENAI_API_KEY") or os.environ.get("TEXTFFCUT_API_KEY")
+            if not api_key:
+                return None
+            client = OpenAI(api_key=api_key)
 
         with tempfile.TemporaryDirectory() as tmpdir:
             # 各rangeの音声を抽出して結合
@@ -233,8 +249,13 @@ def _apply_ai_fixes(
     gateway: ClipSuggestionGatewayInterface,
     video_path: Path,
     max_duration: float = 60.0,
+    min_duration: float = 0,
+    fix_counts: dict[str, int] | None = None,
 ) -> bool:
     """AI判定の問題に基づいて修正する。"""
+    if fix_counts is None:
+        fix_counts = {}
+
     issues_str = " ".join(check_result.issues).lower()
 
     has_ending_issue = any(w in issues_str for w in ["末尾", "途中で切れ", "続きそう"])
@@ -244,31 +265,56 @@ def _apply_ai_fixes(
     has_audio_issue = any(w in issues_str for w in ["音圧", "ピッチ", "音響", "カット"])
 
     # 冒頭に文脈がない → 前方に延長（AIに必要なセグメントを判断させる）
-    if has_start_issue:
-        extended = _extend_range_backward(suggestion, transcription, gateway)
+    if has_start_issue and fix_counts.get("extend_back", 0) < 2:
+        extended = _extend_range_backward(
+            suggestion,
+            transcription,
+            gateway,
+            topic_start_time=suggestion.topic_start_time,
+        )
         if extended:
+            fix_counts["extend_back"] = fix_counts.get("extend_back", 0) + 1
             logger.info(f"  前方延長: → {suggestion.total_duration:.0f}s")
             return True
 
     # 結論がない or 末尾で切れている → 後方に延長
-    if has_conclusion_issue or has_ending_issue:
+    if (has_conclusion_issue or has_ending_issue) and fix_counts.get("extend_fwd", 0) < 2:
         target = min(suggestion.total_duration + 15, max_duration)
-        extended = _extend_range(suggestion, transcription, target)
+        extended = _extend_range(
+            suggestion,
+            transcription,
+            target,
+            topic_end_time=suggestion.topic_end_time,
+        )
         if extended:
+            fix_counts["extend_fwd"] = fix_counts.get("extend_fwd", 0) + 1
             logger.info(f"  後方延長: → {suggestion.total_duration:.0f}s")
             return True
 
         # 延長できなかった場合のみ末尾トリム
-        if has_ending_issue and len(suggestion.time_ranges) > 2:
+        if has_ending_issue and len(suggestion.time_ranges) > 2 and fix_counts.get("trim_tail", 0) < 2:
             old = len(suggestion.time_ranges)
             suggestion.time_ranges = suggestion.time_ranges[:-1]
             suggestion.total_duration = sum(e - s for s, e in suggestion.time_ranges)
+            fix_counts["trim_tail"] = fix_counts.get("trim_tail", 0) + 1
             logger.info(f"  末尾トリム: {old}→{len(suggestion.time_ranges)}クリップ")
             return True
 
+    # タイトルと無関係な話題が混入 → 無関係セグメントを除去
+    has_irrelevant = any(w in issues_str for w in ["無関係", "別の話題", "タイトルと関係", "別のテーマ"])
+    if has_irrelevant and fix_counts.get("trim_irrelevant", 0) < 2:
+        trimmed = _trim_irrelevant_segments(suggestion, transcription, gateway)
+        if trimmed:
+            fix_counts["trim_irrelevant"] = fix_counts.get("trim_irrelevant", 0) + 1
+            logger.info(f"  無関係セグメント除去: → {suggestion.total_duration:.0f}s")
+            return True
+
     # 冗長 or 音響不自然 → 中間カット
-    if (has_redundancy or has_audio_issue) and len(suggestion.time_ranges) > 3:
-        _trim_duration(suggestion, transcription, suggestion.total_duration, gateway, video_path)
+    if (has_redundancy or has_audio_issue) and len(suggestion.time_ranges) > 3 and fix_counts.get("trim_mid", 0) < 2:
+        _trim_duration(
+            suggestion, transcription, suggestion.total_duration, gateway, video_path, min_duration=min_duration
+        )
+        fix_counts["trim_mid"] = fix_counts.get("trim_mid", 0) + 1
         return True
 
     return False
@@ -280,6 +326,7 @@ def _trim_duration(
     max_duration: float,
     gateway: ClipSuggestionGatewayInterface | None = None,
     video_path: Path | None = None,
+    min_duration: float = 0,
 ) -> None:
     """max_durationに収まるように中間の不要クリップを選択的に削除する。
 
@@ -294,7 +341,7 @@ def _trim_duration(
         return
 
     # 出来上がり音声を文字起こし
-    transcribed = _transcribe_output(suggestion, video_path)
+    transcribed = _transcribe_output(suggestion, video_path, gateway)
     if not transcribed:
         # フォールバック
         while suggestion.total_duration > max_duration and len(suggestion.time_ranges) > 1:
@@ -323,12 +370,22 @@ def _trim_duration(
         )
 
         if remove_indices:
+            # 1回の削除数を time_ranges の 1/3（最低1）に制限
+            max_remove = max(1, len(suggestion.time_ranges) // 3)
+            if len(remove_indices) > max_remove:
+                logger.info(f"  trim削除数制限: {len(remove_indices)}→{max_remove}個")
+                remove_indices = remove_indices[:max_remove]
             remove_set = set(remove_indices)
             new_ranges = [r for i, r in enumerate(suggestion.time_ranges) if i not in remove_set]
             if new_ranges:
+                new_dur = sum(e - s for s, e in new_ranges)
+                # trim下限ガード: min_duration * 0.8 未満なら結果を破棄
+                if min_duration and new_dur < min_duration * 0.8:
+                    logger.info(f"  trim下限ガード: trim結果破棄 " f"({new_dur:.0f}s < {min_duration * 0.8:.0f}s)")
+                    return
                 old_dur = suggestion.total_duration
                 suggestion.time_ranges = new_ranges
-                suggestion.total_duration = sum(e - s for s, e in new_ranges)
+                suggestion.total_duration = new_dur
                 logger.info(
                     f"  中間カット: {old_dur:.0f}s→{suggestion.total_duration:.0f}s "
                     f"({len(remove_indices)}クリップ削除)"
@@ -344,17 +401,77 @@ def _trim_duration(
         suggestion.total_duration = sum(e - s for s, e in suggestion.time_ranges)
 
 
+def _trim_irrelevant_segments(
+    suggestion: ClipSuggestion,
+    transcription: TranscriptionResult,
+    gateway: ClipSuggestionGatewayInterface,
+) -> bool:
+    """タイトルと無関係なセグメントを特定して除去する。"""
+    if not suggestion.time_ranges or not gateway:
+        return False
+
+    # time_ranges に含まれるセグメントを収集
+    seg_dicts = []
+    for seg in transcription.segments:
+        for tr_start, tr_end in suggestion.time_ranges:
+            if seg.end > tr_start and seg.start < tr_end:
+                seg_dicts.append({"index": len(seg_dicts), "text": seg.text, "start": seg.start, "end": seg.end})
+                break
+
+    if len(seg_dicts) < 3:
+        return False
+
+    try:
+        remove_indices = gateway.judge_segment_relevance(
+            title=suggestion.title,
+            segments=seg_dicts,
+        )
+    except Exception as e:
+        logger.warning(f"無関係セグメント判定失敗: {e}")
+        return False
+
+    if not remove_indices:
+        return False
+
+    # 除去対象の時間帯を特定
+    remove_times = set()
+    for idx in remove_indices:
+        if 0 <= idx < len(seg_dicts):
+            remove_times.add((seg_dicts[idx]["start"], seg_dicts[idx]["end"]))
+
+    if not remove_times:
+        return False
+
+    # time_ranges から除去対象と重なる部分を除外
+    new_ranges = []
+    for tr_start, tr_end in suggestion.time_ranges:
+        is_removed = any(rs <= tr_start and re >= tr_end for rs, re in remove_times)
+        if not is_removed:
+            new_ranges.append((tr_start, tr_end))
+
+    if not new_ranges or len(new_ranges) == len(suggestion.time_ranges):
+        return False
+
+    suggestion.time_ranges = new_ranges
+    suggestion.total_duration = sum(e - s for s, e in new_ranges)
+    return True
+
+
 def _extend_range_backward(
     suggestion: ClipSuggestion,
     transcription: TranscriptionResult,
     gateway: ClipSuggestionGatewayInterface | None = None,
     max_segments: int = 8,
+    topic_start_time: float | None = None,
 ) -> bool:
     """冒頭の前のセグメントを追加して文脈を補完する。
 
     前のセグメントの中から、この話題の文脈に必要なものだけをAIに選ばせる。
     前の話題のセグメントは追加しない。
+    topic_start_timeが指定されている場合、その時間より前のセグメントは追加しない。
     """
+    from use_cases.ai.filler_constants import FILLER_ONLY_TEXTS, detect_noise_tag
+
     if not suggestion.time_ranges:
         return False
 
@@ -367,6 +484,16 @@ def _extend_range_backward(
             continue
         if min_start - seg.start > 30:
             break
+        if topic_start_time is not None and seg.end < topic_start_time:
+            logger.info(f"  _extend_range_backward: topic_start_time ({topic_start_time:.0f}s) で停止")
+            break
+        # ギャップチェック: 隣接セグメント間に5秒以上の空きがあれば話題境界とみなす
+        if candidates and candidates[0].start - seg.end > 5:
+            break
+        # ノイズ・フィラーセグメントをスキップ
+        seg_text = seg.text.strip()
+        if detect_noise_tag(seg_text) or seg_text in FILLER_ONLY_TEXTS:
+            continue
         candidates.insert(0, seg)
         if len(candidates) >= max_segments:
             break
@@ -424,12 +551,16 @@ def _extend_range(
     suggestion: ClipSuggestion,
     transcription: TranscriptionResult,
     target_duration: float,
+    topic_end_time: float | None = None,
 ) -> bool:
     """トピック範囲外の隣接セグメントを追加して延長する。
 
     time_rangesの末尾ではなく、全time_rangesの最大endの後にある
     セグメントを探す（フィラー削除で細かく分割されていても正しく延長できる）。
+    topic_end_timeが指定されている場合、その時間を超えるセグメントは追加しない。
     """
+    from use_cases.ai.filler_constants import FILLER_ONLY_TEXTS, detect_noise_tag
+
     if not suggestion.time_ranges:
         return False
 
@@ -445,8 +576,16 @@ def _extend_range(
         if seg.start > max_end + 5:
             # 5秒以上のギャップがあれば話題が変わったとみなす
             break
+        if topic_end_time is not None and seg.start > topic_end_time:
+            logger.info(f"  _extend_range: topic_end_time ({topic_end_time:.0f}s) で停止")
+            break
         if added_count >= 15:
             break
+
+        # ノイズ・フィラーセグメントをスキップ
+        seg_text = seg.text.strip()
+        if detect_noise_tag(seg_text) or seg_text in FILLER_ONLY_TEXTS:
+            continue
 
         suggestion.time_ranges.append((seg.start, seg.end))
         max_end = seg.end

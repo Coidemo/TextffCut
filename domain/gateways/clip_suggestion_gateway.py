@@ -14,7 +14,7 @@ class ClipSuggestionGatewayInterface(ABC):
     """AI切り抜き候補生成ゲートウェイのインターフェース"""
 
     @abstractmethod
-    def detect_topics(self, request: TopicDetectionRequest) -> TopicDetectionResult:
+    def detect_topics(self, request: TopicDetectionRequest, format_mode: str = "chunk_30s") -> TopicDetectionResult:
         """話題の時間範囲を検出する（テキスト編集は行わない）"""
         pass
 
@@ -104,6 +104,47 @@ class ClipSuggestionGatewayInterface(ABC):
         pass
 
     @abstractmethod
+    def select_clip_segments(
+        self,
+        title: str,
+        segments: list[dict],
+        min_duration: float,
+        max_duration: float,
+        num_variants: int = 2,
+    ) -> list[list[int]]:
+        """話題のセグメント一覧から、ショート動画に使うセグメントのindexリストを返す。
+
+        Args:
+            title: 話題のタイトル
+            segments: [{"index": int, "text": str, "start": float, "end": float}]
+            min_duration: 目標最小秒数
+            max_duration: 目標最大秒数
+            num_variants: 生成するバリアント数
+
+        Returns:
+            バリアントごとのindexリスト [[28,29,36,...], [24,28,29,36,...]]
+            各リストはindex昇順。空リスト=失敗。
+        """
+        pass
+
+    @abstractmethod
+    def classify_segment_essentiality(
+        self,
+        title: str,
+        segments: list[dict],
+    ) -> list[dict]:
+        """各セグメントを essential/supportive/redundant に分類する。
+
+        Args:
+            title: 話題のタイトル
+            segments: [{"index": int, "text": str, "start": float, "end": float}]
+
+        Returns:
+            [{"index": int, "role": "essential"|"supportive"|"redundant", "reason": str}]
+        """
+        pass
+
+    @abstractmethod
     def trim_clips(
         self,
         title: str,
@@ -120,6 +161,11 @@ class ClipSuggestionGatewayInterface(ABC):
         Returns:
             削除すべきクリップのインデックスリスト
         """
+        pass
+
+    @abstractmethod
+    def compute_embeddings(self, texts: list[str]) -> list[list[float]]:
+        """テキストリストのembeddingベクトルを返す。"""
         pass
 
     @abstractmethod
