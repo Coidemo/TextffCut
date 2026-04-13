@@ -96,7 +96,7 @@ class SuggestAndExportUseCase:
         from use_cases.ai.word_level_filler_polish import polish_fillers
 
         for i, suggestion in enumerate(suggestions):
-            suggestions[i] = polish_fillers(suggestion, request.transcription, request.video_path)
+            suggestions[i] = polish_fillers(suggestion, request.transcription, request.video_path, gateway=self.gateway)
 
         # Phase 4.5: 品質チェックループ（オプション）
         if request.enable_quality_loop:

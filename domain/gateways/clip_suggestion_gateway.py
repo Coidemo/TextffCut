@@ -171,6 +171,21 @@ class ClipSuggestionGatewayInterface(ABC):
         pass
 
     @abstractmethod
+    def judge_filler_context(
+        self,
+        candidates: list[dict],
+    ) -> list[bool]:
+        """フィラー候補が実際にフィラーかどうかをAIに判定させる。
+
+        Args:
+            candidates: [{"filler": "なんか", "context": "前後30文字のテキスト"}]
+
+        Returns:
+            各候補がフィラーかどうか（True=フィラー、False=文法的用法）
+        """
+        pass
+
+    @abstractmethod
     def check_connection(self) -> bool:
         pass
 

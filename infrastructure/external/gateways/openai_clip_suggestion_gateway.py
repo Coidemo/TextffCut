@@ -506,6 +506,52 @@ JSON: {{"remove": [削除するクリップのindex番号], "reason": "理由"}}
             logger.warning(f"trim_clips failed: {e}")
             return []
 
+    def judge_filler_context(self, candidates: list[dict]) -> list[bool]:
+        if not candidates:
+            return []
+
+        items = "\n".join(f'{i + 1}. 「{c["filler"]}」: ...{c["context"]}...' for i, c in enumerate(candidates))
+
+        prompt = f"""以下の日本語テキスト中の「」内の語がフィラー（言い淀み・つなぎ語）か、
+文法的に必要な語かを判定してください。
+
+判定基準:
+- フィラー: 除去しても文の意味が変わらない（「なんかすごい」の「なんか」）
+- 文法的: 除去すると文の意味が変わる（「何か問題がある」の「何か」、「AとかBとか」の「とか」）
+
+{items}
+
+JSON: {{"results": [true, false, ...]}}
+true=フィラー（除去可能）、false=文法的に必要（除去不可）"""
+
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "日本語の言語分析専門家。フィラー（言い淀み）と文法的用法を正確に区別する。JSON形式で回答。",
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.1,
+                max_tokens=200,
+                response_format={"type": "json_object"},
+            )
+            result = json.loads(response.choices[0].message.content)
+            results = result.get("results", [])
+            # 結果の長さが合わない場合はフォールバック
+            if len(results) != len(candidates):
+                logger.warning(
+                    f"LLMフィラー判定: 結果数不一致 ({len(results)} vs {len(candidates)}), "
+                    "全てフィラーとして扱います"
+                )
+                return [True] * len(candidates)
+            return [bool(r) for r in results]
+        except Exception as e:
+            logger.warning(f"LLMフィラー判定失敗: {e}")
+            return [True] * len(candidates)
+
     def compute_embeddings(self, texts: list[str]) -> list[list[float]]:
         if not texts:
             return []
