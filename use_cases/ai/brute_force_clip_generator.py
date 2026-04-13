@@ -326,29 +326,31 @@ def _calculate_score(
         elif num_ranges > 8:
             score -= 10
 
-    # 末尾の自然さ（±10点）
-    GOOD_ENDINGS = [
-        "です",
-        "ます",
+    # 末尾の自然さ（3段階分類）
+    GOOD_ENDINGS_HIGH = ["です", "ます", "ました", "思います", "しれません"]
+    GOOD_ENDINGS_MEDIUM = [
         "ですね",
         "ますね",
         "ですよね",
         "よね",
-        "ました",
-        "思います",
         "んですよ",
         "んです",
         "ですか",
         "ですかね",
         "ませんか",
-        "しれません",
     ]
-    BAD_ENDINGS = ["ので", "けど", "から", "って", "のが", "みたいな", "けれども", "とか", "んですけど"]
+    DEFINITELY_INCOMPLETE = ["ので", "から", "けど", "けれども", "んですけど"]
+    LIKELY_INCOMPLETE = ["って", "のが", "みたいな", "とか", "たら", "のは"]
+
     last_text = candidate.segments[-1].text.rstrip() if candidate.segments else ""
-    if any(last_text.endswith(g) for g in GOOD_ENDINGS):
-        score += 10
-    elif any(last_text.endswith(b) for b in BAD_ENDINGS):
-        score -= 15
+    if any(last_text.endswith(g) for g in GOOD_ENDINGS_HIGH):
+        score += 15
+    elif any(last_text.endswith(g) for g in GOOD_ENDINGS_MEDIUM):
+        score += 8
+    elif any(last_text.endswith(b) for b in DEFINITELY_INCOMPLETE):
+        score -= 20
+    elif any(last_text.endswith(b) for b in LIKELY_INCOMPLETE):
+        score -= 12
 
     # GiNZA による末尾品詞判定（文字列マッチのフォールバック付き）
     if last_text:
@@ -359,12 +361,24 @@ def _calculate_score(
             tokens = rules._analyze(last_text)
             if tokens:
                 last_pos = tokens[-1].pos
-                if last_pos in ("助動詞",):
-                    score += 10  # です/ます
-                elif last_pos in ("助詞",) and tokens[-1].text in ("から", "けど", "ので", "って", "のが"):
-                    score -= 15
+                last_token_text = tokens[-1].text
+                if last_pos == "助動詞":
+                    score += 12  # です/ます
                 elif last_pos in ("名詞", "動詞"):
                     score += 5  # 体言止め
+                elif last_pos == "助詞":
+                    if last_token_text in ("から", "けど", "ので", "って", "のが", "たら", "は"):
+                        score -= 18  # 接続助詞・主題助詞
+                    elif last_token_text in ("よ", "ね", "わ", "な", "さ"):
+                        score += 10  # 終助詞
+                    elif last_token_text == "か":
+                        score += 8  # 疑問
+
+                # 主節存在チェック: 末尾3トークン内に述語なし → 追加ペナルティ
+                recent_poses = [t.pos for t in tokens[-3:]]
+                if not any(p in ("助動詞", "動詞", "形容詞") for p in recent_poses):
+                    if last_pos == "助詞" and last_token_text not in ("よ", "ね", "わ", "な", "さ", "か"):
+                        score -= 5
         except Exception:
             pass
 
@@ -421,6 +435,28 @@ def _calculate_score(
         if kw in last_seg_text:
             score -= 5
             break
+
+    # 冒頭前置きペナルティ
+    from use_cases.ai.filler_constants import _PREAMBLE_KEYWORDS
+
+    if first_text and any(kw in first_text for kw in _PREAMBLE_KEYWORDS):
+        score -= 12
+
+    # 質問/回答比率チェック
+    _QUESTION_MARKERS = ["？", "?", "ですか", "ですかね", "教えてください", "どう思いますか", "ありますか"]
+    question_chars = 0
+    total_chars = len(candidate.text)
+    if total_chars > 0:
+        for seg in candidate.segments:
+            if any(m in seg.text for m in _QUESTION_MARKERS):
+                question_chars += len(seg.text)
+        ratio = question_chars / total_chars
+        if ratio > 0.5:
+            score -= 15
+        elif ratio > 0.4:
+            score -= 10
+        elif ratio > 0.3:
+            score -= 5
 
     # 低confidence セグメントペナルティ
     for seg in candidate.segments:

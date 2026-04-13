@@ -40,6 +40,24 @@ FILLER_ONLY_TEXTS = {
     "なんかその",
     "あれなんですけれども",
     "なのでね",
+    # 口癖系
+    "ていうか",
+    "まあね",
+    "そうなんですよ",
+    "あーなるほど",
+    "そうそうそうそう",
+    "うんうん",
+    "うんうんうん",
+    "はいはいはい",
+    "まあまあまあ",
+    "いやいやいや",
+    "あーそうですね",
+    # 配信者特有の独り言
+    "ちょっと待ってね",
+    "えーっとですね",
+    "どこだっけ",
+    "何の話だっけ",
+    "何話そうと思ったんだっけ",
 }
 
 # 純粋なフィラー（wordsタイムスタンプでスキップする対象）
@@ -72,6 +90,15 @@ FILLER_WORDS = sorted(
         "でその",
         "やっぱ",
         "やっぱり",
+        "的な",
+        "みたいな感じで",
+        "じゃないですか",
+        "どういうことかというと",
+        "っていうのは",
+        "何て言うんですかね",
+        "ぶっちゃけ",
+        "簡単に言うと",
+        "ざっくり言うと",
     ],
     key=len,
     reverse=True,
@@ -94,6 +121,23 @@ _GREETING_PATTERNS = [
 ]
 _APOLOGY_KEYWORDS = ["すいません", "すみません", "ごめんなさい", "申し訳"]
 
+_PREAMBLE_KEYWORDS = [
+    "話したいと思い",
+    "話していきたいと思い",
+    "話をしたいなと思",
+    "解説していきます",
+    "話変わるんですけど",
+    "本題なんですけれども",
+    "今日用意してる",
+    "今日のテーマは",
+    "質問読みますね",
+    "質問読み上げます",
+    "コメント読みます",
+    "スパチャ読みます",
+    "次の質問いきます",
+    "次のテーマなんですけど",
+]
+
 
 def detect_noise_tag(text: str, text_length_limit: int = 40) -> str | None:
     """セグメントテキストからノイズタグを検出（gateway非依存版）。
@@ -115,6 +159,10 @@ def detect_noise_tag(text: str, text_length_limit: int = 40) -> str | None:
     # [NOISE:greeting]
     if any(text.startswith(g) or text == g for g in _GREETING_PATTERNS) and len(text) < 30:
         return "[NOISE:greeting]"
+
+    # [NOISE:preamble]
+    if any(kw in text for kw in _PREAMBLE_KEYWORDS) and len(text) < 80:
+        return "[NOISE:preamble]"
 
     # [NOISE:apology]
     if any(kw in text for kw in _APOLOGY_KEYWORDS) and len(text) < 20:

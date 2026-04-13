@@ -37,6 +37,7 @@ class QualityCheckResult:
     is_ok: bool
     issues: list[str] = field(default_factory=list)
     transcribed_text: str = ""
+    scores: dict[str, int] = field(default_factory=dict)
 
 
 def run_quality_loop(
@@ -232,10 +233,17 @@ def _ai_quality_check(
             transcribed_text=transcribed_text,
             audio_issues=audio_issues,
         )
+        scores = result.get("scores", {})
+        # LLMのok判定をスコアで上書き
+        total = sum(scores.values()) if scores else 0
+        # ending≤2 または completeness≤2 は合計に関わらず不合格
+        has_critical_fail = scores.get("ending", 5) <= 2 or scores.get("completeness", 5) <= 2
+        is_ok = (total >= 15 and not has_critical_fail) if scores else result.get("ok", False)
         return QualityCheckResult(
-            is_ok=result.get("ok", False),
+            is_ok=is_ok,
             issues=result.get("issues", []) + result.get("fix_suggestions", []),
             transcribed_text=transcribed_text,
+            scores=scores,
         )
     except Exception as e:
         logger.warning(f"AI quality check failed: {e}")
@@ -257,11 +265,18 @@ def _apply_ai_fixes(
         fix_counts = {}
 
     issues_str = " ".join(check_result.issues).lower()
+    scores = check_result.scores
 
-    has_ending_issue = any(w in issues_str for w in ["末尾", "途中で切れ", "続きそう"])
-    has_start_issue = any(w in issues_str for w in ["冒頭", "文脈", "何の話", "わからない"])
-    has_conclusion_issue = any(w in issues_str for w in ["結論", "前置き", "incomplete"])
-    has_redundancy = any(w in issues_str for w in ["冗長", "繰り返し", "シンプル", "回りくどい", "不要", "削除"])
+    has_ending_issue = scores.get("ending", 5) <= 2 or any(w in issues_str for w in ["末尾", "途中で切れ", "続きそう"])
+    has_start_issue = scores.get("hook", 5) <= 2 or any(
+        w in issues_str for w in ["冒頭", "文脈", "何の話", "わからない"]
+    )
+    has_conclusion_issue = scores.get("completeness", 5) <= 2 or any(
+        w in issues_str for w in ["結論", "前置き", "incomplete"]
+    )
+    has_redundancy = scores.get("compactness", 5) <= 2 or any(
+        w in issues_str for w in ["冗長", "繰り返し", "シンプル", "回りくどい", "不要", "削除"]
+    )
     has_audio_issue = any(w in issues_str for w in ["音圧", "ピッチ", "音響", "カット"])
 
     # 冒頭に文脈がない → 前方に延長（AIに必要なセグメントを判断させる）
@@ -301,7 +316,9 @@ def _apply_ai_fixes(
             return True
 
     # タイトルと無関係な話題が混入 → 無関係セグメントを除去
-    has_irrelevant = any(w in issues_str for w in ["無関係", "別の話題", "タイトルと関係", "別のテーマ"])
+    has_irrelevant = scores.get("title_relevance", 5) <= 2 or any(
+        w in issues_str for w in ["無関係", "別の話題", "タイトルと関係", "別のテーマ"]
+    )
     if has_irrelevant and fix_counts.get("trim_irrelevant", 0) < 2:
         trimmed = _trim_irrelevant_segments(suggestion, transcription, gateway)
         if trimmed:

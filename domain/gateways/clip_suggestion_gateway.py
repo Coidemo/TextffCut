@@ -82,7 +82,9 @@ class ClipSuggestionGatewayInterface(ABC):
             audio_issues: 音響分析で検出された問題のリスト
 
         Returns:
-            {"ok": bool, "issues": list[str], "fix_suggestions": list[str]}
+            {"ok": bool, "issues": list[str], "fix_suggestions": list[str],
+             "scores": {"hook": int, "completeness": int, "compactness": int,
+                        "ending": int, "title_relevance": int}}
         """
         pass
 
