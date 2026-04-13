@@ -1538,10 +1538,14 @@ def generate_title_images_batch(
         else:
             uncached_indices.append(i)
 
-    # target_size指定時: 各タイトルに3段階パイプラインを個別適用
+    # target_size指定時: 各タイトルに3段階パイプラインを個別適用（並列実行）
     if target_size is not None and client is not None:
+        from concurrent.futures import ThreadPoolExecutor
+
         result_paths: dict[int, Path] = {}
-        for i, s in enumerate(suggestions):
+
+        def _generate_one(args: tuple[int, object]) -> tuple[int, Path | None]:
+            i, s = args
             sanitized = sanitize_fn(s.title)
             output_path = output_dir / f"{i+1:02d}_{sanitized}.png"
 
@@ -1567,11 +1571,11 @@ def generate_title_images_batch(
                         font_dir=font_dir,
                         offset_y=offset_y,
                     )
-                    result_paths[i + 1] = result_path
                     logger.info(f"タイトル画像(キャッシュ): {output_path.name} ({img_w}x{img_h})")
+                    return (i + 1, result_path)
                 except Exception as e:
                     logger.error(f"タイトル画像描画失敗 (#{i+1}): {e}")
-                continue
+                    return (i + 1, None)
 
             # パイプラインで生成
             try:
@@ -1589,7 +1593,7 @@ def generate_title_images_batch(
                     offset_y=offset_y,
                 )
                 if result:
-                    result_paths[i + 1] = result
+                    return (i + 1, result)
                 else:
                     # パイプライン失敗時はフォールバック
                     fb_design = create_fallback_design(s.title)
@@ -1611,9 +1615,16 @@ def generate_title_images_batch(
                         font_dir=font_dir,
                         offset_y=offset_y,
                     )
-                    result_paths[i + 1] = result_path
+                    return (i + 1, result_path)
             except Exception as e:
                 logger.error(f"タイトル画像生成失敗 (#{i+1}): {e}")
+                return (i + 1, None)
+
+        with ThreadPoolExecutor(max_workers=min(len(suggestions), 5)) as executor:
+            for key, path in executor.map(_generate_one, enumerate(suggestions)):
+                if path:
+                    result_paths[key] = path
+
         return result_paths
 
     # 従来方式: バッチAI呼び出し（未キャッシュ分をまとめて1回）
