@@ -73,6 +73,11 @@ class SuggestAndExportUseCase:
         self.gateway = gateway
 
     def execute(self, request: SuggestAndExportRequest) -> SuggestAndExportResult:
+        import time as _time
+
+        _phase_times: dict[str, float] = {}
+        _t0 = _time.time()
+
         # Phase 1-3: AI話題検出 → 力任せ候補生成 → AI選定
         use_case = GenerateClipSuggestionsUseCase(self.gateway)
         suggestions = use_case.execute(
@@ -85,6 +90,7 @@ class SuggestAndExportUseCase:
         )
 
         detection = use_case.last_detection_result
+        _phase_times["Phase1-3 話題検出+候補生成+AI選定"] = _time.time() - _t0
 
         # 出力ディレクトリ
         video_name = request.video_path.stem
@@ -92,12 +98,15 @@ class SuggestAndExportUseCase:
         fcpxml_dir = base_dir / "fcpxml"
         fcpxml_dir.mkdir(parents=True, exist_ok=True)
 
+        _t1 = _time.time()
         # Phase 4: wordsレベルフィラー仕上げ（音響チェック付き）
         from use_cases.ai.word_level_filler_polish import polish_fillers
 
         for i, suggestion in enumerate(suggestions):
             suggestions[i] = polish_fillers(suggestion, request.transcription, request.video_path, gateway=self.gateway)
 
+        _phase_times["Phase4 フィラー仕上げ"] = _time.time() - _t1
+        _t2 = _time.time()
         # Phase 4.5: 品質チェックループ（オプション）
         if request.enable_quality_loop:
             from use_cases.ai.clip_quality_loop import run_quality_loop
@@ -118,6 +127,8 @@ class SuggestAndExportUseCase:
                     logger.warning(f"品質ループでスキップ: {suggestion.title}")
             suggestions = refined if refined else suggestions
 
+        _phase_times["Phase4.5 品質ループ"] = _time.time() - _t2
+        _t3 = _time.time()
         # Phase 5: 無音削除（最終候補にのみ適用）
         if request.remove_silence:
             for suggestion in suggestions:
@@ -160,6 +171,8 @@ class SuggestAndExportUseCase:
         if media_config.has_any:
             logger.info(media_config.summary())
 
+        _phase_times["Phase5 無音削除+速度変更"] = _time.time() - _t3
+        _t4 = _time.time()
         # Phase 5.7: タイトル画像生成（バッチ1回のAI呼び出し）
         title_image_paths: dict[int, Path] = {}
         if request.enable_title_image:
@@ -225,6 +238,8 @@ class SuggestAndExportUseCase:
             except Exception as e:
                 logger.warning("アンカー自動検出スキップ: %s", e)
 
+        _phase_times["Phase5.7 タイトル画像"] = _time.time() - _t4
+        _t5 = _time.time()
         # Phase 6: SRT用の再文字起こしを事前並列実行
         srt_segments_map: dict[int, list[dict] | None] = {}
         if request.generate_srt:
@@ -241,6 +256,8 @@ class SuggestAndExportUseCase:
                 for idx, segments in executor.map(_transcribe_for_srt, enumerate(suggestions)):
                     srt_segments_map[idx] = segments
 
+        _phase_times["Phase6a SRT用Whisper文字起こし"] = _time.time() - _t5
+        _t6 = _time.time()
         # Phase 6: AI SE配置 + FCPXML + SRT生成
         exported_files: list[Path] = []
         for i, suggestion in enumerate(suggestions, 1):
@@ -294,6 +311,14 @@ class SuggestAndExportUseCase:
                     speed=request.speed,
                     precomputed_segments=srt_segments_map.get(i - 1),
                 )
+
+        _phase_times["Phase6b SE+FCPXML+SRT生成"] = _time.time() - _t6
+        _total = _time.time() - _t0
+        logger.info("=== パイプライン処理時間 ===")
+        for phase, elapsed in _phase_times.items():
+            pct = elapsed / _total * 100 if _total > 0 else 0
+            logger.info(f"  {phase}: {elapsed:.1f}s ({pct:.0f}%)")
+        logger.info(f"  合計: {_total:.1f}s")
 
         return SuggestAndExportResult(
             suggestions=suggestions,

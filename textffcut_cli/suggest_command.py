@@ -22,7 +22,11 @@ logging.basicConfig(
     format="%(levelname)s: %(message)s",
 )
 # 品質ループ・候補生成のログのみINFOレベルで表示
-for _mod in ("use_cases.ai.clip_quality_loop", "use_cases.ai.brute_force_clip_generator"):
+for _mod in (
+    "use_cases.ai.clip_quality_loop",
+    "use_cases.ai.brute_force_clip_generator",
+    "use_cases.ai.suggest_and_export",
+):
     logging.getLogger(_mod).setLevel(logging.INFO)
 
 

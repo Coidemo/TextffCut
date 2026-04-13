@@ -53,10 +53,10 @@ def run_quality_loop(
     fix_counts: dict[str, int] = {}
 
     for iteration in range(MAX_ITERATIONS):
-        # 出来上がり音声を文字起こし
-        transcribed = _transcribe_output(suggestion, video_path, gateway)
+        # 既存の文字起こしからテキストを再構成（Whisper API不要）
+        transcribed = _reconstruct_text(suggestion, transcription)
         if not transcribed:
-            logger.warning(f"文字起こし失敗: {suggestion.title}")
+            logger.warning(f"テキスト再構成失敗: {suggestion.title}")
             break
 
         # デュレーションチェック
@@ -113,7 +113,7 @@ def run_quality_loop(
         return None
 
     # デュレーションOKなら最終判定（incomplete_contentのみ）
-    transcribed = _transcribe_output(suggestion, video_path, gateway)
+    transcribed = _reconstruct_text(suggestion, transcription)
     if transcribed:
         final = _ai_quality_check(suggestion.title, transcribed, gateway)
         if not final.is_ok and "incomplete" in str(final.issues).lower():
@@ -398,8 +398,8 @@ def _trim_duration(
             suggestion.total_duration = sum(e - s for s, e in suggestion.time_ranges)
         return
 
-    # 出来上がり音声を文字起こし
-    transcribed = _transcribe_output(suggestion, video_path, gateway)
+    # 既存の文字起こしからテキストを再構成（Whisper API不要）
+    transcribed = _reconstruct_text(suggestion, transcription)
     if not transcribed:
         # フォールバック
         while suggestion.total_duration > max_duration and len(suggestion.time_ranges) > 1:
@@ -666,6 +666,26 @@ def _extend_range(
             break
 
     return added
+
+
+def _reconstruct_text(
+    suggestion: ClipSuggestion,
+    transcription: TranscriptionResult,
+) -> str | None:
+    """time_rangesに含まれるセグメントのテキストを結合して返す。
+
+    Whisper APIを呼ばずに、既存の文字起こし結果からテキストを再構成する。
+    """
+    if not suggestion.time_ranges:
+        return None
+
+    texts = []
+    for tr_start, tr_end in suggestion.time_ranges:
+        for seg in transcription.segments:
+            if seg.end > tr_start and seg.start < tr_end:
+                texts.append(seg.text)
+
+    return "".join(texts) if texts else None
 
 
 def _find_segment_for_range(
