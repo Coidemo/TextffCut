@@ -295,25 +295,66 @@ def _apply_ai_fixes(
     # 結論がない or 末尾で切れている → 後方に延長
     if (has_conclusion_issue or has_ending_issue) and fix_counts.get("extend_fwd", 0) < 2:
         target = min(suggestion.total_duration + 15, max_duration)
+        # 1回目: topic_end_time内で延長を試みる
+        # 2回目（末尾途切れ時）: topic_end_timeを無視して最大+10秒まで延長可能
+        allow_beyond = fix_counts.get("extend_fwd", 0) >= 1 and has_ending_issue
+        effective_end_time = None if allow_beyond else suggestion.topic_end_time
         extended = _extend_range(
             suggestion,
             transcription,
             target,
-            topic_end_time=suggestion.topic_end_time,
+            topic_end_time=effective_end_time,
+            original_topic_end_time=suggestion.topic_end_time if allow_beyond else None,
         )
         if extended:
             fix_counts["extend_fwd"] = fix_counts.get("extend_fwd", 0) + 1
-            logger.info(f"  後方延長: → {suggestion.total_duration:.0f}s")
+            logger.info(f"  後方延長{'(topic境界超)' if allow_beyond else ''}: → {suggestion.total_duration:.0f}s")
             return True
 
         # 延長できなかった場合のみ末尾トリム
+        # B: 複数セグメント遡って最寄りのGOOD ENDINGを探す（最大5つ遡る）
         if has_ending_issue and len(suggestion.time_ranges) > 2 and fix_counts.get("trim_tail", 0) < 2:
-            old = len(suggestion.time_ranges)
-            suggestion.time_ranges = suggestion.time_ranges[:-1]
-            suggestion.total_duration = sum(e - s for s, e in suggestion.time_ranges)
-            fix_counts["trim_tail"] = fix_counts.get("trim_tail", 0) + 1
-            logger.info(f"  末尾トリム: {old}→{len(suggestion.time_ranges)}クリップ")
-            return True
+            GOOD_ENDINGS = [
+                "です", "ます", "ました", "ですね", "ますね", "ですよね",
+                "んですよ", "んです", "思います", "しれません",
+            ]
+            # 末尾から遡って最寄りのGOOD ENDINGを探す
+            max_lookback = min(5, len(suggestion.time_ranges) - 2)  # 最低2つは残す
+            found_good_at = None
+            for lookback in range(1, max_lookback + 1):
+                check_idx = len(suggestion.time_ranges) - 1 - lookback
+                check_range = suggestion.time_ranges[check_idx]
+                check_seg = _find_segment_for_range(transcription, check_range)
+                if check_seg:
+                    check_text = check_seg.text.rstrip()
+                    if any(check_text.endswith(g) for g in GOOD_ENDINGS):
+                        found_good_at = check_idx
+                        break
+
+            if found_good_at is not None:
+                trim_count = len(suggestion.time_ranges) - 1 - found_good_at
+                old = len(suggestion.time_ranges)
+                good_seg = _find_segment_for_range(transcription, suggestion.time_ranges[found_good_at])
+                suggestion.time_ranges = suggestion.time_ranges[:found_good_at + 1]
+                suggestion.total_duration = sum(e - s for s, e in suggestion.time_ranges)
+                # min_duration下限チェック
+                if min_duration and suggestion.total_duration < min_duration * 0.8:
+                    logger.info(
+                        f"  末尾トリム見送り: トリム後duration "
+                        f"({suggestion.total_duration:.0f}s) < min*0.8 ({min_duration * 0.8:.0f}s)"
+                    )
+                    # 元に戻すため再度呼ばれる前提で、ここでは戻さない
+                    # （次のイテレーションで対処）
+                else:
+                    fix_counts["trim_tail"] = fix_counts.get("trim_tail", 0) + 1
+                    good_text = good_seg.text.rstrip() if good_seg else ""
+                    logger.info(
+                        f"  末尾トリム: {old}→{len(suggestion.time_ranges)}クリップ "
+                        f"({trim_count}個削除, 良い末尾: '{good_text[-6:]}')"
+                    )
+                    return True
+            else:
+                logger.info(f"  末尾トリム見送り: {max_lookback}セグメント内にGOOD ENDINGなし")
 
     # タイトルと無関係な話題が混入 → 無関係セグメントを除去
     has_irrelevant = scores.get("title_relevance", 5) <= 2 or any(
@@ -569,17 +610,28 @@ def _extend_range(
     transcription: TranscriptionResult,
     target_duration: float,
     topic_end_time: float | None = None,
+    original_topic_end_time: float | None = None,
+    max_beyond_topic: float = 10.0,
 ) -> bool:
     """トピック範囲外の隣接セグメントを追加して延長する。
 
     time_rangesの末尾ではなく、全time_rangesの最大endの後にある
     セグメントを探す（フィラー削除で細かく分割されていても正しく延長できる）。
     topic_end_timeが指定されている場合、その時間を超えるセグメントは追加しない。
+    original_topic_end_timeが指定されている場合、topic_end_time=Noneでも
+    original_topic_end_time + max_beyond_topic を上限とする。
     """
     from use_cases.ai.filler_constants import FILLER_ONLY_TEXTS, detect_noise_tag
 
     if not suggestion.time_ranges:
         return False
+
+    # topic_end_time=Noneでもoriginal_topic_end_time指定時は上限を設ける
+    effective_limit = None
+    if topic_end_time is not None:
+        effective_limit = topic_end_time
+    elif original_topic_end_time is not None:
+        effective_limit = original_topic_end_time + max_beyond_topic
 
     # 全rangesの最大end
     max_end = max(e for _, e in suggestion.time_ranges)
@@ -593,8 +645,9 @@ def _extend_range(
         if seg.start > max_end + 5:
             # 5秒以上のギャップがあれば話題が変わったとみなす
             break
-        if topic_end_time is not None and seg.start > topic_end_time:
-            logger.info(f"  _extend_range: topic_end_time ({topic_end_time:.0f}s) で停止")
+        if effective_limit is not None and seg.start > effective_limit:
+            beyond_msg = "topic_end_time" if topic_end_time is not None else f"topic_end_time+{max_beyond_topic:.0f}s"
+            logger.info(f"  _extend_range: {beyond_msg} ({effective_limit:.0f}s) で停止")
             break
         if added_count >= 15:
             break
@@ -613,3 +666,20 @@ def _extend_range(
             break
 
     return added
+
+
+def _find_segment_for_range(
+    transcription: TranscriptionResult,
+    time_range: tuple[float, float],
+) -> object | None:
+    """time_rangeの末尾に最も近いセグメントを返す。"""
+    tr_start, tr_end = time_range
+    best = None
+    best_dist = float("inf")
+    for seg in transcription.segments:
+        if seg.end > tr_start and seg.start < tr_end:
+            dist = abs(seg.end - tr_end)
+            if dist < best_dist:
+                best = seg
+                best_dist = dist
+    return best

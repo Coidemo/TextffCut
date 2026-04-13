@@ -6,6 +6,7 @@ textffcut suggest サブコマンド
 
 import argparse
 import json
+import logging
 import os
 import sys
 from pathlib import Path
@@ -14,6 +15,15 @@ from rich.console import Console
 from rich.table import Table
 
 console = Console(stderr=True)
+
+# use_cases/ai/ 配下のlogger.info()をCLI出力に表示する
+logging.basicConfig(
+    level=logging.WARNING,
+    format="%(levelname)s: %(message)s",
+)
+# 品質ループ・候補生成のログのみINFOレベルで表示
+for _mod in ("use_cases.ai.clip_quality_loop", "use_cases.ai.brute_force_clip_generator"):
+    logging.getLogger(_mod).setLevel(logging.INFO)
 
 
 def build_suggest_parser() -> argparse.ArgumentParser:

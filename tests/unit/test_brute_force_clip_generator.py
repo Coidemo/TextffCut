@@ -50,8 +50,9 @@ class TestNoiseKeywordPenalty:
 
     def test_last_segment_noise_penalty(self):
         """末尾にノイズキーワードがある候補はスコアが低くなる"""
-        clean = _make_candidate(["人生を変える方法について", "以上が結論です"])
-        noisy = _make_candidate(["人生を変える方法について", "すみません音声が途切れました"])
+        # total_duration=25.0（範囲外）にしてスコア上限100への到達を回避
+        clean = _make_candidate(["人生を変える方法について", "以上が結論です"], total_duration=25.0)
+        noisy = _make_candidate(["人生を変える方法について", "すみません音声が途切れました"], total_duration=25.0)
 
         score_clean = _calculate_score(clean, 30.0, 60.0)
         score_noisy = _calculate_score(noisy, 30.0, 60.0)
@@ -62,9 +63,9 @@ class TestNoiseKeywordPenalty:
 
     def test_first_noise_penalty_larger_than_last(self):
         """冒頭ノイズのペナルティは末尾ノイズより大きい"""
-        # 同じ末尾テキストにして、末尾ボーナスの影響を排除
-        first_noisy = _make_candidate(["すいませんマイクの調子が", "普通の話", "まとめ"])
-        last_noisy = _make_candidate(["普通の話", "まとめ", "すいませんマイクの調子が"])
+        # GiNZA POS判定の影響を排除するため、両方の末尾を「です」で統一
+        first_noisy = _make_candidate(["すいませんマイクの確認です", "普通の話", "まとめです"])
+        last_noisy = _make_candidate(["普通の話", "まとめです", "すいませんマイクの確認です"])
 
         score_first = _calculate_score(first_noisy, 30.0, 60.0)
         score_last = _calculate_score(last_noisy, 30.0, 60.0)

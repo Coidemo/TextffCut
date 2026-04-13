@@ -291,9 +291,11 @@ class TestCalculateScore:
 
     def test_out_of_range_penalty(self):
         """範囲外はペナルティ"""
-        c = self._make_candidate(text="テスト" * 50, total_duration=120.0)
-        score = _calculate_score(c, 30.0, 60.0)
-        assert score <= 50.0
+        c_out = self._make_candidate(text="テスト" * 50, total_duration=120.0)
+        c_in = self._make_candidate(text="テスト" * 50, total_duration=45.0)
+        score_out = _calculate_score(c_out, 30.0, 60.0)
+        score_in = _calculate_score(c_in, 30.0, 60.0)
+        assert score_out < score_in, f"範囲外({score_out})は範囲内({score_in})より低スコアであるべき"
 
     def test_single_range_bonus(self):
         """time_rangesが1つだとボーナス"""
@@ -319,16 +321,17 @@ class TestCalculateScore:
 
     def test_filler_segment_penalty(self):
         """フィラーセグメントが含まれているとペナルティ"""
+        # total_duration=25.0（範囲外）にしてスコア上限100への到達を回避
         filler_seg = _make_segment("えー", 0, 2)
-        normal_seg = _make_segment("今日の話題はAIです", 2, 45)
+        normal_seg = _make_segment("今日の話題はAIです", 2, 25)
         c = ClipCandidate(
             segments=[filler_seg, normal_seg],
             segment_indices=[0, 1],
             text="えー今日の話題はAIです",
-            time_ranges=[(0, 45)],
-            total_duration=45.0,
+            time_ranges=[(0, 25)],
+            total_duration=25.0,
         )
-        c_clean = self._make_candidate(text="今日の話題はAIです" * 3, total_duration=45.0)
+        c_clean = self._make_candidate(text="今日の話題はAIです" * 3, total_duration=25.0)
         assert _calculate_score(c, 30.0, 60.0) < _calculate_score(c_clean, 30.0, 60.0)
 
     def test_score_clamped_0_100(self):

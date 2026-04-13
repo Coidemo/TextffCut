@@ -112,26 +112,72 @@ def generate_candidates(
             logger.info(f"Strategy 0 (essential-guided): {s0_count} candidates")
 
     # 戦略1: スライディングウィンドウ（連続セグメント）
+    # E: window_startあたり最大MAX_PER_WINDOW候補に制限し、budgetを多くの開始位置に分散
+    # F: GOOD ENDINGスナップ — min_duration到達後、最寄りの良い末尾で候補を生成
+    MAX_PER_WINDOW = 3
     s1_count = 0
     for window_start in range(len(pool)):
         cumulative_dur = 0.0
         window_segs = []
+        per_window_count = 0
+        first_valid_j = None  # min_duration到達点
+        snap_created = False  # GOOD ENDINGスナップ済みか
+
         for j in range(window_start, len(pool)):
             idx, seg = pool[j]
             dur = seg.end - seg.start
             cumulative_dur += dur
             window_segs.append((idx, seg))
 
-            if cumulative_dur >= min_duration:
-                c = _build_candidate(window_segs)
-                if c and min_duration * 0.8 <= c.total_duration <= max_duration * 1.2:
-                    candidates.append(c)
-                    s1_count += 1
-                    if s1_count >= BUDGET_STRATEGY1:
-                        break
+            if cumulative_dur >= min_duration and per_window_count < MAX_PER_WINDOW:
+                if first_valid_j is None:
+                    first_valid_j = j
+                    # F: GOOD ENDINGスナップ — 現在の末尾がGOOD ENDINGか確認
+                    last_seg_text = seg.text.rstrip()
+                    if _is_good_ending(last_seg_text):
+                        # 良い末尾 → そのまま候補生成
+                        c = _build_candidate(window_segs)
+                        if c and min_duration * 0.8 <= c.total_duration <= max_duration * 1.2:
+                            candidates.append(c)
+                            s1_count += 1
+                            per_window_count += 1
+                            snap_created = True
+                    else:
+                        # 良い末尾でない → min_duration時点の候補は生成せず、
+                        # この先のGOOD ENDINGを探す（次のイテレーションで）
+                        pass
+                elif not snap_created:
+                    # F: min_duration以降でGOOD ENDINGを探索中
+                    last_seg_text = seg.text.rstrip()
+                    if _is_good_ending(last_seg_text):
+                        c = _build_candidate(window_segs)
+                        if c and min_duration * 0.8 <= c.total_duration <= max_duration * 1.2:
+                            candidates.append(c)
+                            s1_count += 1
+                            per_window_count += 1
+                            snap_created = True
 
-            if cumulative_dur > max_duration * 1.5:
+            if cumulative_dur > max_duration * 1.2:
+                # E: max_duration到達時の候補（末尾が良くなくても生成）
+                if per_window_count < MAX_PER_WINDOW and first_valid_j is not None:
+                    c = _build_candidate(window_segs[:-1] if len(window_segs) > 1 else window_segs)
+                    if c and min_duration * 0.8 <= c.total_duration <= max_duration * 1.2:
+                        candidates.append(c)
+                        s1_count += 1
+                        per_window_count += 1
                 break
+
+            if s1_count >= BUDGET_STRATEGY1:
+                break
+
+        # E: min_durationに達したがGOOD ENDINGが見つからなかった場合、
+        # 最後の有効候補を1つ生成（フォールバック）
+        if first_valid_j is not None and per_window_count == 0:
+            c = _build_candidate(window_segs)
+            if c and min_duration * 0.8 <= c.total_duration <= max_duration * 1.2:
+                candidates.append(c)
+                s1_count += 1
+
         if s1_count >= BUDGET_STRATEGY1:
             break
 
@@ -339,8 +385,22 @@ def _calculate_score(
         "ですかね",
         "ませんか",
     ]
-    DEFINITELY_INCOMPLETE = ["ので", "から", "けど", "けれども", "んですけど"]
-    LIKELY_INCOMPLETE = ["って", "のが", "みたいな", "とか", "たら", "のは"]
+    DEFINITELY_INCOMPLETE = [
+        "ので", "から", "けど", "けれども", "んですけど",
+        "っていうのは",  # 主題提示（「〜っていうのはこういうこと」の前半）
+        "んですけれども",
+        "なんですけど",
+    ]
+    LIKELY_INCOMPLETE = [
+        "って", "のが", "みたいな", "とか", "たら", "のは",
+        "て",      # 接続助詞「〜して」（「て形」中断）
+        "より",    # 比較助詞「〜より〇〇」
+        "ながら",  # 接続助詞
+        "つつ",    # 接続助詞
+        "ものの",  # 接続助詞
+        "にも",    # 並列助詞（「〜にもかかわらず」）
+        "を",      # 格助詞（「〜を使って」の途中）
+    ]
 
     last_text = candidate.segments[-1].text.rstrip() if candidate.segments else ""
     if any(last_text.endswith(g) for g in GOOD_ENDINGS_HIGH):
@@ -357,17 +417,23 @@ def _calculate_score(
         try:
             from core.japanese_line_break import JapaneseLineBreakRules
 
-            rules = JapaneseLineBreakRules.get_instance()
-            tokens = rules._analyze(last_text)
-            if tokens:
-                last_pos = tokens[-1].pos
-                last_token_text = tokens[-1].text
-                if last_pos == "助動詞":
+            doc = JapaneseLineBreakRules._analyze(last_text)
+            if doc and len(doc) > 0:
+                last_token = doc[-1]
+                last_pos = JapaneseLineBreakRules._normalize_pos_tag(last_token.tag_)
+                last_token_text = last_token.text
+                # 大分類のみで判定（"助動詞", "名詞-普通名詞" → "助動詞", "名詞"）
+                last_pos_major = last_pos.split("-")[0]
+                if last_pos_major == "助動詞":
                     score += 12  # です/ます
-                elif last_pos in ("名詞", "動詞"):
+                elif last_pos_major in ("名詞", "動詞"):
                     score += 5  # 体言止め
-                elif last_pos == "助詞":
-                    if last_token_text in ("から", "けど", "ので", "って", "のが", "たら", "は"):
+                elif last_pos_major == "助詞":
+                    _CONJUNCTIVE_PARTICLES = (
+                        "から", "けど", "ので", "って", "のが", "たら",
+                        "は", "て", "より", "ながら", "つつ",
+                    )
+                    if last_token_text in _CONJUNCTIVE_PARTICLES:
                         score -= 18  # 接続助詞・主題助詞
                     elif last_token_text in ("よ", "ね", "わ", "な", "さ"):
                         score += 10  # 終助詞
@@ -375,12 +441,20 @@ def _calculate_score(
                         score += 8  # 疑問
 
                 # 主節存在チェック: 末尾3トークン内に述語なし → 追加ペナルティ
-                recent_poses = [t.pos for t in tokens[-3:]]
-                if not any(p in ("助動詞", "動詞", "形容詞") for p in recent_poses):
-                    if last_pos == "助詞" and last_token_text not in ("よ", "ね", "わ", "な", "さ", "か"):
-                        score -= 5
-        except Exception:
-            pass
+                recent_poses = [
+                    JapaneseLineBreakRules._normalize_pos_tag(t.tag_).split("-")[0]
+                    for t in doc[-3:]
+                ]
+                has_predicate = any(p in ("助動詞", "動詞", "形容詞") for p in recent_poses)
+                if (
+                    not has_predicate
+                    and last_pos_major == "助詞"
+                    and last_token_text not in ("よ", "ね", "わ", "な", "さ", "か")
+                ):
+                    score -= 5
+                logger.debug(f"GiNZA末尾判定: '{last_token_text}' pos={last_pos}")
+        except Exception as e:
+            logger.debug(f"GiNZA末尾判定失敗: {e}")
 
     # Essential/redundant 比率スコア（分類がある場合のみ）
     if role_map:
@@ -466,3 +540,17 @@ def _calculate_score(
                 score -= 8
 
     return max(0, min(100, score))
+
+
+# GOOD ENDINGスナップ用の末尾判定
+_GOOD_ENDINGS_FOR_SNAP = [
+    "です", "ます", "ました", "思います", "しれません",
+    "ですね", "ますね", "ですよね", "よね", "んですよ", "んです",
+    "ですか", "ですかね", "ませんか",
+]
+
+
+def _is_good_ending(text: str) -> bool:
+    """テキストが自然な文末で終わっているか判定する。"""
+    text = text.rstrip()
+    return any(text.endswith(g) for g in _GOOD_ENDINGS_FOR_SNAP)
