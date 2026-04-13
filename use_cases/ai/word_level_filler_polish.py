@@ -102,11 +102,11 @@ def polish_fillers(
 
 
 def _get_ginza_nlp():
-    """GiNZA NLPモデルを取得（JapaneseLineBreakerのシングルトンを再利用）。"""
+    """GiNZA NLPモデルを取得（JapaneseLineBreakRulesのシングルトンを再利用）。"""
     try:
-        from core.japanese_line_break import JapaneseLineBreaker
+        from core.japanese_line_break import JapaneseLineBreakRules
 
-        nlp = JapaneseLineBreaker._get_nlp()
+        nlp = JapaneseLineBreakRules._get_nlp()
         if nlp and nlp is not False:
             return nlp
     except Exception:
@@ -115,11 +115,11 @@ def _get_ginza_nlp():
 
 
 def _analyze_text(text: str):
-    """GiNZAでテキストを解析（キャッシュはJapaneseLineBreakerに委譲）。"""
+    """GiNZAでテキストを解析（キャッシュはJapaneseLineBreakRulesに委譲）。"""
     try:
-        from core.japanese_line_break import JapaneseLineBreaker
+        from core.japanese_line_break import JapaneseLineBreakRules
 
-        return JapaneseLineBreaker._analyze(text)
+        return JapaneseLineBreakRules._analyze(text)
     except Exception:
         return None
 

@@ -335,6 +335,8 @@ def _apply_ai_fixes(
                 trim_count = len(suggestion.time_ranges) - 1 - found_good_at
                 old = len(suggestion.time_ranges)
                 good_seg = _find_segment_for_range(transcription, suggestion.time_ranges[found_good_at])
+                backup_ranges = list(suggestion.time_ranges)
+                backup_duration = suggestion.total_duration
                 suggestion.time_ranges = suggestion.time_ranges[:found_good_at + 1]
                 suggestion.total_duration = sum(e - s for s, e in suggestion.time_ranges)
                 # min_duration下限チェック
@@ -343,8 +345,9 @@ def _apply_ai_fixes(
                         f"  末尾トリム見送り: トリム後duration "
                         f"({suggestion.total_duration:.0f}s) < min*0.8 ({min_duration * 0.8:.0f}s)"
                     )
-                    # 元に戻すため再度呼ばれる前提で、ここでは戻さない
-                    # （次のイテレーションで対処）
+                    # トリム前の状態に復元
+                    suggestion.time_ranges = backup_ranges
+                    suggestion.total_duration = backup_duration
                 else:
                     fix_counts["trim_tail"] = fix_counts.get("trim_tail", 0) + 1
                     good_text = good_seg.text.rstrip() if good_seg else ""

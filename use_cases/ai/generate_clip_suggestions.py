@@ -113,6 +113,9 @@ class GenerateClipSuggestionsUseCase:
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
         topics = detection_result.topics
+        if not topics:
+            return []
+
         suggestions: list[tuple[int, ClipSuggestion]] = []
         with ThreadPoolExecutor(max_workers=min(len(topics), 5)) as executor:
             futures = {
@@ -122,7 +125,12 @@ class GenerateClipSuggestionsUseCase:
                 for idx, topic in enumerate(topics)
             }
             for future in as_completed(futures):
-                result = future.result()
+                try:
+                    result = future.result()
+                except Exception as e:
+                    idx = futures[future]
+                    logger.warning(f"トピック処理失敗 (idx={idx}): {e}")
+                    continue
                 if result:
                     suggestions.append((futures[future], result))
 
