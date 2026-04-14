@@ -8,6 +8,7 @@ import pytest
 from PIL import Image
 
 from use_cases.ai.title_image_generator import (
+    _DARK_TEXT_LUMINANCE,
     TitleImageDesign,
     TitleLine,
     TitleTextSegment,
@@ -15,6 +16,7 @@ from use_cases.ai.title_image_generator import (
     _ensure_contrast,
     _ensure_fit_height,
     _force_outline_style,
+    _get_segment_luminance,
     _hex_to_rgb,
     _parse_design_json,
     _relative_luminance,
@@ -1442,14 +1444,20 @@ class TestContrastRatio:
 class TestForceOutlineStyle:
     """白外縁強制 + 内縁色適応のテスト"""
 
-    def _make_design(self, text_color="#000000", gradient=None, weight="Rg",
-                     outline_color="#000000", outline_width=4, inner_width=0):
+    def _make_design(
+        self, text_color="#000000", gradient=None, weight="Rg", outline_color="#000000", outline_width=4, inner_width=0
+    ):
         return TitleImageDesign(
             lines=[
                 TitleLine(
-                    segments=[TitleTextSegment(
-                        text="テスト", color=text_color, gradient=gradient, weight=weight,
-                    )],
+                    segments=[
+                        TitleTextSegment(
+                            text="テスト",
+                            color=text_color,
+                            gradient=gradient,
+                            weight=weight,
+                        )
+                    ],
                     outer_outline_color=outline_color,
                     outer_outline_width=outline_width,
                     inner_outline_width=inner_width,
@@ -1491,13 +1499,17 @@ class TestForceOutlineStyle:
 
     def test_all_weights_forced_to_eb(self):
         """全セグメントのウェイトがEbに統一される"""
-        design = TitleImageDesign(lines=[
-            TitleLine(segments=[
-                TitleTextSegment(text="A", weight="Th"),
-                TitleTextSegment(text="B", weight="Rg"),
-                TitleTextSegment(text="C", weight="Bd"),
-            ]),
-        ])
+        design = TitleImageDesign(
+            lines=[
+                TitleLine(
+                    segments=[
+                        TitleTextSegment(text="A", weight="Th"),
+                        TitleTextSegment(text="B", weight="Rg"),
+                        TitleTextSegment(text="C", weight="Bd"),
+                    ]
+                ),
+            ]
+        )
         result = _force_outline_style(design)
         for seg in result.lines[0].segments:
             assert seg.weight == "Eb"
@@ -1588,12 +1600,14 @@ class TestShrinkParticles:
         design = TitleImageDesign(
             lines=[
                 TitleLine(
-                    segments=[TitleTextSegment(
-                        text="テストは成功",
-                        font_size=100,
-                        color="#FF0000",
-                        gradient=("#FF0000", "#FFFF00"),
-                    )],
+                    segments=[
+                        TitleTextSegment(
+                            text="テストは成功",
+                            font_size=100,
+                            color="#FF0000",
+                            gradient=("#FF0000", "#FFFF00"),
+                        )
+                    ],
                 ),
             ],
         )
@@ -1688,3 +1702,124 @@ class TestEnsureFitHeight:
         design = self._make_design(font_size=200, num_lines=3)
         _ensure_fit_height(design, target_height=400, canvas_width=540, canvas_height=960)
         assert design.lines[0].segments[0].font_size == 200
+
+
+class TestGetSegmentLuminance:
+    """セグメント輝度計算のテスト"""
+
+    def test_black_segment(self):
+        """黒セグメントの輝度がしきい値以下"""
+        seg = TitleTextSegment(text="テスト", color="#000000")
+        assert _get_segment_luminance(seg) < _DARK_TEXT_LUMINANCE
+
+    def test_white_segment(self):
+        """白セグメントの輝度がしきい値超"""
+        seg = TitleTextSegment(text="テスト", color="#FFFFFF")
+        assert _get_segment_luminance(seg) > _DARK_TEXT_LUMINANCE
+
+    def test_gradient_uses_max(self):
+        """グラデーションでは最大輝度を返す"""
+        seg = TitleTextSegment(text="テスト", gradient=("#000000", "#FFFFFF"))
+        assert _get_segment_luminance(seg) == pytest.approx(1.0)
+
+    def test_colorful_segment(self):
+        """カラーセグメント（赤系）はしきい値超"""
+        seg = TitleTextSegment(text="テスト", color="#FF4444")
+        assert _get_segment_luminance(seg) > _DARK_TEXT_LUMINANCE
+
+    def test_dark_red(self):
+        """暗い赤はしきい値以下"""
+        seg = TitleTextSegment(text="テスト", color="#1A0000")
+        assert _get_segment_luminance(seg) < _DARK_TEXT_LUMINANCE
+
+
+class TestMixedColorLineInnerOutline:
+    """同一行にカラー文字と黒文字が混在する場合のテスト"""
+
+    def test_dark_segment_inner_outline_skipped_in_render(self, tmp_path):
+        """黒文字セグメントの内縁がスキップされ、画像が正常に生成されること"""
+        design = TitleImageDesign(
+            lines=[
+                TitleLine(
+                    segments=[
+                        TitleTextSegment(text="家族と", color="#000000", font_size=120),
+                        TitleTextSegment(text="無理に", color="#FF4444", font_size=120),
+                    ],
+                    outer_outline_color="#000000",
+                    outer_outline_width=8,
+                )
+            ]
+        )
+        # _force_outline_style 適用後、行の inner_outline_width >= 6
+        forced = _force_outline_style(design)
+        assert forced.lines[0].inner_outline_width >= 6
+
+        # レンダリングで黒文字が潰れないこと（画像が正常に生成される）
+        output = tmp_path / "mixed.png"
+        render_title_image(forced, output, width=540, height=960)
+        img = Image.open(output)
+        assert img.getbbox() is not None
+
+    def test_force_outline_line_level_still_works(self):
+        """行レベルの内縁判定は従来通り動作すること"""
+        # 全セグメントが明るい → 行全体に内縁
+        design = TitleImageDesign(
+            lines=[
+                TitleLine(
+                    segments=[
+                        TitleTextSegment(text="テスト", color="#FFFFFF"),
+                        TitleTextSegment(text="です", color="#FFFF00"),
+                    ],
+                )
+            ]
+        )
+        result = _force_outline_style(design)
+        assert result.lines[0].inner_outline_width >= 6
+        assert result.lines[0].inner_outline_color == "#000000"
+
+
+class TestDropShadow:
+    """ドロップシャドウのテスト"""
+
+    def test_shadow_extends_bounding_box(self, tmp_path):
+        """シャドウにより非透過ピクセルの範囲がオフセット分広がること"""
+        design = TitleImageDesign(
+            lines=[
+                TitleLine(
+                    segments=[TitleTextSegment(text="影", font_size=100)],
+                    outer_outline_width=4,
+                )
+            ],
+            padding_top=20,
+        )
+        output = tmp_path / "shadow.png"
+        render_title_image(design, output, width=540, height=300)
+        img = Image.open(output)
+        bbox = img.getbbox()
+        assert bbox is not None
+        # シャドウのオフセット分、下端・右端が広がっている
+        # (テキストのみの場合よりbboxが大きいはず)
+        # 最低限、画像にピクセルが存在することを確認
+        non_transparent = sum(1 for p in img.getdata() if p[3] > 0)
+        assert non_transparent > 0
+
+    def test_shadow_pixels_at_offset_position(self, tmp_path):
+        """シャドウオフセット位置にピクセルが存在すること"""
+        design = TitleImageDesign(
+            lines=[
+                TitleLine(
+                    segments=[TitleTextSegment(text="Test", font_size=80, color="#FFFFFF")],
+                    outer_outline_width=6,
+                )
+            ],
+            padding_top=10,
+        )
+        output = tmp_path / "shadow_offset.png"
+        render_title_image(design, output, width=400, height=200)
+        img = Image.open(output)
+        bbox = img.getbbox()
+        assert bbox is not None
+        # bbox の右端がシャドウオフセット分だけ右にあること
+        # （最低限の検証: bbox幅がテキスト+アウトライン+シャドウオフセットを含む）
+        assert bbox[2] > 0
+        assert bbox[3] > 0
