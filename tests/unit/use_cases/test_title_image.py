@@ -1451,12 +1451,12 @@ class TestEnsureContrast:
             ],
         )
 
-    def test_low_contrast_outline_is_corrected(self):
-        """背景と同色のアウトラインが黒に補正される"""
+    def test_outline_color_not_changed(self):
+        """_ensure_contrastは外縁色を変更しない（_force_outline_styleが担当）"""
         design = self._make_design(outline_color="#e06000")
         frame_colors = ["#e0c040", "#e08000", "#e06000"]
         result = _ensure_contrast(design, frame_colors)
-        assert result.lines[0].outer_outline_color == "#000000"
+        assert result.lines[0].outer_outline_color == "#e06000"
 
     def test_high_contrast_outline_unchanged(self):
         """十分なコントラストのアウトラインは変更されない"""
@@ -1465,12 +1465,12 @@ class TestEnsureContrast:
         result = _ensure_contrast(design, frame_colors)
         assert result.lines[0].outer_outline_color == "#000000"
 
-    def test_dark_background_gets_white_outline(self):
-        """暗い背景では白アウトラインに補正される"""
-        design = self._make_design(outline_color="#202020")
-        frame_colors = ["#101010", "#1a1a1a"]
+    def test_white_text_on_white_outline_corrected(self):
+        """白外縁に白テキストが同化する場合、テキスト色が補正される"""
+        design = self._make_design(outline_color="#FFFFFF", text_color="#FFFFFF")
+        frame_colors = ["#101010"]
         result = _ensure_contrast(design, frame_colors)
-        assert result.lines[0].outer_outline_color == "#FFFFFF"
+        assert result.lines[0].segments[0].color == "#000000"
 
     def test_empty_frame_colors_no_change(self):
         """frame_colorsが空ならそのまま返す"""
@@ -1480,11 +1480,11 @@ class TestEnsureContrast:
 
     def test_original_design_not_mutated(self):
         """元のデザインオブジェクトは変更されない"""
-        design = self._make_design(outline_color="#e06000")
-        frame_colors = ["#e0c040", "#e08000"]
+        design = self._make_design(outline_color="#FFFFFF", text_color="#FFFFFF")
+        frame_colors = ["#101010"]
         result = _ensure_contrast(design, frame_colors)
-        assert design.lines[0].outer_outline_color == "#e06000"
-        assert result.lines[0].outer_outline_color == "#000000"
+        assert design.lines[0].segments[0].color == "#FFFFFF"
+        assert result.lines[0].segments[0].color == "#000000"
 
 
 class TestEnsureFitHeight:
