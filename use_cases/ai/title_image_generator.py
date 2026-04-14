@@ -152,7 +152,6 @@ _TEXT_VS_OUTLINE_THRESHOLD = 2.0
 
 # 輝度しきい値（テキスト色が暗い→内縁不要）
 _DARK_TEXT_LUMINANCE = 0.15
-_LIGHT_TEXT_LUMINANCE = 0.6
 
 
 def _relative_luminance(hex_color: str) -> float:
@@ -230,9 +229,6 @@ def _shrink_particles(design: TitleImageDesign) -> TitleImageDesign:
     except ImportError:
         return design
 
-    import copy
-
-    design = copy.deepcopy(design)
     new_lines = []
 
     for line in design.lines:
@@ -253,13 +249,10 @@ def _shrink_particles(design: TitleImageDesign) -> TitleImageDesign:
 
         # トークンごとに助詞かどうかのマップを作成 (char_start, char_end, is_particle)
         particle_ranges: list[tuple[int, int, bool]] = []
-        pos = 0
         for end_pos, surface, pos_tag in token_info:
             start = end_pos - len(surface)
-            # ADP = 助詞（GiNZAのUniversal POS）、tag_正規化後は「助詞-*」
             is_particle = pos_tag.startswith("助詞")
             particle_ranges.append((start, end_pos, is_particle))
-            pos = end_pos
 
         # 既存セグメントを助詞境界で分割
         new_segments: list[TitleTextSegment] = []
@@ -273,20 +266,17 @@ def _shrink_particles(design: TitleImageDesign) -> TitleImageDesign:
             for t_start, t_end, is_p in particle_ranges:
                 if t_end <= seg_start or t_start >= seg_end:
                     continue
-                # クリップ
                 c_start = max(t_start, seg_start)
                 c_end = min(t_end, seg_end)
                 if c_start < c_end:
                     if cursor < c_start:
-                        # トークン間のギャップ（通常は起きないが安全対策）
                         parts.append((line_text[cursor:c_start], False))
                     parts.append((line_text[c_start:c_end], is_p))
                     cursor = c_end
             if cursor < seg_end:
                 parts.append((line_text[cursor:seg_end], False))
 
-            # partsから新セグメントを構築
-            # 助詞のみのパートと非助詞パートを隣接する同種でマージ
+            # 隣接する同種パートをマージ
             merged: list[tuple[str, bool]] = []
             for text, is_p in parts:
                 if merged and merged[-1][1] == is_p:
@@ -302,7 +292,7 @@ def _shrink_particles(design: TitleImageDesign) -> TitleImageDesign:
                     font_size=int(seg.font_size * 0.8) if is_p else seg.font_size,
                     color=seg.color,
                     gradient=seg.gradient,
-                    weight="Eb" if is_p else seg.weight,
+                    weight="Eb",
                 )
                 new_segments.append(new_seg)
 
@@ -333,13 +323,15 @@ def _ensure_contrast(design: TitleImageDesign, frame_colors: list[str]) -> Title
 
     _force_outline_style()で白外縁が強制されるため、外縁色の変更は行わない。
     テキスト色が白外縁と同化する場合のみ補正する。
-    """
-    import copy
 
+    内部で _force_outline_style() を適用してから判定するため、
+    呼び出し順序に依存しない。
+    """
     if not frame_colors:
         return design
 
-    design = copy.deepcopy(design)
+    # 白外縁を先に適用してからコントラスト判定する（deepcopyも兼ねる）
+    design = _force_outline_style(design)
 
     for line in design.lines:
         for seg in line.segments:
@@ -961,7 +953,7 @@ def create_fallback_design(title: str) -> TitleImageDesign:
                 ],
                 outer_outline_color="#FFFFFF",
                 outer_outline_width=10,
-                inner_outline_color="#000000" if gradient else "#000000",
+                inner_outline_color="#000000",
                 inner_outline_width=6 if gradient else 0,
             )
         )
