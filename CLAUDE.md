@@ -18,8 +18,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## バージョン情報
 
-### v2.0.4 (2026-04-14) — 最新安定版
-- **タグ**: `v2.0.4`
+### v2.0.5 (2026-04-14) — 最新安定版
+- **タグ**: `v2.0.5`
+- タイトル画像品質改善（白外縁3層構造・助詞縮小・3パス描画順修正）
+
+### v2.0.4 (2026-04-14)
 - クリップ品質改善（topic境界制約・embedding coherence・フィラー3層除去・末尾途切れ改善）
 - パイプライン並列化+Whisper廃止で処理時間49%短縮
 
