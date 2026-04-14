@@ -32,7 +32,7 @@ class TestVersionHelpers:
         content = (PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8")
         match = re.search(r'^version\s*=\s*"([^"]+)"', content, re.MULTILINE)
         assert match is not None
-        assert match.group(1) == "2.0.3"
+        assert match.group(1) == "2.0.4"
 
     def test_pyproject_toml_regex_various_formats(self):
         """さまざまなTOML形式に対応"""

@@ -18,8 +18,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## バージョン情報
 
-### v2.0.3 (2026-04-12) — 最新安定版
-- **タグ**: `v2.0.3`
+### v2.0.4 (2026-04-14) — 最新安定版
+- **タグ**: `v2.0.4`
+- クリップ品質改善（topic境界制約・embedding coherence・フィラー3層除去・末尾途切れ改善）
+- パイプライン並列化+Whisper廃止で処理時間49%短縮
+
+### v2.0.3 (2026-04-12)
 - タイトル画像の色セグメント境界をGiNZA単語境界にスナップ
 
 ### v2.0.2 (2026-04-12)
