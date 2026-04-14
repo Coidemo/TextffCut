@@ -20,9 +20,9 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 try:
-    from PIL import Image, ImageChops, ImageDraw, ImageFont
+    from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
 except ImportError:  # pragma: no cover
-    Image = ImageChops = ImageDraw = ImageFont = None  # type: ignore[assignment,misc]
+    Image = ImageChops = ImageDraw = ImageFilter = ImageFont = None  # type: ignore[assignment,misc]
 
 # ---------------------------------------------------------------------------
 # データ構造
@@ -152,6 +152,13 @@ _TEXT_VS_OUTLINE_THRESHOLD = 2.0
 # 輝度しきい値（テキスト色が暗い→内縁不要）
 _DARK_TEXT_LUMINANCE = 0.15
 
+# ドロップシャドウ
+_SHADOW_COLOR = "#000000"
+_SHADOW_OPACITY = 80
+_SHADOW_BLUR_RADIUS = 8
+_SHADOW_OFFSET_X = 4
+_SHADOW_OFFSET_Y = 4
+
 
 def _relative_luminance(hex_color: str) -> float:
     """WCAG 2.0 相対輝度を計算 (0.0=黒, 1.0=白)"""
@@ -162,6 +169,15 @@ def _relative_luminance(hex_color: str) -> float:
         return c_norm / 12.92 if c_norm <= 0.04045 else ((c_norm + 0.055) / 1.055) ** 2.4
 
     return 0.2126 * srgb(r) + 0.7152 * srgb(g) + 0.0722 * srgb(b)
+
+
+def _get_segment_luminance(seg: TitleTextSegment) -> float:
+    """セグメントの色の最大輝度を返す（グラデーション対応）"""
+    if seg.gradient:
+        return max(_relative_luminance(c) for c in seg.gradient)
+    if seg.color and seg.color.startswith("#"):
+        return _relative_luminance(seg.color)
+    return 1.0  # デフォルト（明るい扱い）
 
 
 def _contrast_ratio(color1: str, color2: str) -> float:
@@ -1091,24 +1107,30 @@ def render_title_image(
             outer_w = _scale_outline(line.outer_outline_width, actual_size)
             inner_w = _scale_outline(line.inner_outline_width, actual_size)
 
-            draw_items.append({
-                "text": seg.text,
-                "xy": (x, y),
-                "font": fonts[i],
-                "color": seg.color,
-                "gradient": seg.gradient,
-                "outer_outline_color": line.outer_outline_color,
-                "outer_outline_width": outer_w,
-                "inner_outline_color": line.inner_outline_color,
-                "inner_outline_width": inner_w,
-            })
+            # セグメント単位の内縁オーバーライド: 暗い文字には内縁不要
+            if inner_w > 0 and _get_segment_luminance(seg) < _DARK_TEXT_LUMINANCE:
+                inner_w = 0
+
+            draw_items.append(
+                {
+                    "text": seg.text,
+                    "xy": (x, y),
+                    "font": fonts[i],
+                    "color": seg.color,
+                    "gradient": seg.gradient,
+                    "outer_outline_color": line.outer_outline_color,
+                    "outer_outline_width": outer_w,
+                    "inner_outline_color": line.inner_outline_color,
+                    "inner_outline_width": inner_w,
+                }
+            )
             x += seg_widths[i]
 
         current_y += max_vis_height + design.line_spacing
 
-    # --- Phase 2: 3パス描画（外縁→内縁→テキスト塗り） ---
-    # 外縁を最下層に描画することで、隣接セグメントの文字に被らない
-    for layer in ("outer", "inner", "text"):
+    # --- Phase 2: 4パス描画（影→外縁→内縁→テキスト塗り） ---
+    # 影を最下層、外縁をその上に描画することで立体感を演出
+    for layer in ("shadow", "outer", "inner", "text"):
         for item in draw_items:
             _draw_segment(
                 img=img,
@@ -1136,19 +1158,20 @@ def _draw_segment(
     inner_outline_width: int,
     layers: frozenset[str] | None = None,
 ) -> None:
-    """1セグメントを二重アウトライン + グラデーション対応で描画
+    """1セグメントを二重アウトライン + グラデーション + ドロップシャドウ対応で描画
 
     リングマスク方式:
       1. テキスト / 内側 / 外側 の3段階マスクを作成
       2. 差分でリング（ドーナツ型）マスクを作り、各色で塗る
       3. テキスト塗りはグリフ形状のみ（膨張しない）
+      4. シャドウは外側マスクをぼかしてオフセット位置に半透明描画
 
     Args:
         layers: 描画するレイヤーのセット。None で全レイヤー。
-                "outer", "inner", "text" の組み合わせ。
+                "shadow", "outer", "inner", "text" の組み合わせ。
     """
     if layers is None:
-        layers = frozenset({"outer", "inner", "text"})
+        layers = frozenset({"shadow", "outer", "inner", "text"})
 
     x, y = xy
     total_stroke = outer_outline_width + inner_outline_width
@@ -1205,6 +1228,21 @@ def _draw_segment(
     inner_ring = ImageChops.subtract(inner_mask, text_mask)
 
     # --- 描画 ---
+    # ドロップシャドウ（外側マスクをぼかしてオフセット描画）
+    # outer_outline_width=0 でもテキスト形状のシャドウを描画する（意図的）
+    if "shadow" in layers:
+        # パディング: blur半径の2倍でカーネル拡散を十分収容
+        pad = _SHADOW_BLUR_RADIUS * 2
+        padded_mask = Image.new("L", (rw + pad * 2, rh + pad * 2), 0)
+        padded_mask.paste(outer_mask, (pad, pad))
+        blurred = padded_mask.filter(ImageFilter.GaussianBlur(radius=_SHADOW_BLUR_RADIUS))
+        shadow_rgba = _hex_to_rgb(_SHADOW_COLOR) + (_SHADOW_OPACITY,)
+        shadow_layer = Image.new("RGBA", blurred.size, shadow_rgba)
+        shadow_layer.putalpha(blurred)
+        sx = max(0, rx - pad + _SHADOW_OFFSET_X)
+        sy = max(0, ry - pad + _SHADOW_OFFSET_Y)
+        img.paste(shadow_layer, (sx, sy), shadow_layer)
+
     # 外側リング
     if "outer" in layers and outer_outline_width > 0:
         _paint_mask(img, outer_ring, (rx, ry), outer_outline_color)
