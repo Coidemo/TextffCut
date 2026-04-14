@@ -119,9 +119,11 @@ class ClipSuggestion:
     reasoning: str
     keywords: list[str] = field(default_factory=list)
     variant_label: str = ""
+    topic_start_time: float | None = None
+    topic_end_time: float | None = None
 
     def to_dict(self) -> dict:
-        return {
+        d = {
             "id": self.id,
             "title": self.title,
             "text": self.text,
@@ -133,6 +135,11 @@ class ClipSuggestion:
             "keywords": self.keywords,
             "variant_label": self.variant_label,
         }
+        if self.topic_start_time is not None:
+            d["topic_start_time"] = self.topic_start_time
+        if self.topic_end_time is not None:
+            d["topic_end_time"] = self.topic_end_time
+        return d
 
     @classmethod
     def from_dict(cls, data: dict) -> "ClipSuggestion":
@@ -147,6 +154,8 @@ class ClipSuggestion:
             reasoning=data.get("reasoning", ""),
             keywords=data.get("keywords", []),
             variant_label=data.get("variant_label", ""),
+            topic_start_time=data.get("topic_start_time"),
+            topic_end_time=data.get("topic_end_time"),
         )
 
 

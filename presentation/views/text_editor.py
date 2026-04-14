@@ -905,7 +905,7 @@ class TextEditorView:
                 # Phase 2: フィラー仕上げ
                 for i, suggestion in enumerate(suggestions):
                     progress_text.write(f"🧹 フィラー除去中... ({i + 1}/{total})")
-                    suggestions[i] = polish_fillers(suggestion, actual_result, video_path_obj)
+                    suggestions[i] = polish_fillers(suggestion, actual_result, video_path_obj, gateway=gateway)
 
                 # Phase 3: 無音削除
                 if remove_silence:

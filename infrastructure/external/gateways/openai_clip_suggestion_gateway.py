@@ -42,10 +42,10 @@ class OpenAIClipSuggestionGateway(ClipSuggestionGatewayInterface):
             model = "gpt-4.1-mini"
         self.model = model
 
-    def detect_topics(self, request: TopicDetectionRequest) -> TopicDetectionResult:
+    def detect_topics(self, request: TopicDetectionRequest, format_mode: str = "chunk_30s") -> TopicDetectionResult:
         start = time.time()
 
-        prompt = self._build_topic_prompt(request)
+        prompt = self._build_topic_prompt(request, format_mode=format_mode)
 
         response = self.client.chat.completions.create(
             model=self.model,
@@ -247,26 +247,33 @@ JSON: {{"reviews": [{{"index": 0, "action": "extend", "reason": "理由"}}]}}"""
         audio_issues: list[str] | None = None,
     ) -> dict:
         prompt = f"""以下はショート動画「{title}」の出来上がり音声を文字起こししたテキストです。
-品質を厳しく判定してください。
+以下の5軸で評価してください（各1-5点）:
+
+1. Hook強度: 冒頭で視聴者の注意を引けるか
+   5=断定/驚き/問いかけで始まる 1=前置き/挨拶/文脈なしで始まる
+
+2. 完結性: 問題提起→展開→結論/提案が揃っているか
+   5=明確な結論あり 1=問題提起だけで結論なし
+
+3. コンパクトさ: 冗長な部分がないか
+   5=無駄ゼロ 1=繰り返し/脱線/不要な補足が多い
+
+4. 末尾の締まり: 自然に終わっているか
+   5=結論/提案で締まっている 1=「〜とか」「〜けど」で途切れている
+
+5. タイトル整合性: タイトルの内容が実際に語られているか
+   5=完全一致 1=タイトルと無関係
+
+合計15点以上で合格。
+
+音響分析:
+{chr(10).join(f'  - {issue}' for issue in (audio_issues or [])) or '  問題なし'}
 
 テキスト:
 {transcribed_text}
 
-以下の問題がある場合は不合格です:
-1. 末尾が途中で切れている（「〜とか」「〜ので」「〜けど」で終わって話が続きそう）
-2. 冒頭に文脈がなく何の話かわからない（質問の途中から始まっている等）
-3. 内容が前置きだけで結論がない（視聴者が「で、結論は？」と思う）
-4. 独り言や脱線が残っている（「何話そうと思ったんだっけ」等）
-5. 冗長なやり取りがある（同じことの繰り返し、なくても伝わる補足説明、回りくどい言い回し）
-
-特に5について: たとえ時間内に収まっていても、もっとシンプルにできる部分があれば指摘してください。
-言いたいことがわかる部分だけ残して、それ以外はバッサリ切るべきです。
-
-6. 音声の不自然なカット（音圧やピッチが急変するつなぎ目がある）
-{chr(10).join(f'  - {issue}' for issue in (audio_issues or [])) or '  音響分析: 問題なし'}
-
-JSON: {{"ok": true/false, "issues": ["問題1", "問題2"], "fix_suggestions": ["末尾を○○の後で切る", "冒頭の○○を削除", "中間の○○は冗長なので削除"]}}
-問題がなければ {{"ok": true, "issues": [], "fix_suggestions": []}}"""
+JSON: {{"scores": {{"hook": 4, "completeness": 3, "compactness": 5, "ending": 4, "title_relevance": 5}}, "ok": true/false, "issues": ["問題1"], "fix_suggestions": ["修正案1"]}}
+問題がなければ {{"scores": {{...}}, "ok": true, "issues": [], "fix_suggestions": []}}"""
 
         try:
             response = self.client.chat.completions.create(
@@ -276,7 +283,7 @@ JSON: {{"ok": true/false, "issues": ["問題1", "問題2"], "fix_suggestions": [
                     {"role": "user", "content": prompt},
                 ],
                 temperature=0.2,
-                max_tokens=300,
+                max_tokens=500,
                 response_format={"type": "json_object"},
             )
             return json.loads(response.choices[0].message.content)
@@ -320,6 +327,141 @@ JSON: {{"selected": 候補番号(1始まり), "reason": "選定理由"}}"""
             logger.warning(f"AI clip selection failed: {e}")
             return 1
 
+    def select_clip_segments(
+        self,
+        title: str,
+        segments: list[dict],
+        min_duration: float,
+        max_duration: float,
+        num_variants: int = 2,
+    ) -> list[list[int]]:
+        if not segments:
+            return []
+
+        total_available = sum(s["end"] - s["start"] for s in segments)
+        segs_desc = "\n".join(f"[{s['index']}] ({s['end'] - s['start']:.1f}s) {s['text']}" for s in segments[:40])
+
+        prompt = f"""以下のセグメントから、ショート動画「{title}」に使うものだけを選んでください。
+
+以下の3ステップで考えて、最終結果のみJSON出力してください:
+
+<ステップ1: 結論/CTA特定>
+全セグメントを読み、結論・主張・行動提案を含むセグメントを特定。
+「べきです」「方がいい」「ポイントは」「大事です」等がある箇所。
+これがクリップの着地点。
+
+<ステップ2: Hook特定>
+冒頭として視聴者の注意を引くセグメントを探す。
+- 断定（「〜は間違い」「〜すべき」）
+- 問いかけ（「〜って知ってる？」）
+- 驚きのある事実や数字
+※「今日用意してるんですけども」等の前置きは使わない
+
+<ステップ3: Body埋め>
+ステップ1の結論とステップ2のHookの間を最小限で埋める。
+冗長な繰り返し、つなぎ語、具体例の2つ目以降はスキップ。
+
+制約:
+- 使うセグメントのindex番号を昇順で返す（並び替え禁止）
+- テキストの編集は不要。セグメントをそのまま使う
+- 全セグメント合計: {total_available:.0f}秒。選択後の合計が {min_duration:.0f}〜{max_duration:.0f} 秒になるようにしてください。
+- セグメント数は通常15〜25個程度必要です。少なすぎると秒数が足りません。
+- {num_variants}パターン作る: 骨子のみと、少し肉付けした版
+
+セグメント:
+{segs_desc}
+
+JSON: {{"variants": [
+  {{"label": "骨子", "indices": [28, 29, 30, 31, 36, 37, ...]}},
+  {{"label": "肉付け", "indices": [24, 25, 28, 29, 30, 31, 36, 37, ...]}}
+]}}"""
+
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": "ショート動画の編集担当。セグメントを選別してJSON形式で回答。"},
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.2,
+                max_tokens=1000,
+                response_format={"type": "json_object"},
+            )
+            result = json.loads(response.choices[0].message.content)
+            variants = result.get("variants", [])
+
+            output = []
+            for v in variants:
+                indices = v.get("indices", [])
+                if isinstance(indices, list) and all(isinstance(x, int) for x in indices):
+                    output.append(indices)
+
+            logger.info(
+                f"AI segment selection: {len(output)} variants returned " f"(sizes: {[len(v) for v in output]})"
+            )
+            return output
+        except Exception as e:
+            logger.warning(f"AI segment selection failed: {e}")
+            return []
+
+    def classify_segment_essentiality(
+        self,
+        title: str,
+        segments: list[dict],
+    ) -> list[dict]:
+        if not segments:
+            return []
+
+        segs_desc = "\n".join(f"[{s['index']}] ({s['start']:.0f}s) {s['text']}" for s in segments[:40])
+
+        prompt = f"""「{title}」というショート動画の素材セグメントを分類してください。
+
+各セグメントを以下の3カテゴリに分類:
+- **essential**: 削除すると主張・結論が伝わらなくなる（核心、結論、重要事実）
+- **supportive**: なくても主張は伝わるが理解しやすくなる（具体例の1つ目、短い導入）
+- **redundant**: 削除しても意味が完全に伝わる:
+  - 前置き（「〜という話をしたいと思います」）
+  - つなぎ語（「どういうことかというと」）
+  - 同じ内容の2回目以降の説明
+  - 冗長な締め（「〜みたいな感じで」）
+
+ガイドライン:
+- essential が全体の 40-60% になるようにしてください
+- 冒頭の導入（話題提起）と末尾の結論は原則 essential
+- 迷ったら supportive にしてください
+
+セグメント:
+{segs_desc}
+
+JSON: {{"classifications": [{{"index": 0, "role": "essential", "reason": "結論"}}]}}"""
+
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": "動画編集の骨子抽出担当。JSON形式で回答。"},
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.2,
+                max_tokens=1500,
+                response_format={"type": "json_object"},
+            )
+            result = json.loads(response.choices[0].message.content)
+            classifications = result.get("classifications", [])
+
+            # 統計ログ
+            roles = [c.get("role", "") for c in classifications]
+            essential_count = roles.count("essential")
+            logger.info(
+                f"セグメント分類: {title} — essential={essential_count}, "
+                f"supportive={roles.count('supportive')}, "
+                f"redundant={roles.count('redundant')}, total={len(classifications)}"
+            )
+            return classifications
+        except Exception as e:
+            logger.warning(f"セグメント分類失敗: {e}")
+            return []
+
     def trim_clips(
         self,
         title: str,
@@ -333,7 +475,7 @@ JSON: {{"selected": 候補番号(1始まり), "reason": "選定理由"}}"""
 - 繰り返し・冗長な説明
 - 本筋と関係ない例え話・脱線
 - なくても主張が伝わる補足
-- 質問の読み上げ部分（回答だけ残す）
+- **質問の読み上げ部分**（回答だけ残す。質問文が全体の1/3以上なら積極的に削除）
 
 冒頭（話の導入）と末尾（結論）は原則残してください。中間から削除するのが理想です。
 
@@ -364,6 +506,65 @@ JSON: {{"remove": [削除するクリップのindex番号], "reason": "理由"}}
             logger.warning(f"trim_clips failed: {e}")
             return []
 
+    def judge_filler_context(self, candidates: list[dict]) -> list[bool]:
+        if not candidates:
+            return []
+
+        items = "\n".join(f'{i + 1}. 「{c["filler"]}」: ...{c["context"]}...' for i, c in enumerate(candidates))
+
+        prompt = f"""以下の日本語テキスト中の「」内の語がフィラー（言い淀み・つなぎ語）か、
+文法的に必要な語かを判定してください。
+
+判定基準:
+- フィラー: 除去しても文の意味が変わらない（「なんかすごい」の「なんか」）
+- 文法的: 除去すると文の意味が変わる（「何か問題がある」の「何か」、「AとかBとか」の「とか」）
+
+{items}
+
+JSON: {{"results": [true, false, ...]}}
+true=フィラー（除去可能）、false=文法的に必要（除去不可）"""
+
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "日本語の言語分析専門家。フィラー（言い淀み）と文法的用法を正確に区別する。JSON形式で回答。",
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.1,
+                max_tokens=200,
+                response_format={"type": "json_object"},
+            )
+            result = json.loads(response.choices[0].message.content)
+            results = result.get("results", [])
+            # 結果の長さが合わない場合はフォールバック
+            if len(results) != len(candidates):
+                logger.warning(
+                    f"LLMフィラー判定: 結果数不一致 ({len(results)} vs {len(candidates)}), "
+                    "全てフィラーとして扱います"
+                )
+                return [True] * len(candidates)
+            return [bool(r) for r in results]
+        except Exception as e:
+            logger.warning(f"LLMフィラー判定失敗: {e}")
+            return [True] * len(candidates)
+
+    def compute_embeddings(self, texts: list[str]) -> list[list[float]]:
+        if not texts:
+            return []
+        try:
+            response = self.client.embeddings.create(
+                model="text-embedding-3-small",
+                input=texts,
+            )
+            return [item.embedding for item in response.data]
+        except Exception as e:
+            logger.warning(f"Embedding計算失敗: {e}")
+            return []
+
     def check_connection(self) -> bool:
         try:
             self.client.models.list()
@@ -375,14 +576,14 @@ JSON: {{"remove": [削除するクリップのindex番号], "reason": "理由"}}
     def get_available_models(self) -> list[str]:
         return list(AVAILABLE_MODELS)
 
-    def _build_topic_prompt(self, request: TopicDetectionRequest) -> str:
+    def _build_topic_prompt(self, request: TopicDetectionRequest, format_mode: str = "chunk_30s") -> str:
         prompt_path = Path(request.prompt_path) if request.prompt_path else DEFAULT_PROMPT_PATH
         if prompt_path.exists():
             template = prompt_path.read_text(encoding="utf-8")
         else:
             template = self._inline_topic_template()
 
-        segments_text = self._format_segments(request.transcription_segments)
+        segments_text = self._format_segments(request.transcription_segments, format_mode=format_mode)
         min_chars = request.min_duration * 5
         max_chars = request.max_duration * 7
 
@@ -391,15 +592,75 @@ JSON: {{"remove": [削除するクリップのindex番号], "reason": "理由"}}
         template = template.replace("{MAX_DURATION}", str(request.max_duration))
         template = template.replace("{MIN_CHARS}", str(min_chars))
         template = template.replace("{MAX_CHARS}", str(max_chars))
+        # SEGMENT_FORMAT_DESCRIPTION 内に {TOTAL_SEGMENTS_MINUS_1} が含まれるため先に展開
+        template = template.replace("{SEGMENT_FORMAT_DESCRIPTION}", self._segment_format_description(format_mode))
         template = template.replace("{TOTAL_SEGMENTS_MINUS_1}", str(len(request.transcription_segments) - 1))
         template = template.replace("{SEGMENTS}", segments_text)
 
         return template
 
-    def _format_segments(self, segments: list[dict]) -> str:
+    @staticmethod
+    def _segment_format_description(format_mode: str) -> str:
+        """フォーマットモードに応じたセグメント説明テキスト"""
+        if format_mode == "chunk_30s":
+            return (
+                "各行は `[開始インデックス-終了インデックス] (開始秒-終了秒) テキスト` の形式で、"
+                "約30秒ごとにまとめて表示しています。\n\n"
+                "**重要:**\n"
+                "- セグメントのインデックスは 0 から {TOTAL_SEGMENTS_MINUS_1} までです。\n"
+                "- segment_start_index と segment_end_index には"
+                "**この表示のチャンク境界にとらわれず、任意のセグメントインデックスを指定**してください。\n"
+                "- 例えば [0-11] と [12-25] をまたいで、segment_start_index: 8, "
+                "segment_end_index: 20 のような指定が可能です。\n"
+                "- 話題が自然に始まり自然に終わる範囲を選んでください。"
+            )
+
+        base = (
+            "各行は `[セグメントインデックス] (開始秒-終了秒) テキスト` の形式で、"
+            "1セグメント1行で表示しています。\n\n"
+            "**重要:**\n"
+            "- セグメントのインデックスは 0 から {TOTAL_SEGMENTS_MINUS_1} までです。\n"
+            "- segment_start_index と segment_end_index にはセグメントインデックスを指定してください。\n"
+            "- 話題が自然に始まり自然に終わる範囲を選んでください。"
+        )
+
+        if format_mode in ("individual_noise", "individual_full"):
+            base += (
+                "\n\n**ノイズタグについて:**\n"
+                "- `[NOISE:*]` タグ付きセグメントは話題の開始・終了位置として使わないでください。\n"
+                "- ノイズセグメントは話題の中間に含まれていてもOKですが、"
+                "話題の境界判定には使わないでください。"
+            )
+
+        if format_mode in ("individual_gap", "individual_full"):
+            base += (
+                "\n\n**沈黙ギャップについて:**\n"
+                "- `--- Xs silence ---` は話題の切り替わりの手がかりとして活用してください。\n"
+                "- 長い沈黙（5秒以上）は特に話題転換の可能性が高いです。"
+            )
+
+        return base
+
+    def _format_segments(self, segments: list[dict], format_mode: str = "chunk_30s") -> str:
         if not segments:
             return ""
 
+        if format_mode == "chunk_30s":
+            return self._format_chunk_30s(segments)
+        elif format_mode == "individual":
+            return self._format_individual(segments)
+        elif format_mode == "individual_gap":
+            return self._format_individual(segments, show_gap=True)
+        elif format_mode == "individual_noise":
+            return self._format_individual(segments, show_noise=True)
+        elif format_mode == "individual_full":
+            return self._format_individual(segments, show_gap=True, show_noise=True, show_low_conf=True)
+        else:
+            logger.warning(f"Unknown format_mode '{format_mode}', falling back to chunk_30s")
+            return self._format_chunk_30s(segments)
+
+    def _format_chunk_30s(self, segments: list[dict]) -> str:
+        """現行フォーマット: 30秒チャンクに連結"""
         CHUNK_DURATION = 30.0
         lines = []
         chunk_start_idx = 0
@@ -422,6 +683,76 @@ JSON: {{"remove": [削除するクリップのindex番号], "reason": "理由"}}
                     chunk_texts = []
 
         return "\n".join(lines)
+
+    def _format_individual(
+        self,
+        segments: list[dict],
+        *,
+        show_gap: bool = False,
+        show_noise: bool = False,
+        show_low_conf: bool = False,
+    ) -> str:
+        """セグメント個別表示フォーマット"""
+        GAP_THRESHOLD = 0.5
+        LOW_CONF_THRESHOLD = 0.5
+        lines = []
+
+        for i, seg in enumerate(segments):
+            text = seg.get("text", "").strip()
+            start = seg.get("start", 0.0)
+            end = seg.get("end", 0.0)
+
+            # ギャップ表示（前のセグメントとの間に沈黙がある場合）
+            if show_gap and i > 0:
+                prev_end = segments[i - 1].get("end", 0.0)
+                gap = start - prev_end
+                if gap > GAP_THRESHOLD:
+                    lines.append(f"  --- {gap:.1f}s silence ---")
+
+            # タグ構築
+            tags = []
+            if show_noise:
+                noise_tag = self._detect_noise_tag(seg)
+                if noise_tag:
+                    tags.append(noise_tag)
+            if show_low_conf:
+                avg_conf = self._avg_word_confidence(seg)
+                if avg_conf is not None and avg_conf < LOW_CONF_THRESHOLD:
+                    tags.append(f"[conf:{avg_conf:.2f}]")
+
+            tag_str = " ".join(tags)
+            if tag_str:
+                tag_str += " "
+
+            lines.append(f"[{i}] ({start:.1f}-{end:.1f}) {tag_str}{text}")
+
+        return "\n".join(lines)
+
+    def _detect_noise_tag(self, seg: dict) -> str | None:
+        """セグメントのノイズタグを検出"""
+        from use_cases.ai.filler_constants import detect_noise_tag
+
+        # テキストベースの判定は共通関数に委譲
+        tag = detect_noise_tag(seg.get("text", ""))
+        if tag:
+            return tag
+
+        # [NOISE:low-conf] — word平均confidence < 0.3（words依存なのでgateway側に残す）
+        avg_conf = self._avg_word_confidence(seg)
+        if avg_conf is not None and avg_conf < 0.3:
+            return "[NOISE:low-conf]"
+
+        return None
+
+    def _avg_word_confidence(self, seg: dict) -> float | None:
+        """セグメントのword平均confidenceを計算"""
+        words = seg.get("words", [])
+        if not words:
+            return None
+        confidences = [w.get("probability", w.get("confidence", 1.0)) for w in words]
+        if not confidences:
+            return None
+        return sum(confidences) / len(confidences)
 
     def _inline_topic_template(self) -> str:
         return """以下のセグメント一覧から、{MIN_DURATION}〜{MAX_DURATION}秒のショート動画に適した話題の範囲を{NUM_CANDIDATES}個見つけてください。

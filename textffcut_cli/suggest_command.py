@@ -6,6 +6,7 @@ textffcut suggest サブコマンド
 
 import argparse
 import json
+import logging
 import os
 import sys
 from pathlib import Path
@@ -14,6 +15,19 @@ from rich.console import Console
 from rich.table import Table
 
 console = Console(stderr=True)
+
+# use_cases/ai/ 配下のlogger.info()をCLI出力に表示する
+logging.basicConfig(
+    level=logging.WARNING,
+    format="%(levelname)s: %(message)s",
+)
+# 品質ループ・候補生成のログのみINFOレベルで表示
+for _mod in (
+    "use_cases.ai.clip_quality_loop",
+    "use_cases.ai.brute_force_clip_generator",
+    "use_cases.ai.suggest_and_export",
+):
+    logging.getLogger(_mod).setLevel(logging.INFO)
 
 
 def build_suggest_parser() -> argparse.ArgumentParser:
@@ -132,6 +146,18 @@ def build_suggest_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=False,
         help="被写体位置からアンカーを自動検出（--vertical時のみ有効）",
+    )
+    parser.add_argument(
+        "--quality-loop",
+        action="store_true",
+        default=True,
+        help="AI品質チェックループを有効化（デフォルト: 有効）",
+    )
+    parser.add_argument(
+        "--no-quality-loop",
+        action="store_false",
+        dest="quality_loop",
+        help="AI品質チェックループを無効化",
     )
     parser.add_argument(
         "--prompt",
@@ -363,6 +389,7 @@ def _process_single_video(
         title_target_size=title_target_size,
         title_offset_y=args.title_offset_y,
         auto_anchor=args.auto_anchor,
+        enable_quality_loop=args.quality_loop,
     )
 
     result = use_case.execute(request)
