@@ -14,12 +14,14 @@ from use_cases.ai.title_image_generator import (
     _contrast_ratio,
     _ensure_contrast,
     _ensure_fit_height,
+    _force_outline_style,
     _hex_to_rgb,
     _parse_design_json,
     _relative_luminance,
     _safe_int,
     _save_design_cache,
     _scale_outline,
+    _shrink_particles,
     _split_title,
     create_fallback_design,
     design_title_layout,
@@ -1437,6 +1439,170 @@ class TestContrastRatio:
         assert ratio > 3.0
 
 
+class TestForceOutlineStyle:
+    """白外縁強制 + 内縁色適応のテスト"""
+
+    def _make_design(self, text_color="#000000", gradient=None, weight="Rg",
+                     outline_color="#000000", outline_width=4, inner_width=0):
+        return TitleImageDesign(
+            lines=[
+                TitleLine(
+                    segments=[TitleTextSegment(
+                        text="テスト", color=text_color, gradient=gradient, weight=weight,
+                    )],
+                    outer_outline_color=outline_color,
+                    outer_outline_width=outline_width,
+                    inner_outline_width=inner_width,
+                ),
+            ],
+        )
+
+    def test_outer_always_white(self):
+        """外縁は常に白に強制される"""
+        result = _force_outline_style(self._make_design(outline_color="#FF0000"))
+        assert result.lines[0].outer_outline_color == "#FFFFFF"
+
+    def test_outer_width_at_least_10(self):
+        """外縁幅は最低10"""
+        result = _force_outline_style(self._make_design(outline_width=4))
+        assert result.lines[0].outer_outline_width >= 10
+
+    def test_outer_width_preserved_if_larger(self):
+        """外縁幅が10超なら保持"""
+        result = _force_outline_style(self._make_design(outline_width=15))
+        assert result.lines[0].outer_outline_width == 15
+
+    def test_dark_text_no_inner_outline(self):
+        """暗いテキスト（黒系）→ 内縁不要"""
+        result = _force_outline_style(self._make_design(text_color="#000000"))
+        assert result.lines[0].inner_outline_width == 0
+
+    def test_light_text_gets_black_inner(self):
+        """明るいテキスト（白系）→ 黒内縁"""
+        result = _force_outline_style(self._make_design(text_color="#FFFFFF"))
+        assert result.lines[0].inner_outline_color == "#000000"
+        assert result.lines[0].inner_outline_width >= 6
+
+    def test_gradient_gets_black_inner(self):
+        """グラデーション → 黒内縁"""
+        result = _force_outline_style(self._make_design(gradient=("#FF0000", "#FFFF00")))
+        assert result.lines[0].inner_outline_color == "#000000"
+        assert result.lines[0].inner_outline_width >= 6
+
+    def test_all_weights_forced_to_eb(self):
+        """全セグメントのウェイトがEbに統一される"""
+        design = TitleImageDesign(lines=[
+            TitleLine(segments=[
+                TitleTextSegment(text="A", weight="Th"),
+                TitleTextSegment(text="B", weight="Rg"),
+                TitleTextSegment(text="C", weight="Bd"),
+            ]),
+        ])
+        result = _force_outline_style(design)
+        for seg in result.lines[0].segments:
+            assert seg.weight == "Eb"
+
+    def test_original_not_mutated(self):
+        """元のデザインは変更されない"""
+        design = self._make_design(outline_color="#FF0000", weight="Rg")
+        _force_outline_style(design)
+        assert design.lines[0].outer_outline_color == "#FF0000"
+        assert design.lines[0].segments[0].weight == "Rg"
+
+    def test_colorful_text_gets_inner_outline(self):
+        """カラーテキスト（中間輝度）→ 黒内縁"""
+        result = _force_outline_style(self._make_design(text_color="#FF4444"))
+        assert result.lines[0].inner_outline_color == "#000000"
+        assert result.lines[0].inner_outline_width >= 6
+
+
+class TestShrinkParticles:
+    """助詞縮小のテスト"""
+
+    def _make_design(self, text="テストは成功です", font_size=100):
+        return TitleImageDesign(
+            lines=[
+                TitleLine(
+                    segments=[TitleTextSegment(text=text, font_size=font_size)],
+                ),
+            ],
+        )
+
+    def test_particle_shrunk(self):
+        """助詞のfont_sizeが80%に縮小される"""
+        result = _shrink_particles(self._make_design("テストは成功"))
+        texts = [seg.text for seg in result.lines[0].segments]
+        joined = "".join(texts)
+        assert joined == "テストは成功"
+        # 「は」を含むセグメントが80%
+        for seg in result.lines[0].segments:
+            if "は" in seg.text:
+                assert seg.font_size == 80  # 100 * 0.8
+
+    def test_non_particle_unchanged(self):
+        """非助詞のfont_sizeは変更されない"""
+        result = _shrink_particles(self._make_design("テストは成功"))
+        for seg in result.lines[0].segments:
+            if "は" not in seg.text:
+                assert seg.font_size == 100
+
+    def test_all_weights_eb(self):
+        """全セグメント（助詞含む）のweightがEb"""
+        result = _shrink_particles(self._make_design("テストは成功"))
+        for seg in result.lines[0].segments:
+            assert seg.weight == "Eb"
+
+    def test_text_integrity(self):
+        """全セグメントのテキスト結合が元テキストと一致"""
+        original = "SNSで無難な発言はもう通用しない"
+        result = _shrink_particles(self._make_design(original))
+        joined = "".join(seg.text for seg in result.lines[0].segments)
+        assert joined == original
+
+    def test_empty_line_unchanged(self):
+        """空行はそのまま返す"""
+        design = TitleImageDesign(
+            lines=[TitleLine(segments=[TitleTextSegment(text="")])],
+        )
+        result = _shrink_particles(design)
+        assert result.lines[0].segments[0].text == ""
+
+    def test_no_mutation(self):
+        """元のデザインは変更されない"""
+        design = self._make_design("テストは成功")
+        original_size = design.lines[0].segments[0].font_size
+        _shrink_particles(design)
+        assert design.lines[0].segments[0].font_size == original_size
+
+    def test_ginza_import_failure_skips(self):
+        """GiNZA未インストール時はスキップされる"""
+        design = self._make_design("テストは成功")
+        with patch.dict("sys.modules", {"core.japanese_line_break": None}):
+            result = _shrink_particles(design)
+        # 元のセグメント数・テキストのまま
+        assert len(result.lines[0].segments) == 1
+        assert result.lines[0].segments[0].text == "テストは成功"
+
+    def test_preserves_color_and_gradient(self):
+        """セグメントのcolor/gradientが保持される"""
+        design = TitleImageDesign(
+            lines=[
+                TitleLine(
+                    segments=[TitleTextSegment(
+                        text="テストは成功",
+                        font_size=100,
+                        color="#FF0000",
+                        gradient=("#FF0000", "#FFFF00"),
+                    )],
+                ),
+            ],
+        )
+        result = _shrink_particles(design)
+        for seg in result.lines[0].segments:
+            assert seg.color == "#FF0000"
+            assert seg.gradient == ("#FF0000", "#FFFF00")
+
+
 class TestEnsureContrast:
     """コントラスト自動補正のテスト"""
 
@@ -1451,26 +1617,26 @@ class TestEnsureContrast:
             ],
         )
 
-    def test_low_contrast_outline_is_corrected(self):
-        """背景と同色のアウトラインが黒に補正される"""
+    def test_outline_forced_to_white(self):
+        """_ensure_contrast内で_force_outline_styleが適用され、外縁は白になる"""
         design = self._make_design(outline_color="#e06000")
         frame_colors = ["#e0c040", "#e08000", "#e06000"]
         result = _ensure_contrast(design, frame_colors)
-        assert result.lines[0].outer_outline_color == "#000000"
+        assert result.lines[0].outer_outline_color == "#FFFFFF"
 
-    def test_high_contrast_outline_unchanged(self):
-        """十分なコントラストのアウトラインは変更されない"""
+    def test_high_contrast_outline_forced_to_white(self):
+        """入力に関わらず外縁は白に強制される"""
         design = self._make_design(outline_color="#000000")
         frame_colors = ["#e0c040", "#e08000"]
         result = _ensure_contrast(design, frame_colors)
-        assert result.lines[0].outer_outline_color == "#000000"
-
-    def test_dark_background_gets_white_outline(self):
-        """暗い背景では白アウトラインに補正される"""
-        design = self._make_design(outline_color="#202020")
-        frame_colors = ["#101010", "#1a1a1a"]
-        result = _ensure_contrast(design, frame_colors)
         assert result.lines[0].outer_outline_color == "#FFFFFF"
+
+    def test_white_text_on_white_outline_corrected(self):
+        """白外縁に白テキストが同化する場合、テキスト色が補正される"""
+        design = self._make_design(outline_color="#FFFFFF", text_color="#FFFFFF")
+        frame_colors = ["#101010"]
+        result = _ensure_contrast(design, frame_colors)
+        assert result.lines[0].segments[0].color == "#000000"
 
     def test_empty_frame_colors_no_change(self):
         """frame_colorsが空ならそのまま返す"""
@@ -1480,11 +1646,11 @@ class TestEnsureContrast:
 
     def test_original_design_not_mutated(self):
         """元のデザインオブジェクトは変更されない"""
-        design = self._make_design(outline_color="#e06000")
-        frame_colors = ["#e0c040", "#e08000"]
+        design = self._make_design(outline_color="#FFFFFF", text_color="#FFFFFF")
+        frame_colors = ["#101010"]
         result = _ensure_contrast(design, frame_colors)
-        assert design.lines[0].outer_outline_color == "#e06000"
-        assert result.lines[0].outer_outline_color == "#000000"
+        assert design.lines[0].segments[0].color == "#FFFFFF"
+        assert result.lines[0].segments[0].color == "#000000"
 
 
 class TestEnsureFitHeight:
