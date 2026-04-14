@@ -147,7 +147,6 @@ def extract_frame_colors(frame_path: Path, num_colors: int = 5) -> list[str]:
 # コントラスト計算・自動補正
 # ---------------------------------------------------------------------------
 
-_OUTLINE_VS_BG_THRESHOLD = 3.0
 _TEXT_VS_OUTLINE_THRESHOLD = 2.0
 
 # 輝度しきい値（テキスト色が暗い→内縁不要）
