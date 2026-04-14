@@ -1229,7 +1229,9 @@ def _draw_segment(
 
     # --- 描画 ---
     # ドロップシャドウ（外側マスクをぼかしてオフセット描画）
+    # outer_outline_width=0 でもテキスト形状のシャドウを描画する（意図的）
     if "shadow" in layers:
+        # パディング: blur半径の2倍でカーネル拡散を十分収容
         pad = _SHADOW_BLUR_RADIUS * 2
         padded_mask = Image.new("L", (rw + pad * 2, rh + pad * 2), 0)
         padded_mask.paste(outer_mask, (pad, pad))
@@ -1237,11 +1239,9 @@ def _draw_segment(
         shadow_rgba = _hex_to_rgb(_SHADOW_COLOR) + (_SHADOW_OPACITY,)
         shadow_layer = Image.new("RGBA", blurred.size, shadow_rgba)
         shadow_layer.putalpha(blurred)
-        img.paste(
-            shadow_layer,
-            (rx - pad + _SHADOW_OFFSET_X, ry - pad + _SHADOW_OFFSET_Y),
-            shadow_layer,
-        )
+        sx = max(0, rx - pad + _SHADOW_OFFSET_X)
+        sy = max(0, ry - pad + _SHADOW_OFFSET_Y)
+        img.paste(shadow_layer, (sx, sy), shadow_layer)
 
     # 外側リング
     if "outer" in layers and outer_outline_width > 0:

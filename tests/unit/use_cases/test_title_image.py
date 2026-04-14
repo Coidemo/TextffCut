@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 
 from use_cases.ai.title_image_generator import (
     _DARK_TEXT_LUMINANCE,
@@ -1732,12 +1732,26 @@ class TestGetSegmentLuminance:
         seg = TitleTextSegment(text="テスト", color="#1A0000")
         assert _get_segment_luminance(seg) < _DARK_TEXT_LUMINANCE
 
+    def test_empty_color_defaults_bright(self):
+        """空文字列colorは明るい扱い（安全側）"""
+        seg = TitleTextSegment(text="テスト", color="")
+        assert _get_segment_luminance(seg) == 1.0
+
+    def test_non_hex_color_defaults_bright(self):
+        """非hex colorは明るい扱い（安全側）"""
+        seg = TitleTextSegment(text="テスト", color="red")
+        assert _get_segment_luminance(seg) == 1.0
+
 
 class TestMixedColorLineInnerOutline:
     """同一行にカラー文字と黒文字が混在する場合のテスト"""
 
     def test_dark_segment_inner_outline_skipped_in_render(self, tmp_path):
-        """黒文字セグメントの内縁がスキップされ、画像が正常に生成されること"""
+        """黒文字セグメントの内縁がスキップされ、画像が正常に生成されること
+
+        render_title_image() が内部で _force_outline_style() を適用するため、
+        元のデザインをそのまま渡して end-to-end で検証する。
+        """
         design = TitleImageDesign(
             lines=[
                 TitleLine(
@@ -1750,13 +1764,13 @@ class TestMixedColorLineInnerOutline:
                 )
             ]
         )
-        # _force_outline_style 適用後、行の inner_outline_width >= 6
+        # 行レベルでは内縁が有効になることを事前確認
         forced = _force_outline_style(design)
         assert forced.lines[0].inner_outline_width >= 6
 
-        # レンダリングで黒文字が潰れないこと（画像が正常に生成される）
+        # 元のデザインを直接渡す（render内部でforce_outline_style適用）
         output = tmp_path / "mixed.png"
-        render_title_image(forced, output, width=540, height=960)
+        render_title_image(design, output, width=540, height=960)
         img = Image.open(output)
         assert img.getbbox() is not None
 
@@ -1781,45 +1795,76 @@ class TestMixedColorLineInnerOutline:
 class TestDropShadow:
     """ドロップシャドウのテスト"""
 
-    def test_shadow_extends_bounding_box(self, tmp_path):
-        """シャドウにより非透過ピクセルの範囲がオフセット分広がること"""
+    def _render_with_layers(self, tmp_path, filename, layers):
+        """指定レイヤーのみで描画し、bboxを返すヘルパー"""
+        from use_cases.ai.title_image_generator import (
+            _draw_segment,
+            _force_outline_style,
+            _scale_outline,
+            _shrink_particles,
+            find_font,
+        )
+
         design = TitleImageDesign(
             lines=[
                 TitleLine(
-                    segments=[TitleTextSegment(text="影", font_size=100)],
-                    outer_outline_width=4,
+                    segments=[TitleTextSegment(text="影Test", font_size=100)],
+                    outer_outline_width=6,
                 )
             ],
             padding_top=20,
         )
-        output = tmp_path / "shadow.png"
-        render_title_image(design, output, width=540, height=300)
-        img = Image.open(output)
-        bbox = img.getbbox()
-        assert bbox is not None
-        # シャドウのオフセット分、下端・右端が広がっている
-        # (テキストのみの場合よりbboxが大きいはず)
-        # 最低限、画像にピクセルが存在することを確認
-        non_transparent = sum(1 for p in img.getdata() if p[3] > 0)
-        assert non_transparent > 0
+        design = _force_outline_style(design)
+        design = _shrink_particles(design)
 
-    def test_shadow_pixels_at_offset_position(self, tmp_path):
-        """シャドウオフセット位置にピクセルが存在すること"""
-        design = TitleImageDesign(
-            lines=[
-                TitleLine(
-                    segments=[TitleTextSegment(text="Test", font_size=80, color="#FFFFFF")],
-                    outer_outline_width=6,
-                )
-            ],
-            padding_top=10,
+        w, h = 540, 300
+        img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+
+        line = design.lines[0]
+        seg = line.segments[0]
+        font_path = find_font(seg.weight)
+        font = ImageFont.truetype(font_path, seg.font_size) if font_path else ImageFont.load_default(size=seg.font_size)
+        bbox = font.getbbox(seg.text)
+        seg_w = bbox[2] - bbox[0]
+        ascent = -bbox[1]
+
+        margin_x = 40
+        usable_width = w - margin_x * 2
+        x = margin_x + (usable_width - seg_w) // 2
+        y = design.padding_top + ascent
+        actual_size = font.size
+        outer_w = _scale_outline(line.outer_outline_width, actual_size)
+        inner_w = _scale_outline(line.inner_outline_width, actual_size)
+
+        _draw_segment(
+            img=img,
+            draw=draw,
+            text=seg.text,
+            xy=(x, y),
+            font=font,
+            color=seg.color,
+            gradient=seg.gradient,
+            outer_outline_color=line.outer_outline_color,
+            outer_outline_width=outer_w,
+            inner_outline_color=line.inner_outline_color,
+            inner_outline_width=inner_w,
+            layers=frozenset(layers),
         )
-        output = tmp_path / "shadow_offset.png"
-        render_title_image(design, output, width=400, height=200)
-        img = Image.open(output)
-        bbox = img.getbbox()
-        assert bbox is not None
-        # bbox の右端がシャドウオフセット分だけ右にあること
-        # （最低限の検証: bbox幅がテキスト+アウトライン+シャドウオフセットを含む）
-        assert bbox[2] > 0
-        assert bbox[3] > 0
+        return img.getbbox()
+
+    def test_shadow_extends_bounding_box(self, tmp_path):
+        """シャドウにより非透過ピクセルの範囲がオフセット分広がること"""
+        bbox_no_shadow = self._render_with_layers(tmp_path, "no_shadow", {"outer", "inner", "text"})
+        bbox_with_shadow = self._render_with_layers(tmp_path, "with_shadow", {"shadow", "outer", "inner", "text"})
+
+        assert bbox_no_shadow is not None
+        assert bbox_with_shadow is not None
+        # シャドウありの方が右端・下端が広がっている
+        assert bbox_with_shadow[2] > bbox_no_shadow[2]
+        assert bbox_with_shadow[3] > bbox_no_shadow[3]
+
+    def test_shadow_only_produces_pixels(self, tmp_path):
+        """shadowレイヤーのみでもピクセルが描画されること"""
+        bbox_shadow_only = self._render_with_layers(tmp_path, "shadow_only", {"shadow"})
+        assert bbox_shadow_only is not None
