@@ -281,11 +281,11 @@ def validate_ai_selection(
         logger.debug("validate_ai_selection: _build_candidate returned None")
         return None
 
-    # duration範囲（下限20%、上限50%マージン — 超過分は後段のtrim_clipsで調整）
-    if not (min_duration * 0.8 <= candidate.total_duration <= max_duration * 1.5):
+    # duration範囲（ユーザー指定の上限下限を尊重）
+    if not (min_duration <= candidate.total_duration <= max_duration):
         logger.debug(
             f"validate_ai_selection: duration {candidate.total_duration:.1f}s "
-            f"out of range [{min_duration * 0.8:.1f}, {max_duration * 1.5:.1f}]"
+            f"out of range [{min_duration:.1f}, {max_duration:.1f}]"
         )
         return None
 

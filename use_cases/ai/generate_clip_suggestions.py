@@ -281,20 +281,37 @@ class GenerateClipSuggestionsUseCase:
             logger.info(f"重複除去: {len(topics)}→{len(result)}話題")
         return result
 
+    def _build_clean_text_map(self) -> dict[int, str]:
+        """CleanSegmentsからセグメントindex→フィラー除去済みテキストのマップを構築する。"""
+        clean_segments = getattr(self, "_clean_segments", None)
+        if not clean_segments:
+            return {}
+        result: dict[int, str] = {}
+        for cs in clean_segments:
+            if cs.original_index in result:
+                result[cs.original_index] += cs.clean_text
+            else:
+                result[cs.original_index] = cs.clean_text
+        return result
+
     def _classify_segments(
         self,
         topic: TopicRange,
         transcription: TranscriptionResult,
     ) -> list[dict] | None:
         """セグメントを essential/supportive/redundant に分類する。失敗時は None。"""
+        clean_text_by_idx = self._build_clean_text_map()
         try:
             segments = []
             for i in range(topic.segment_start_index, topic.segment_end_index + 1):
                 seg = transcription.segments[i]
+                clean_text = clean_text_by_idx.get(i, seg.text)
+                if not clean_text.strip():
+                    continue
                 segments.append(
                     {
                         "index": i,
-                        "text": seg.text,
+                        "text": clean_text,
                         "start": seg.start,
                         "end": seg.end,
                     }
@@ -322,18 +339,24 @@ class GenerateClipSuggestionsUseCase:
         """AIにセグメントを直接選定させ、ClipCandidateリストを返す。失敗時は空リスト。"""
         from use_cases.ai.filler_constants import FILLER_ONLY_TEXTS, detect_noise_tag
 
+        # CleanSegmentsからフィラー除去済みテキストを取得
+        clean_text_by_idx = self._build_clean_text_map()
+
         segments_data = []
         pool = []
         for i in range(topic.segment_start_index, topic.segment_end_index + 1):
             seg = transcription.segments[i]
-            if seg.text.strip() in FILLER_ONLY_TEXTS:
+            clean_text = clean_text_by_idx.get(i, seg.text)
+            if not clean_text.strip():
                 continue
-            if detect_noise_tag(seg.text.strip()):
+            if clean_text.strip() in FILLER_ONLY_TEXTS:
+                continue
+            if detect_noise_tag(clean_text.strip()):
                 continue
             segments_data.append(
                 {
                     "index": i,
-                    "text": seg.text,
+                    "text": clean_text,
                     "start": seg.start,
                     "end": seg.end,
                 }
@@ -447,9 +470,11 @@ class GenerateClipSuggestionsUseCase:
                 unique.append(c)
         candidates = unique
 
-        # 趣旨検証フィルタ（元テキスト付き）
+        # 趣旨検証フィルタ（フィラー除去済みテキスト）
+        clean_text_by_idx = self._build_clean_text_map()
         original_text = "".join(
-            transcription.segments[i].text for i in range(topic.segment_start_index, topic.segment_end_index + 1)
+            clean_text_by_idx.get(i, transcription.segments[i].text)
+            for i in range(topic.segment_start_index, topic.segment_end_index + 1)
         )
         # 未完結話題の場合、全候補invalidなら話題ごと破棄
         is_complete = getattr(topic, "is_complete", True)
