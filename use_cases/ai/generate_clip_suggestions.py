@@ -936,7 +936,7 @@ class GenerateClipSuggestionsUseCase:
 
         # 上位5候補をAIに送信
         top = candidates[:5]
-        api_input = [{"index": i, "text": c.text[:300], "duration": c.total_duration} for i, c in enumerate(top)]
+        api_input = [{"index": i, "text": c.text, "duration": c.total_duration} for i, c in enumerate(top)]
 
         try:
             valid_flags = self.gateway.validate_clip_candidates(
@@ -987,14 +987,14 @@ class GenerateClipSuggestionsUseCase:
             logger.debug(f"音響分析スキップ: {e}")
 
         # 各候補の既存テキストを使用（Whisper再文字起こし廃止）
-        transcriptions = [(i, cand.text[:300]) for i, cand in enumerate(candidates)]
+        transcriptions = [(i, cand.text) for i, cand in enumerate(candidates)]
 
         # AIに評価させる
         options = []
         for i, text in transcriptions:
             cand = candidates[i]
             options.append(
-                f"候補{i+1}（{cand.total_duration:.0f}秒、{len(cand.time_ranges)}クリップ）:\n" f"{text[:300]}"
+                f"候補{i+1}（{cand.total_duration:.0f}秒、{len(cand.time_ranges)}クリップ）:\n" f"{text}"
             )
 
         try:
