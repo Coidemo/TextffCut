@@ -642,15 +642,16 @@ extend_countは0〜{len(extension_candidates)}の整数。"""
 {ext_desc}
 
 判定してください:
-1. この話題の論点は完結していますか？
+1. 末尾に別の話題のセグメントが混入していませんか？
+   - 話題と無関係な内容が末尾にあれば、どこで切るべきか
+2. 後続セグメントに結論が含まれていませんか？
+   - 含まれていれば、どこまで拡張すべきか
+3. 最終的な範囲（trim/extend後）で話題の論点は完結しますか？
    - 主張→根拠→結論の流れが成立しているか
    - 末尾が接続形（〜ので/〜けど/〜て）で終わっていないか
-2. 末尾に別の話題のセグメントが混入していませんか？
-   - 話題と無関係な内容が末尾にあれば、どこで切るべきか
-3. 後続セグメントに結論が含まれていませんか？
-   - 含まれていれば、どこまで拡張すべきか
+   - **is_completeはtrim/extend適用後の最終範囲について判定してください**
 
-JSON: {{"action": "keep" | "trim" | "extend", "end_segment_index": 最終セグメントのseg_idx, "is_complete": true/false, "reason": "判定理由"}}"""
+JSON: {{"action": "keep" | "trim" | "extend", "end_segment_index": 最終セグメントのseg_idx, "is_complete": 最終範囲で話題が完結しているか(true/false), "reason": "判定理由"}}"""
 
         try:
             response = self.client.chat.completions.create(
