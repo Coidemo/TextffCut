@@ -306,28 +306,28 @@ JSON: {{"scores": {{"hook": 4, "completeness": 3, "compactness": 5, "ending": 4,
         candidates_text: str,
     ) -> int:
         prompt = f"""「{title}」のショート動画候補があります。
-視聴者が「保存したい」「誰かに教えたい」と思える候補を1つ選んでください。
+YouTubeショートで最も再生数が回りそうな候補を1つ選んでください。
 
-選定基準:
-- 冒頭が引きになっている（いきなり本題に入る）
-- 結論・主張が明確にある
-- 途中で切れていない
-- 冗長な繰り返しがない
-- 自然な流れで話が完結している
+選定基準（重要度順）:
+1. 冒頭の引き: 最初の一文で「続きが気になる」と思わせるか
+2. コンパクトさ: 同じ内容なら短い方が良い。冗長な前置きや繰り返しがないか
+3. 結論の明確さ: 「要するにこういうこと」と言い切っているか
+4. 共感・意外性: 視聴者が「わかる」「そうなんだ」と反応しそうか
+5. 完結性: 途中で切れていないか
 
 {candidates_text}
 
-JSON: {{"selected": 候補番号(1始まり), "reason": "選定理由"}}"""
+JSON: {{"selected": 候補番号(1始まり), "reason": "選定理由（どの基準で優れていたか具体的に）"}}"""
 
         try:
             response = self.client.chat.completions.create(
                 model=self._resolve_model("select_best_clip"),
                 messages=[
-                    {"role": "system", "content": "ショート動画の最終選定担当。JSON形式で回答。"},
+                    {"role": "system", "content": "YouTubeショート動画の編集ディレクター。再生数を最大化する候補を選定する。JSON形式で回答。"},
                     {"role": "user", "content": prompt},
                 ],
                 temperature=0.2,
-                max_tokens=200,
+                max_tokens=300,
                 response_format={"type": "json_object"},
             )
             result = json.loads(response.choices[0].message.content)
