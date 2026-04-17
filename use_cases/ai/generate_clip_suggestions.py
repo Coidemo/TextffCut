@@ -438,23 +438,8 @@ class GenerateClipSuggestionsUseCase:
             except Exception as e:
                 logger.debug(f"Phase 2b候補生成スキップ: {e}")
 
-        # Phase 2c: セグメント単位力任せ候補生成
-        classifications = self._classify_segments(topic, transcription)
-        brute_candidates = generate_candidates(
-            topic,
-            transcription,
-            min_duration,
-            max_duration,
-            segment_classifications=classifications,
-            embeddings=emb_cache,
-        )
-
-        # 3戦略の統合
-        if ai_candidates:
-            candidates = ai_candidates + sentence_candidates + brute_candidates[:3]
-        else:
-            logger.info(f"AI segment selection failed, fallback to brute-force: {topic.title}")
-            candidates = sentence_candidates + brute_candidates
+        # Phase 2a + 2b の統合（2cセグメント単位力任せは一旦スキップ）
+        candidates = ai_candidates + sentence_candidates
 
         if not candidates:
             logger.warning(f"候補なし: {topic.title}")
@@ -470,12 +455,21 @@ class GenerateClipSuggestionsUseCase:
                 unique.append(c)
         candidates = sorted(unique, key=lambda c: c.mechanical_score, reverse=True)
 
-        # 趣旨検証フィルタ（フィラー除去済みテキスト）
+        # フィラー除去済みテキストで元話題テキストを構築
         clean_text_by_idx = self._build_clean_text_map()
         original_text = "".join(
             clean_text_by_idx.get(i, transcription.segments[i].text)
             for i in range(topic.segment_start_index, topic.segment_end_index + 1)
         )
+
+        # Phase 2.5a: Embedding類似度フィルタ
+        candidates = self._filter_by_embedding_similarity(candidates, original_text)
+
+        if not candidates:
+            logger.warning(f"embeddingフィルタで全候補除外: {topic.title}")
+            return None
+
+        # 趣旨検証フィルタ
         # 未完結話題の場合、全候補invalidなら話題ごと破棄
         is_complete = getattr(topic, "is_complete", True)
         candidates = self._filter_by_thesis(topic.title, candidates, original_text=original_text)
@@ -672,6 +666,89 @@ class GenerateClipSuggestionsUseCase:
             logger.info(f"候補末尾拡張: seg[{next_idx}] 追加 → {best.total_duration:.0f}s")
 
         return best
+
+    def _filter_by_embedding_similarity(
+        self,
+        candidates: list[ClipCandidate],
+        original_text: str,
+        min_similarity: float = 0.65,
+        mech_weight: float = 0.5,
+        sim_weight: float = 0.5,
+    ) -> list[ClipCandidate]:
+        """Embedding類似度で候補をフィルタ・再ランキングする。
+
+        元話題テキストと各候補テキストのcosine類似度を計算し:
+        1. min_similarity未満の候補を除外
+        2. mechanical_score と similarity の複合スコアで再ランキング
+        """
+        if len(candidates) <= 1:
+            return candidates
+
+        # Embedding計算（バッチ処理）
+        texts = [original_text] + [c.text[:500] for c in candidates]
+        batch_size = 500
+        all_embeddings: list[list[float]] = []
+
+        for i in range(0, len(texts), batch_size):
+            batch = texts[i : i + batch_size]
+            try:
+                batch_embs = self.gateway.compute_embeddings(batch)
+            except Exception as e:
+                logger.warning(f"Embedding計算失敗（バッチ{i}）: {e}")
+                return candidates  # 失敗時はフィルタなしで続行
+            if not batch_embs:
+                return candidates
+            all_embeddings.extend(batch_embs)
+
+        if len(all_embeddings) != len(texts):
+            logger.warning(f"Embedding数不一致: {len(all_embeddings)} != {len(texts)}")
+            return candidates
+
+        topic_emb = all_embeddings[0]
+        cand_embs = all_embeddings[1:]
+
+        # cosine類似度計算 + フィルタ
+        scored: list[tuple[ClipCandidate, float]] = []
+        for c, emb in zip(candidates, cand_embs):
+            sim = _cosine_similarity(topic_emb, emb)
+            if sim >= min_similarity:
+                scored.append((c, sim))
+
+        if not scored:
+            # 全除外される場合は最も類似度の高いものを残す
+            all_sims = [
+                (_cosine_similarity(topic_emb, emb), c) for c, emb in zip(candidates, cand_embs)
+            ]
+            best_sim, best_c = max(all_sims, key=lambda x: x[0])
+            logger.info(f"Embeddingフィルタ: 全候補が閾値{min_similarity}未満 → 最高sim={best_sim:.3f}を残す")
+            return [best_c]
+
+        # 複合スコアで再ランキング
+        # mechanical_score: 0-100 → 0-1に正規化
+        # sim: 既に0-1
+        max_mech = max(c.mechanical_score for c, _ in scored) or 1
+        min_mech = min(c.mechanical_score for c, _ in scored)
+        mech_range = max_mech - min_mech if max_mech > min_mech else 1
+
+        result = []
+        for c, sim in scored:
+            mech_norm = (c.mechanical_score - min_mech) / mech_range
+            composite = mech_weight * mech_norm + sim_weight * sim
+            c.embedding_similarity = sim
+            c.composite_score = composite
+            result.append(c)
+
+        result.sort(key=lambda c: c.composite_score, reverse=True)
+
+        n_filtered = len(candidates) - len(result)
+        if n_filtered > 0:
+            sims = [s for _, s in scored]
+            logger.info(
+                f"Embeddingフィルタ: {len(candidates)}→{len(result)}候補 "
+                f"(sim={min(sims):.3f}~{max(sims):.3f}, 除外{n_filtered}件)"
+            )
+
+        return result
 
     def _filter_by_thesis(
         self,

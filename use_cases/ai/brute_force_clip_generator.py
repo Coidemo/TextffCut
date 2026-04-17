@@ -37,6 +37,8 @@ class ClipCandidate:
     time_ranges: list[tuple[float, float]]
     total_duration: float
     mechanical_score: float = 0.0
+    embedding_similarity: float = 0.0
+    composite_score: float = 0.0
 
 
 def generate_candidates(
