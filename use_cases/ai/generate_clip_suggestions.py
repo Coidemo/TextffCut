@@ -28,6 +28,172 @@ logger = logging.getLogger(__name__)
 
 MIN_TOPIC_SCORE = 8  # Phase 1 で低スコア話題をスキップする閾値
 
+# 末尾の自然さ判定パターン（文字列フォールバック用）
+_GOOD_ENDINGS_HIGH = ("です", "ます", "ました", "思います", "しれません")
+_GOOD_ENDINGS_MEDIUM = (
+    "ですね", "ますね", "ですよね", "よね", "んですよ",
+    "んです", "ですか", "ですかね", "ませんか",
+)
+_DEFINITELY_INCOMPLETE = (
+    "ので", "から", "けど", "けれども", "んですけど",
+    "っていうのは", "んですけれども", "なんですけど",
+)
+_LIKELY_INCOMPLETE = (
+    "って", "のが", "みたいな", "とか", "たら", "のは",
+    "て", "より", "ながら", "つつ", "ものの", "にも", "を",
+)
+
+# 接続助詞（末尾に来ると不自然）
+_CONJUNCTIVE_PARTICLES = frozenset(
+    ("から", "けど", "ので", "って", "のが", "たら", "は", "て", "より", "ながら", "つつ")
+)
+# 終助詞（末尾に来ると自然）
+_FINAL_PARTICLES = frozenset(("よ", "ね", "わ", "な", "さ"))
+# 冒頭に来ると不自然な助詞
+_BAD_START_PARTICLE_TEXTS = frozenset(
+    ("で", "て", "けど", "けれども", "ので", "から", "が", "を", "に", "と", "も", "は")
+)
+
+
+def _ending_naturalness_score(text: str) -> int:
+    """候補テキストの末尾自然さスコアを返す（GiNZA + 文字列フォールバック）。"""
+    t = text.rstrip()
+    if not t:
+        return 0
+
+    # 文字列マッチ（高確度パターンを先にチェック）
+    str_score = _ending_str_score(t)
+
+    # GiNZA POS判定
+    ginza_score = _ending_ginza_score(t)
+
+    # 両方のスコアのうち、絶対値が大きい方（より確信度が高い方）を採用
+    if abs(ginza_score) >= abs(str_score):
+        return ginza_score
+    return str_score
+
+
+def _ending_str_score(text: str) -> int:
+    """文字列パターンによる末尾判定。"""
+    if any(text.endswith(g) for g in _GOOD_ENDINGS_HIGH):
+        return 15
+    if any(text.endswith(g) for g in _GOOD_ENDINGS_MEDIUM):
+        return 8
+    if any(text.endswith(b) for b in _DEFINITELY_INCOMPLETE):
+        return -20
+    if any(text.endswith(b) for b in _LIKELY_INCOMPLETE):
+        return -12
+    return 0
+
+
+def _ending_ginza_score(text: str) -> int:
+    """GiNZA品詞による末尾判定。"""
+    try:
+        from core.japanese_line_break import JapaneseLineBreakRules
+
+        # 末尾50文字で十分（GiNZA解析コスト削減）
+        doc = JapaneseLineBreakRules._analyze(text[-50:])
+        if not doc or len(doc) == 0:
+            return 0
+
+        last_token = doc[-1]
+        pos = JapaneseLineBreakRules._normalize_pos_tag(last_token.tag_)
+        pos_major = pos.split("-")[0]
+        token_text = last_token.text
+
+        score = 0
+        if pos_major == "助動詞":
+            score = 12  # です/ます系
+        elif pos_major in ("名詞", "動詞"):
+            score = 5  # 体言止め・動詞終止
+        elif pos_major == "助詞":
+            if token_text in _CONJUNCTIVE_PARTICLES:
+                score = -18
+            elif token_text in _FINAL_PARTICLES:
+                score = 10
+            elif token_text == "か":
+                score = 8
+            else:
+                score = -10  # その他の助詞（格助詞等）
+
+        # 主節存在チェック: 末尾3トークン内に述語なし → 追加ペナルティ
+        if score <= 0 and len(doc) >= 2:
+            recent_poses = [
+                JapaneseLineBreakRules._normalize_pos_tag(tk.tag_).split("-")[0]
+                for tk in doc[-3:]
+            ]
+            has_predicate = any(p in ("助動詞", "動詞", "形容詞") for p in recent_poses)
+            if not has_predicate and pos_major == "助詞" and token_text not in _FINAL_PARTICLES and token_text != "か":
+                score -= 5
+
+        return score
+    except Exception:
+        return 0
+
+
+def _start_naturalness_score(text: str) -> int:
+    """候補テキストの冒頭自然さスコアを返す（GiNZA + 文字列フォールバック）。"""
+    t = text.lstrip()
+    if not t:
+        return 0
+
+    ginza_score = _start_ginza_score(t)
+    if ginza_score != 0:
+        return ginza_score
+    return _start_str_score(t)
+
+
+def _start_ginza_score(text: str) -> int:
+    """GiNZA品詞による冒頭判定。"""
+    try:
+        from core.japanese_line_break import JapaneseLineBreakRules
+
+        doc = JapaneseLineBreakRules._analyze(text[:50])
+        if not doc or len(doc) == 0:
+            return 0
+
+        first_token = doc[0]
+        pos = JapaneseLineBreakRules._normalize_pos_tag(first_token.tag_)
+        pos_major = pos.split("-")[0]
+        token_text = first_token.text
+
+        if pos_major == "助詞":
+            if token_text in _BAD_START_PARTICLE_TEXTS:
+                return -15
+            # 「っていう」等は接続助詞始まり
+            if token_text in ("って", "っていう"):
+                return -15
+        elif pos_major == "助動詞":
+            # 助動詞で始まる → 前文の述語からの続き
+            return -10
+
+        return 0
+    except Exception:
+        return 0
+
+
+def _start_str_score(text: str) -> int:
+    """文字列パターンによる冒頭判定（GiNZAフォールバック）。"""
+    for p in _BAD_START_PARTICLE_TEXTS:
+        if text.startswith(p) and len(text) > len(p):
+            next_char = text[len(p)]
+            safe_follows = {
+                "で": "すはもきし", "て": "もはき",
+                "は": "いっ", "と": "いこに",
+            }
+            if p in safe_follows and next_char in safe_follows[p]:
+                continue
+            return -15
+    for c in ("っていう", "という", "ああい", "ういう"):
+        if text.startswith(c):
+            return -15
+    return 0
+
+
+def _boundary_naturalness_score(text: str) -> int:
+    """候補テキストの冒頭+末尾の自然さ合算スコア。"""
+    return _start_naturalness_score(text) + _ending_naturalness_score(text)
+
 
 def _cosine_similarity(a: list[float], b: list[float]) -> float:
     """2つのembeddingベクトルのcosine類似度を計算する。"""
@@ -705,15 +871,58 @@ class GenerateClipSuggestionsUseCase:
         # similarity降順でランキング
         result.sort(key=lambda c: c.embedding_similarity, reverse=True)
 
+        # 多様性フィルタ: 内容パターン重複除去 + duration散らし
+        # Step 1: 先頭80文字が同じ候補はグループの代表（最高sim）のみ残す
+        pattern_pool: list[ClipCandidate] = []
+        seen_prefixes: set[str] = set()
+        for c in result:
+            prefix = c.text[:80]
+            if prefix not in seen_prefixes:
+                seen_prefixes.add(prefix)
+                pattern_pool.append(c)
+
+        # Step 2: duration散らし + 末尾自然さで選出（greedy）
+        # 最高simを1件目に選び、以降はduration差8秒以上の候補を優先
+        # 同条件なら末尾が自然な候補を優先
+        min_dur_gap = 8.0
+        selected: list[ClipCandidate] = []
+        remaining = list(pattern_pool)
+
+        while remaining:
+            if not selected:
+                # 1件目: 最高sim（同simなら末尾自然な方）
+                selected.append(remaining.pop(0))
+            else:
+                # duration差が十分な候補を集める
+                dur_ok = [
+                    (i, c) for i, c in enumerate(remaining)
+                    if all(abs(c.total_duration - s.total_duration) >= min_dur_gap for s in selected)
+                ]
+                if dur_ok:
+                    # duration差OKの中で冒頭+末尾自然さ最良 → sim最高の順で選ぶ
+                    best_i, _ = max(
+                        dur_ok,
+                        key=lambda ic: (_boundary_naturalness_score(ic[1].text), ic[1].embedding_similarity),
+                    )
+                    selected.append(remaining.pop(best_i))
+                else:
+                    # duration差を満たす候補がない → 冒頭+末尾自然さ優先で次を取る
+                    best_i = max(
+                        range(len(remaining)),
+                        key=lambda i: (_boundary_naturalness_score(remaining[i].text), remaining[i].embedding_similarity),
+                    )
+                    selected.append(remaining.pop(best_i))
+
         n_filtered = len(candidates) - len(result)
-        if n_filtered > 0:
+        n_deduped = len(result) - len(pattern_pool)
+        if n_filtered > 0 or n_deduped > 0:
             logger.info(
                 f"Embeddingフィルタ: {len(candidates)}→{len(result)}候補 "
                 f"(sim={result[-1].embedding_similarity:.3f}~{result[0].embedding_similarity:.3f}, "
-                f"除外{n_filtered}件)"
+                f"除外{n_filtered}件, 重複統合{n_deduped}件→{len(pattern_pool)}パターン)"
             )
 
-        return result
+        return selected
 
     def _filter_by_thesis(
         self,
