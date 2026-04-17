@@ -954,12 +954,12 @@ class GenerateClipSuggestionsUseCase:
         rest = candidates[5:]
 
         if not filtered:
-            # 全候補除外の場合、機械スコア最高のものを1つ残す
-            best_mechanical = max(top, key=lambda c: c.mechanical_score)
+            # 全候補除外の場合、embedding similarity最高のものを1つ残す
+            best = max(top, key=lambda c: c.embedding_similarity)
             logger.info(
-                f"趣旨検証: 全候補invalid → 機械スコア最高を残す (score={best_mechanical.mechanical_score:.0f})"
+                f"趣旨検証: 全候補invalid → sim最高を残す (sim={best.embedding_similarity:.3f})"
             )
-            return [best_mechanical] + rest
+            return [best] + rest
 
         result = filtered + rest
         if len(filtered) < len(top):
@@ -973,20 +973,7 @@ class GenerateClipSuggestionsUseCase:
         video_path: Path,
     ) -> ClipCandidate | None:
         """上位候補の既存テキストを使ってAIに最良を選ばせる。"""
-        # 音響分析で候補をリランキング
-        try:
-            from use_cases.ai.audio_naturalness import analyze_join_naturalness
-
-            for cand in candidates:
-                if len(cand.time_ranges) >= 2:
-                    joins = analyze_join_naturalness(video_path, cand.time_ranges)
-                    unnatural_count = sum(1 for j in joins if not j.is_natural)
-                    cand.mechanical_score -= unnatural_count * 10
-            candidates.sort(key=lambda c: c.mechanical_score, reverse=True)
-        except Exception as e:
-            logger.debug(f"音響分析スキップ: {e}")
-
-        # 各候補の既存テキストを使用（Whisper再文字起こし廃止）
+        # 各候補の既存テキストを使用
         transcriptions = [(i, cand.text) for i, cand in enumerate(candidates)]
 
         # AIに評価させる
