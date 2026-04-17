@@ -72,7 +72,7 @@ def generate_candidates(
     # 分類マップ構築（セグメントindex → role）
     role_map: dict[int, str] | None = None
     if segment_classifications:
-        role_map = {c["index"]: c.get("role", "supportive") for c in segment_classifications}
+        role_map = {c["index"]: c.get("role", "supportive") for c in segment_classifications if "index" in c}
 
     # 組み合わせ生成戦略:
     # 連続するセグメントの部分列を様々な開始/終了位置で切り出す
@@ -386,20 +386,29 @@ def _calculate_score(
         "ませんか",
     ]
     DEFINITELY_INCOMPLETE = [
-        "ので", "から", "けど", "けれども", "んですけど",
+        "ので",
+        "から",
+        "けど",
+        "けれども",
+        "んですけど",
         "っていうのは",  # 主題提示（「〜っていうのはこういうこと」の前半）
         "んですけれども",
         "なんですけど",
     ]
     LIKELY_INCOMPLETE = [
-        "って", "のが", "みたいな", "とか", "たら", "のは",
-        "て",      # 接続助詞「〜して」（「て形」中断）
-        "より",    # 比較助詞「〜より〇〇」
+        "って",
+        "のが",
+        "みたいな",
+        "とか",
+        "たら",
+        "のは",
+        "て",  # 接続助詞「〜して」（「て形」中断）
+        "より",  # 比較助詞「〜より〇〇」
         "ながら",  # 接続助詞
-        "つつ",    # 接続助詞
+        "つつ",  # 接続助詞
         "ものの",  # 接続助詞
-        "にも",    # 並列助詞（「〜にもかかわらず」）
-        "を",      # 格助詞（「〜を使って」の途中）
+        "にも",  # 並列助詞（「〜にもかかわらず」）
+        "を",  # 格助詞（「〜を使って」の途中）
     ]
 
     last_text = candidate.segments[-1].text.rstrip() if candidate.segments else ""
@@ -430,8 +439,17 @@ def _calculate_score(
                     score += 5  # 体言止め
                 elif last_pos_major == "助詞":
                     _CONJUNCTIVE_PARTICLES = (
-                        "から", "けど", "ので", "って", "のが", "たら",
-                        "は", "て", "より", "ながら", "つつ",
+                        "から",
+                        "けど",
+                        "ので",
+                        "って",
+                        "のが",
+                        "たら",
+                        "は",
+                        "て",
+                        "より",
+                        "ながら",
+                        "つつ",
                     )
                     if last_token_text in _CONJUNCTIVE_PARTICLES:
                         score -= 18  # 接続助詞・主題助詞
@@ -441,10 +459,7 @@ def _calculate_score(
                         score += 8  # 疑問
 
                 # 主節存在チェック: 末尾3トークン内に述語なし → 追加ペナルティ
-                recent_poses = [
-                    JapaneseLineBreakRules._normalize_pos_tag(t.tag_).split("-")[0]
-                    for t in doc[-3:]
-                ]
+                recent_poses = [JapaneseLineBreakRules._normalize_pos_tag(t.tag_).split("-")[0] for t in doc[-3:]]
                 has_predicate = any(p in ("助動詞", "動詞", "形容詞") for p in recent_poses)
                 if (
                     not has_predicate
@@ -542,15 +557,8 @@ def _calculate_score(
     return max(0, min(100, score))
 
 
-# GOOD ENDINGスナップ用の末尾判定
-_GOOD_ENDINGS_FOR_SNAP = [
-    "です", "ます", "ました", "思います", "しれません",
-    "ですね", "ますね", "ですよね", "よね", "んですよ", "んです",
-    "ですか", "ですかね", "ませんか",
-]
-
-
 def _is_good_ending(text: str) -> bool:
     """テキストが自然な文末で終わっているか判定する。"""
-    text = text.rstrip()
-    return any(text.endswith(g) for g in _GOOD_ENDINGS_FOR_SNAP)
+    from core.japanese_line_break import JapaneseLineBreakRules
+
+    return JapaneseLineBreakRules.is_sentence_complete(text)

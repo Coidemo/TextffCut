@@ -90,6 +90,8 @@ class SuggestAndExportUseCase:
         )
 
         detection = use_case.last_detection_result
+        # Phase 0のFillerMapを取得（Phase 4で再利用）
+        _filler_map = getattr(use_case, "_filler_map", {})
         _phase_times["Phase1-3 話題検出+候補生成+AI選定"] = _time.time() - _t0
 
         # 出力ディレクトリ
@@ -100,10 +102,17 @@ class SuggestAndExportUseCase:
 
         _t1 = _time.time()
         # Phase 4: wordsレベルフィラー仕上げ（音響チェック付き）
+        # Phase 0で検出済みのFillerMapを渡してLLM呼び出しを削減
         from use_cases.ai.word_level_filler_polish import polish_fillers
 
         for i, suggestion in enumerate(suggestions):
-            suggestions[i] = polish_fillers(suggestion, request.transcription, request.video_path, gateway=self.gateway)
+            suggestions[i] = polish_fillers(
+                suggestion,
+                request.transcription,
+                request.video_path,
+                gateway=self.gateway,
+                predetected_filler_map=_filler_map,
+            )
 
         _phase_times["Phase4 フィラー仕上げ"] = _time.time() - _t1
         _t2 = _time.time()
@@ -242,6 +251,7 @@ class SuggestAndExportUseCase:
         _t5 = _time.time()
         # Phase 6: SRT用の再文字起こしを事前並列実行
         srt_segments_map: dict[int, list[dict] | None] = {}
+        _srt_api_key = getattr(getattr(self.gateway, "client", None), "api_key", None)
         if request.generate_srt:
             from concurrent.futures import ThreadPoolExecutor
 
@@ -249,7 +259,7 @@ class SuggestAndExportUseCase:
 
             def _transcribe_for_srt(idx_sugg: tuple[int, ClipSuggestion]) -> tuple[int, list[dict]]:
                 idx, sugg = idx_sugg
-                result = _transcribe_output_audio(sugg.time_ranges, actual_video_path)
+                result = _transcribe_output_audio(sugg.time_ranges, actual_video_path, api_key=_srt_api_key)
                 return idx, result if result is not None else _SRT_TRANSCRIPTION_FAILED
 
             with ThreadPoolExecutor(max_workers=min(len(suggestions), 4)) as executor:
@@ -310,6 +320,7 @@ class SuggestAndExportUseCase:
                     max_lines=request.srt_max_lines,
                     speed=request.speed,
                     precomputed_segments=srt_segments_map.get(i - 1),
+                    api_key=_srt_api_key,
                 )
 
         _phase_times["Phase6b SE+FCPXML+SRT生成"] = _time.time() - _t6

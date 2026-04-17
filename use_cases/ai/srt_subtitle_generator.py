@@ -49,29 +49,41 @@ def generate_srt(
     max_lines: int = DEFAULT_MAX_LINES,
     speed: float = 1.0,
     precomputed_segments: list[dict] | None = None,
+    api_key: str | None = None,
 ) -> Path | None:
     if not suggestion.time_ranges:
         return None
 
-    # 事前文字起こし結果があればそれを使用（失敗済みならWhisper再試行をスキップ）
-    if precomputed_segments is _SRT_TRANSCRIPTION_FAILED:
-        pass  # フォールバックへ
-    elif precomputed_segments is not None:
-        return _generate_from_segments(precomputed_segments, output_path, max_chars_per_line, max_lines)
-
-    # 切り抜き後の音声を結合して再文字起こし→正確なタイムスタンプを取得
-    elif video_path:
-        segments = _transcribe_output_audio(suggestion.time_ranges, video_path)
-        if segments:
-            return _generate_from_segments(segments, output_path, max_chars_per_line, max_lines)
-
-    # フォールバック: 元の文字起こしを使用
+    # 元の文字起こしからpartsを構築（比較用）
     tmap = build_timeline_map(suggestion.time_ranges)
-    parts = collect_parts(suggestion.time_ranges, tmap, transcription, speed=speed)
-    if not parts:
+    original_parts = collect_parts(suggestion.time_ranges, tmap, transcription, speed=speed)
+
+    # Whisper再文字起こし結果を取得
+    whisper_segments = None
+    if precomputed_segments is _SRT_TRANSCRIPTION_FAILED:
+        whisper_segments = None  # 失敗済み
+    elif precomputed_segments is not None:
+        whisper_segments = precomputed_segments
+    elif video_path:
+        whisper_segments = _transcribe_output_audio(suggestion.time_ranges, video_path, api_key=api_key)
+
+    # Phase 6a: Whisper再文字起こし vs 元文字起こしを比較
+    if whisper_segments and original_parts:
+        use_whisper = select_better_transcription(whisper_segments, original_parts)
+        if use_whisper:
+            logger.debug("SRT: Whisper再文字起こしを採用")
+            return _generate_from_segments(whisper_segments, output_path, max_chars_per_line, max_lines)
+        else:
+            logger.debug("SRT: 元の文字起こしを採用（Whisperより高品質）")
+    elif whisper_segments:
+        # 元のpartsがない場合はWhisperを使用
+        return _generate_from_segments(whisper_segments, output_path, max_chars_per_line, max_lines)
+
+    # フォールバック / 元テキスト採用: 元の文字起こしを使用
+    if not original_parts:
         return None
 
-    full_text, char_times, seg_bounds = _build_char_time_map(parts)
+    full_text, char_times, seg_bounds = _build_char_time_map(original_parts)
     if not full_text:
         return None
 
@@ -83,6 +95,99 @@ def generate_srt(
         max_chars_per_line,
         max_lines,
     )
+
+
+def select_better_transcription(
+    whisper_segments: list[dict],
+    original_parts: list[tuple],
+) -> bool:
+    """Whisper再文字起こしと元文字起こしを比較し、Whisperを使うべきかを返す。
+
+    比較基準（機械的）:
+    1. 文完結率: 末尾がis_sentence_complete()なセグメントの割合
+    2. フィラー混入率: フィラー語の出現割合（少ないほうが良い）
+    3. テキスト密度: 全文字数 / 全時間（異常に少ない = 認識漏れ）
+    4. 全体の文字数差: 大きく減っている場合はWhisperの認識漏れ
+
+    Returns:
+        True: Whisperを採用, False: 元テキストを採用
+    """
+    from core.japanese_line_break import JapaneseLineBreakRules
+    from use_cases.ai.filler_constants import FILLER_WORDS
+
+    # Whisperテキスト構築
+    whisper_text = "".join(s.get("text", "") for s in whisper_segments)
+    whisper_duration = sum(s.get("end", 0) - s.get("start", 0) for s in whisper_segments) if whisper_segments else 1.0
+
+    # 元テキスト構築
+    original_text = "".join(p[0] for p in original_parts)
+    original_duration = sum(p[2] - p[1] for p in original_parts) if original_parts else 1.0
+
+    whisper_score = 0.0
+    original_score = 0.0
+
+    # 1. 文完結率
+    whisper_ends = [s.get("text", "").rstrip() for s in whisper_segments if s.get("text", "").strip()]
+    whisper_complete = sum(1 for t in whisper_ends if JapaneseLineBreakRules.is_sentence_complete(t))
+    whisper_complete_rate = whisper_complete / max(len(whisper_ends), 1)
+
+    original_ends = [p[0].rstrip() for p in original_parts if p[0].strip()]
+    original_complete = sum(1 for t in original_ends if JapaneseLineBreakRules.is_sentence_complete(t))
+    original_complete_rate = original_complete / max(len(original_ends), 1)
+
+    whisper_score += whisper_complete_rate * 30
+    original_score += original_complete_rate * 30
+
+    # 2. フィラー混入率
+    filler_set = set(FILLER_WORDS)
+
+    def _count_fillers(text: str) -> int:
+        count = 0
+        for f in filler_set:
+            count += text.count(f)
+        return count
+
+    whisper_fillers = _count_fillers(whisper_text)
+    original_fillers = _count_fillers(original_text)
+    whisper_filler_rate = whisper_fillers / max(len(whisper_text), 1)
+    original_filler_rate = original_fillers / max(len(original_text), 1)
+
+    # フィラーが少ないほうが良い
+    whisper_score += (1 - whisper_filler_rate) * 20
+    original_score += (1 - original_filler_rate) * 20
+
+    # 3. テキスト密度
+    whisper_density = len(whisper_text) / max(whisper_duration, 0.1)
+    original_density = len(original_text) / max(original_duration, 0.1)
+
+    # 正常範囲: 3-10文字/秒（日本語の発話速度）
+    def _density_score(d: float) -> float:
+        if 3.0 <= d <= 10.0:
+            return 20.0
+        elif d < 3.0:
+            return d / 3.0 * 20.0  # 低密度ペナルティ
+        else:
+            return max(0, 20.0 - (d - 10.0) * 2)
+
+    whisper_score += _density_score(whisper_density)
+    original_score += _density_score(original_density)
+
+    # 4. 文字数差: Whisperが元より大幅に少ない場合は認識漏れ
+    if len(original_text) > 0:
+        ratio = len(whisper_text) / len(original_text)
+        if ratio < 0.7:
+            whisper_score -= 20  # 30%以上減少はペナルティ
+        elif ratio > 1.3:
+            whisper_score -= 10  # 30%以上増加も疑わしい
+
+    logger.debug(
+        f"SRT比較: Whisper={whisper_score:.1f} vs Original={original_score:.1f} "
+        f"(文完結: {whisper_complete_rate:.0%}/{original_complete_rate:.0%}, "
+        f"フィラー: {whisper_fillers}/{original_fillers}, "
+        f"密度: {whisper_density:.1f}/{original_density:.1f})"
+    )
+
+    return whisper_score >= original_score
 
 
 def _extract_audio_parts_parallel(
@@ -138,8 +243,14 @@ def _extract_audio_parts_parallel(
 def _transcribe_output_audio(
     time_ranges: list[tuple[float, float]],
     video_path: Path,
+    api_key: str | None = None,
 ) -> list[dict] | None:
     """切り抜き後の音声を結合し、Whisper APIで文字起こしする。
+
+    APIキー解決の優先順位:
+        1. 引数 api_key（明示的に渡された場合）
+        2. 環境変数 OPENAI_API_KEY / TEXTFFCUT_API_KEY
+        3. api_key_manager.load_api_key()（暗号化ストレージ）
 
     Returns:
         [{"text": str, "start": float, "end": float}, ...] セグメントリスト
@@ -148,14 +259,23 @@ def _transcribe_output_audio(
     import subprocess
     import tempfile
 
-    try:
-        from dotenv import load_dotenv
+    if not api_key:
+        try:
+            from dotenv import load_dotenv
 
-        load_dotenv()
-    except ImportError:
-        pass
+            load_dotenv()
+        except ImportError:
+            pass
+        api_key = os.environ.get("OPENAI_API_KEY") or os.environ.get("TEXTFFCUT_API_KEY")
 
-    api_key = os.environ.get("OPENAI_API_KEY") or os.environ.get("TEXTFFCUT_API_KEY")
+    if not api_key:
+        try:
+            from utils.api_key_manager import api_key_manager
+
+            api_key = api_key_manager.load_api_key()
+        except Exception:
+            pass
+
     if not api_key:
         logger.debug("APIキー未設定、元の文字起こしでフォールバック")
         return None
@@ -223,7 +343,11 @@ def _transcribe_output_audio(
                 start = seg.start if hasattr(seg, "start") else seg.get("start", 0)
                 end = seg.end if hasattr(seg, "end") else seg.get("end", 0)
                 if text and end > start:
-                    segments.append({"text": text, "start": start, "end": end})
+                    # Whisperが音声長を超えるタイムスタンプを返すことがあるのでクランプ
+                    start = min(start, total_duration)
+                    end = min(end, total_duration)
+                    if end > start:
+                        segments.append({"text": text, "start": start, "end": end})
 
             logger.info(f"出力音声文字起こし: {len(segments)}セグメント")
             return segments
@@ -438,6 +562,49 @@ def _remove_inline_fillers(
     return new_text, new_char_times, new_seg_bounds
 
 
+def _trim_incomplete_ending(entries: list[SRTEntry]) -> list[SRTEntry]:
+    """SRT末尾が不完全文で終わる場合、最後の完結点まで切り詰める。
+
+    パターン1: 最終エントリ内に完結点がある → テキストをその点で切り詰め
+    パターン2: 最終エントリ全体が不完全 → 前のエントリに遡って完結点を探す（最大3エントリ）
+    """
+    if not entries:
+        return entries
+
+    from core.japanese_line_break import JapaneseLineBreakRules
+
+    # 最終エントリのテキスト（改行除去して結合）
+    last = entries[-1]
+    flat = last.text.replace("\n", "")
+    if JapaneseLineBreakRules.is_sentence_complete(flat):
+        return entries
+
+    # パターン1: 最終エントリ内を逆走して完結点を探す
+    # 行単位でチェック（SRTは1-2行構成）
+    lines = last.text.split("\n")
+    if len(lines) >= 2:
+        first_line = lines[0].rstrip()
+        if first_line and JapaneseLineBreakRules.is_sentence_complete(first_line):
+            # 1行目で完結 → 2行目以降をカット
+            last.text = first_line
+            logger.info(f"SRT末尾トリム: 最終エントリを1行目で切り詰め '{first_line[-15:]}'")
+            return entries
+
+    # パターン2: 最終エントリを丸ごと除去して前のエントリをチェック
+    for drop_count in range(1, min(4, len(entries))):
+        candidate_entries = entries[: len(entries) - drop_count]
+        if not candidate_entries:
+            break
+        check = candidate_entries[-1]
+        check_flat = check.text.replace("\n", "")
+        if JapaneseLineBreakRules.is_sentence_complete(check_flat):
+            logger.info(f"SRT末尾トリム: 末尾{drop_count}エントリ除去 → '{check_flat[-15:]}'")
+            return candidate_entries
+
+    # 完結点が見つからない場合はそのまま返す
+    return entries
+
+
 def _entries_from_char_times(
     full_text: str,
     char_times: list[tuple[float, float]],
@@ -465,6 +632,9 @@ def _entries_from_char_times(
 
     # 短すぎるエントリを前後と統合
     entries = _merge_short_entries(entries, max_chars_per_line, max_lines)
+
+    # 末尾トリミング: 最後のエントリが不完全文で終わる場合、完結点まで切り詰める
+    entries = _trim_incomplete_ending(entries)
 
     for i, e in enumerate(entries, 1):
         e.index = i

@@ -35,12 +35,20 @@ DEFAULT_PROMPT_PATH = Path(__file__).parent.parent.parent.parent / "prompts" / "
 
 class OpenAIClipSuggestionGateway(ClipSuggestionGatewayInterface):
 
-    def __init__(self, api_key: str, model: str = "gpt-4.1-mini"):
+    def __init__(self, api_key: str, model: str = "gpt-4.1-mini", model_overrides: dict[str, str] | None = None):
         self.client = OpenAI(api_key=api_key)
         if model not in AVAILABLE_MODELS:
             logger.warning(f"Unknown model '{model}', falling back to gpt-4.1-mini")
             model = "gpt-4.1-mini"
         self.model = model
+        self._model_overrides = model_overrides or {}
+
+    def _resolve_model(self, method_name: str) -> str:
+        """メソッド名に応じたモデルを返す。overridesがなければデフォルト。"""
+        override = self._model_overrides.get(method_name)
+        if override and override in AVAILABLE_MODELS:
+            return override
+        return self.model
 
     def detect_topics(self, request: TopicDetectionRequest, format_mode: str = "chunk_30s") -> TopicDetectionResult:
         start = time.time()
@@ -48,7 +56,7 @@ class OpenAIClipSuggestionGateway(ClipSuggestionGatewayInterface):
         prompt = self._build_topic_prompt(request, format_mode=format_mode)
 
         response = self.client.chat.completions.create(
-            model=self.model,
+            model=self._resolve_model("detect_topics"),
             messages=[
                 {
                     "role": "system",
@@ -91,7 +99,8 @@ class OpenAIClipSuggestionGateway(ClipSuggestionGatewayInterface):
             "completion_tokens": response.usage.completion_tokens,
             "total_tokens": response.usage.total_tokens,
         }
-        pricing = MODEL_PRICING.get(self.model, MODEL_PRICING["gpt-4.1-mini"])
+        resolved = self._resolve_model("detect_topics")
+        pricing = MODEL_PRICING.get(resolved, MODEL_PRICING["gpt-4.1-mini"])
         cost = (token_usage["prompt_tokens"] / 1_000_000) * pricing["input"] + (
             token_usage["completion_tokens"] / 1_000_000
         ) * pricing["output"]
@@ -130,7 +139,7 @@ class OpenAIClipSuggestionGateway(ClipSuggestionGatewayInterface):
 
         try:
             response = self.client.chat.completions.create(
-                model=self.model,
+                model=self._resolve_model("select_best_variant"),
                 messages=[
                     {"role": "system", "content": "ショート動画の編集専門家です。JSON形式で回答してください。"},
                     {"role": "user", "content": prompt},
@@ -173,7 +182,7 @@ JSON: {{"remove": [不要なセグメントのindex番号]}}"""
 
         try:
             response = self.client.chat.completions.create(
-                model=self.model,
+                model=self._resolve_model("judge_segment_relevance"),
                 messages=[
                     {"role": "system", "content": "動画編集のセグメント選別担当。JSON形式で回答。"},
                     {"role": "user", "content": prompt},
@@ -222,7 +231,7 @@ JSON: {{"reviews": [{{"index": 0, "action": "extend", "reason": "理由"}}]}}"""
 
         try:
             response = self.client.chat.completions.create(
-                model=self.model,
+                model=self._resolve_model("review_naturalness"),
                 messages=[
                     {"role": "system", "content": "動画編集レビュー担当。必ず短いJSONで回答。"},
                     {"role": "user", "content": prompt},
@@ -277,7 +286,7 @@ JSON: {{"scores": {{"hook": 4, "completeness": 3, "compactness": 5, "ending": 4,
 
         try:
             response = self.client.chat.completions.create(
-                model=self.model,
+                model=self._resolve_model("evaluate_clip_quality"),
                 messages=[
                     {"role": "system", "content": "ショート動画の品質管理担当。厳しく判定。JSON形式で回答。"},
                     {"role": "user", "content": prompt},
@@ -312,7 +321,7 @@ JSON: {{"selected": 候補番号(1始まり), "reason": "選定理由"}}"""
 
         try:
             response = self.client.chat.completions.create(
-                model=self.model,
+                model=self._resolve_model("select_best_clip"),
                 messages=[
                     {"role": "system", "content": "ショート動画の最終選定担当。JSON形式で回答。"},
                     {"role": "user", "content": prompt},
@@ -366,6 +375,7 @@ JSON: {{"selected": 候補番号(1始まり), "reason": "選定理由"}}"""
 - テキストの編集は不要。セグメントをそのまま使う
 - 全セグメント合計: {total_available:.0f}秒。選択後の合計が {min_duration:.0f}〜{max_duration:.0f} 秒になるようにしてください。
 - セグメント数は通常15〜25個程度必要です。少なすぎると秒数が足りません。
+- 最後のセグメントは必ず文が完結していること（「です」「ます」「よね」「と思います」等で終わる）。「〜で」「〜けど」「〜ので」「〜のに」のような接続形で終わらないこと
 - {num_variants}パターン作る: 骨子のみと、少し肉付けした版
 
 セグメント:
@@ -378,7 +388,7 @@ JSON: {{"variants": [
 
         try:
             response = self.client.chat.completions.create(
-                model=self.model,
+                model=self._resolve_model("select_clip_segments"),
                 messages=[
                     {"role": "system", "content": "ショート動画の編集担当。セグメントを選別してJSON形式で回答。"},
                     {"role": "user", "content": prompt},
@@ -437,7 +447,7 @@ JSON: {{"classifications": [{{"index": 0, "role": "essential", "reason": "結論
 
         try:
             response = self.client.chat.completions.create(
-                model=self.model,
+                model=self._resolve_model("classify_segment_essentiality"),
                 messages=[
                     {"role": "system", "content": "動画編集の骨子抽出担当。JSON形式で回答。"},
                     {"role": "user", "content": prompt},
@@ -475,7 +485,7 @@ JSON: {{"classifications": [{{"index": 0, "role": "essential", "reason": "結論
 - 繰り返し・冗長な説明
 - 本筋と関係ない例え話・脱線
 - なくても主張が伝わる補足
-- **質問の読み上げ部分**（回答だけ残す。質問文が全体の1/3以上なら積極的に削除）
+- **質問の読み上げ部分**（質問が長い場合は最短の1クリップだけ残して残りを削除。タイトルで内容は伝わるので質問は最小限に）
 
 冒頭（話の導入）と末尾（結論）は原則残してください。中間から削除するのが理想です。
 
@@ -485,7 +495,7 @@ JSON: {{"remove": [削除するクリップのindex番号], "reason": "理由"}}
 
         try:
             response = self.client.chat.completions.create(
-                model=self.model,
+                model=self._resolve_model("trim_clips"),
                 messages=[
                     {
                         "role": "system",
@@ -526,7 +536,7 @@ true=フィラー（除去可能）、false=文法的に必要（除去不可）
 
         try:
             response = self.client.chat.completions.create(
-                model=self.model,
+                model=self._resolve_model("judge_filler_context"),
                 messages=[
                     {
                         "role": "system",
@@ -550,6 +560,191 @@ true=フィラー（除去可能）、false=文法的に必要（除去不可）
             return [bool(r) for r in results]
         except Exception as e:
             logger.warning(f"LLMフィラー判定失敗: {e}")
+            return [True] * len(candidates)
+
+    def verify_topic_completeness(
+        self,
+        title: str,
+        range_segments: list[dict],
+        extension_candidates: list[dict],
+    ) -> int:
+        if not extension_candidates:
+            return 0
+
+        current_desc = "\n".join(f"[{s['index']}] ({s['end'] - s['start']:.1f}s) {s['text']}" for s in range_segments)
+        ext_desc = "\n".join(f"[{s['index']}] ({s['end'] - s['start']:.1f}s) {s['text']}" for s in extension_candidates)
+
+        prompt = f"""タイトル: {title}
+
+現在の末尾セグメント:
+{current_desc}
+
+後続のセグメント（拡張候補）:
+{ext_desc}
+
+この話題の論点は完結していますか？
+
+判定基準:
+- 主張・結論が明確に述べられている → 完結（0）
+- 問題提起に対する回答/結論がまだ → 未完結（追加数を返す）
+- 接続形（〜ので/〜けど/〜て/〜で）で終わっている → 未完結
+- 後続セグメントが別の話題に移行している → 完結（0）
+
+JSON: {{"extend_count": 0, "reason": "判定理由"}}
+extend_countは0〜{len(extension_candidates)}の整数。"""
+
+        try:
+            response = self.client.chat.completions.create(
+                model=self._resolve_model("verify_topic_completeness"),
+                messages=[
+                    {"role": "system", "content": "話題の完結性を判定する専門家。JSON形式で回答。"},
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.2,
+                max_tokens=200,
+                response_format={"type": "json_object"},
+            )
+            result = json.loads(response.choices[0].message.content)
+            extend_count = result.get("extend_count", 0)
+            extend_count = max(0, min(extend_count, len(extension_candidates)))
+            if extend_count > 0:
+                logger.info(f"完結チェック: {title} → {extend_count}セグメント拡張 ({result.get('reason', '')})")
+            return extend_count
+        except Exception as e:
+            logger.warning(f"完結チェック失敗: {e}")
+            return 0
+
+    def refine_topic_boundary(
+        self,
+        title: str,
+        all_segments: list[dict],
+        extension_candidates: list[dict],
+    ) -> dict:
+        all_desc = "\n".join(
+            f"[{i}] seg_idx={s['index']} ({s['start']:.1f}-{s['end']:.1f}s) {s['text']}"
+            for i, s in enumerate(all_segments)
+        )
+        ext_desc = (
+            "\n".join(
+                f"[{chr(65 + i)}] seg_idx={s['index']} ({s['start']:.1f}-{s['end']:.1f}s) {s['text']}"
+                for i, s in enumerate(extension_candidates)
+            )
+            if extension_candidates
+            else "なし"
+        )
+
+        prompt = f"""タイトル: {title}
+
+話題の全セグメント:
+{all_desc}
+
+後続セグメント（拡張候補）:
+{ext_desc}
+
+判定してください:
+1. この話題の論点は完結していますか？
+   - 主張→根拠→結論の流れが成立しているか
+   - 末尾が接続形（〜ので/〜けど/〜て）で終わっていないか
+2. 末尾に別の話題のセグメントが混入していませんか？
+   - 話題と無関係な内容が末尾にあれば、どこで切るべきか
+3. 後続セグメントに結論が含まれていませんか？
+   - 含まれていれば、どこまで拡張すべきか
+
+JSON: {{"action": "keep" | "trim" | "extend", "end_segment_index": 最終セグメントのseg_idx, "is_complete": true/false, "reason": "判定理由"}}"""
+
+        try:
+            response = self.client.chat.completions.create(
+                model=self._resolve_model("refine_topic_boundary"),
+                messages=[
+                    {"role": "system", "content": "話題の境界を判定する専門家。JSON形式で回答。"},
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.2,
+                max_tokens=300,
+                response_format={"type": "json_object"},
+            )
+            result = json.loads(response.choices[0].message.content)
+            # デフォルト値の補完
+            if "action" not in result:
+                result["action"] = "keep"
+            if "end_segment_index" not in result:
+                result["end_segment_index"] = all_segments[-1]["index"] if all_segments else 0
+            if "is_complete" not in result:
+                result["is_complete"] = True
+            if "reason" not in result:
+                result["reason"] = ""
+            return result
+        except Exception as e:
+            logger.warning(f"refine_topic_boundary failed: {e}")
+            return {
+                "action": "keep",
+                "end_segment_index": all_segments[-1]["index"] if all_segments else 0,
+                "is_complete": True,
+                "reason": f"API error: {e}",
+            }
+
+    def validate_clip_candidates(
+        self,
+        title: str,
+        candidates: list[dict],
+        original_text: str = "",
+    ) -> list[bool]:
+        if not candidates:
+            return []
+
+        cands_desc = "\n\n".join(f"候補{c['index'] + 1}（{c['duration']:.0f}秒）:\n{c['text']}" for c in candidates)
+
+        # 元テキストがある場合は趣旨対比を追加
+        original_section = ""
+        if original_text:
+            # 長すぎる場合は先頭1000文字に切り詰め
+            truncated = original_text[:1000]
+            if len(original_text) > 1000:
+                truncated += "...（省略）"
+            original_section = f"""
+【元の話題全文】
+{truncated}
+
+"""
+
+        prompt = f"""タイトル: {title}
+{original_section}
+【切り抜き候補】
+{cands_desc}
+
+各候補が元の話題の趣旨を正しく伝えているか判定:
+- 主張・結論が含まれている → valid
+- 主張や結論が欠落 → invalid
+- 末尾が途中切れ（接続形/名詞で中断） → invalid
+- 別の話題にすり替わっている → invalid
+
+JSON: {{"results": [{{"index": 1, "valid": true, "reason": "..."}}, ...]}}"""
+
+        try:
+            response = self.client.chat.completions.create(
+                model=self._resolve_model("validate_clip_candidates"),
+                messages=[
+                    {"role": "system", "content": "ショート動画の趣旨判定担当。JSON形式で回答。"},
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.2,
+                max_tokens=500,
+                response_format={"type": "json_object"},
+            )
+            result = json.loads(response.choices[0].message.content)
+            results = result.get("results", [])
+
+            # index順にソートして valid フラグだけ返す
+            valid_map = {r.get("index", 0) - 1: r.get("valid", True) for r in results}
+            output = []
+            for c in candidates:
+                is_valid = valid_map.get(c["index"], True)
+                if not is_valid:
+                    logger.info(f"趣旨検証: 候補{c['index'] + 1} invalid")
+                output.append(is_valid)
+            return output
+        except Exception as e:
+            logger.warning(f"趣旨検証失敗: {e}")
             return [True] * len(candidates)
 
     def compute_embeddings(self, texts: list[str]) -> list[list[float]]:

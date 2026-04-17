@@ -47,6 +47,7 @@ def polish_fillers(
     transcription: TranscriptionResult,
     video_path: Path,
     gateway: "ClipSuggestionGatewayInterface | None" = None,
+    predetected_filler_map: dict | None = None,
 ) -> ClipSuggestion:
     """最終候補のtime_ranges内に残ったフィラーをwordsレベルで除去する。
 
@@ -56,12 +57,20 @@ def polish_fillers(
     - LLM判定 → フィラー確定/除外
 
     各フィラーカットを個別に適用し、音響チェックに通らなければ取り消す。
+
+    predetected_filler_map: Phase 0で事前検出済みのFillerMap。
+        指定された場合、確定フィラー+GiNZA判定済みフィラーを再利用し、
+        LLM判定のみ新規実行する。
     """
     if not suggestion.time_ranges:
         return suggestion
 
-    # time_ranges内のセグメントからフィラー箇所を検出（3層パイプライン）
-    filler_cuts = _detect_fillers_in_ranges(suggestion.time_ranges, transcription, gateway)
+    # Phase 0の事前検出結果がある場合はそれを活用
+    if predetected_filler_map:
+        filler_cuts = _apply_predetected_fillers(suggestion.time_ranges, transcription, predetected_filler_map, gateway)
+    else:
+        # time_ranges内のセグメントからフィラー箇所を検出（3層パイプライン）
+        filler_cuts = _detect_fillers_in_ranges(suggestion.time_ranges, transcription, gateway)
 
     if not filler_cuts:
         return suggestion
@@ -94,6 +103,115 @@ def polish_fillers(
         logger.info(f"フィラー仕上げ結果: {applied}カット適用, {reverted}取消 " f"→ {suggestion.total_duration:.1f}s")
 
     return suggestion
+
+
+# ---------------------------------------------------------------------------
+# Phase 0 事前検出結果の適用
+# ---------------------------------------------------------------------------
+
+
+def _apply_predetected_fillers(
+    time_ranges: list[tuple[float, float]],
+    transcription: TranscriptionResult,
+    filler_map: dict,
+    gateway: "ClipSuggestionGatewayInterface | None" = None,
+) -> list[tuple[str, float, float]]:
+    """Phase 0で検出済みのフィラーをtime_ranges内でフィルタし、LLM判定のみ新規実行する。
+
+    Phase 0では層1（確定フィラー）と層2（GiNZA判定）のみ実行している。
+    ここでは:
+    - Phase 0の結果のうちtime_ranges内のものを採用
+    - 層3（LLM判定）はPhase 0でスキップされた曖昧フィラーに対して実行
+    """
+    fillers: list[tuple[str, float, float]] = []
+    llm_candidates: list[dict] = []
+
+    for seg_idx, filler_spans in filler_map.items():
+        if seg_idx >= len(transcription.segments):
+            continue
+        for span in filler_spans:
+            # time_ranges内にあるかチェック
+            for tr_start, tr_end in time_ranges:
+                if span.time_start >= tr_start - 0.1 and span.time_end <= tr_end + 0.1:
+                    fillers.append((span.filler_text, span.time_start, span.time_end))
+                    break
+
+    # Phase 0でスキップされた曖昧フィラー（LLM委譲分）を検出
+    all_fillers_sorted = sorted(
+        set(_CERTAIN_FILLERS) | AMBIGUOUS_FILLERS,
+        key=len,
+        reverse=True,
+    )
+    for tr_start, tr_end in time_ranges:
+        for seg in transcription.segments:
+            if seg.end <= tr_start or seg.start >= tr_end:
+                continue
+            text = seg.text
+            words = getattr(seg, "words", None) or []
+            if not words:
+                continue
+
+            pos = 0
+            while pos < len(text):
+                matched = None
+                for filler in all_fillers_sorted:
+                    if text[pos : pos + len(filler)] == filler:
+                        matched = filler
+                        break
+                if matched and matched in AMBIGUOUS_FILLERS:
+                    filler_len = len(matched)
+                    f_start, f_end = _get_filler_time(words, pos, filler_len)
+                    if (
+                        f_start is not None
+                        and f_end is not None
+                        and f_start >= tr_start - 0.1
+                        and f_end <= tr_end + 0.1
+                    ):
+                        # Phase 0で既に検出済みかチェック
+                        already_detected = any(
+                            abs(f[1] - f_start) < 0.05 and abs(f[2] - f_end) < 0.05 for f in fillers
+                        )
+                        if not already_detected:
+                            # GiNZA判定不能だったもの → LLM委譲
+                            verdict = _is_grammatical_by_context(matched, text, pos)
+                            if verdict is None:
+                                context_start = max(0, pos - 15)
+                                context_end = min(len(text), pos + filler_len + 15)
+                                llm_candidates.append(
+                                    {
+                                        "filler": matched,
+                                        "context": text[context_start:context_end],
+                                        "f_start": f_start,
+                                        "f_end": f_end,
+                                    }
+                                )
+                    pos += filler_len
+                elif matched:
+                    pos += len(matched)
+                else:
+                    pos += 1
+
+    # 層3: LLM判定（Phase 0でスキップされた分のみ）
+    if llm_candidates and gateway:
+        try:
+            judgements = gateway.judge_filler_context(
+                [{"filler": c["filler"], "context": c["context"]} for c in llm_candidates]
+            )
+            for candidate, is_filler in zip(llm_candidates, judgements, strict=True):
+                if is_filler:
+                    fillers.append((candidate["filler"], candidate["f_start"], candidate["f_end"]))
+        except Exception as e:
+            logger.warning(f"LLMフィラー判定失敗: {e}")
+            for candidate in llm_candidates:
+                fillers.append((candidate["filler"], candidate["f_start"], candidate["f_end"]))
+
+    if fillers:
+        pre_count = len(fillers) - len(llm_candidates)
+        logger.info(
+            f"フィラー仕上げ(Phase0再利用): {len(fillers)}箇所 "
+            f"(事前検出={pre_count}, LLM追加={len(llm_candidates)})"
+        )
+    return fillers
 
 
 # ---------------------------------------------------------------------------
@@ -166,8 +284,8 @@ def _is_grammatical_by_context(filler_text: str, seg_text: str, char_pos: int) -
     after_pos_tag = after_token.pos_ if after_token else ""
 
     if filler_text == "なんか":
-        # 直後が名詞 → 「何か問題」= 文法的用法
-        if after_pos_tag == "NOUN":
+        # 直前が「な」（形容動詞連体形） → 「異常ななんか」=「異常な何か」= 文法的用法
+        if before_text and before_text.endswith("な"):
             return True
         # 直後が動詞・形容詞・副詞 → フィラー
         if after_pos_tag in ("VERB", "ADJ", "ADV"):
@@ -175,15 +293,17 @@ def _is_grammatical_by_context(filler_text: str, seg_text: str, char_pos: int) -
         # 文頭で直後が名詞以外 → フィラー
         if char_pos == 0:
             return False
+        # 直後が名詞でも文脈依存（"なんかSNS"=フィラー vs "何か問題"=文法的）→ LLM委譲
         return None
 
     if filler_text == "あの":
-        # 直後が名詞 → 連体詞「あの人」
-        if after_pos_tag == "NOUN":
-            return True
         # 文頭 or 直後が動詞 → フィラー
         if char_pos == 0 or after_pos_tag == "VERB":
             return False
+        # 直後が副詞 → フィラー（「あの全然」「あのそう」等）
+        if after_pos_tag == "ADV":
+            return False
+        # 直後が名詞でも文脈依存（"あの人"=連体詞 vs "あのここ15年"=フィラー）→ LLM委譲
         return None
 
     if filler_text == "とか":
@@ -208,6 +328,9 @@ def _is_grammatical_by_context(filler_text: str, seg_text: str, char_pos: int) -
         before_chars = before_text
         if before_chars and re.search(r"[\u4e00-\u9fff]$", before_chars):
             return True
+        # 直後が名詞 → 形容的用法「〜的な+名詞」（例: 「いいね的な拍手」）
+        if after_pos_tag == "NOUN":
+            return True
         # 文末 or 直前がひらがな → フィラー
         if after_pos >= len(seg_text) or (before_chars and re.search(r"[\u3040-\u309f]$", before_chars)):
             return False
@@ -223,12 +346,10 @@ def _is_grammatical_by_context(filler_text: str, seg_text: str, char_pos: int) -
         return None
 
     if filler_text in ("まあ", "まぁ"):
-        # 直後に述語 → 副詞「まあいいか」
-        if after_pos_tag in ("VERB", "ADJ", "ADV"):
-            return True
         # 文頭で直後が名詞以外 → フィラー
         if char_pos == 0 and after_pos_tag != "NOUN":
             return False
+        # 直後に述語があっても文脈依存（"まあいいか"=副詞 vs "まあ例えば"=フィラー）→ LLM委譲
         return None
 
     if filler_text == "ぶっちゃけ":

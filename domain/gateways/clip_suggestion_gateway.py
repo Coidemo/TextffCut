@@ -186,6 +186,66 @@ class ClipSuggestionGatewayInterface(ABC):
         pass
 
     @abstractmethod
+    def verify_topic_completeness(
+        self,
+        title: str,
+        range_segments: list[dict],
+        extension_candidates: list[dict],
+    ) -> int:
+        """話題の論点が完結しているか検証し、追加すべきセグメント数を返す。
+
+        Args:
+            title: 話題のタイトル
+            range_segments: 現在の範囲内セグメント（最後の5件）
+            extension_candidates: 範囲直後のセグメント（拡張候補、最大5件）
+
+        Returns:
+            追加すべきセグメント数（0=完結済み）
+        """
+        pass
+
+    @abstractmethod
+    def refine_topic_boundary(
+        self,
+        title: str,
+        all_segments: list[dict],
+        extension_candidates: list[dict],
+    ) -> dict:
+        """話題範囲の適切な終了位置を判定する。
+
+        Args:
+            title: 話題のタイトル
+            all_segments: 話題の全セグメント [{"index": int, "text": str, "start": float, "end": float}]
+            extension_candidates: 後続10セグメント
+
+        Returns:
+            {"action": "keep" | "trim" | "extend",
+             "end_segment_index": int,
+             "is_complete": bool,
+             "reason": str}
+        """
+        pass
+
+    @abstractmethod
+    def validate_clip_candidates(
+        self,
+        title: str,
+        candidates: list[dict],
+        original_text: str = "",
+    ) -> list[bool]:
+        """各候補テキストが話題の趣旨を保っているか検証する。
+
+        Args:
+            title: 話題のタイトル
+            candidates: [{"index": 0, "text": "候補テキスト", "duration": 30.0}]
+            original_text: 話題の全テキスト（フィラー除去済み）。空文字の場合は従来動作。
+
+        Returns:
+            各候補の有効性（True=趣旨保持、False=不適切）
+        """
+        pass
+
+    @abstractmethod
     def check_connection(self) -> bool:
         pass
 

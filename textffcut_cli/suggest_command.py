@@ -57,6 +57,13 @@ def build_suggest_parser() -> argparse.ArgumentParser:
         help="AIモデル（デフォルト: gpt-4.1-mini）",
     )
     parser.add_argument(
+        "--quality-model",
+        default=None,
+        choices=["gpt-4.1-mini", "gpt-4.1"],
+        metavar="QUALITY_MODEL",
+        help="品質評価用AIモデル（デフォルト: gpt-4.1に自動アップグレード）",
+    )
+    parser.add_argument(
         "--num",
         type=int,
         default=5,
@@ -326,7 +333,31 @@ def _process_single_video(
     # AI候補生成→FCPXML出力
     console.print(f"\n[bold]🤖 AI切り抜き候補を生成中...[/]")
     speed_info = f" | 速度: {args.speed}x" if args.speed != 1.0 else ""
-    console.print(f"  モデル: {args.ai_model} | 候補数: {args.num}{speed_info}")
+
+    # 品質評価モデルの決定
+    quality_model = args.quality_model
+    if quality_model is None and args.ai_model == "gpt-4.1-mini":
+        quality_model = "gpt-4.1"  # デフォルト自動アップグレード
+
+    # model_overrides構築（全判定系メソッドに適用）
+    model_overrides = {}
+    if quality_model and quality_model != args.ai_model:
+        for method in [
+            "detect_topics",
+            "evaluate_clip_quality",
+            "trim_clips",
+            "select_best_clip",
+            "classify_segment_essentiality",
+            "judge_segment_relevance",
+            "review_naturalness",
+            "select_best_variant",
+            "select_clip_segments",
+            "judge_filler_context",
+        ]:
+            model_overrides[method] = quality_model
+
+    quality_info = f" | 品質評価: {quality_model}" if model_overrides else ""
+    console.print(f"  モデル: {args.ai_model}{quality_info} | 候補数: {args.num}{speed_info}")
 
     from infrastructure.external.gateways.openai_clip_suggestion_gateway import (
         OpenAIClipSuggestionGateway,
@@ -336,7 +367,11 @@ def _process_single_video(
         SuggestAndExportUseCase,
     )
 
-    gateway = OpenAIClipSuggestionGateway(api_key=api_key, model=args.ai_model)
+    gateway = OpenAIClipSuggestionGateway(
+        api_key=api_key,
+        model=args.ai_model,
+        model_overrides=model_overrides,
+    )
     use_case = SuggestAndExportUseCase(gateway=gateway)
 
     # メディア素材検出サマリー
