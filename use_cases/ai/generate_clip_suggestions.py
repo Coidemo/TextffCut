@@ -96,6 +96,18 @@ class GenerateClipSuggestionsUseCase:
             filler_map = predetect_fillers(transcription)
             self._clean_segments = build_clean_segments(transcription, filler_map)
             self._filler_map = filler_map
+
+            # Phase 1にはフィラー除去済みテキストを渡す
+            clean_by_idx: dict[int, list] = {}
+            for cs in self._clean_segments:
+                clean_by_idx.setdefault(cs.original_index, []).append(cs)
+            for seg_idx, seg_dict in enumerate(segments_dicts):
+                cs_list = clean_by_idx.get(seg_idx)
+                if cs_list:
+                    seg_dict["text"] = "".join(cs.clean_text for cs in cs_list)
+                else:
+                    # 全文フィラーのセグメント → 空文字
+                    seg_dict["text"] = ""
         except Exception as e:
             logger.warning(f"Phase 0 フィラー検出スキップ: {e}")
             self._clean_segments = None
