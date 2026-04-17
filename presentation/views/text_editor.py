@@ -874,8 +874,6 @@ class TextEditorView:
                 SuggestAndExportUseCase,
             )
             from use_cases.ai.generate_clip_suggestions import GenerateClipSuggestionsUseCase
-            from use_cases.ai.word_level_filler_polish import polish_fillers
-
             gateway = OpenAIClipSuggestionGateway(api_key=api_key, model="gpt-4.1-mini")
 
             use_case = SuggestAndExportUseCase(gateway=gateway)
@@ -902,12 +900,7 @@ class TextEditorView:
 
                 progress_text.write(f"✅ {total}件の話題を検出")
 
-                # Phase 2: フィラー仕上げ
-                for i, suggestion in enumerate(suggestions):
-                    progress_text.write(f"🧹 フィラー除去中... ({i + 1}/{total})")
-                    suggestions[i] = polish_fillers(suggestion, actual_result, video_path_obj, gateway=gateway)
-
-                # Phase 3: 無音削除
+                # Phase 2: 無音削除
                 if remove_silence:
                     video_name = video_path_obj.stem
                     base_dir = video_path_obj.parent / f"{video_name}_TextffCut"

@@ -5,12 +5,11 @@
 1. AI: 話題の時間範囲を検出
 2. 機械: セグメント組み合わせで数百パターン生成 → 機械スコアで上位5件
 3. AI: 出来上がり音声を文字起こしして最良を選定
-4. 機械: wordsレベルフィラー仕上げ（音響チェック付き）
-5. 機械: 無音削除（最終候補にのみ適用）
-6. 機械: FCPXML生成
+4. 機械: 無音削除（最終候補にのみ適用）
+5. 機械: FCPXML生成
 
-フィラー削除は行わない。フィラーセグメントを含むパターンは機械スコアで自然に
-淘汰される（フィラーセグメントが多いほどスコアが下がるため）。
+フィラーはPhase 0で候補テキストから除去済み（embedding精度向上用）。
+最終音声のword-levelフィラーカットは誤除去リスク対効果が低いため廃止。
 """
 
 from __future__ import annotations
@@ -90,8 +89,6 @@ class SuggestAndExportUseCase:
         )
 
         detection = use_case.last_detection_result
-        # Phase 0のFillerMapを取得（Phase 4で再利用）
-        _filler_map = getattr(use_case, "_filler_map", {})
         _phase_times["Phase1-3 話題検出+候補生成+AI選定"] = _time.time() - _t0
 
         # 出力ディレクトリ
@@ -100,21 +97,6 @@ class SuggestAndExportUseCase:
         fcpxml_dir = base_dir / "fcpxml"
         fcpxml_dir.mkdir(parents=True, exist_ok=True)
 
-        _t1 = _time.time()
-        # Phase 4: wordsレベルフィラー仕上げ（音響チェック付き）
-        # Phase 0で検出済みのFillerMapを渡してLLM呼び出しを削減
-        from use_cases.ai.word_level_filler_polish import polish_fillers
-
-        for i, suggestion in enumerate(suggestions):
-            suggestions[i] = polish_fillers(
-                suggestion,
-                request.transcription,
-                request.video_path,
-                gateway=self.gateway,
-                predetected_filler_map=_filler_map,
-            )
-
-        _phase_times["Phase4 フィラー仕上げ"] = _time.time() - _t1
         _t2 = _time.time()
         # Phase 4.5: 品質チェックループ（オプション）
         if request.enable_quality_loop:
