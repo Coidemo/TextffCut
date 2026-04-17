@@ -460,7 +460,7 @@ class GenerateClipSuggestionsUseCase:
             logger.warning(f"候補なし: {topic.title}")
             return None
 
-        # 重複除去
+        # 重複除去 + スコア順ソート
         seen = set()
         unique = []
         for c in candidates:
@@ -468,7 +468,7 @@ class GenerateClipSuggestionsUseCase:
             if key not in seen:
                 seen.add(key)
                 unique.append(c)
-        candidates = unique
+        candidates = sorted(unique, key=lambda c: c.mechanical_score, reverse=True)
 
         # 趣旨検証フィルタ（フィラー除去済みテキスト）
         clean_text_by_idx = self._build_clean_text_map()

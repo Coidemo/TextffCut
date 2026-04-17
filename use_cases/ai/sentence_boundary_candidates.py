@@ -21,7 +21,6 @@ def generate_sentence_boundary_candidates(
     topic: TopicRange,
     min_duration: float,
     max_duration: float,
-    max_candidates: int = 30,
     *,
     transcription: TranscriptionResult | None = None,
 ) -> list[ClipCandidate]:
@@ -32,7 +31,6 @@ def generate_sentence_boundary_candidates(
         topic: 話題範囲
         min_duration: 最小秒数
         max_duration: 最大秒数
-        max_candidates: 最大候補数
 
     Returns:
         ClipCandidateリスト（スコア未計算）
@@ -134,12 +132,6 @@ def generate_sentence_boundary_candidates(
                 total_duration=sum(e - s for s, e in time_ranges),
             )
             candidates.append(candidate)
-
-    # 候補が多すぎる場合はdurationが中央値に近いものを優先
-    if len(candidates) > max_candidates:
-        target = (min_duration + max_duration) / 2
-        candidates.sort(key=lambda c: abs(c.total_duration - target))
-        candidates = candidates[:max_candidates]
 
     logger.info(
         f"Phase 2b: {len(candidates)}候補生成 "
