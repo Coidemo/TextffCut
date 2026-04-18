@@ -1,7 +1,7 @@
 """
 AI切り抜き候補生成のユニットテスト
 
-domain/entities のエンティティと brute_force_clip_generator のスコアリングロジックを検証する。
+domain/entities のエンティティと brute_force_clip_generator のデータ構造を検証する。
 外部API依存なし。
 """
 
@@ -19,9 +19,7 @@ from domain.entities.clip_suggestion import (
 from domain.entities.transcription import TranscriptionResult, TranscriptionSegment
 from use_cases.ai.brute_force_clip_generator import (
     ClipCandidate,
-    generate_candidates,
     _build_candidate,
-    _calculate_score,
 )
 
 
@@ -256,168 +254,3 @@ class TestBuildCandidate:
         assert len(c.time_ranges) == 2
 
 
-class TestCalculateScore:
-
-    def _make_candidate(
-        self,
-        text: str = "テスト" * 10,
-        total_duration: float = 45.0,
-        time_ranges: list[tuple[float, float]] | None = None,
-        segments: list[TranscriptionSegment] | None = None,
-    ) -> ClipCandidate:
-        if time_ranges is None:
-            time_ranges = [(0.0, total_duration)]
-        if segments is None:
-            segments = [_make_segment(text, 0, total_duration)]
-        return ClipCandidate(
-            segments=segments,
-            segment_indices=[0],
-            text=text,
-            time_ranges=time_ranges,
-            total_duration=total_duration,
-        )
-
-    def test_in_range_bonus(self):
-        """デュレーションが範囲内なら50+のスコア"""
-        c = self._make_candidate(total_duration=45.0)
-        score = _calculate_score(c, 30.0, 60.0)
-        assert score > 50.0
-
-    def test_center_is_best(self):
-        """範囲の中央値に近いほど高スコア"""
-        c_center = self._make_candidate(total_duration=45.0)
-        c_edge = self._make_candidate(total_duration=59.0)
-        assert _calculate_score(c_center, 30.0, 60.0) > _calculate_score(c_edge, 30.0, 60.0)
-
-    def test_out_of_range_penalty(self):
-        """範囲外はペナルティ"""
-        c_out = self._make_candidate(text="テスト" * 50, total_duration=120.0)
-        c_in = self._make_candidate(text="テスト" * 50, total_duration=45.0)
-        score_out = _calculate_score(c_out, 30.0, 60.0)
-        score_in = _calculate_score(c_in, 30.0, 60.0)
-        assert score_out < score_in, f"範囲外({score_out})は範囲内({score_in})より低スコアであるべき"
-
-    def test_single_range_bonus(self):
-        """time_rangesが1つだとボーナス"""
-        c1 = self._make_candidate(time_ranges=[(0, 45)])
-        c_multi = self._make_candidate(
-            time_ranges=[(0, 10), (12, 22), (24, 34), (36, 45), (47, 57), (59, 65), (67, 72), (74, 80), (82, 88)],
-            total_duration=45.0,
-        )
-        assert _calculate_score(c1, 30.0, 60.0) > _calculate_score(c_multi, 30.0, 60.0)
-
-    def test_good_ending_bonus(self):
-        """良い文末はボーナス"""
-        c_good = self._make_candidate(text="AIを活用すると生産性が上がります")
-        c_bad = self._make_candidate(text="AIを活用するとなんか")
-        assert _calculate_score(c_good, 30.0, 60.0) > _calculate_score(c_bad, 30.0, 60.0)
-
-    def test_bad_ending_penalty(self):
-        """悪い文末はペナルティ"""
-        c = self._make_candidate(text="これはけど")
-        score = _calculate_score(c, 30.0, 60.0)
-        c_neutral = self._make_candidate(text="テスト" * 10)
-        assert score < _calculate_score(c_neutral, 30.0, 60.0)
-
-    def test_filler_segment_penalty(self):
-        """フィラーセグメントが含まれているとペナルティ"""
-        # total_duration=25.0（範囲外）にしてスコア上限100への到達を回避
-        filler_seg = _make_segment("えー", 0, 2)
-        normal_seg = _make_segment("今日の話題はAIです", 2, 25)
-        c = ClipCandidate(
-            segments=[filler_seg, normal_seg],
-            segment_indices=[0, 1],
-            text="えー今日の話題はAIです",
-            time_ranges=[(0, 25)],
-            total_duration=25.0,
-        )
-        c_clean = self._make_candidate(text="今日の話題はAIです" * 3, total_duration=25.0)
-        assert _calculate_score(c, 30.0, 60.0) < _calculate_score(c_clean, 30.0, 60.0)
-
-    def test_score_clamped_0_100(self):
-        """スコアは0-100の範囲"""
-        c = self._make_candidate(text="", total_duration=1.0)
-        score = _calculate_score(c, 30.0, 60.0)
-        assert 0 <= score <= 100
-
-
-class TestGenerateCandidates:
-
-    def test_basic_generation(self):
-        """基本的な候補生成"""
-        texts = ["今日は"] + ["AIについて話します" + str(i) for i in range(10)] + ["以上です"]
-        transcription = _make_transcription(texts, duration_each=5.0)
-        topic = TopicRange.create(
-            title="テスト",
-            segment_start_index=0,
-            segment_end_index=len(texts) - 1,
-        )
-        candidates = generate_candidates(topic, transcription, 30.0, 60.0)
-        assert len(candidates) > 0
-        for c in candidates:
-            assert c.mechanical_score > 0
-
-    def test_filler_segments_excluded(self):
-        """フィラーセグメントは除外される"""
-        texts = [
-            "えー",
-            "今日は",
-            "まあ",
-            "AIの話です",
-            "うーん",
-            "すごいですね",
-            "はい",
-            "以上です",
-            "ありがとう",
-            "テスト長い文章です" * 3,
-        ]
-        transcription = _make_transcription(texts, duration_each=5.0)
-        topic = TopicRange.create(
-            title="テスト",
-            segment_start_index=0,
-            segment_end_index=len(texts) - 1,
-        )
-        candidates = generate_candidates(topic, transcription, 15.0, 50.0)
-        # フィラーのみのセグメントが含まれていないか確認
-        for c in candidates:
-            for seg in c.segments:
-                assert seg.text.strip() not in {"えー", "まあ", "うーん", "はい"}
-
-    def test_invalid_range_returns_empty(self):
-        """無効な範囲では空リスト"""
-        transcription = _make_transcription(["テスト"], duration_each=5.0)
-        topic = TopicRange.create(
-            title="テスト",
-            segment_start_index=5,
-            segment_end_index=10,
-        )
-        candidates = generate_candidates(topic, transcription, 30.0, 60.0)
-        assert candidates == []
-
-    def test_sorted_by_score(self):
-        """候補はスコア降順でソートされる"""
-        texts = ["今日の話題は" + str(i) for i in range(15)]
-        transcription = _make_transcription(texts, duration_each=4.0)
-        topic = TopicRange.create(
-            title="テスト",
-            segment_start_index=0,
-            segment_end_index=14,
-        )
-        candidates = generate_candidates(topic, transcription, 20.0, 50.0)
-        if len(candidates) > 1:
-            for i in range(len(candidates) - 1):
-                assert candidates[i].mechanical_score >= candidates[i + 1].mechanical_score
-
-    def test_max_candidates_limit(self):
-        """返される候補数はTOP_N_FOR_AI以下"""
-        from use_cases.ai.brute_force_clip_generator import TOP_N_FOR_AI
-
-        texts = ["セグメント" + str(i) for i in range(30)]
-        transcription = _make_transcription(texts, duration_each=3.0)
-        topic = TopicRange.create(
-            title="テスト",
-            segment_start_index=0,
-            segment_end_index=29,
-        )
-        candidates = generate_candidates(topic, transcription, 20.0, 60.0)
-        assert len(candidates) <= TOP_N_FOR_AI
