@@ -485,6 +485,21 @@ class GenerateClipSuggestionsUseCase:
         if not best:
             return None
 
+        # Phase 3.5: 吃音（言い淀み）除去
+        try:
+            from use_cases.ai.stammering_remover import remove_stammering
+
+            cleaned_text, cleaned_ranges, cleaned_dur = remove_stammering(
+                best.text, best.segments, best.time_ranges
+            )
+            if cleaned_ranges != best.time_ranges:
+                logger.info(f"吃音除去: {best.total_duration:.1f}s→{cleaned_dur:.1f}s ({topic.title})")
+                best.text = cleaned_text
+                best.time_ranges = cleaned_ranges
+                best.total_duration = cleaned_dur
+        except Exception as e:
+            logger.debug(f"吃音除去スキップ: {e}")
+
         # 結合部のmicro buffer追加（音声途切れ防止）
         buffered_ranges = self._apply_range_buffers(best.time_ranges)
 

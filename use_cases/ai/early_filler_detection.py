@@ -12,6 +12,7 @@ LLM判定（層3）はコスト節約のためPhase 0では行わない。
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 
 from domain.entities.transcription import TranscriptionResult
@@ -74,6 +75,178 @@ class CleanSegment:
     original_text: str  # 元テキスト（参照用）
 
 
+def _get_filler_time(
+    words: list,
+    char_pos: int,
+    filler_len: int,
+) -> tuple[float | None, float | None]:
+    """wordsリスト（1文字ずつ）からフィラーの開始・終了時刻を取得する。"""
+    if char_pos >= len(words) or char_pos + filler_len > len(words):
+        return None, None
+
+    first_word = words[char_pos]
+    last_word = words[char_pos + filler_len - 1]
+
+    f_start = first_word.start if hasattr(first_word, "start") else first_word.get("start")
+    f_end = last_word.end if hasattr(last_word, "end") else last_word.get("end")
+
+    return f_start, f_end
+
+
+def _analyze_text(text: str):
+    """GiNZAでテキストを解析（キャッシュはJapaneseLineBreakRulesに委譲）。"""
+    try:
+        from core.japanese_line_break import JapaneseLineBreakRules
+
+        return JapaneseLineBreakRules._analyze(text)
+    except Exception:
+        return None
+
+
+def _is_grammatical_by_context(filler_text: str, seg_text: str, char_pos: int) -> bool | None:
+    """GiNZA POS + 文脈ルールでフィラーか文法的用法かを判定。
+
+    Returns:
+        True  = 確実に文法的用法（カットしない）
+        False = 確実にフィラー（カットする）
+        None  = 判定不能（LLMに委譲）
+    """
+    doc = _analyze_text(seg_text)
+    if doc is None:
+        return None  # GiNZA利用不可 → LLM委譲
+
+    # フィラーの直後テキストのPOSを取得
+    after_pos = char_pos + len(filler_text)
+    after_text = seg_text[after_pos : after_pos + 10].strip() if after_pos < len(seg_text) else ""
+    before_text = seg_text[max(0, char_pos - 10) : char_pos].strip()
+
+    # doc内でフィラー位置に対応するトークンを特定
+    filler_token_idx = None
+    running_pos = 0
+    for i, token in enumerate(doc):
+        token_end = running_pos + len(token.text)
+        if running_pos <= char_pos < token_end:
+            filler_token_idx = i
+            break
+        running_pos = token_end
+
+    # フィラーの直後トークンのPOS
+    after_token = None
+    if filler_token_idx is not None:
+        # フィラーが複数トークンにまたがる場合、最後のトークンの次を取る
+        scan_pos = running_pos
+        for i in range(filler_token_idx, len(doc)):
+            token_end = sum(len(doc[j].text) for j in range(i + 1))
+            if token_end >= after_pos:
+                if i + 1 < len(doc):
+                    after_token = doc[i + 1]
+                break
+
+    after_pos_tag = after_token.pos_ if after_token else ""
+
+    if filler_text == "なんか":
+        # 直前が「な」（形容動詞連体形） → 「異常ななんか」=「異常な何か」= 文法的用法
+        if before_text and before_text.endswith("な"):
+            return True
+        # 直後が動詞・形容詞・副詞 → フィラー
+        if after_pos_tag in ("VERB", "ADJ", "ADV"):
+            return False
+        # 文頭で直後が名詞以外 → フィラー
+        if char_pos == 0:
+            return False
+        # 直後が名詞でも文脈依存（"なんかSNS"=フィラー vs "何か問題"=文法的）→ LLM委譲
+        return None
+
+    if filler_text == "あの":
+        # 文頭 or 直後が動詞 → フィラー
+        if char_pos == 0 or after_pos_tag == "VERB":
+            return False
+        # 直後が副詞 → フィラー（「あの全然」「あのそう」等）
+        if after_pos_tag == "ADV":
+            return False
+        # 直後が名詞でも文脈依存（"あの人"=連体詞 vs "あのここ15年"=フィラー）→ LLM委譲
+        return None
+
+    if filler_text == "とか":
+        # 前後に名詞が2つ以上 → 並列助詞「AとかBとか」
+        nouns_before = sum(
+            1
+            for t in doc
+            if t.pos_ == "NOUN" and sum(len(doc[j].text) for j in range(list(doc).index(t) + 1)) <= char_pos
+        )
+        nouns_after = sum(
+            1 for t in doc if t.pos_ == "NOUN" and sum(len(doc[j].text) for j in range(list(doc).index(t))) >= after_pos
+        )
+        if nouns_before >= 1 and nouns_after >= 1:
+            return True
+        # 文末 or 直後が句点系 → フィラー
+        if after_pos >= len(seg_text) or (after_text and after_text[0] in "。、"):
+            return False
+        return None
+
+    if filler_text == "的な":
+        # 直前が漢語名詞（漢字のみ） → 接尾辞「具体的な」
+        before_chars = before_text
+        if before_chars and re.search(r"[\u4e00-\u9fff]$", before_chars):
+            return True
+        # 直後が名詞 → 形容的用法「〜的な+名詞」（例: 「いいね的な拍手」）
+        if after_pos_tag == "NOUN":
+            return True
+        # 文末 or 直前がひらがな → フィラー
+        if after_pos >= len(seg_text) or (before_chars and re.search(r"[\u3040-\u309f]$", before_chars)):
+            return False
+        return None
+
+    if filler_text in ("やっぱ", "やっぱり"):
+        # 直後に述語（動詞・形容詞・助動詞）があれば文法的
+        if after_pos_tag in ("VERB", "ADJ", "AUX"):
+            return True
+        # 文末 → 不明
+        if after_pos >= len(seg_text):
+            return None
+        return None
+
+    if filler_text in ("まあ", "まぁ"):
+        # 文頭で直後が名詞以外 → フィラー
+        if char_pos == 0 and after_pos_tag != "NOUN":
+            return False
+        # 直後に述語があっても文脈依存（"まあいいか"=副詞 vs "まあ例えば"=フィラー）→ LLM委譲
+        return None
+
+    if filler_text == "ぶっちゃけ":
+        # 直後に述語あり → 副詞的用法
+        if after_pos_tag in ("VERB", "ADJ", "ADV", "NOUN"):
+            return True
+        return None
+
+    if filler_text == "みたいな感じで":
+        # 直前に具体的な名詞 → 比喩「猫みたいな感じで」
+        if before_text and any(t.pos_ == "NOUN" for t in doc if t.text in before_text[-5:]):
+            return True
+        # 文末付近 → フィラー
+        if after_pos >= len(seg_text) - 2:
+            return False
+        return None
+
+    if filler_text == "っていうのは":
+        # 直後に述語 → 主題提示「幸せっていうのは〜」
+        if after_pos_tag in ("VERB", "ADJ", "NOUN", "ADV"):
+            return True
+        return None
+
+    if filler_text == "じゃないですか":
+        # 直前に具体的内容あり + 直後が「だから」「でも」等 → 修辞的疑問（文法的）
+        if after_text and any(after_text.startswith(w) for w in ("だから", "でも", "それで", "なので")):
+            return True
+        # 文末 → フィラー（同意要求）
+        if after_pos >= len(seg_text) - 1:
+            return False
+        return None
+
+    # 未知の曖昧フィラー → LLM委譲
+    return None
+
+
 def predetect_fillers(transcription: TranscriptionResult) -> FillerMap:
     """全セグメントを連結した full_text 上でフィラーを検出する。
 
@@ -82,7 +255,6 @@ def predetect_fillers(transcription: TranscriptionResult) -> FillerMap:
     """
     from use_cases.ai.filler_constants import AMBIGUOUS_FILLERS
     from use_cases.ai.filler_constants import FILLER_WORDS as PURE_FILLERS
-    from use_cases.ai.word_level_filler_polish import _get_filler_time, _is_grammatical_by_context
 
     # Phase 0スキップ語を除外したフィラーリスト（長い順）
     all_fillers = sorted(
