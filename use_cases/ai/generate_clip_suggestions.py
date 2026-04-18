@@ -19,10 +19,7 @@ from domain.entities.clip_suggestion import (
 )
 from domain.entities.transcription import TranscriptionResult
 from domain.gateways.clip_suggestion_gateway import ClipSuggestionGatewayInterface
-from use_cases.ai.brute_force_clip_generator import (
-    ClipCandidate,
-    validate_ai_selection,
-)
+from use_cases.ai.brute_force_clip_generator import ClipCandidate
 
 logger = logging.getLogger(__name__)
 
@@ -493,68 +490,6 @@ class GenerateClipSuggestionsUseCase:
             logger.warning(f"セグメント分類失敗: {topic.title} — {e}")
             return None
 
-    def _ai_select_segments(
-        self,
-        topic: TopicRange,
-        transcription: TranscriptionResult,
-        min_duration: float,
-        max_duration: float,
-    ) -> list[ClipCandidate]:
-        """AIにセグメントを直接選定させ、ClipCandidateリストを返す。失敗時は空リスト。"""
-        from use_cases.ai.filler_constants import FILLER_ONLY_TEXTS, detect_noise_tag
-
-        # CleanSegmentsからフィラー除去済みテキストを取得
-        clean_text_by_idx = self._build_clean_text_map()
-
-        segments_data = []
-        pool = []
-        for i in range(topic.segment_start_index, topic.segment_end_index + 1):
-            seg = transcription.segments[i]
-            clean_text = clean_text_by_idx.get(i, seg.text)
-            if not clean_text.strip():
-                continue
-            if clean_text.strip() in FILLER_ONLY_TEXTS:
-                continue
-            if detect_noise_tag(clean_text.strip()):
-                continue
-            segments_data.append(
-                {
-                    "index": i,
-                    "text": clean_text,
-                    "start": seg.start,
-                    "end": seg.end,
-                }
-            )
-            pool.append((i, seg))
-
-        if not segments_data:
-            return []
-
-        try:
-            variants = self.gateway.select_clip_segments(
-                title=topic.title,
-                segments=segments_data,
-                min_duration=min_duration,
-                max_duration=max_duration,
-                num_variants=2,
-            )
-        except Exception as e:
-            logger.warning(f"AI segment selection API error: {e}")
-            return []
-
-        validated = []
-        for indices in variants:
-            candidate = validate_ai_selection(indices, pool, min_duration, max_duration)
-            if candidate:
-                validated.append(candidate)
-
-        if validated:
-            logger.info(f"AI segment selection: {len(validated)}/{len(variants)} variants validated")
-        else:
-            logger.info("AI segment selection: all variants failed validation")
-
-        return validated
-
     def _process_topic(
         self,
         topic: TopicRange,
@@ -568,26 +503,9 @@ class GenerateClipSuggestionsUseCase:
             logger.info(f"低スコアスキップ: {topic.title} (score={topic.score})")
             return None
 
-        # Phase 2a: AI直接セグメント選定を試行
-        ai_candidates = self._ai_select_segments(topic, transcription, min_duration, max_duration)
-
-        # Phase 2b: 文境界ベース候補生成（CleanSegmentがある場合）
-        sentence_candidates: list[ClipCandidate] = []
-        clean_segments = getattr(self, "_clean_segments", None)
-        if clean_segments:
-            try:
-                from use_cases.ai.sentence_boundary_candidates import generate_sentence_boundary_candidates
-
-                sentence_candidates = generate_sentence_boundary_candidates(
-                    clean_segments, topic, min_duration, max_duration, transcription=transcription
-                )
-            except Exception as e:
-                logger.debug(f"Phase 2b候補生成スキップ: {e}")
-
-        # Phase 2c: 骨子+結びベース候補生成
-        core_conclusion_candidates: list[ClipCandidate] = []
+        # Phase 2: 骨子+結びベース候補生成
+        candidates: list[ClipCandidate] = []
         try:
-            # segments_dataを構築（Phase 2aと同じフォーマット）
             from use_cases.ai.filler_constants import FILLER_ONLY_TEXTS, detect_noise_tag
 
             clean_text_by_idx = self._build_clean_text_map()
@@ -615,15 +533,12 @@ class GenerateClipSuggestionsUseCase:
                         generate_core_conclusion_candidates,
                     )
 
-                    core_conclusion_candidates = generate_core_conclusion_candidates(
+                    candidates = generate_core_conclusion_candidates(
                         topic, transcription, cores, conclusions, min_duration, max_duration
                     )
-                    logger.info(f"Phase 2c: {len(core_conclusion_candidates)}候補 ({topic.title})")
+                    logger.info(f"Phase 2: {len(candidates)}候補 ({topic.title})")
         except Exception as e:
-            logger.debug(f"Phase 2c候補生成スキップ: {e}")
-
-        # Phase 2a + 2b + 2c の統合
-        candidates = ai_candidates + sentence_candidates + core_conclusion_candidates
+            logger.debug(f"Phase 2候補生成スキップ: {e}")
 
         if not candidates:
             logger.warning(f"候補なし: {topic.title}")
