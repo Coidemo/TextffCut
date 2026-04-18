@@ -78,9 +78,12 @@ def generate_sentence_boundary_candidates(
         return []
 
     # 重複する近接位置をフィルタ（2文字以内は同一文完結点として扱う）
+    # 「です」→「ですね」のように近接する場合、後ろ（より完結した方）を残す
     filtered_ends: list[int] = []
     for pos in sentence_ends:
-        if not filtered_ends or pos - filtered_ends[-1] > 2:
+        if filtered_ends and pos - filtered_ends[-1] <= 2:
+            filtered_ends[-1] = pos  # 後ろの方で上書き
+        else:
             filtered_ends.append(pos)
     sentence_ends = filtered_ends
 

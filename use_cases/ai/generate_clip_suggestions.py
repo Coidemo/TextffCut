@@ -584,8 +584,46 @@ class GenerateClipSuggestionsUseCase:
             except Exception as e:
                 logger.debug(f"Phase 2b候補生成スキップ: {e}")
 
-        # Phase 2a + 2b の統合（2cセグメント単位力任せは一旦スキップ）
-        candidates = ai_candidates + sentence_candidates
+        # Phase 2c: 骨子+結びベース候補生成
+        core_conclusion_candidates: list[ClipCandidate] = []
+        try:
+            # segments_dataを構築（Phase 2aと同じフォーマット）
+            from use_cases.ai.filler_constants import FILLER_ONLY_TEXTS, detect_noise_tag
+
+            clean_text_by_idx = self._build_clean_text_map()
+            segments_for_cc = []
+            for local_idx, global_idx in enumerate(
+                range(topic.segment_start_index, topic.segment_end_index + 1)
+            ):
+                seg = transcription.segments[global_idx]
+                clean_text = clean_text_by_idx.get(global_idx, seg.text)
+                if not clean_text.strip() or clean_text.strip() in FILLER_ONLY_TEXTS:
+                    continue
+                if detect_noise_tag(clean_text.strip()):
+                    continue
+                segments_for_cc.append({"idx": local_idx, "text": clean_text})
+
+            if segments_for_cc:
+                result = self.gateway.find_core_and_conclusion(
+                    title=topic.title,
+                    segments=segments_for_cc,
+                )
+                cores = result.get("core", [])
+                conclusions = result.get("conclusion", [])
+                if cores and conclusions:
+                    from use_cases.ai.core_conclusion_candidates import (
+                        generate_core_conclusion_candidates,
+                    )
+
+                    core_conclusion_candidates = generate_core_conclusion_candidates(
+                        topic, transcription, cores, conclusions, min_duration, max_duration
+                    )
+                    logger.info(f"Phase 2c: {len(core_conclusion_candidates)}候補 ({topic.title})")
+        except Exception as e:
+            logger.debug(f"Phase 2c候補生成スキップ: {e}")
+
+        # Phase 2a + 2b + 2c の統合
+        candidates = ai_candidates + sentence_candidates + core_conclusion_candidates
 
         if not candidates:
             logger.warning(f"候補なし: {topic.title}")
@@ -600,6 +638,14 @@ class GenerateClipSuggestionsUseCase:
                 seen.add(key)
                 unique.append(c)
         candidates = unique
+
+        # 末尾不完全候補のハードフィルタ
+        good = [c for c in candidates if _ending_naturalness_score(c.text) >= -10]
+        if good:
+            n_removed = len(candidates) - len(good)
+            if n_removed:
+                logger.info(f"末尾フィルタ: {len(candidates)}→{len(good)}候補 ({topic.title})")
+            candidates = good
 
         # フィラー除去済みテキストで元話題テキストを構築
         clean_text_by_idx = self._build_clean_text_map()
@@ -654,7 +700,7 @@ class GenerateClipSuggestionsUseCase:
             category=topic.category,
             reasoning=topic.reasoning,
             keywords=topic.keywords,
-            variant_label=f"{len(best.segment_indices)}segs, score={best.mechanical_score:.0f}",
+            variant_label=f"{len(best.segment_indices)}segs",
             topic_start_time=topic_start_time,
             topic_end_time=topic_end_time,
         )

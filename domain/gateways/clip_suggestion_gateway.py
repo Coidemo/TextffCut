@@ -246,6 +246,24 @@ class ClipSuggestionGatewayInterface(ABC):
         pass
 
     @abstractmethod
+    def find_core_and_conclusion(
+        self,
+        title: str,
+        segments: list[dict],
+    ) -> dict:
+        """骨子（核心の主張）と結び（まとめ）のセグメント位置を特定する。
+
+        Args:
+            title: 話題のタイトル
+            segments: [{"idx": int, "text": str}]
+
+        Returns:
+            {"core": [{"start": int, "end": int, "summary": str}],
+             "conclusion": [{"start": int, "end": int, "summary": str}]}
+        """
+        pass
+
+    @abstractmethod
     def check_connection(self) -> bool:
         pass
 

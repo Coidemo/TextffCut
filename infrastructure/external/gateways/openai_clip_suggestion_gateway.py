@@ -748,6 +748,58 @@ JSON: {{"results": [{{"index": 1, "valid": true, "reason": "..."}}, ...]}}"""
             logger.warning(f"趣旨検証失敗: {e}")
             return [True] * len(candidates)
 
+    def find_core_and_conclusion(
+        self,
+        title: str,
+        segments: list[dict],
+    ) -> dict:
+        system_prompt = """あなたはポッドキャストの切り抜き動画の編集者です。
+
+話題のセグメント一覧を渡します。以下の2つを特定してください。
+
+## 骨子（核心の主張）
+この話題で話者が最も伝えたいメインの主張・意見が述べられているセグメント範囲。
+- 具体例や体験談ではなく、抽象的な主張そのもの
+- 複数箇所ある場合は最も重要な1-2箇所
+
+## 結び（まとめ・言い切り）
+話題の締めくくり。主張を要約したり「という話でした」のように話をまとめているセグメント範囲。
+- 必ず文が完結している（言い切りで終わる）箇所
+- 話題の後半にあることが多い
+
+出力形式（JSONオブジェクト）:
+{
+  "core": [{"start": 開始idx, "end": 終了idx, "summary": "主張の要約"}],
+  "conclusion": [{"start": 開始idx, "end": 終了idx, "summary": "結びの要約"}]
+}
+
+idxはセグメント配列の0始まりインデックスです。"""
+
+        seg_list = [{"idx": s["idx"], "text": s["text"]} for s in segments]
+        user_content = f"話題: {title}\n\nセグメント:\n{json.dumps(seg_list, ensure_ascii=False)}"
+
+        try:
+            response = self.client.chat.completions.create(
+                model=self._resolve_model("find_core_and_conclusion"),
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_content},
+                ],
+                temperature=0,
+                response_format={"type": "json_object"},
+            )
+            result = json.loads(response.choices[0].message.content)
+            cores = result.get("core", [])
+            conclusions = result.get("conclusion", [])
+            logger.info(
+                f"find_core_and_conclusion: {title} — "
+                f"骨子={len(cores)}箇所, 結び={len(conclusions)}箇所"
+            )
+            return result
+        except Exception as e:
+            logger.warning(f"find_core_and_conclusion failed: {e}")
+            return {"core": [], "conclusion": []}
+
     def compute_embeddings(self, texts: list[str]) -> list[list[float]]:
         if not texts:
             return []
