@@ -152,6 +152,67 @@ class TestCharTimesLengthMismatch:
         assert cleaned_ranges == time_ranges
 
 
+class TestReduplicationProtection:
+    """畳語保護テスト"""
+
+    def test_reduplication_protected(self):
+        """「たまたま」は畳語として保護される"""
+        text = "たまたま勝った"
+        words = _make_words(text)
+        seg = _make_segment(text, words)
+        time_ranges = [(0.0, len(text) * 0.1)]
+
+        cleaned_text, _, _ = remove_stammering(text, [seg], time_ranges)
+
+        assert cleaned_text == text
+
+    def test_reduplication_iroiro(self):
+        """「いろいろ」は畳語として保護される"""
+        text = "いろいろあって"
+        words = _make_words(text)
+        seg = _make_segment(text, words)
+        time_ranges = [(0.0, len(text) * 0.1)]
+
+        cleaned_text, _, _ = remove_stammering(text, [seg], time_ranges)
+
+        assert cleaned_text == text
+
+    def test_reduplication_triple_not_protected(self):
+        """3回反復は畳語でも吃音として縮約"""
+        text = "たまたまたま勝った"
+        words = _make_words(text)
+        seg = _make_segment(text, words)
+        time_ranges = [(0.0, len(text) * 0.1)]
+
+        cleaned_text, _, _ = remove_stammering(text, [seg], time_ranges)
+
+        # 3回→1回に縮約
+        assert cleaned_text == "たま勝った"
+
+    def test_reduplication_katakana(self):
+        """カタカナ畳語も保護される"""
+        text = "ドンドン進む"
+        words = _make_words(text)
+        seg = _make_segment(text, words)
+        time_ranges = [(0.0, len(text) * 0.1)]
+
+        cleaned_text, _, _ = remove_stammering(text, [seg], time_ranges)
+
+        assert cleaned_text == text
+
+    def test_reduplication_with_stammering(self):
+        """畳語と吃音が混在するケース"""
+        text = "たまたまない人はない人は残り"
+        words = _make_words(text)
+        seg = _make_segment(text, words)
+        time_ranges = [(0.0, len(text) * 0.1)]
+
+        cleaned_text, _, _ = remove_stammering(text, [seg], time_ranges)
+
+        assert "たまたま" in cleaned_text
+        assert cleaned_text == "たまたまない人は残り"
+
+
 class TestTimeRangesReconstruction:
     """time_ranges再構築テスト"""
 
