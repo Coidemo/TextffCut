@@ -636,6 +636,9 @@ class GenerateClipSuggestionsUseCase:
         if not best:
             return None
 
+        # 結合部のmicro buffer追加（音声途切れ防止）
+        buffered_ranges = self._apply_range_buffers(best.time_ranges)
+
         # topic境界の実時間を算出
         topic_start_time = transcription.segments[topic.segment_start_index].start
         topic_end_idx = min(topic.segment_end_index, len(transcription.segments) - 1)
@@ -645,7 +648,7 @@ class GenerateClipSuggestionsUseCase:
             id=best.segment_indices[0].__str__(),
             title=topic.title,
             text=best.text,
-            time_ranges=best.time_ranges,
+            time_ranges=buffered_ranges,
             total_duration=best.total_duration,
             score=topic.score,
             category=topic.category,
@@ -655,6 +658,43 @@ class GenerateClipSuggestionsUseCase:
             topic_start_time=topic_start_time,
             topic_end_time=topic_end_time,
         )
+
+    @staticmethod
+    def _apply_range_buffers(
+        time_ranges: list[tuple[float, float]],
+        tail_buffer: float = 0.08,
+        head_buffer: float = 0.05,
+    ) -> list[tuple[float, float]]:
+        """各rangeの末尾/先頭にmicro bufferを追加して結合部の音声途切れを防ぐ。
+
+        - tail_buffer: range末尾を少し延長（最後の単語の残響を拾う）
+        - head_buffer: range先頭を少し前倒し（最初の単語の立ち上がりを拾う）
+        - 隣接rangeのギャップを超えないよう制限する
+        """
+        if len(time_ranges) <= 1:
+            return time_ranges
+
+        result = list(time_ranges)
+        for i in range(len(result)):
+            s, e = result[i]
+
+            if i > 0:
+                # 先頭バッファ: 前のrangeの末尾を超えない
+                prev_end = result[i - 1][1]
+                gap_before = s - prev_end
+                actual_head = min(head_buffer, gap_before * 0.4)
+                s = s - max(actual_head, 0)
+
+            if i < len(result) - 1:
+                # 末尾バッファ: 次のrangeの先頭を超えない
+                next_start = time_ranges[i + 1][0]
+                gap_after = next_start - e
+                actual_tail = min(tail_buffer, gap_after * 0.4)
+                e = e + max(actual_tail, 0)
+
+            result[i] = (round(s, 3), round(e, 3))
+
+        return result
 
     def _filter_by_embedding_similarity(
         self,
