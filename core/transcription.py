@@ -488,11 +488,16 @@ class Transcriber:
         if progress_callback:
             progress_callback(0.1, f"MLX文字起こし中 ({model_size})...")
 
+        # initial_prompt: フィラー語を含めることでWhisperにフィラーを文字起こしさせる
+        # condition_on_previous_text=True(デフォルト)により後続ウィンドウにも効果が伝播
+        initial_prompt = "えー、あの、えーと、まあ、なんか、うーん、まぁ、んー、えっと、そうですね"
+
         logger.info(f"mlx-whisperで文字起こし開始: {mlx_model}")
         whisper_result = mlx_whisper.transcribe(
             str(video_path),
             path_or_hf_repo=mlx_model,
             language=self.config.transcription.language,
+            initial_prompt=initial_prompt,
         )
         logger.info(f"mlx-whisper完了: {len(whisper_result.get('segments', []))}セグメント")
 
