@@ -46,10 +46,6 @@ _CONJUNCTIVE_PARTICLES = frozenset(
 )
 # 終助詞（末尾に来ると自然）
 _FINAL_PARTICLES = frozenset(("よ", "ね", "わ", "な", "さ"))
-# 冒頭に来ると不自然な助詞
-_BAD_START_PARTICLE_TEXTS = frozenset(
-    ("で", "て", "けど", "けれども", "ので", "から", "が", "を", "に", "と", "も", "は")
-)
 
 
 def _ending_naturalness_score(text: str) -> int:
@@ -126,93 +122,6 @@ def _ending_ginza_score(text: str) -> int:
         return score
     except Exception:
         return 0
-
-
-def _start_naturalness_score(text: str) -> int:
-    """候補テキストの冒頭自然さスコアを返す（GiNZA + 文字列フォールバック）。"""
-    t = text.lstrip()
-    if not t:
-        return 0
-
-    ginza_score = _start_ginza_score(t)
-    if ginza_score != 0:
-        return ginza_score
-    return _start_str_score(t)
-
-
-def _start_ginza_score(text: str) -> int:
-    """GiNZA品詞による冒頭判定。"""
-    try:
-        from core.japanese_line_break import JapaneseLineBreakRules
-
-        doc = JapaneseLineBreakRules._analyze(text[:50])
-        if not doc or len(doc) == 0:
-            return 0
-
-        first_token = doc[0]
-        pos = JapaneseLineBreakRules._normalize_pos_tag(first_token.tag_)
-        pos_major = pos.split("-")[0]
-        token_text = first_token.text
-
-        if pos_major == "助詞":
-            if token_text in _BAD_START_PARTICLE_TEXTS:
-                return -15
-            # 「っていう」等は接続助詞始まり
-            if token_text in ("って", "っていう"):
-                return -15
-        elif pos_major == "助動詞":
-            # 助動詞で始まる → 前文の述語からの続き
-            return -10
-
-        return 0
-    except Exception:
-        return 0
-
-
-def _start_str_score(text: str) -> int:
-    """文字列パターンによる冒頭判定（GiNZAフォールバック）。"""
-    for p in _BAD_START_PARTICLE_TEXTS:
-        if text.startswith(p) and len(text) > len(p):
-            next_char = text[len(p)]
-            safe_follows = {
-                "で": "すはもきし", "て": "もはき",
-                "は": "いっ", "と": "いこに",
-            }
-            if p in safe_follows and next_char in safe_follows[p]:
-                continue
-            return -15
-    for c in ("っていう", "という", "ああい", "ういう"):
-        if text.startswith(c):
-            return -15
-    return 0
-
-
-def _boundary_naturalness_score(text: str) -> int:
-    """候補テキストの冒頭+末尾の自然さ合算スコア。"""
-    return _start_naturalness_score(text) + _ending_naturalness_score(text)
-
-
-def _cosine_similarity(a: list[float], b: list[float]) -> float:
-    """2つのembeddingベクトルのcosine類似度を計算する。"""
-    dot = sum(x * y for x, y in zip(a, b))
-    norm_a = sum(x * x for x in a) ** 0.5
-    norm_b = sum(x * x for x in b) ** 0.5
-    if norm_a == 0 or norm_b == 0:
-        return 0.0
-    return dot / (norm_a * norm_b)
-
-
-def _avg_pairwise_cosine(embeddings: list[list[float]]) -> float:
-    """embeddingリストの平均ペアワイズcosine類似度を計算する。"""
-    if len(embeddings) < 2:
-        return 1.0
-    total = 0.0
-    count = 0
-    for i in range(len(embeddings)):
-        for j in range(i + 1, len(embeddings)):
-            total += _cosine_similarity(embeddings[i], embeddings[j])
-            count += 1
-    return total / count if count > 0 else 0.0
 
 
 class GenerateClipSuggestionsUseCase:
@@ -562,29 +471,8 @@ class GenerateClipSuggestionsUseCase:
                 logger.info(f"末尾フィルタ: {len(candidates)}→{len(good)}候補 ({topic.title})")
             candidates = good
 
-        # フィラー除去済みテキストで元話題テキストを構築
-        clean_text_by_idx = self._build_clean_text_map()
-        original_text = "".join(
-            clean_text_by_idx.get(i, transcription.segments[i].text)
-            for i in range(topic.segment_start_index, topic.segment_end_index + 1)
-        )
-
-        # Phase 2.5a: Embedding類似度フィルタ
-        candidates = self._filter_by_embedding_similarity(candidates, original_text)
-
         if not candidates:
-            logger.warning(f"embeddingフィルタで全候補除外: {topic.title}")
-            return None
-
-        # 趣旨検証フィルタ
-        # 未完結話題の場合、全候補invalidなら話題ごと破棄
-        is_complete = getattr(topic, "is_complete", True)
-        candidates = self._filter_by_thesis(topic.title, candidates, original_text=original_text)
-        if not candidates:
-            if not is_complete:
-                logger.warning(f"未完結話題の全候補除外: {topic.title}")
-            else:
-                logger.warning(f"趣旨検証で全候補除外: {topic.title}")
+            logger.warning(f"全候補除外: {topic.title}")
             return None
 
         # 候補が1つだけならそのまま採用
@@ -655,159 +543,6 @@ class GenerateClipSuggestionsUseCase:
 
             result[i] = (round(s, 3), round(e, 3))
 
-        return result
-
-    def _filter_by_embedding_similarity(
-        self,
-        candidates: list[ClipCandidate],
-        original_text: str,
-        min_similarity: float = 0.65,
-    ) -> list[ClipCandidate]:
-        """Embedding類似度で候補をフィルタ・ランキングする。
-
-        元話題テキストと各候補テキストのcosine類似度を計算し:
-        1. min_similarity未満の候補を除外
-        2. similarity降順でランキング
-        """
-        if len(candidates) <= 1:
-            return candidates
-
-        # Embedding計算（バッチ処理）
-        texts = [original_text] + [c.text[:500] for c in candidates]
-        batch_size = 500
-        all_embeddings: list[list[float]] = []
-
-        for i in range(0, len(texts), batch_size):
-            batch = texts[i : i + batch_size]
-            try:
-                batch_embs = self.gateway.compute_embeddings(batch)
-            except Exception as e:
-                logger.warning(f"Embedding計算失敗（バッチ{i}）: {e}")
-                return candidates  # 失敗時はフィルタなしで続行
-            if not batch_embs:
-                return candidates
-            all_embeddings.extend(batch_embs)
-
-        if len(all_embeddings) != len(texts):
-            logger.warning(f"Embedding数不一致: {len(all_embeddings)} != {len(texts)}")
-            return candidates
-
-        topic_emb = all_embeddings[0]
-        cand_embs = all_embeddings[1:]
-
-        # cosine類似度計算 + フィルタ
-        result: list[ClipCandidate] = []
-        for c, emb in zip(candidates, cand_embs):
-            sim = _cosine_similarity(topic_emb, emb)
-            c.embedding_similarity = sim
-            if sim >= min_similarity:
-                result.append(c)
-
-        if not result:
-            # 全除外される場合は最も類似度の高いものを残す
-            best_c = max(candidates, key=lambda c: c.embedding_similarity)
-            logger.info(
-                f"Embeddingフィルタ: 全候補が閾値{min_similarity}未満 "
-                f"→ 最高sim={best_c.embedding_similarity:.3f}を残す"
-            )
-            return [best_c]
-
-        # similarity降順でランキング
-        result.sort(key=lambda c: c.embedding_similarity, reverse=True)
-
-        # 多様性フィルタ: 内容パターン重複除去 + duration散らし
-        # Step 1: 先頭80文字が同じ候補はグループの代表（最高sim）のみ残す
-        pattern_pool: list[ClipCandidate] = []
-        seen_prefixes: set[str] = set()
-        for c in result:
-            prefix = c.text[:80]
-            if prefix not in seen_prefixes:
-                seen_prefixes.add(prefix)
-                pattern_pool.append(c)
-
-        # Step 2: duration散らし + 末尾自然さで選出（greedy）
-        # 最高simを1件目に選び、以降はduration差8秒以上の候補を優先
-        # 同条件なら末尾が自然な候補を優先
-        min_dur_gap = 8.0
-        selected: list[ClipCandidate] = []
-        remaining = list(pattern_pool)
-
-        while remaining:
-            if not selected:
-                # 1件目: 最高sim（同simなら末尾自然な方）
-                selected.append(remaining.pop(0))
-            else:
-                # duration差が十分な候補を集める
-                dur_ok = [
-                    (i, c) for i, c in enumerate(remaining)
-                    if all(abs(c.total_duration - s.total_duration) >= min_dur_gap for s in selected)
-                ]
-                if dur_ok:
-                    # duration差OKの中で冒頭+末尾自然さ最良 → sim最高の順で選ぶ
-                    best_i, _ = max(
-                        dur_ok,
-                        key=lambda ic: (_boundary_naturalness_score(ic[1].text), ic[1].embedding_similarity),
-                    )
-                    selected.append(remaining.pop(best_i))
-                else:
-                    # duration差を満たす候補がない → 冒頭+末尾自然さ優先で次を取る
-                    best_i = max(
-                        range(len(remaining)),
-                        key=lambda i: (_boundary_naturalness_score(remaining[i].text), remaining[i].embedding_similarity),
-                    )
-                    selected.append(remaining.pop(best_i))
-
-        n_filtered = len(candidates) - len(result)
-        n_deduped = len(result) - len(pattern_pool)
-        if n_filtered > 0 or n_deduped > 0:
-            logger.info(
-                f"Embeddingフィルタ: {len(candidates)}→{len(result)}候補 "
-                f"(sim={result[-1].embedding_similarity:.3f}~{result[0].embedding_similarity:.3f}, "
-                f"除外{n_filtered}件, 重複統合{n_deduped}件→{len(pattern_pool)}パターン)"
-            )
-
-        return selected
-
-    def _filter_by_thesis(
-        self,
-        title: str,
-        candidates: list[ClipCandidate],
-        original_text: str = "",
-    ) -> list[ClipCandidate]:
-        """趣旨検証: 各候補テキストが話題の趣旨を保っているか検証し、不適切な候補を除外する。"""
-        if len(candidates) <= 1:
-            return candidates
-
-        # 上位5候補をAIに送信
-        top = candidates[:5]
-        api_input = [{"index": i, "text": c.text, "duration": c.total_duration} for i, c in enumerate(top)]
-
-        try:
-            valid_flags = self.gateway.validate_clip_candidates(
-                title=title, candidates=api_input, original_text=original_text
-            )
-        except Exception as e:
-            logger.warning(f"趣旨検証API失敗: {e}")
-            return candidates
-
-        if len(valid_flags) != len(top):
-            return candidates
-
-        filtered = [c for c, valid in zip(top, valid_flags, strict=True) if valid]
-        # 上位5件以降の候補も保持
-        rest = candidates[5:]
-
-        if not filtered:
-            # 全候補除外の場合、embedding similarity最高のものを1つ残す
-            best = max(top, key=lambda c: c.embedding_similarity)
-            logger.info(
-                f"趣旨検証: 全候補invalid → sim最高を残す (sim={best.embedding_similarity:.3f})"
-            )
-            return [best] + rest
-
-        result = filtered + rest
-        if len(filtered) < len(top):
-            logger.info(f"趣旨検証: {len(top)}→{len(filtered)}候補 ({title})")
         return result
 
     def _ai_select_best(
