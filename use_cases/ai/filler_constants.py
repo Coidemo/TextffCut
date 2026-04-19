@@ -1,7 +1,7 @@
 """
 フィラー関連の定数定義
 
-brute_force_clip_generator.py と word_level_filler_polish.py で共有する。
+brute_force_clip_generator.py と early_filler_detection.py で共有する。
 """
 
 from __future__ import annotations

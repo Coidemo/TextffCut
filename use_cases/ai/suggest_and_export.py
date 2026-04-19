@@ -1,16 +1,12 @@
 """
-一気通貫ユースケース: AI話題検出 → 力任せ候補生成 → AI選定 → 無音削除 → FCPXML
+一気通貫ユースケース: AI話題検出 → 骨子+結び候補生成 → AI選定 → 無音削除 → FCPXML
 
-シンプルなパイプライン:
-1. AI: 話題の時間範囲を検出
-2. 機械: セグメント組み合わせで数百パターン生成 → 機械スコアで上位5件
-3. AI: 出来上がり音声を文字起こしして最良を選定
-4. 機械: wordsレベルフィラー仕上げ（音響チェック付き）
-5. 機械: 無音削除（最終候補にのみ適用）
-6. 機械: FCPXML生成
-
-フィラー削除は行わない。フィラーセグメントを含むパターンは機械スコアで自然に
-淘汰される（フィラーセグメントが多いほどスコアが下がるため）。
+パイプライン:
+1. Phase 0: 早期フィラー検出
+2. Phase 1: AI話題検出 + Phase 1.5: 境界補正
+3. Phase 2c: 骨子+結びベース候補生成
+4. Phase 3: AI最良候補選定 + Phase 3.5: 吃音除去
+5. 無音削除 → FCPXML + SRT生成
 """
 
 from __future__ import annotations
@@ -55,7 +51,6 @@ class SuggestAndExportRequest:
     title_target_size: tuple[int, int] | None = None  # タイトル画像ターゲットサイズ (width, height)
     title_offset_y: int = 0  # タイトル表示位置の垂直オフセット（px、正=下方向）
     auto_anchor: bool = False  # 被写体位置からアンカーを自動検出（vertical時のみ有効）
-    enable_quality_loop: bool = True  # AI品質チェックループ（デフォルト有効）
 
 
 @dataclass
@@ -82,7 +77,6 @@ class SuggestAndExportUseCase:
         use_case = GenerateClipSuggestionsUseCase(self.gateway)
         suggestions = use_case.execute(
             transcription=request.transcription,
-            video_path=request.video_path,
             num_candidates=request.num_candidates,
             min_duration=request.min_duration,
             max_duration=request.max_duration,
@@ -98,36 +92,6 @@ class SuggestAndExportUseCase:
         fcpxml_dir = base_dir / "fcpxml"
         fcpxml_dir.mkdir(parents=True, exist_ok=True)
 
-        _t1 = _time.time()
-        # Phase 4: wordsレベルフィラー仕上げ（音響チェック付き）
-        from use_cases.ai.word_level_filler_polish import polish_fillers
-
-        for i, suggestion in enumerate(suggestions):
-            suggestions[i] = polish_fillers(suggestion, request.transcription, request.video_path, gateway=self.gateway)
-
-        _phase_times["Phase4 フィラー仕上げ"] = _time.time() - _t1
-        _t2 = _time.time()
-        # Phase 4.5: 品質チェックループ（オプション）
-        if request.enable_quality_loop:
-            from use_cases.ai.clip_quality_loop import run_quality_loop
-
-            refined = []
-            for suggestion in suggestions:
-                result = run_quality_loop(
-                    suggestion,
-                    request.video_path,
-                    request.transcription,
-                    self.gateway,
-                    request.min_duration,
-                    request.max_duration,
-                )
-                if result:
-                    refined.append(result)
-                else:
-                    logger.warning(f"品質ループでスキップ: {suggestion.title}")
-            suggestions = refined if refined else suggestions
-
-        _phase_times["Phase4.5 品質ループ"] = _time.time() - _t2
         _t3 = _time.time()
         # Phase 5: 無音削除（最終候補にのみ適用）
         if request.remove_silence:
@@ -242,6 +206,7 @@ class SuggestAndExportUseCase:
         _t5 = _time.time()
         # Phase 6: SRT用の再文字起こしを事前並列実行
         srt_segments_map: dict[int, list[dict] | None] = {}
+        _srt_api_key = self.gateway.api_key
         if request.generate_srt:
             from concurrent.futures import ThreadPoolExecutor
 
@@ -249,7 +214,7 @@ class SuggestAndExportUseCase:
 
             def _transcribe_for_srt(idx_sugg: tuple[int, ClipSuggestion]) -> tuple[int, list[dict]]:
                 idx, sugg = idx_sugg
-                result = _transcribe_output_audio(sugg.time_ranges, actual_video_path)
+                result = _transcribe_output_audio(sugg.time_ranges, actual_video_path, api_key=_srt_api_key)
                 return idx, result if result is not None else _SRT_TRANSCRIPTION_FAILED
 
             with ThreadPoolExecutor(max_workers=min(len(suggestions), 4)) as executor:
@@ -310,6 +275,7 @@ class SuggestAndExportUseCase:
                     max_lines=request.srt_max_lines,
                     speed=request.speed,
                     precomputed_segments=srt_segments_map.get(i - 1),
+                    api_key=_srt_api_key,
                 )
 
         _phase_times["Phase6b SE+FCPXML+SRT生成"] = _time.time() - _t6

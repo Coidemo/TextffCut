@@ -15,6 +15,25 @@ from utils.logging import get_logger
 logger = get_logger(__name__)
 
 
+# GiNZA不可時のフォールバック末尾リスト
+_FALLBACK_ENDINGS = [
+    "です",
+    "ます",
+    "ました",
+    "ですね",
+    "ますね",
+    "ですよね",
+    "んですよ",
+    "んです",
+    "思います",
+    "しれません",
+    "ですか",
+    "ですかね",
+    "ませんか",
+    "よね",
+]
+
+
 class JapaneseLineBreakRules:
     """日本語の禁則処理ルール"""
 
@@ -124,6 +143,60 @@ class JapaneseLineBreakRules:
             parts = tag.split("-")
             padded = parts + ["*"] * (4 - len(parts))
             self.part_of_speech = ",".join(padded[:4])
+
+    @classmethod
+    def is_sentence_complete(cls, text: str) -> bool:
+        """テキストが文末で完結しているかをGiNZA形態素解析で判定する。"""
+        text = text.rstrip()
+        if not text:
+            return False
+
+        doc = cls._analyze(text)
+        if doc is None:
+            # GiNZA不可時はフォールバック（固定リスト）
+            return any(text.endswith(e) for e in _FALLBACK_ENDINGS)
+
+        # 末尾の実質トークンを取得（句読点・記号を飛ばす）
+        last_token = None
+        for token in reversed(list(doc)):
+            tag = cls._normalize_pos_tag(token.tag_)
+            if tag not in ("補助記号", "空白"):
+                last_token = token
+                break
+
+        if last_token is None:
+            return False
+
+        tag = cls._normalize_pos_tag(last_token.tag_)
+        morph = last_token.morph
+
+        # 1. 助動詞（です/ます/ました/でしょう等） → 終止形のみ完結
+        if tag == "助動詞":
+            inflect = str(morph.get("Inflection", [""])[0]) if morph.get("Inflection") else ""
+            if "終止形" in inflect:
+                return True
+            # 連用形（「で」in「なので」等）は未完結
+            return False
+
+        # 2. 終助詞（よ/ね/よね/な/かな等） → 完結
+        if tag == "助詞-終助詞":
+            return True
+
+        # 3. 動詞 終止形/命令形 → 完結
+        if tag.startswith("動詞"):
+            inflect = str(morph.get("Inflection", [""])[0]) if morph.get("Inflection") else ""
+            if "終止形" in inflect or "命令形" in inflect:
+                return True
+
+        # 4. 接続助詞（けど/ので/から/て/で等） → 未完結
+        if tag == "助詞-接続助詞":
+            return False
+
+        # 5. 助詞-格助詞（を/に/が/で等） → 未完結
+        if tag == "助詞-格助詞":
+            return False
+
+        return False
 
     @classmethod
     def get_word_boundaries(cls, text: str) -> list[int]:

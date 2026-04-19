@@ -16,7 +16,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import subprocess
 import tempfile
@@ -86,10 +85,18 @@ def run_quality_loop(
         result = _ai_quality_check(suggestion.title, transcribed, gateway, audio_issues)
 
         if result.is_ok:
-            logger.info(f"品質OK (iteration {iteration}): {suggestion.title}")
+            scores_str = " ".join(f"{k}={v}" for k, v in result.scores.items()) if result.scores else ""
+            total_score = sum(result.scores.values()) if result.scores else 0
+            logger.info(
+                f"品質OK (iteration {iteration}): {suggestion.title} | scores: {scores_str} total={total_score}"
+            )
             return suggestion
 
-        logger.info(f"品質問題 (iteration {iteration}): {result.issues}")
+        scores_str = " ".join(f"{k}={v}" for k, v in result.scores.items()) if result.scores else ""
+        total_score = sum(result.scores.values()) if result.scores else 0
+        logger.info(
+            f"品質問題 (iteration {iteration}): {suggestion.title} | scores: {scores_str} total={total_score} | issues: {result.issues}"
+        )
 
         # AI修正提案に基づいて修正
         modified = _apply_ai_fixes(
@@ -133,21 +140,9 @@ def _transcribe_output(
         return None
 
     try:
-        # gateway.client を使用（APIキーマネージャ経由で認証済み）
-        if gateway and hasattr(gateway, "client"):
-            client = gateway.client
-        else:
-            import os
-
-            from dotenv import load_dotenv
-
-            load_dotenv()
-            from openai import OpenAI
-
-            api_key = os.environ.get("OPENAI_API_KEY") or os.environ.get("TEXTFFCUT_API_KEY")
-            if not api_key:
-                return None
-            client = OpenAI(api_key=api_key)
+        if not gateway:
+            return None
+        client = gateway.client
 
         with tempfile.TemporaryDirectory() as tmpdir:
             # 各rangeの音声を抽出して結合
@@ -314,11 +309,9 @@ def _apply_ai_fixes(
         # 延長できなかった場合のみ末尾トリム
         # B: 複数セグメント遡って最寄りのGOOD ENDINGを探す（最大5つ遡る）
         if has_ending_issue and len(suggestion.time_ranges) > 2 and fix_counts.get("trim_tail", 0) < 2:
-            GOOD_ENDINGS = [
-                "です", "ます", "ました", "ですね", "ますね", "ですよね",
-                "んですよ", "んです", "思います", "しれません",
-            ]
-            # 末尾から遡って最寄りのGOOD ENDINGを探す
+            from core.japanese_line_break import JapaneseLineBreakRules
+
+            # 末尾から遡って最寄りの完結文末を探す
             max_lookback = min(5, len(suggestion.time_ranges) - 2)  # 最低2つは残す
             found_good_at = None
             for lookback in range(1, max_lookback + 1):
@@ -327,7 +320,7 @@ def _apply_ai_fixes(
                 check_seg = _find_segment_for_range(transcription, check_range)
                 if check_seg:
                     check_text = check_seg.text.rstrip()
-                    if any(check_text.endswith(g) for g in GOOD_ENDINGS):
+                    if JapaneseLineBreakRules.is_sentence_complete(check_text):
                         found_good_at = check_idx
                         break
 
@@ -337,7 +330,7 @@ def _apply_ai_fixes(
                 good_seg = _find_segment_for_range(transcription, suggestion.time_ranges[found_good_at])
                 backup_ranges = list(suggestion.time_ranges)
                 backup_duration = suggestion.total_duration
-                suggestion.time_ranges = suggestion.time_ranges[:found_good_at + 1]
+                suggestion.time_ranges = suggestion.time_ranges[: found_good_at + 1]
                 suggestion.total_duration = sum(e - s for s, e in suggestion.time_ranges)
                 # min_duration下限チェック
                 if min_duration and suggestion.total_duration < min_duration * 0.8:
@@ -456,8 +449,17 @@ def _trim_duration(
     except Exception as e:
         logger.warning(f"中間カット判定失敗: {e}")
 
-    # フォールバック: 末尾削除
+    # フォールバック: 末尾削除（完結チェック付き）
+    from core.japanese_line_break import JapaneseLineBreakRules
+
     while suggestion.total_duration > max_duration and len(suggestion.time_ranges) > 1:
+        # 1つ手前のセグメントが完結しているか確認
+        prev_range = suggestion.time_ranges[-2]
+        prev_seg = _find_segment_for_range(transcription, prev_range)
+        if prev_seg and not JapaneseLineBreakRules.is_sentence_complete(prev_seg.text.rstrip()):
+            # 未完結なら末尾削除を中止（途中切れ防止）
+            logger.info(f"  フォールバック末尾削除中止: 手前セグメントが未完結 '{prev_seg.text.rstrip()[-10:]}'")
+            break
         suggestion.time_ranges = suggestion.time_ranges[:-1]
         suggestion.total_duration = sum(e - s for s, e in suggestion.time_ranges)
 

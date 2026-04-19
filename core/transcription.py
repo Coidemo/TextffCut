@@ -253,8 +253,16 @@ class Transcriber:
             # APIモードの場合は_apiサフィックスを追加
             return cache_dir / f"{model_size}_api.json"
         else:
-            # ローカルモードの場合はそのまま
-            return cache_dir / f"{model_size}.json"
+            # ローカルモードの場合は_v2サフィックス（initial_prompt追加で出力が変わるため）
+            v2_path = cache_dir / f"{model_size}_v2.json"
+            if v2_path.exists():
+                return v2_path
+            # 旧キャッシュフォールバック
+            legacy_path = cache_dir / f"{model_size}.json"
+            if legacy_path.exists():
+                logger.warning(f"旧キャッシュを使用（_v2なし）: {legacy_path}")
+                return legacy_path
+            return v2_path
 
     def get_available_caches(self, video_path: str | Path) -> list[dict[str, Any]]:
         """利用可能なキャッシュファイルのリストを取得"""
@@ -293,10 +301,12 @@ class Transcriber:
 
                 if is_api_mode:
                     # _apiを除去してモデル名を取得
-                    model_size = filename.replace("_api", "")
+                    model_size = filename.removesuffix("_api")
                     mode = "API"
+                elif filename.endswith("_v2"):
+                    model_size = filename.removesuffix("_v2")
+                    mode = "ローカル"
                 else:
-                    # そのままモデル名として使用
                     model_size = filename
                     mode = "ローカル"
 
@@ -488,11 +498,20 @@ class Transcriber:
         if progress_callback:
             progress_callback(0.1, f"MLX文字起こし中 ({model_size})...")
 
+        # initial_prompt: フィラー語を含めることでWhisperにフィラーを文字起こしさせる
+        # condition_on_previous_text=True(デフォルト)により後続ウィンドウにも効果が伝播
+        # 日本語のみ適用（他言語では無関係なトークンが混入するため）
+        lang = self.config.transcription.language
+        initial_prompt = None
+        if lang == "ja":
+            initial_prompt = "えー、あの、えーと、まあ、なんか、うーん、まぁ、んー、えっと、そうですね"
+
         logger.info(f"mlx-whisperで文字起こし開始: {mlx_model}")
         whisper_result = mlx_whisper.transcribe(
             str(video_path),
             path_or_hf_repo=mlx_model,
-            language=self.config.transcription.language,
+            language=lang,
+            initial_prompt=initial_prompt,
         )
         logger.info(f"mlx-whisper完了: {len(whisper_result.get('segments', []))}セグメント")
 

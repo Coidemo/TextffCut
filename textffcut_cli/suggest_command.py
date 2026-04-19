@@ -7,7 +7,6 @@ textffcut suggest サブコマンド
 import argparse
 import json
 import logging
-import os
 import sys
 from pathlib import Path
 
@@ -21,9 +20,8 @@ logging.basicConfig(
     level=logging.WARNING,
     format="%(levelname)s: %(message)s",
 )
-# 品質ループ・候補生成のログのみINFOレベルで表示
+# 候補生成のログのみINFOレベルで表示
 for _mod in (
-    "use_cases.ai.clip_quality_loop",
     "use_cases.ai.brute_force_clip_generator",
     "use_cases.ai.suggest_and_export",
 ):
@@ -55,6 +53,13 @@ def build_suggest_parser() -> argparse.ArgumentParser:
         choices=["gpt-4.1-mini", "gpt-4.1"],
         metavar="AI_MODEL",
         help="AIモデル（デフォルト: gpt-4.1-mini）",
+    )
+    parser.add_argument(
+        "--quality-model",
+        default=None,
+        choices=["gpt-4.1-mini", "gpt-4.1"],
+        metavar="QUALITY_MODEL",
+        help="品質評価用AIモデル（デフォルト: gpt-4.1に自動アップグレード）",
     )
     parser.add_argument(
         "--num",
@@ -146,18 +151,6 @@ def build_suggest_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=False,
         help="被写体位置からアンカーを自動検出（--vertical時のみ有効）",
-    )
-    parser.add_argument(
-        "--quality-loop",
-        action="store_true",
-        default=True,
-        help="AI品質チェックループを有効化（デフォルト: 有効）",
-    )
-    parser.add_argument(
-        "--no-quality-loop",
-        action="store_false",
-        dest="quality_loop",
-        help="AI品質チェックループを無効化",
     )
     parser.add_argument(
         "--prompt",
@@ -326,7 +319,28 @@ def _process_single_video(
     # AI候補生成→FCPXML出力
     console.print(f"\n[bold]🤖 AI切り抜き候補を生成中...[/]")
     speed_info = f" | 速度: {args.speed}x" if args.speed != 1.0 else ""
-    console.print(f"  モデル: {args.ai_model} | 候補数: {args.num}{speed_info}")
+
+    # 品質評価モデルの決定
+    quality_model = args.quality_model
+    if quality_model is None and args.ai_model == "gpt-4.1-mini":
+        quality_model = "gpt-4.1"  # デフォルト自動アップグレード
+
+    # model_overrides構築（全判定系メソッドに適用）
+    model_overrides = {}
+    if quality_model and quality_model != args.ai_model:
+        for method in [
+            "detect_topics",
+            "evaluate_clip_quality",
+            "trim_clips",
+            "select_best_clip",
+            "judge_segment_relevance",
+            "refine_topic_boundary",
+            "find_core_and_conclusion",
+        ]:
+            model_overrides[method] = quality_model
+
+    quality_info = f" | 品質評価: {quality_model}" if model_overrides else ""
+    console.print(f"  モデル: {args.ai_model}{quality_info} | 候補数: {args.num}{speed_info}")
 
     from infrastructure.external.gateways.openai_clip_suggestion_gateway import (
         OpenAIClipSuggestionGateway,
@@ -336,7 +350,11 @@ def _process_single_video(
         SuggestAndExportUseCase,
     )
 
-    gateway = OpenAIClipSuggestionGateway(api_key=api_key, model=args.ai_model)
+    gateway = OpenAIClipSuggestionGateway(
+        api_key=api_key,
+        model=args.ai_model,
+        model_overrides=model_overrides,
+    )
     use_case = SuggestAndExportUseCase(gateway=gateway)
 
     # メディア素材検出サマリー
@@ -389,7 +407,6 @@ def _process_single_video(
         title_target_size=title_target_size,
         title_offset_y=args.title_offset_y,
         auto_anchor=args.auto_anchor,
-        enable_quality_loop=args.quality_loop,
     )
 
     result = use_case.execute(request)

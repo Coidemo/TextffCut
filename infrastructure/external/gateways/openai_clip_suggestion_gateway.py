@@ -1,10 +1,11 @@
 """
 OpenAI APIを使用した切り抜き候補生成ゲートウェイ
 
-3段階パイプライン:
-1. detect_topics: 話題の時間範囲を検出（テキスト編集なし）
-2. （機械的処理 — Gatewayの外で実行）
-3. select_best_variant: ベストパターンを選定
+主要API:
+1. detect_topics: 話題の時間範囲を検出（Phase 1）
+2. refine_topic_boundary: 話題境界の補正（Phase 1.5）
+3. find_core_and_conclusion: 骨子と結びを検出（Phase 2c）
+4. select_best_clip: 最良候補を選定（Phase 3）
 """
 
 import json
@@ -35,20 +36,38 @@ DEFAULT_PROMPT_PATH = Path(__file__).parent.parent.parent.parent / "prompts" / "
 
 class OpenAIClipSuggestionGateway(ClipSuggestionGatewayInterface):
 
-    def __init__(self, api_key: str, model: str = "gpt-4.1-mini"):
-        self.client = OpenAI(api_key=api_key)
+    def __init__(self, api_key: str, model: str = "gpt-4.1-mini", model_overrides: dict[str, str] | None = None):
+        self._client = OpenAI(api_key=api_key)
         if model not in AVAILABLE_MODELS:
             logger.warning(f"Unknown model '{model}', falling back to gpt-4.1-mini")
             model = "gpt-4.1-mini"
         self.model = model
+        self._model_overrides = model_overrides or {}
+
+    @property
+    def client(self) -> OpenAI:
+        """OpenAIクライアントを返す。"""
+        return self._client
+
+    @property
+    def api_key(self) -> str | None:
+        """APIキーを返す。"""
+        return self._client.api_key
+
+    def _resolve_model(self, method_name: str) -> str:
+        """メソッド名に応じたモデルを返す。overridesがなければデフォルト。"""
+        override = self._model_overrides.get(method_name)
+        if override and override in AVAILABLE_MODELS:
+            return override
+        return self.model
 
     def detect_topics(self, request: TopicDetectionRequest, format_mode: str = "chunk_30s") -> TopicDetectionResult:
         start = time.time()
 
         prompt = self._build_topic_prompt(request, format_mode=format_mode)
 
-        response = self.client.chat.completions.create(
-            model=self.model,
+        response = self._client.chat.completions.create(
+            model=self._resolve_model("detect_topics"),
             messages=[
                 {
                     "role": "system",
@@ -91,61 +110,19 @@ class OpenAIClipSuggestionGateway(ClipSuggestionGatewayInterface):
             "completion_tokens": response.usage.completion_tokens,
             "total_tokens": response.usage.total_tokens,
         }
-        pricing = MODEL_PRICING.get(self.model, MODEL_PRICING["gpt-4.1-mini"])
+        resolved = self._resolve_model("detect_topics")
+        pricing = MODEL_PRICING.get(resolved, MODEL_PRICING["gpt-4.1-mini"])
         cost = (token_usage["prompt_tokens"] / 1_000_000) * pricing["input"] + (
             token_usage["completion_tokens"] / 1_000_000
         ) * pricing["output"]
 
         return TopicDetectionResult(
             topics=topics,
-            model_used=self.model,
+            model_used=resolved,
             processing_time=time.time() - start,
             token_usage=token_usage,
             estimated_cost_usd=cost,
         )
-
-    def select_best_variant(self, topic_title: str, variants: list[dict]) -> int | None:
-        if not variants:
-            return None
-        if len(variants) == 1:
-            return 0
-
-        # バリアント情報をフォーマット
-        options = []
-        for i, v in enumerate(variants):
-            options.append(f"パターン{i+1}（{v['label']}、{v['duration']:.0f}秒）:\n{v['text'][:300]}")
-
-        prompt = f"""以下は「{topic_title}」という話題の切り抜きパターン候補です。
-ショート動画として最も「保存したくなる」「誰かに教えたくなる」パターンを1つ選んでください。
-
-選定基準:
-- 冒頭が引きになっている（問題提起、断定、驚き）
-- 結末が行動提案や気づきで締まっている
-- 話の流れが自然で完結している
-- 無駄な脱線や繰り返しが少ない
-
-{chr(10).join(options)}
-
-必ずJSON形式で回答してください: {{"selected": パターン番号(1始まり), "reason": "選定理由"}}"""
-
-        try:
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": "ショート動画の編集専門家です。JSON形式で回答してください。"},
-                    {"role": "user", "content": prompt},
-                ],
-                temperature=0.3,
-                max_tokens=200,
-                response_format={"type": "json_object"},
-            )
-            result = json.loads(response.choices[0].message.content)
-            selected = result.get("selected", 1)
-            logger.info(f"AI selected pattern {selected}: {result.get('reason', '')}")
-            return max(0, min(selected - 1, len(variants) - 1))
-        except Exception as e:
-            logger.warning(f"AI variant selection failed: {e}, using first variant")
-            return 0
 
     def judge_segment_relevance(self, title: str, segments: list[dict]) -> list[int]:
         if not segments:
@@ -172,8 +149,8 @@ class OpenAIClipSuggestionGateway(ClipSuggestionGatewayInterface):
 JSON: {{"remove": [不要なセグメントのindex番号]}}"""
 
         try:
-            response = self.client.chat.completions.create(
-                model=self.model,
+            response = self._client.chat.completions.create(
+                model=self._resolve_model("judge_segment_relevance"),
                 messages=[
                     {"role": "system", "content": "動画編集のセグメント選別担当。JSON形式で回答。"},
                     {"role": "user", "content": prompt},
@@ -189,55 +166,6 @@ JSON: {{"remove": [不要なセグメントのindex番号]}}"""
             return remove_indices
         except Exception as e:
             logger.warning(f"Segment relevance judge failed: {e}")
-            return []
-
-    def review_naturalness(
-        self,
-        title: str,
-        segments_text: list[str],
-        cut_issues: list[dict],
-    ) -> list[dict]:
-        issues_desc = ""
-        for issue in cut_issues:
-            issues_desc += f"- クリップ{issue['index']+1}の末尾: ピッチ{issue['direction']}\n"
-
-        # 最大10クリップまで（トークン節約）
-        segs = segments_text[:10]
-        segments_desc = "\n".join(f"クリップ{i+1}: {t}" for i, t in enumerate(segs))
-
-        prompt = f"""「{title}」の切り抜きクリップをレビュー。
-
-クリップ一覧:
-{segments_desc}
-
-音声分析の問題:
-{issues_desc if issues_desc else "なし"}
-
-各クリップを判定（problemあるもののみ出力）:
-- extend: 次と結合すべき（文が途中で切れている、「〜なので」「〜けど」で終わって続きが必要）
-- remove: 単独では意味がない
-- keep: 問題なし（省略可）
-
-JSON: {{"reviews": [{{"index": 0, "action": "extend", "reason": "理由"}}]}}"""
-
-        try:
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": "動画編集レビュー担当。必ず短いJSONで回答。"},
-                    {"role": "user", "content": prompt},
-                ],
-                temperature=0.2,
-                max_tokens=500,
-                response_format={"type": "json_object"},
-            )
-            result = json.loads(response.choices[0].message.content)
-            reviews = result.get("reviews", [])
-            for r in reviews:
-                logger.info(f"  Review: clip {r.get('index')}: {r.get('action')} - {r.get('reason', '')}")
-            return reviews
-        except Exception as e:
-            logger.warning(f"Naturalness review failed: {e}")
             return []
 
     def evaluate_clip_quality(
@@ -276,8 +204,8 @@ JSON: {{"scores": {{"hook": 4, "completeness": 3, "compactness": 5, "ending": 4,
 問題がなければ {{"scores": {{...}}, "ok": true, "issues": [], "fix_suggestions": []}}"""
 
         try:
-            response = self.client.chat.completions.create(
-                model=self.model,
+            response = self._client.chat.completions.create(
+                model=self._resolve_model("evaluate_clip_quality"),
                 messages=[
                     {"role": "system", "content": "ショート動画の品質管理担当。厳しく判定。JSON形式で回答。"},
                     {"role": "user", "content": prompt},
@@ -297,28 +225,31 @@ JSON: {{"scores": {{"hook": 4, "completeness": 3, "compactness": 5, "ending": 4,
         candidates_text: str,
     ) -> int:
         prompt = f"""「{title}」のショート動画候補があります。
-視聴者が「保存したい」「誰かに教えたい」と思える候補を1つ選んでください。
+YouTubeショートで最も再生数が回りそうな候補を1つ選んでください。
 
-選定基準:
-- 冒頭が引きになっている（いきなり本題に入る）
-- 結論・主張が明確にある
-- 途中で切れていない
-- 冗長な繰り返しがない
-- 自然な流れで話が完結している
+選定基準（重要度順）:
+1. 冒頭の引き: 最初の一文で「続きが気になる」と思わせるか
+2. コンパクトさ: 同じ内容なら短い方が良い。冗長な前置きや繰り返しがないか
+3. 結論の明確さ: 「要するにこういうこと」と言い切っているか
+4. 共感・意外性: 視聴者が「わかる」「そうなんだ」と反応しそうか
+5. 完結性: 途中で切れていないか
 
 {candidates_text}
 
-JSON: {{"selected": 候補番号(1始まり), "reason": "選定理由"}}"""
+JSON: {{"selected": 候補番号(1始まり), "reason": "選定理由（どの基準で優れていたか具体的に）"}}"""
 
         try:
-            response = self.client.chat.completions.create(
-                model=self.model,
+            response = self._client.chat.completions.create(
+                model=self._resolve_model("select_best_clip"),
                 messages=[
-                    {"role": "system", "content": "ショート動画の最終選定担当。JSON形式で回答。"},
+                    {
+                        "role": "system",
+                        "content": "YouTubeショート動画の編集ディレクター。再生数を最大化する候補を選定する。JSON形式で回答。",
+                    },
                     {"role": "user", "content": prompt},
                 ],
                 temperature=0.2,
-                max_tokens=200,
+                max_tokens=300,
                 response_format={"type": "json_object"},
             )
             result = json.loads(response.choices[0].message.content)
@@ -326,141 +257,6 @@ JSON: {{"selected": 候補番号(1始まり), "reason": "選定理由"}}"""
         except Exception as e:
             logger.warning(f"AI clip selection failed: {e}")
             return 1
-
-    def select_clip_segments(
-        self,
-        title: str,
-        segments: list[dict],
-        min_duration: float,
-        max_duration: float,
-        num_variants: int = 2,
-    ) -> list[list[int]]:
-        if not segments:
-            return []
-
-        total_available = sum(s["end"] - s["start"] for s in segments)
-        segs_desc = "\n".join(f"[{s['index']}] ({s['end'] - s['start']:.1f}s) {s['text']}" for s in segments[:40])
-
-        prompt = f"""以下のセグメントから、ショート動画「{title}」に使うものだけを選んでください。
-
-以下の3ステップで考えて、最終結果のみJSON出力してください:
-
-<ステップ1: 結論/CTA特定>
-全セグメントを読み、結論・主張・行動提案を含むセグメントを特定。
-「べきです」「方がいい」「ポイントは」「大事です」等がある箇所。
-これがクリップの着地点。
-
-<ステップ2: Hook特定>
-冒頭として視聴者の注意を引くセグメントを探す。
-- 断定（「〜は間違い」「〜すべき」）
-- 問いかけ（「〜って知ってる？」）
-- 驚きのある事実や数字
-※「今日用意してるんですけども」等の前置きは使わない
-
-<ステップ3: Body埋め>
-ステップ1の結論とステップ2のHookの間を最小限で埋める。
-冗長な繰り返し、つなぎ語、具体例の2つ目以降はスキップ。
-
-制約:
-- 使うセグメントのindex番号を昇順で返す（並び替え禁止）
-- テキストの編集は不要。セグメントをそのまま使う
-- 全セグメント合計: {total_available:.0f}秒。選択後の合計が {min_duration:.0f}〜{max_duration:.0f} 秒になるようにしてください。
-- セグメント数は通常15〜25個程度必要です。少なすぎると秒数が足りません。
-- {num_variants}パターン作る: 骨子のみと、少し肉付けした版
-
-セグメント:
-{segs_desc}
-
-JSON: {{"variants": [
-  {{"label": "骨子", "indices": [28, 29, 30, 31, 36, 37, ...]}},
-  {{"label": "肉付け", "indices": [24, 25, 28, 29, 30, 31, 36, 37, ...]}}
-]}}"""
-
-        try:
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": "ショート動画の編集担当。セグメントを選別してJSON形式で回答。"},
-                    {"role": "user", "content": prompt},
-                ],
-                temperature=0.2,
-                max_tokens=1000,
-                response_format={"type": "json_object"},
-            )
-            result = json.loads(response.choices[0].message.content)
-            variants = result.get("variants", [])
-
-            output = []
-            for v in variants:
-                indices = v.get("indices", [])
-                if isinstance(indices, list) and all(isinstance(x, int) for x in indices):
-                    output.append(indices)
-
-            logger.info(
-                f"AI segment selection: {len(output)} variants returned " f"(sizes: {[len(v) for v in output]})"
-            )
-            return output
-        except Exception as e:
-            logger.warning(f"AI segment selection failed: {e}")
-            return []
-
-    def classify_segment_essentiality(
-        self,
-        title: str,
-        segments: list[dict],
-    ) -> list[dict]:
-        if not segments:
-            return []
-
-        segs_desc = "\n".join(f"[{s['index']}] ({s['start']:.0f}s) {s['text']}" for s in segments[:40])
-
-        prompt = f"""「{title}」というショート動画の素材セグメントを分類してください。
-
-各セグメントを以下の3カテゴリに分類:
-- **essential**: 削除すると主張・結論が伝わらなくなる（核心、結論、重要事実）
-- **supportive**: なくても主張は伝わるが理解しやすくなる（具体例の1つ目、短い導入）
-- **redundant**: 削除しても意味が完全に伝わる:
-  - 前置き（「〜という話をしたいと思います」）
-  - つなぎ語（「どういうことかというと」）
-  - 同じ内容の2回目以降の説明
-  - 冗長な締め（「〜みたいな感じで」）
-
-ガイドライン:
-- essential が全体の 40-60% になるようにしてください
-- 冒頭の導入（話題提起）と末尾の結論は原則 essential
-- 迷ったら supportive にしてください
-
-セグメント:
-{segs_desc}
-
-JSON: {{"classifications": [{{"index": 0, "role": "essential", "reason": "結論"}}]}}"""
-
-        try:
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": "動画編集の骨子抽出担当。JSON形式で回答。"},
-                    {"role": "user", "content": prompt},
-                ],
-                temperature=0.2,
-                max_tokens=1500,
-                response_format={"type": "json_object"},
-            )
-            result = json.loads(response.choices[0].message.content)
-            classifications = result.get("classifications", [])
-
-            # 統計ログ
-            roles = [c.get("role", "") for c in classifications]
-            essential_count = roles.count("essential")
-            logger.info(
-                f"セグメント分類: {title} — essential={essential_count}, "
-                f"supportive={roles.count('supportive')}, "
-                f"redundant={roles.count('redundant')}, total={len(classifications)}"
-            )
-            return classifications
-        except Exception as e:
-            logger.warning(f"セグメント分類失敗: {e}")
-            return []
 
     def trim_clips(
         self,
@@ -475,7 +271,7 @@ JSON: {{"classifications": [{{"index": 0, "role": "essential", "reason": "結論
 - 繰り返し・冗長な説明
 - 本筋と関係ない例え話・脱線
 - なくても主張が伝わる補足
-- **質問の読み上げ部分**（回答だけ残す。質問文が全体の1/3以上なら積極的に削除）
+- **質問の読み上げ部分**（質問が長い場合は最短の1クリップだけ残して残りを削除。タイトルで内容は伝わるので質問は最小限に）
 
 冒頭（話の導入）と末尾（結論）は原則残してください。中間から削除するのが理想です。
 
@@ -484,8 +280,8 @@ JSON: {{"classifications": [{{"index": 0, "role": "essential", "reason": "結論
 JSON: {{"remove": [削除するクリップのindex番号], "reason": "理由"}}"""
 
         try:
-            response = self.client.chat.completions.create(
-                model=self.model,
+            response = self._client.chat.completions.create(
+                model=self._resolve_model("trim_clips"),
                 messages=[
                     {
                         "role": "system",
@@ -506,72 +302,125 @@ JSON: {{"remove": [削除するクリップのindex番号], "reason": "理由"}}
             logger.warning(f"trim_clips failed: {e}")
             return []
 
-    def judge_filler_context(self, candidates: list[dict]) -> list[bool]:
-        if not candidates:
-            return []
+    def refine_topic_boundary(
+        self,
+        title: str,
+        all_segments: list[dict],
+        extension_candidates: list[dict],
+    ) -> dict:
+        all_desc = "\n".join(
+            f"[{i}] seg_idx={s['index']} ({s['start']:.1f}-{s['end']:.1f}s) {s['text']}"
+            for i, s in enumerate(all_segments)
+        )
+        ext_desc = (
+            "\n".join(
+                f"[{chr(65 + i)}] seg_idx={s['index']} ({s['start']:.1f}-{s['end']:.1f}s) {s['text']}"
+                for i, s in enumerate(extension_candidates)
+            )
+            if extension_candidates
+            else "なし"
+        )
 
-        items = "\n".join(f'{i + 1}. 「{c["filler"]}」: ...{c["context"]}...' for i, c in enumerate(candidates))
+        prompt = f"""タイトル: {title}
 
-        prompt = f"""以下の日本語テキスト中の「」内の語がフィラー（言い淀み・つなぎ語）か、
-文法的に必要な語かを判定してください。
+話題の全セグメント:
+{all_desc}
 
-判定基準:
-- フィラー: 除去しても文の意味が変わらない（「なんかすごい」の「なんか」）
-- 文法的: 除去すると文の意味が変わる（「何か問題がある」の「何か」、「AとかBとか」の「とか」）
+後続セグメント（拡張候補）:
+{ext_desc}
 
-{items}
+判定してください:
+1. 末尾に別の話題のセグメントが混入していませんか？
+   - 話題と無関係な内容が末尾にあれば、どこで切るべきか
+2. 後続セグメントに結論が含まれていませんか？
+   - 含まれていれば、どこまで拡張すべきか
+3. 最終的な範囲（trim/extend後）で話題の論点は完結しますか？
+   - 主張→根拠→結論の流れが成立しているか
+   - 末尾が接続形（〜ので/〜けど/〜て）で終わっていないか
+   - **is_completeはtrim/extend適用後の最終範囲について判定してください**
 
-JSON: {{"results": [true, false, ...]}}
-true=フィラー（除去可能）、false=文法的に必要（除去不可）"""
+JSON: {{"action": "keep" | "trim" | "extend", "end_segment_index": 最終セグメントのseg_idx, "is_complete": 最終範囲で話題が完結しているか(true/false), "reason": "判定理由"}}"""
 
         try:
-            response = self.client.chat.completions.create(
-                model=self.model,
+            response = self._client.chat.completions.create(
+                model=self._resolve_model("refine_topic_boundary"),
                 messages=[
-                    {
-                        "role": "system",
-                        "content": "日本語の言語分析専門家。フィラー（言い淀み）と文法的用法を正確に区別する。JSON形式で回答。",
-                    },
+                    {"role": "system", "content": "話題の境界を判定する専門家。JSON形式で回答。"},
                     {"role": "user", "content": prompt},
                 ],
-                temperature=0.1,
-                max_tokens=200,
+                temperature=0.2,
+                max_tokens=300,
                 response_format={"type": "json_object"},
             )
             result = json.loads(response.choices[0].message.content)
-            results = result.get("results", [])
-            # 結果の長さが合わない場合はフォールバック
-            if len(results) != len(candidates):
-                logger.warning(
-                    f"LLMフィラー判定: 結果数不一致 ({len(results)} vs {len(candidates)}), "
-                    "全てフィラーとして扱います"
-                )
-                return [True] * len(candidates)
-            return [bool(r) for r in results]
+            # デフォルト値の補完
+            if "action" not in result:
+                result["action"] = "keep"
+            if "end_segment_index" not in result:
+                result["end_segment_index"] = all_segments[-1]["index"] if all_segments else 0
+            if "is_complete" not in result:
+                result["is_complete"] = True
+            if "reason" not in result:
+                result["reason"] = ""
+            return result
         except Exception as e:
-            logger.warning(f"LLMフィラー判定失敗: {e}")
-            return [True] * len(candidates)
+            logger.warning(f"refine_topic_boundary failed: {e}")
+            return {
+                "action": "keep",
+                "end_segment_index": all_segments[-1]["index"] if all_segments else 0,
+                "is_complete": True,
+                "reason": f"API error: {e}",
+            }
 
-    def compute_embeddings(self, texts: list[str]) -> list[list[float]]:
-        if not texts:
-            return []
+    def find_core_and_conclusion(
+        self,
+        title: str,
+        segments: list[dict],
+    ) -> dict:
+        system_prompt = """あなたはポッドキャストの切り抜き動画の編集者です。
+
+話題のセグメント一覧を渡します。以下の2つを特定してください。
+
+## 骨子（核心の主張）
+この話題で話者が最も伝えたいメインの主張・意見が述べられているセグメント範囲。
+- 具体例や体験談ではなく、抽象的な主張そのもの
+- 複数箇所ある場合は最も重要な1-2箇所
+
+## 結び（まとめ・言い切り）
+話題の締めくくり。主張を要約したり「という話でした」のように話をまとめているセグメント範囲。
+- 必ず文が完結している（言い切りで終わる）箇所
+- 話題の後半にあることが多い
+
+出力形式（JSONオブジェクト）:
+{
+  "core": [{"start": 開始idx, "end": 終了idx, "summary": "主張の要約"}],
+  "conclusion": [{"start": 開始idx, "end": 終了idx, "summary": "結びの要約"}]
+}
+
+idxはセグメント配列の0始まりインデックスです。"""
+
+        seg_list = [{"idx": s["idx"], "text": s["text"]} for s in segments]
+        user_content = f"話題: {title}\n\nセグメント:\n{json.dumps(seg_list, ensure_ascii=False)}"
+
         try:
-            response = self.client.embeddings.create(
-                model="text-embedding-3-small",
-                input=texts,
+            response = self._client.chat.completions.create(
+                model=self._resolve_model("find_core_and_conclusion"),
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_content},
+                ],
+                temperature=0,
+                max_tokens=800,
+                response_format={"type": "json_object"},
             )
-            return [item.embedding for item in response.data]
+            result = json.loads(response.choices[0].message.content)
+            cores = result.get("core", [])
+            conclusions = result.get("conclusion", [])
+            logger.info(f"find_core_and_conclusion: {title} — " f"骨子={len(cores)}箇所, 結び={len(conclusions)}箇所")
+            return result
         except Exception as e:
-            logger.warning(f"Embedding計算失敗: {e}")
-            return []
-
-    def check_connection(self) -> bool:
-        try:
-            self.client.models.list()
-            return True
-        except Exception as e:
-            logger.error(f"OpenAI connection check failed: {e}")
-            return False
+            logger.warning(f"find_core_and_conclusion failed: {e}")
+            return {"core": [], "conclusion": []}
 
     def get_available_models(self) -> list[str]:
         return list(AVAILABLE_MODELS)
