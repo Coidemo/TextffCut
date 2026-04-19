@@ -17,7 +17,6 @@ from domain.entities.clip_suggestion import (
     TopicRange,
 )
 from domain.entities.transcription import TranscriptionResult, TranscriptionSegment
-from use_cases.ai.brute_force_clip_generator import ClipCandidate
 
 
 # --- Helpers ---

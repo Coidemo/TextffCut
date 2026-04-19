@@ -334,12 +334,7 @@ def _process_single_video(
             "evaluate_clip_quality",
             "trim_clips",
             "select_best_clip",
-            "classify_segment_essentiality",
             "judge_segment_relevance",
-            "review_naturalness",
-            "select_best_variant",
-            "select_clip_segments",
-            "judge_filler_context",
             "refine_topic_boundary",
             "find_core_and_conclusion",
         ]:

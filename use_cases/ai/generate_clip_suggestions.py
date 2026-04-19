@@ -254,7 +254,7 @@ class GenerateClipSuggestionsUseCase:
         """話題境界の統合補正（旧Phase 1.5/1.6/1.8を統合）。
 
         全セグメントをAIに送信し、trim/keep/extend を1回のAPI呼び出しで判定する。
-        embeddingはスコアリング用にキャッシュするが、ハードカットは行わない。
+        各話題について、trim/keep/extend を1回のAPI呼び出しで判定する。
         """
         if not topics:
             return topics
@@ -305,7 +305,6 @@ class GenerateClipSuggestionsUseCase:
 
             action = result.get("action", "keep")
             new_end = result.get("end_segment_index", topic.segment_end_index)
-            is_complete = result.get("is_complete", True)
 
             # バリデーション
             new_end = max(topic.segment_start_index, min(new_end, max_seg_idx))
@@ -318,7 +317,8 @@ class GenerateClipSuggestionsUseCase:
                 topic.segment_end_index = new_end
 
             logger.info(
-                f"Phase 1.5: '{topic.title}' action={action}, is_complete={is_complete}"
+                f"Phase 1.5: '{topic.title}' action={action}, "
+                f"is_complete={result.get('is_complete', True)}"
                 f" ({result.get('reason', '')})"
             )
 
@@ -474,7 +474,7 @@ class GenerateClipSuggestionsUseCase:
                 best.time_ranges = cleaned_ranges
                 best.total_duration = cleaned_dur
         except Exception as e:
-            logger.debug(f"吃音除去スキップ: {e}")
+            logger.warning(f"吃音除去スキップ: {e}")
 
         # 結合部のmicro buffer追加（音声途切れ防止）
         buffered_ranges = self._apply_range_buffers(best.time_ranges)

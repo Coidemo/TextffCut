@@ -876,23 +876,20 @@ class TextEditorView:
             from use_cases.ai.generate_clip_suggestions import GenerateClipSuggestionsUseCase
 
             # CLI同等の品質モデル設定（gpt-4.1-mini使用時はgpt-4.1に自動アップグレード）
-            model_overrides = {}
+            ai_model = "gpt-4.1-mini"
             quality_model = "gpt-4.1"
-            for method in [
-                "detect_topics",
-                "evaluate_clip_quality",
-                "trim_clips",
-                "select_best_clip",
-                "classify_segment_essentiality",
-                "judge_segment_relevance",
-                "review_naturalness",
-                "select_best_variant",
-                "select_clip_segments",
-                "judge_filler_context",
-                "refine_topic_boundary",
-                "find_core_and_conclusion",
-            ]:
-                model_overrides[method] = quality_model
+            model_overrides = {}
+            if quality_model != ai_model:
+                for method in [
+                    "detect_topics",
+                    "evaluate_clip_quality",
+                    "trim_clips",
+                    "select_best_clip",
+                    "judge_segment_relevance",
+                    "refine_topic_boundary",
+                    "find_core_and_conclusion",
+                ]:
+                    model_overrides[method] = quality_model
             gateway = OpenAIClipSuggestionGateway(
                 api_key=api_key, model="gpt-4.1-mini", model_overrides=model_overrides
             )

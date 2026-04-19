@@ -182,6 +182,7 @@ def remove_stammering(
 
     # 長さ不一致なら入力をそのまま返す
     if len(char_times) != len(text):
+        logger.warning(f"char_times長不一致（{len(char_times)} vs {len(text)}）、吃音除去をスキップ")
         total_dur = sum(e - s for s, e in time_ranges)
         return text, time_ranges, total_dur
 
@@ -204,17 +205,26 @@ def remove_stammering(
                 j += pat_len
 
             if count >= 2:
-                # 畳語チェック: パターン自体が畳語、またはパターン×2が畳語ならスキップ
-                if pattern in _REDUPLICATION_WORDS or (pattern * 2) in _REDUPLICATION_WORDS:
+                # 畳語チェック: パターン自体が畳語、またはパターン×2が畳語
+                is_reduplication = pattern in _REDUPLICATION_WORDS or (pattern * 2) in _REDUPLICATION_WORDS
+                if is_reduplication:
+                    if count == 2:
+                        # 畳語そのもの（例: "たまたま"）→ 正常、スキップ
+                        i = j
+                        continue
+                    # 3回以上 → 畳語1回分（2回）だけ残す
+                    remove_end = i + pat_len * (count - 2)
+                    for k in range(i, remove_end):
+                        keep[k] = False
+                    logger.debug(f"吃音検出（畳語含み）: 「{pattern}」×{count}回 → 2回に縮約")
                     i = j
-                    continue
-
-                # 最後の1回だけ残し、それ以前をマーク
-                remove_end = i + pat_len * (count - 1)
-                for k in range(i, remove_end):
-                    keep[k] = False
-                logger.debug(f"吃音検出: 「{pattern}」×{count}回 → 1回に縮約")
-                i = j
+                else:
+                    # 通常の吃音 → 最後の1回だけ残す
+                    remove_end = i + pat_len * (count - 1)
+                    for k in range(i, remove_end):
+                        keep[k] = False
+                    logger.debug(f"吃音検出: 「{pattern}」×{count}回 → 1回に縮約")
+                    i = j
             else:
                 i += 1
 

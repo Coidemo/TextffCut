@@ -164,7 +164,7 @@ class TestGenerateCandidates:
             assert 19 in c.segment_indices or 18 in c.segment_indices
 
     def test_has_core_set_on_candidate(self):
-        """骨子を含む候補には_has_coreがTrueで設定される"""
+        """骨子を含む候補にはhas_coreがTrueで設定される"""
         segs = self._make_segments(20)
         tr = _transcription(segs)
         topic = _topic(0, 19)

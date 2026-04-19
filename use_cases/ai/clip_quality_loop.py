@@ -141,21 +141,9 @@ def _transcribe_output(
         return None
 
     try:
-        # gateway.client を使用（APIキーマネージャ経由で認証済み）
-        if gateway and hasattr(gateway, "client"):
-            client = gateway.client
-        else:
-            import os
-
-            from dotenv import load_dotenv
-
-            load_dotenv()
-            from openai import OpenAI
-
-            api_key = os.environ.get("OPENAI_API_KEY") or os.environ.get("TEXTFFCUT_API_KEY")
-            if not api_key:
-                return None
-            client = OpenAI(api_key=api_key)
+        if not gateway:
+            return None
+        client = gateway.client
 
         with tempfile.TemporaryDirectory() as tmpdir:
             # 各rangeの音声を抽出して結合

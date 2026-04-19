@@ -15,7 +15,7 @@ import logging
 import re
 from dataclasses import dataclass
 
-from domain.entities.transcription import TranscriptionResult
+from domain.entities.transcription import TranscriptionResult, TranscriptionSegment
 
 logger = logging.getLogger(__name__)
 
@@ -108,7 +108,8 @@ def _analyze_text(text: str):
         from core.japanese_line_break import JapaneseLineBreakRules
 
         return JapaneseLineBreakRules._analyze(text)
-    except Exception:
+    except Exception as e:
+        logger.debug(f"GiNZA解析失敗（LLM委譲にフォールバック）: {e}")
         return None
 
 
@@ -178,14 +179,17 @@ def _is_grammatical_by_context(filler_text: str, seg_text: str, char_pos: int) -
 
     if filler_text == "とか":
         # 前後に名詞が2つ以上 → 並列助詞「AとかBとか」
-        nouns_before = sum(
-            1
-            for t in doc
-            if t.pos_ == "NOUN" and sum(len(doc[j].text) for j in range(list(doc).index(t) + 1)) <= char_pos
-        )
-        nouns_after = sum(
-            1 for t in doc if t.pos_ == "NOUN" and sum(len(doc[j].text) for j in range(list(doc).index(t))) >= after_pos
-        )
+        # トークンの文字位置を事前計算（O(n)）
+        token_start_pos: list[int] = []
+        token_end_pos: list[int] = []
+        run = 0
+        for t in doc:
+            token_start_pos.append(run)
+            run += len(t.text)
+            token_end_pos.append(run)
+
+        nouns_before = sum(1 for i, t in enumerate(doc) if t.pos_ == "NOUN" and token_end_pos[i] <= char_pos)
+        nouns_after = sum(1 for i, t in enumerate(doc) if t.pos_ == "NOUN" and token_start_pos[i] >= after_pos)
         if nouns_before >= 1 and nouns_after >= 1:
             return True
         # 文末 or 直後が句点系 → フィラー

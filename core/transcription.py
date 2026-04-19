@@ -260,6 +260,7 @@ class Transcriber:
             # 旧キャッシュフォールバック
             legacy_path = cache_dir / f"{model_size}.json"
             if legacy_path.exists():
+                logger.warning(f"旧キャッシュを使用（_v2なし）: {legacy_path}")
                 return legacy_path
             return v2_path
 
@@ -300,7 +301,7 @@ class Transcriber:
 
                 if is_api_mode:
                     # _apiを除去してモデル名を取得
-                    model_size = filename.replace("_api", "")
+                    model_size = filename.removesuffix("_api")
                     mode = "API"
                 elif filename.endswith("_v2"):
                     model_size = filename.removesuffix("_v2")
@@ -499,7 +500,6 @@ class Transcriber:
 
         # initial_prompt: フィラー語を含めることでWhisperにフィラーを文字起こしさせる
         # condition_on_previous_text=True(デフォルト)により後続ウィンドウにも効果が伝播
-        # initial_prompt: フィラー語を含めることでWhisperにフィラーを文字起こしさせる
         # 日本語のみ適用（他言語では無関係なトークンが混入するため）
         lang = self.config.transcription.language
         initial_prompt = None

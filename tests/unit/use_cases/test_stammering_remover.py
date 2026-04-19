@@ -177,8 +177,8 @@ class TestReduplicationProtection:
 
         assert cleaned_text == text
 
-    def test_reduplication_triple_protected(self):
-        """畳語パターンの3回反復もスキップされる（畳語保護）"""
+    def test_reduplication_triple_reduced_to_two(self):
+        """畳語パターンの3回反復は畳語1回分（2回）に縮約される"""
         text = "たまたまたま勝った"
         words = _make_words(text)
         seg = _make_segment(text, words)
@@ -186,8 +186,8 @@ class TestReduplicationProtection:
 
         cleaned_text, _, _ = remove_stammering(text, [seg], time_ranges)
 
-        # 「たま」は「たまたま」畳語の構成要素なので保護される
-        assert cleaned_text == text
+        # 「たま」×3 → 「たまたま」（畳語1回分）に縮約
+        assert cleaned_text == "たまたま勝った"
 
     def test_reduplication_katakana(self):
         """カタカナ畳語も保護される"""
