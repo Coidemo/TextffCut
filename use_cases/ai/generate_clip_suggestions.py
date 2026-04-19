@@ -10,8 +10,6 @@ from __future__ import annotations
 
 import logging
 import time
-from pathlib import Path
-
 from domain.entities.clip_suggestion import (
     ClipSuggestion,
     TopicDetectionRequest,
@@ -152,7 +150,6 @@ class GenerateClipSuggestionsUseCase:
     def execute(
         self,
         transcription: TranscriptionResult,
-        video_path: Path,
         num_candidates: int = 5,
         min_duration: int = 30,
         max_duration: int = 60,
@@ -253,7 +250,6 @@ class GenerateClipSuggestionsUseCase:
     ) -> list[TopicRange]:
         """話題境界の統合補正（旧Phase 1.5/1.6/1.8を統合）。
 
-        全セグメントをAIに送信し、trim/keep/extend を1回のAPI呼び出しで判定する。
         各話題について、trim/keep/extend を1回のAPI呼び出しで判定する。
         """
         if not topics:
@@ -489,7 +485,7 @@ class GenerateClipSuggestionsUseCase:
             title=topic.title,
             text=best.text,
             time_ranges=buffered_ranges,
-            total_duration=best.total_duration,
+            total_duration=sum(e - s for s, e in buffered_ranges),
             score=topic.score,
             category=topic.category,
             reasoning=topic.reasoning,

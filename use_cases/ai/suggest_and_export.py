@@ -77,7 +77,6 @@ class SuggestAndExportUseCase:
         use_case = GenerateClipSuggestionsUseCase(self.gateway)
         suggestions = use_case.execute(
             transcription=request.transcription,
-            video_path=request.video_path,
             num_candidates=request.num_candidates,
             min_duration=request.min_duration,
             max_duration=request.max_duration,
