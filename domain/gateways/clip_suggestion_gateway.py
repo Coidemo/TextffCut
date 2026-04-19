@@ -186,25 +186,6 @@ class ClipSuggestionGatewayInterface(ABC):
         pass
 
     @abstractmethod
-    def verify_topic_completeness(
-        self,
-        title: str,
-        range_segments: list[dict],
-        extension_candidates: list[dict],
-    ) -> int:
-        """話題の論点が完結しているか検証し、追加すべきセグメント数を返す。
-
-        Args:
-            title: 話題のタイトル
-            range_segments: 現在の範囲内セグメント（最後の5件）
-            extension_candidates: 範囲直後のセグメント（拡張候補、最大5件）
-
-        Returns:
-            追加すべきセグメント数（0=完結済み）
-        """
-        pass
-
-    @abstractmethod
     def refine_topic_boundary(
         self,
         title: str,
@@ -227,25 +208,6 @@ class ClipSuggestionGatewayInterface(ABC):
         pass
 
     @abstractmethod
-    def validate_clip_candidates(
-        self,
-        title: str,
-        candidates: list[dict],
-        original_text: str = "",
-    ) -> list[bool]:
-        """各候補テキストが話題の趣旨を保っているか検証する。
-
-        Args:
-            title: 話題のタイトル
-            candidates: [{"index": 0, "text": "候補テキスト", "duration": 30.0}]
-            original_text: 話題の全テキスト（フィラー除去済み）。空文字の場合は従来動作。
-
-        Returns:
-            各候補の有効性（True=趣旨保持、False=不適切）
-        """
-        pass
-
-    @abstractmethod
     def find_core_and_conclusion(
         self,
         title: str,
@@ -261,6 +223,12 @@ class ClipSuggestionGatewayInterface(ABC):
             {"core": [{"start": int, "end": int, "summary": str}],
              "conclusion": [{"start": int, "end": int, "summary": str}]}
         """
+        pass
+
+    @property
+    @abstractmethod
+    def api_key(self) -> str | None:
+        """APIキーを返す（SRT生成でWhisper APIに使用）。"""
         pass
 
     @abstractmethod

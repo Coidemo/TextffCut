@@ -210,7 +210,7 @@ class SuggestAndExportUseCase:
         _t5 = _time.time()
         # Phase 6: SRT用の再文字起こしを事前並列実行
         srt_segments_map: dict[int, list[dict] | None] = {}
-        _srt_api_key = getattr(getattr(self.gateway, "client", None), "api_key", None)
+        _srt_api_key = self.gateway.api_key
         if request.generate_srt:
             from concurrent.futures import ThreadPoolExecutor
 

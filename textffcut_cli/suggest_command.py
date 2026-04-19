@@ -340,6 +340,8 @@ def _process_single_video(
             "select_best_variant",
             "select_clip_segments",
             "judge_filler_context",
+            "refine_topic_boundary",
+            "find_core_and_conclusion",
         ]:
             model_overrides[method] = quality_model
 

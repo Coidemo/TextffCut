@@ -17,9 +17,21 @@ logger = logging.getLogger(__name__)
 
 # 言い切り判定用の文末パターン
 _COMPLETE_ENDINGS = (
-    "です", "ます", "ました", "ですね", "ますね", "ですよね",
-    "んですよ", "んです", "思います", "しれません", "でした",
-    "ですよ", "ますよ", "ません", "ですか",
+    "です",
+    "ます",
+    "ました",
+    "ですね",
+    "ますね",
+    "ですよね",
+    "んですよ",
+    "んです",
+    "思います",
+    "しれません",
+    "でした",
+    "ですよ",
+    "ますよ",
+    "ません",
+    "ですか",
 )
 
 
@@ -36,6 +48,7 @@ def generate_core_conclusion_candidates(
     conclusions: list[dict],
     min_duration: float,
     max_duration: float,
+    cc_to_local: list[int] | None = None,
 ) -> list[ClipCandidate]:
     """骨子+結びベースで候補を生成する。
 
@@ -55,10 +68,30 @@ def generate_core_conclusion_candidates(
     topic_end = topic.segment_end_index
 
     # topic範囲のセグメントを抽出
-    topic_segs = segments[topic_start:topic_end + 1]
+    topic_segs = segments[topic_start : topic_end + 1]
     n = len(topic_segs)
     if n == 0 or not conclusions:
         return []
+
+    # GPTインデックスをtopic内ローカルインデックスに変換（コピーして元を破壊しない）
+    if cc_to_local:
+        cores = [dict(c) for c in cores]
+        conclusions = [dict(c) for c in conclusions]
+        valid_cores: list[dict] = []
+        valid_conclusions: list[dict] = []
+        for item, dest in [(c, valid_cores) for c in cores] + [(c, valid_conclusions) for c in conclusions]:
+            s = item["start"]
+            e = item["end"]
+            if s >= len(cc_to_local) or e >= len(cc_to_local):
+                logger.warning(f"cc_to_local範囲外: start={s}, end={e}, len={len(cc_to_local)}")
+                continue
+            item["start"] = cc_to_local[s]
+            item["end"] = cc_to_local[e]
+            dest.append(item)
+        cores = valid_cores
+        conclusions = valid_conclusions
+        if not conclusions:
+            return []
 
     seg_starts = [s.start for s in topic_segs]
     seg_ends = [s.end for s in topic_segs]
@@ -87,9 +120,7 @@ def generate_core_conclusion_candidates(
                     break
             if not found:
                 # 言い切りが見つからない → このアンカーはスキップ
-                logger.debug(
-                    f"Phase 2c: 結び[{concl_start}-{concl_end}]に言い切りなし、スキップ"
-                )
+                logger.debug(f"Phase 2c: 結び[{concl_start}-{concl_end}]に言い切りなし、スキップ")
                 continue
 
         anchor_end_time = seg_ends[anchor_end]
@@ -102,14 +133,11 @@ def generate_core_conclusion_candidates(
             if dur < min_duration:
                 continue
 
-            has_core = any(
-                start_idx <= cr["start"] and anchor_end >= cr["end"]
-                for cr in cores
-            )
+            has_core = any(start_idx <= cr["start"] and anchor_end >= cr["end"] for cr in cores)
 
             # セグメントindices（topic内indexからglobal indexに変換）
             global_indices = list(range(topic_start + start_idx, topic_start + anchor_end + 1))
-            topic_seg_slice = topic_segs[start_idx:anchor_end + 1]
+            topic_seg_slice = topic_segs[start_idx : anchor_end + 1]
             text = "".join(s.text for s in topic_seg_slice)
 
             # time_rangesを構築
@@ -121,6 +149,7 @@ def generate_core_conclusion_candidates(
                 text=text,
                 time_ranges=time_ranges,
                 total_duration=sum(e - s for s, e in time_ranges),
+                has_core=has_core,
             )
             candidates.append(candidate)
 
@@ -152,11 +181,11 @@ def generate_core_conclusion_candidates(
                         break
 
                     # Range 1 (骨子)
-                    range1_segs = topic_segs[core_start:core_end + 1]
+                    range1_segs = topic_segs[core_start : core_end + 1]
                     range1_indices = list(range(topic_start + core_start, topic_start + core_end + 1))
 
                     # Range 2 (結び)
-                    range2_segs = topic_segs[concl_range_start:anchor_end + 1]
+                    range2_segs = topic_segs[concl_range_start : anchor_end + 1]
                     range2_indices = list(range(topic_start + concl_range_start, topic_start + anchor_end + 1))
 
                     all_segs = list(range1_segs) + list(range2_segs)
@@ -171,6 +200,7 @@ def generate_core_conclusion_candidates(
                         text=text,
                         time_ranges=time_ranges,
                         total_duration=sum(e - s for s, e in time_ranges),
+                        has_core=True,
                     )
                     candidates.append(candidate)
 
@@ -183,8 +213,8 @@ def generate_core_conclusion_candidates(
             seen.add(key)
             unique.append(c)
 
-    # 言い切り末尾の候補を優先
-    unique.sort(key=lambda c: (not _is_ending_complete(c.text), c.total_duration))
+    # 言い切り末尾 > 骨子含む > 短い順
+    unique.sort(key=lambda c: (not _is_ending_complete(c.text), not c.has_core, c.total_duration))
 
     logger.info(f"Phase 2c: {len(unique)}候補生成 ({topic.title})")
     return unique

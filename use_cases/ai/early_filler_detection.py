@@ -35,9 +35,7 @@ _PHASE0_SKIP: frozenset[str] = frozenset(
 )
 
 # "で"接頭辞の複合フィラー: 直前が「の」なら "ので" の一部なので複合マッチしない
-_DE_PREFIX_FILLERS: frozenset[str] = frozenset(
-    {"でなんか", "であの", "でまあ", "でその"}
-)
+_DE_PREFIX_FILLERS: frozenset[str] = frozenset({"でなんか", "であの", "でまあ", "でその"})
 
 # GiNZA判定に渡すコンテキストウィンドウ（片側文字数）
 _CONTEXT_WINDOW = 50
@@ -45,9 +43,7 @@ _CONTEXT_WINDOW = 50
 # Phase 0でGiNZA判定不能(None)をフィラーとして積極除去する語
 # 話し言葉ではほぼフィラーだが、GiNZAだけでは確定できないケース
 # Phase 4では同じ語もLLM判定に委譲される（_is_grammatical_by_contextは共有）
-_PHASE0_AGGRESSIVE: frozenset[str] = frozenset(
-    {"なんか", "あの", "まあ", "まぁ"}
-)
+_PHASE0_AGGRESSIVE: frozenset[str] = frozenset({"なんか", "あの", "まあ", "まぁ"})
 
 
 @dataclass
@@ -75,6 +71,19 @@ class CleanSegment:
     original_text: str  # 元テキスト（参照用）
 
 
+def expand_words_to_chars(words: list) -> list:
+    """wordsリスト（Word単位）を文字単位に展開する。
+
+    Word.wordが複数文字の場合、各文字に同じWordオブジェクトを割り当てる。
+    """
+    expanded = []
+    for w in words:
+        w_text = w.word if hasattr(w, "word") else w.get("word", "")
+        for _ in w_text:
+            expanded.append(w)
+    return expanded
+
+
 def _get_filler_time(
     words: list,
     char_pos: int,
@@ -87,8 +96,8 @@ def _get_filler_time(
     first_word = words[char_pos]
     last_word = words[char_pos + filler_len - 1]
 
-    f_start = first_word.start if hasattr(first_word, "start") else first_word.get("start")
-    f_end = last_word.end if hasattr(last_word, "end") else last_word.get("end")
+    f_start = first_word.start if hasattr(first_word, "start") else first_word.get("start", None)
+    f_end = last_word.end if hasattr(last_word, "end") else last_word.get("end", None)
 
     return f_start, f_end
 
@@ -134,10 +143,10 @@ def _is_grammatical_by_context(filler_text: str, seg_text: str, char_pos: int) -
     after_token = None
     if filler_token_idx is not None:
         # フィラーが複数トークンにまたがる場合、最後のトークンの次を取る
-        scan_pos = running_pos
+        run = sum(len(doc[j].text) for j in range(filler_token_idx))
         for i in range(filler_token_idx, len(doc)):
-            token_end = sum(len(doc[j].text) for j in range(i + 1))
-            if token_end >= after_pos:
+            run += len(doc[i].text)
+            if run >= after_pos:
                 if i + 1 < len(doc):
                     after_token = doc[i + 1]
                 break
@@ -318,7 +327,8 @@ def predetect_fillers(transcription: TranscriptionResult) -> FillerMap:
             pos += filler_len
             continue
 
-        f_start, f_end = _get_filler_time(words, seg_offset, filler_len)
+        expanded_words = expand_words_to_chars(words)
+        f_start, f_end = _get_filler_time(expanded_words, seg_offset, filler_len)
 
         if f_start is None or f_end is None:
             pos += filler_len
@@ -326,10 +336,7 @@ def predetect_fillers(transcription: TranscriptionResult) -> FillerMap:
 
         # 引用パターン: 直後が「って」→ 引用発話（「うーんって思う」等）、除去しない
         after_filler_pos = pos + filler_len
-        if (
-            after_filler_pos + 2 <= len(full_text)
-            and full_text[after_filler_pos : after_filler_pos + 2] == "って"
-        ):
+        if after_filler_pos + 2 <= len(full_text) and full_text[after_filler_pos : after_filler_pos + 2] == "って":
             pos += filler_len
             continue
 
@@ -397,6 +404,7 @@ def build_clean_segments(
     for seg_idx, seg in enumerate(transcription.segments):
         text = seg.text
         words = seg.words or []
+        expanded_words = expand_words_to_chars(words)
         fillers = filler_map.get(seg_idx, [])
 
         if not fillers:
@@ -431,8 +439,8 @@ def build_clean_segments(
 
             char_times: list[tuple[float, float]] = []
             for char_pos in range(range_start, range_end):
-                if char_pos < len(words):
-                    w = words[char_pos]
+                if char_pos < len(expanded_words):
+                    w = expanded_words[char_pos]
                     w_start = w.start if hasattr(w, "start") else w.get("start", 0.0)
                     w_end = w.end if hasattr(w, "end") else w.get("end", 0.0)
                     char_times.append((w_start, w_end))
@@ -458,13 +466,14 @@ def build_clean_segments(
 def _extract_char_times(
     text: str,
     words: list,
-    seg: object,
+    seg: TranscriptionSegment,
 ) -> list[tuple[float, float]]:
     """テキストの各文字に対応するタイムスタンプを取得する。"""
+    expanded = expand_words_to_chars(words)
     char_times: list[tuple[float, float]] = []
     for char_pos in range(len(text)):
-        if char_pos < len(words):
-            w = words[char_pos]
+        if char_pos < len(expanded):
+            w = expanded[char_pos]
             w_start = w.start if hasattr(w, "start") else w.get("start", 0.0)
             w_end = w.end if hasattr(w, "end") else w.get("end", 0.0)
             char_times.append((w_start, w_end))

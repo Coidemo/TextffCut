@@ -1,14 +1,15 @@
 """
 AI切り抜き候補生成ユースケース
 
-1. AI: 話題の時間範囲を検出
-2. 力任せ探索: セグメント組み合わせで大量候補生成 → 機械スコアで上位5件
-3. AI: 既存テキストで最良候補を選定
+1. AI: 話題の時間範囲を検出 (Phase 1)
+2. Phase 2c: 骨子+結びベース候補生成
+3. AI: 既存テキストで最良候補を選定 (Phase 3)
 """
 
 from __future__ import annotations
 
 import logging
+import time
 from pathlib import Path
 
 from domain.entities.clip_suggestion import (
@@ -28,22 +29,44 @@ MIN_TOPIC_SCORE = 8  # Phase 1 で低スコア話題をスキップする閾値
 # 末尾の自然さ判定パターン（文字列フォールバック用）
 _GOOD_ENDINGS_HIGH = ("です", "ます", "ました", "思います", "しれません")
 _GOOD_ENDINGS_MEDIUM = (
-    "ですね", "ますね", "ですよね", "よね", "んですよ",
-    "んです", "ですか", "ですかね", "ませんか",
+    "ですね",
+    "ますね",
+    "ですよね",
+    "よね",
+    "んですよ",
+    "んです",
+    "ですか",
+    "ですかね",
+    "ませんか",
 )
 _DEFINITELY_INCOMPLETE = (
-    "ので", "から", "けど", "けれども", "んですけど",
-    "っていうのは", "んですけれども", "なんですけど",
+    "ので",
+    "から",
+    "けど",
+    "けれども",
+    "んですけど",
+    "っていうのは",
+    "んですけれども",
+    "なんですけど",
 )
 _LIKELY_INCOMPLETE = (
-    "って", "のが", "みたいな", "とか", "たら", "のは",
-    "て", "より", "ながら", "つつ", "ものの", "にも", "を",
+    "って",
+    "のが",
+    "みたいな",
+    "とか",
+    "たら",
+    "のは",
+    "て",
+    "より",
+    "ながら",
+    "つつ",
+    "ものの",
+    "にも",
+    "を",
 )
 
 # 接続助詞（末尾に来ると不自然）
-_CONJUNCTIVE_PARTICLES = frozenset(
-    ("から", "けど", "ので", "って", "のが", "たら", "は", "て", "より", "ながら", "つつ")
-)
+_CONJUNCTIVE_PARTICLES = frozenset(("から", "けど", "ので", "って", "のが", "たら", "て", "より", "ながら", "つつ"))
 # 終助詞（末尾に来ると自然）
 _FINAL_PARTICLES = frozenset(("よ", "ね", "わ", "な", "さ"))
 
@@ -111,10 +134,7 @@ def _ending_ginza_score(text: str) -> int:
 
         # 主節存在チェック: 末尾3トークン内に述語なし → 追加ペナルティ
         if score <= 0 and len(doc) >= 2:
-            recent_poses = [
-                JapaneseLineBreakRules._normalize_pos_tag(tk.tag_).split("-")[0]
-                for tk in doc[-3:]
-            ]
+            recent_poses = [JapaneseLineBreakRules._normalize_pos_tag(tk.tag_).split("-")[0] for tk in doc[-3:]]
             has_predicate = any(p in ("助動詞", "動詞", "形容詞") for p in recent_poses)
             if not has_predicate and pos_major == "助詞" and token_text not in _FINAL_PARTICLES and token_text != "か":
                 score -= 5
@@ -165,7 +185,6 @@ class GenerateClipSuggestionsUseCase:
 
             filler_map = predetect_fillers(transcription)
             self._clean_segments = build_clean_segments(transcription, filler_map)
-            self._filler_map = filler_map
 
             # Phase 1にはフィラー除去済みテキストを渡す
             clean_by_idx: dict[int, list] = {}
@@ -181,11 +200,8 @@ class GenerateClipSuggestionsUseCase:
         except Exception as e:
             logger.warning(f"Phase 0 フィラー検出スキップ: {e}")
             self._clean_segments = None
-            self._filler_map = {}
 
         # Phase 1: AI話題検出
-        import time
-
         phase1_start = time.time()
         request = TopicDetectionRequest(
             transcription_segments=segments_dicts,
@@ -220,7 +236,7 @@ class GenerateClipSuggestionsUseCase:
         suggestions: list[tuple[int, ClipSuggestion]] = []
         for idx, topic in enumerate(topics):
             try:
-                result = self._process_topic(topic, transcription, video_path, min_duration, max_duration)
+                result = self._process_topic(topic, transcription, min_duration, max_duration)
             except Exception as e:
                 logger.warning(f"トピック処理失敗 (idx={idx}): {e}")
                 continue
@@ -240,16 +256,8 @@ class GenerateClipSuggestionsUseCase:
         全セグメントをAIに送信し、trim/keep/extend を1回のAPI呼び出しで判定する。
         embeddingはスコアリング用にキャッシュするが、ハードカットは行わない。
         """
-        import time
-
         if not topics:
             return topics
-
-        # まずembedding計算（スコアリング用にキャッシュ）
-        texts = [seg.text for seg in transcription.segments]
-        embeddings = self.gateway.compute_embeddings(texts)
-        if embeddings and len(embeddings) == len(texts):
-            self._segment_embeddings = dict(enumerate(embeddings))
 
         # TPMリセット待機
         elapsed = time.time() - phase1_start
@@ -260,6 +268,7 @@ class GenerateClipSuggestionsUseCase:
 
         max_seg_idx = len(transcription.segments) - 1
         for topic_i, topic in enumerate(topics):
+            # 意図的にraw text使用: AIが境界判定するため、フィラー除去前の原文が必要
             all_segs = [
                 {
                     "index": i,
@@ -308,7 +317,6 @@ class GenerateClipSuggestionsUseCase:
                 logger.info(f"Phase 1.5 extend: '{topic.title}' seg_end {topic.segment_end_index}→{new_end}")
                 topic.segment_end_index = new_end
 
-            topic.is_complete = is_complete  # TopicRangeに属性を動的に追加
             logger.info(
                 f"Phase 1.5: '{topic.title}' action={action}, is_complete={is_complete}"
                 f" ({result.get('reason', '')})"
@@ -364,46 +372,10 @@ class GenerateClipSuggestionsUseCase:
                 result[cs.original_index] = cs.clean_text
         return result
 
-    def _classify_segments(
-        self,
-        topic: TopicRange,
-        transcription: TranscriptionResult,
-    ) -> list[dict] | None:
-        """セグメントを essential/supportive/redundant に分類する。失敗時は None。"""
-        clean_text_by_idx = self._build_clean_text_map()
-        try:
-            segments = []
-            for i in range(topic.segment_start_index, topic.segment_end_index + 1):
-                seg = transcription.segments[i]
-                clean_text = clean_text_by_idx.get(i, seg.text)
-                if not clean_text.strip():
-                    continue
-                segments.append(
-                    {
-                        "index": i,
-                        "text": clean_text,
-                        "start": seg.start,
-                        "end": seg.end,
-                    }
-                )
-
-            if not segments:
-                return None
-
-            classifications = self.gateway.classify_segment_essentiality(
-                title=topic.title,
-                segments=segments,
-            )
-            return classifications if classifications else None
-        except Exception as e:
-            logger.warning(f"セグメント分類失敗: {topic.title} — {e}")
-            return None
-
     def _process_topic(
         self,
         topic: TopicRange,
         transcription: TranscriptionResult,
-        video_path: Path,
         min_duration: float,
         max_duration: float,
     ) -> ClipSuggestion | None:
@@ -419,16 +391,16 @@ class GenerateClipSuggestionsUseCase:
 
             clean_text_by_idx = self._build_clean_text_map()
             segments_for_cc = []
-            for local_idx, global_idx in enumerate(
-                range(topic.segment_start_index, topic.segment_end_index + 1)
-            ):
+            cc_to_local: list[int] = []
+            for local_idx, global_idx in enumerate(range(topic.segment_start_index, topic.segment_end_index + 1)):
                 seg = transcription.segments[global_idx]
                 clean_text = clean_text_by_idx.get(global_idx, seg.text)
                 if not clean_text.strip() or clean_text.strip() in FILLER_ONLY_TEXTS:
                     continue
                 if detect_noise_tag(clean_text.strip()):
                     continue
-                segments_for_cc.append({"idx": local_idx, "text": clean_text})
+                segments_for_cc.append({"idx": len(segments_for_cc), "text": clean_text})
+                cc_to_local.append(local_idx)
 
             if segments_for_cc:
                 result = self.gateway.find_core_and_conclusion(
@@ -443,11 +415,17 @@ class GenerateClipSuggestionsUseCase:
                     )
 
                     candidates = generate_core_conclusion_candidates(
-                        topic, transcription, cores, conclusions, min_duration, max_duration
+                        topic,
+                        transcription,
+                        cores,
+                        conclusions,
+                        min_duration,
+                        max_duration,
+                        cc_to_local=cc_to_local,
                     )
                     logger.info(f"Phase 2: {len(candidates)}候補 ({topic.title})")
         except Exception as e:
-            logger.debug(f"Phase 2候補生成スキップ: {e}")
+            logger.warning(f"Phase 2候補生成スキップ: {e}")
 
         if not candidates:
             logger.warning(f"候補なし: {topic.title}")
@@ -480,7 +458,7 @@ class GenerateClipSuggestionsUseCase:
             best = candidates[0]
         else:
             # Phase 3: 上位候補の出来上がり音声をAIに評価させる
-            best = self._ai_select_best(topic.title, candidates, video_path)
+            best = self._ai_select_best(topic.title, candidates)
 
         if not best:
             return None
@@ -489,9 +467,7 @@ class GenerateClipSuggestionsUseCase:
         try:
             from use_cases.ai.stammering_remover import remove_stammering
 
-            cleaned_text, cleaned_ranges, cleaned_dur = remove_stammering(
-                best.text, best.segments, best.time_ranges
-            )
+            cleaned_text, cleaned_ranges, cleaned_dur = remove_stammering(best.text, best.segments, best.time_ranges)
             if cleaned_ranges != best.time_ranges:
                 logger.info(f"吃音除去: {best.total_duration:.1f}s→{cleaned_dur:.1f}s ({topic.title})")
                 best.text = cleaned_text
@@ -509,7 +485,7 @@ class GenerateClipSuggestionsUseCase:
         topic_end_time = transcription.segments[topic_end_idx].end
 
         return ClipSuggestion(
-            id=best.segment_indices[0].__str__(),
+            id=str(best.segment_indices[0]),
             title=topic.title,
             text=best.text,
             time_ranges=buffered_ranges,
@@ -551,7 +527,7 @@ class GenerateClipSuggestionsUseCase:
 
             if i < len(result) - 1:
                 # 末尾バッファ: 次のrangeの先頭を超えない
-                next_start = time_ranges[i + 1][0]
+                next_start = result[i + 1][0]
                 gap_after = next_start - e
                 actual_tail = min(tail_buffer, gap_after * 0.4)
                 e = e + max(actual_tail, 0)
@@ -564,7 +540,6 @@ class GenerateClipSuggestionsUseCase:
         self,
         title: str,
         candidates: list[ClipCandidate],
-        video_path: Path,
     ) -> ClipCandidate | None:
         """上位候補の既存テキストを使ってAIに最良を選ばせる。"""
         # 各候補の既存テキストを使用
@@ -574,9 +549,7 @@ class GenerateClipSuggestionsUseCase:
         options = []
         for i, text in transcriptions:
             cand = candidates[i]
-            options.append(
-                f"候補{i+1}（{cand.total_duration:.0f}秒、{len(cand.time_ranges)}クリップ）:\n" f"{text}"
-            )
+            options.append(f"候補{i+1}（{cand.total_duration:.0f}秒、{len(cand.time_ranges)}クリップ）:\n" f"{text}")
 
         try:
             candidates_text = chr(10).join(options)

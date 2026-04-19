@@ -17,10 +17,7 @@ from domain.entities.clip_suggestion import (
     TopicRange,
 )
 from domain.entities.transcription import TranscriptionResult, TranscriptionSegment
-from use_cases.ai.brute_force_clip_generator import (
-    ClipCandidate,
-    _build_candidate,
-)
+from use_cases.ai.brute_force_clip_generator import ClipCandidate
 
 
 # --- Helpers ---
@@ -221,36 +218,3 @@ class TestTopicDetectionResult:
 
 
 # --- brute_force_clip_generator ---
-
-
-class TestBuildCandidate:
-
-    def test_basic(self):
-        segs = _make_segments(["こんにちは", "今日は天気です", "ありがとう"])
-        seg_list = [(i, seg) for i, seg in enumerate(segs)]
-        c = _build_candidate(seg_list)
-        assert c is not None
-        assert c.total_duration == pytest.approx(15.0)
-        assert len(c.segment_indices) == 3
-        assert c.text == "こんにちは今日は天気ですありがとう"
-
-    def test_empty_list(self):
-        assert _build_candidate([]) is None
-
-    def test_too_short_duration(self):
-        """合計5秒未満は None を返す"""
-        segs = _make_segments(["短い"], duration_each=3.0)
-        c = _build_candidate([(0, segs[0])])
-        assert c is None
-
-    def test_merge_close_ranges(self):
-        """0.5秒以内のギャップはマージされる"""
-        seg1 = _make_segment("A", 0.0, 3.0)
-        seg2 = _make_segment("B", 3.3, 6.0)  # 0.3s gap
-        seg3 = _make_segment("C", 7.0, 10.0)  # 1.0s gap
-        c = _build_candidate([(0, seg1), (1, seg2), (2, seg3)])
-        assert c is not None
-        # seg1-seg2はマージ、seg3は別range
-        assert len(c.time_ranges) == 2
-
-

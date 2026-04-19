@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 
 from domain.entities.transcription import TranscriptionSegment
+from use_cases.ai.early_filler_detection import expand_words_to_chars
 
 logger = logging.getLogger(__name__)
 
@@ -18,27 +19,133 @@ logger = logging.getLogger(__name__)
 _GAP_MERGE_THRESHOLD = 0.5
 
 # 日本語の畳語（正当な反復語）— 吃音として誤検出しない
-_REDUPLICATION_WORDS: frozenset[str] = frozenset({
-    # 副詞系
-    "たまたま", "いろいろ", "だんだん", "ますます", "わざわざ",
-    "ときどき", "なかなか", "そろそろ", "どんどん", "もともと",
-    "じわじわ", "めきめき", "ぎりぎり", "ころころ", "ずるずる",
-    "ぼちぼち", "こつこつ", "すこしずつ",
-    # オノマトペ系
-    "ばらばら", "ぼろぼろ", "めちゃめちゃ", "ぐちゃぐちゃ",
-    "ごちゃごちゃ", "ばたばた", "がたがた", "べたべた",
-    "きらきら", "ふわふわ", "ぐるぐる", "ぱらぱら",
-    "にこにこ", "はらはら", "ぴかぴか", "ぽつぽつ",
-    "ぞくぞく", "びくびく", "のろのろ", "さらさら",
-    "すべすべ", "ぬるぬる", "へとへと", "ぺらぺら",
-    "もやもや", "よちよち", "むらむら",
-    # カタカナ系
-    "バラバラ", "ボロボロ", "メチャメチャ", "グチャグチャ",
-    "ゴチャゴチャ", "バタバタ", "ガタガタ", "ベタベタ",
-    "キラキラ", "フワフワ", "グルグル", "パラパラ",
-    "ニコニコ", "ハラハラ", "ピカピカ", "ポツポツ",
-    "ドンドン", "ギリギリ", "ヌルヌル", "ペラペラ",
-})
+_REDUPLICATION_WORDS: frozenset[str] = frozenset(
+    {
+        # 副詞系
+        "たまたま",
+        "いろいろ",
+        "だんだん",
+        "ますます",
+        "わざわざ",
+        "ときどき",
+        "なかなか",
+        "そろそろ",
+        "どんどん",
+        "もともと",
+        "じわじわ",
+        "めきめき",
+        "ぎりぎり",
+        "ころころ",
+        "ずるずる",
+        "ぼちぼち",
+        "こつこつ",
+        # オノマトペ系
+        "ばらばら",
+        "ぼろぼろ",
+        "めちゃめちゃ",
+        "ぐちゃぐちゃ",
+        "ごちゃごちゃ",
+        "ばたばた",
+        "がたがた",
+        "べたべた",
+        "きらきら",
+        "ふわふわ",
+        "ぐるぐる",
+        "ぱらぱら",
+        "にこにこ",
+        "はらはら",
+        "ぴかぴか",
+        "ぽつぽつ",
+        "ぞくぞく",
+        "びくびく",
+        "のろのろ",
+        "さらさら",
+        "すべすべ",
+        "ぬるぬる",
+        "へとへと",
+        "ぺらぺら",
+        "もやもや",
+        "よちよち",
+        "むらむら",
+        "わくわく",
+        "どきどき",
+        "うろうろ",
+        "おろおろ",
+        "だらだら",
+        "ぐだぐだ",
+        "ぶつぶつ",
+        "くどくど",
+        "ぐずぐず",
+        "のびのび",
+        "うじうじ",
+        "しぶしぶ",
+        "つくづく",
+        "ぞろぞろ",
+        "めそめそ",
+        "いちいち",
+        # カタカナ系
+        "バラバラ",
+        "ボロボロ",
+        "メチャメチャ",
+        "グチャグチャ",
+        "ゴチャゴチャ",
+        "バタバタ",
+        "ガタガタ",
+        "ベタベタ",
+        "キラキラ",
+        "フワフワ",
+        "グルグル",
+        "パラパラ",
+        "ニコニコ",
+        "ハラハラ",
+        "ピカピカ",
+        "ポツポツ",
+        "ドンドン",
+        "ギリギリ",
+        "ヌルヌル",
+        "ペラペラ",
+        # 応答・呼びかけ系
+        "まあまあ",
+        "もしもし",
+        "はいはい",
+        "いやいや",
+        "ねえねえ",
+        "おいおい",
+        "なになに",
+        # カタカナ追加
+        "ゾクゾク",
+        "ビクビク",
+        "ノロノロ",
+        "サラサラ",
+        "スベスベ",
+        "ヘトヘト",
+        "モヤモヤ",
+        "ヨチヨチ",
+        "ムラムラ",
+        "コロコロ",
+        "ズルズル",
+        "ボチボチ",
+        "コツコツ",
+        "ジワジワ",
+        "メキメキ",
+        "ワクワク",
+        "ドキドキ",
+        "ウロウロ",
+        "オロオロ",
+        "ダラダラ",
+        "グダグダ",
+        "ブツブツ",
+        "クドクド",
+        "グズグズ",
+        "ノビノビ",
+        "ウジウジ",
+        "シブシブ",
+        "ツクヅク",
+        "ゾロゾロ",
+        "メソメソ",
+        "イチイチ",
+    }
+)
 
 
 def remove_stammering(
@@ -61,10 +168,11 @@ def remove_stammering(
     char_times: list[tuple[float, float]] = []
     for seg in segments:
         words = seg.words or []
+        expanded = expand_words_to_chars(words)
         seg_text = seg.text
         for i in range(len(seg_text)):
-            if i < len(words):
-                w = words[i]
+            if i < len(expanded):
+                w = expanded[i]
                 w_start = w.start if hasattr(w, "start") else w.get("start", 0.0)
                 w_end = w.end if hasattr(w, "end") else w.get("end", 0.0)
                 char_times.append((w_start, w_end))
@@ -96,8 +204,8 @@ def remove_stammering(
                 j += pat_len
 
             if count >= 2:
-                # 畳語チェック: パターン×2が既知の畳語ならスキップ
-                if count == 2 and (pattern * 2) in _REDUPLICATION_WORDS:
+                # 畳語チェック: パターン自体が畳語、またはパターン×2が畳語ならスキップ
+                if pattern in _REDUPLICATION_WORDS or (pattern * 2) in _REDUPLICATION_WORDS:
                     i = j
                     continue
 
@@ -105,9 +213,7 @@ def remove_stammering(
                 remove_end = i + pat_len * (count - 1)
                 for k in range(i, remove_end):
                     keep[k] = False
-                logger.debug(
-                    f"吃音検出: 「{pattern}」×{count}回 → 1回に縮約"
-                )
+                logger.debug(f"吃音検出: 「{pattern}」×{count}回 → 1回に縮約")
                 i = j
             else:
                 i += 1

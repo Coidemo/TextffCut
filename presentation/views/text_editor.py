@@ -767,7 +767,7 @@ class TextEditorView:
         if int(min_duration) > int(max_duration):
             st.warning("⚠️ 最小秒数が最大秒数より大きくなっています")
 
-        st.caption("💰 コスト目安: 約2-5円/回（GPT-4.1-mini使用）")
+        st.caption("💰 コスト目安: 約5-15円/回（GPT-4.1使用）")
 
         # 実行ボタン
         if st.button(
@@ -874,7 +874,28 @@ class TextEditorView:
                 SuggestAndExportUseCase,
             )
             from use_cases.ai.generate_clip_suggestions import GenerateClipSuggestionsUseCase
-            gateway = OpenAIClipSuggestionGateway(api_key=api_key, model="gpt-4.1-mini")
+
+            # CLI同等の品質モデル設定（gpt-4.1-mini使用時はgpt-4.1に自動アップグレード）
+            model_overrides = {}
+            quality_model = "gpt-4.1"
+            for method in [
+                "detect_topics",
+                "evaluate_clip_quality",
+                "trim_clips",
+                "select_best_clip",
+                "classify_segment_essentiality",
+                "judge_segment_relevance",
+                "review_naturalness",
+                "select_best_variant",
+                "select_clip_segments",
+                "judge_filler_context",
+                "refine_topic_boundary",
+                "find_core_and_conclusion",
+            ]:
+                model_overrides[method] = quality_model
+            gateway = OpenAIClipSuggestionGateway(
+                api_key=api_key, model="gpt-4.1-mini", model_overrides=model_overrides
+            )
 
             use_case = SuggestAndExportUseCase(gateway=gateway)
 
