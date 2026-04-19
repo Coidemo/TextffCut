@@ -904,7 +904,6 @@ class TextEditorView:
                 gen_use_case = GenerateClipSuggestionsUseCase(gateway)
                 suggestions = gen_use_case.execute(
                     transcription=actual_result,
-                    video_path=video_path_obj,
                     num_candidates=num_candidates,
                     min_duration=min_duration,
                     max_duration=max_duration,
