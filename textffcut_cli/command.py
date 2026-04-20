@@ -123,12 +123,9 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
-    try:
-        from importlib.metadata import version as _pkg_version
+    from utils.version_helpers import get_app_version
 
-        _version = _pkg_version("textffcut")
-    except Exception:
-        _version = "unknown"
+    _version = get_app_version(default_version="unknown")
     parser.add_argument(
         "-V",
         "--version",

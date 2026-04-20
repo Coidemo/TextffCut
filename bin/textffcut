@@ -18,7 +18,4 @@ sys.path.insert(0, str(project_root))
 
 from textffcut_cli.command import main
 
-if __name__ == "__main__":
-    main()
-else:
-    main()
+main()

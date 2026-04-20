@@ -32,12 +32,9 @@ def _is_newer(latest: str, current: str) -> bool:
 
 def _get_current_version() -> str:
     """現在のバージョンを取得"""
-    try:
-        from importlib.metadata import version as _pkg_version
+    from utils.version_helpers import get_app_version
 
-        return _pkg_version("textffcut")
-    except Exception:
-        return "unknown"
+    return get_app_version(default_version="unknown")
 
 
 def _check_latest_version() -> str | None:
