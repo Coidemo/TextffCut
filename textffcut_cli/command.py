@@ -11,6 +11,15 @@ import sys
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
+# プロジェクトルートの自動解決
+# pip install していない場合（ソースから直接実行）でも動作するように、
+# textffcut_cli/ の親ディレクトリを sys.path に追加する。
+# ---------------------------------------------------------------------------
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
+
+# ---------------------------------------------------------------------------
 # 環境チェック（起動時に即座に確認）
 # ---------------------------------------------------------------------------
 
@@ -114,12 +123,9 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
-    try:
-        from importlib.metadata import version as _pkg_version
+    from utils.version_helpers import get_app_version
 
-        _version = _pkg_version("textffcut")
-    except Exception:
-        _version = "unknown"
+    _version = get_app_version(default_version="unknown")
     parser.add_argument(
         "-V",
         "--version",
@@ -243,6 +249,21 @@ def _ensure_ui_deps() -> None:
     print("✓ インストール完了\n")
 
 
+def _find_available_port(start: int = 8501, max_attempts: int = 10) -> int:
+    """利用可能なポートを探す。start から順に試行する。"""
+    import socket
+
+    for offset in range(max_attempts):
+        port = start + offset
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            try:
+                s.bind(("localhost", port))
+                return port
+            except OSError:
+                continue
+    return start  # すべて埋まっていた場合はデフォルトで試行
+
+
 def _cmd_gui() -> None:
     """Streamlit GUIを起動する。カレントディレクトリに videos/ を作成してFinderで開く。"""
     import subprocess
@@ -268,7 +289,9 @@ def _cmd_gui() -> None:
         sys.exit(1)
     main_py = Path(spec.origin)
 
-    print("\nGUIを起動中... http://localhost:8501")
+    # 利用可能なポートを自動検出
+    port = _find_available_port()
+    print(f"\nGUIを起動中... http://localhost:{port}")
     print("停止するには Ctrl+C を押してください\n")
 
     # sys.executable と同じ Python で streamlit を起動する。
@@ -276,7 +299,10 @@ def _cmd_gui() -> None:
     # C 拡張（numpy 等）の読み込みに失敗する。
     try:
         subprocess.run(
-            [sys.executable, "-m", "streamlit", "run", str(main_py)],
+            [
+                sys.executable, "-m", "streamlit", "run", str(main_py),
+                "--server.port", str(port),
+            ],
             check=False,
         )
         print("\n✓ GUIを停止しました")
