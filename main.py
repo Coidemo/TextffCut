@@ -17,6 +17,45 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+def _relink_fcpxml_in_videos_root(videos_root: str) -> None:
+    """動画フォルダ内の全キャッシュフォルダを現在のマシン用にrelinkする。
+
+    別マシンで生成されたキャッシュフォルダを受け取って配置したケースに対応する。
+    書き換えが発生したフォルダだけトースト表示（no-opは無言）。
+    """
+    from core.fcpxml_relink import relink_all_in_videos_root
+
+    try:
+        results = relink_all_in_videos_root(Path(videos_root))
+    except Exception as e:
+        logger.warning(f"FCPXML relink失敗: {e}")
+        return
+
+    relinked = [r for r in results if r.rewritten_count > 0]
+    if not relinked:
+        return
+
+    for r in relinked:
+        msg = f"🔗 パスを更新: {r.cache_dir.name} ({r.rewritten_count}ファイル)"
+        if r.missing_files:
+            msg += f" ⚠ 参照先なし{len(r.missing_files)}件"
+        st.toast(msg)
+
+
+def _maybe_relink_fcpxml(videos_root: str) -> None:
+    """初回セッション or 🔄更新ボタン押下時のみ relink を実行する。
+
+    毎rerunで走らないようにガード。rerunごとの無駄な FCPXML 読み書きを避ける。
+    """
+    should_run = not st.session_state.get("_fcpxml_relink_ran") or st.session_state.pop(
+        "_fcpxml_relink_requested", False
+    )
+    if not should_run:
+        return
+    _relink_fcpxml_in_videos_root(videos_root)
+    st.session_state["_fcpxml_relink_ran"] = True
+
+
 def render_video_input_section(container):
     """動画入力セクション"""
     st.subheader("🎥 動画ファイル選択")
@@ -38,6 +77,10 @@ def render_video_input_section(container):
 
     view = VideoInputView(video_input_presenter)
     view.render()
+
+    # FCPXML の絶対パスを現在のマシン用にrelink（別マシンで生成されたキャッシュフォルダ対応）
+    # 初回セッション or 🔄更新ボタン押下時のみ実行（毎rerunではスキップ）
+    _maybe_relink_fcpxml(video_input_presenter.view_model.video_directory)
 
     # 動画が選択されたかチェック（mainブランチのようにシンプルに）
     if video_input_presenter.view_model.selected_file:

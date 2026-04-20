@@ -109,6 +109,7 @@ def build_parser() -> argparse.ArgumentParser:
             "コマンド:\n"
             "  textffcut gui                        GUIを起動\n"
             "  textffcut clip [ファイル ...]          AI自動切り抜き→FCPXML出力\n"
+            "  textffcut relink [フォルダ]           FCPXMLのパスを現在のマシン用に書き換え\n"
             "  textffcut setup                      初期設定ウィザード\n"
             "  textffcut upgrade                    最新版に更新\n"
             "  textffcut activate KEY               ライセンスキーを登録\n"
@@ -300,8 +301,13 @@ def _cmd_gui() -> None:
     try:
         subprocess.run(
             [
-                sys.executable, "-m", "streamlit", "run", str(main_py),
-                "--server.port", str(port),
+                sys.executable,
+                "-m",
+                "streamlit",
+                "run",
+                str(main_py),
+                "--server.port",
+                str(port),
             ],
             check=False,
         )
@@ -319,6 +325,7 @@ def main() -> None:
             "  GUI モード:  textffcut gui                    # ブラウザで操作\n"
             "  CLIモード:   textffcut [動画ファイル ...]       # 文字起こし\n"
             "  AI切り抜き:  textffcut clip [動画ファイル ...]    # AI自動切り抜き→FCPXML\n"
+            "  パス修復:    textffcut relink [フォルダ]        # FCPXMLのパスを書き換え\n"
             "  初期設定:    textffcut setup                   # 対話型初期設定\n"
             "  更新:        textffcut upgrade                 # 最新版に更新\n"
             "\n"
@@ -391,6 +398,12 @@ def main() -> None:
         from textffcut_cli.suggest_command import run_suggest
 
         run_suggest(sys.argv[2:])
+        return
+
+    if sys.argv[1] == "relink":
+        from textffcut_cli.relink_command import run_relink
+
+        run_relink(sys.argv[2:])
         return
 
     if sys.argv[1] == "gui":
