@@ -148,23 +148,8 @@ _REDUPLICATION_WORDS: frozenset[str] = frozenset(
 )
 
 
-def remove_stammering(
-    text: str,
-    segments: list[TranscriptionSegment],
-    time_ranges: list[tuple[float, float]],
-) -> tuple[str, list[tuple[float, float]], float]:
-    """吃音（連続反復パターン）を検出・除去する。
-
-    Args:
-        text: クリップのテキスト
-        segments: 対応するTranscriptionSegmentリスト
-        time_ranges: クリップの時間範囲リスト
-
-    Returns:
-        (cleaned_text, cleaned_time_ranges, cleaned_duration)
-        char_timesを構築できない場合は入力をそのまま返す
-    """
-    # Step 1: segments[].words から文字単位の (start, end) 配列を構築
+def build_char_times(segments: list[TranscriptionSegment]) -> list[tuple[float, float]]:
+    """segments[].words から文字単位の (start, end) 配列を構築する。"""
     char_times: list[tuple[float, float]] = []
     for seg in segments:
         words = seg.words or []
@@ -179,6 +164,30 @@ def remove_stammering(
             elif char_times:
                 last_end = char_times[-1][1]
                 char_times.append((last_end, last_end))
+    return char_times
+
+
+def remove_stammering(
+    text: str,
+    segments: list[TranscriptionSegment],
+    time_ranges: list[tuple[float, float]],
+    char_times: list[tuple[float, float]] | None = None,
+) -> tuple[str, list[tuple[float, float]], float]:
+    """吃音（連続反復パターン）を検出・除去する。
+
+    Args:
+        text: クリップのテキスト
+        segments: 対応するTranscriptionSegmentリスト
+        time_ranges: クリップの時間範囲リスト
+        char_times: 事前構築済みのchar_times（Phase 3.4でフィラー除去済みの場合）
+
+    Returns:
+        (cleaned_text, cleaned_time_ranges, cleaned_duration)
+        char_timesを構築できない場合は入力をそのまま返す
+    """
+    # Step 1: char_timesが未提供ならsegmentsから構築
+    if char_times is None:
+        char_times = build_char_times(segments)
 
     # 長さ不一致なら入力をそのまま返す
     if len(char_times) != len(text):

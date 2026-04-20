@@ -181,6 +181,7 @@ class GenerateClipSuggestionsUseCase:
             from use_cases.ai.early_filler_detection import build_clean_segments, predetect_fillers
 
             filler_map = predetect_fillers(transcription)
+            self._filler_map = filler_map
             self._clean_segments = build_clean_segments(transcription, filler_map)
 
             # Phase 1にはフィラー除去済みテキストを渡す
@@ -459,11 +460,32 @@ class GenerateClipSuggestionsUseCase:
         if not best:
             return None
 
+        # Phase 3.4: フィラー音声除去
+        filler_map = getattr(self, "_filler_map", None)
+        filler_char_times = None
+        if filler_map and best.segment_indices:
+            try:
+                from use_cases.ai.early_filler_detection import remove_fillers_from_clip
+
+                cleaned_text, cleaned_ranges, cleaned_dur, filler_char_times = remove_fillers_from_clip(
+                    best.text, best.segments, best.segment_indices,
+                    best.time_ranges, filler_map,
+                )
+                if cleaned_ranges != best.time_ranges:
+                    logger.info(f"フィラー除去: {best.total_duration:.1f}s→{cleaned_dur:.1f}s ({topic.title})")
+                    best.text = cleaned_text
+                    best.time_ranges = cleaned_ranges
+                    best.total_duration = cleaned_dur
+            except Exception as e:
+                logger.warning(f"フィラー除去スキップ: {e}")
+
         # Phase 3.5: 吃音（言い淀み）除去
         try:
             from use_cases.ai.stammering_remover import remove_stammering
 
-            cleaned_text, cleaned_ranges, cleaned_dur = remove_stammering(best.text, best.segments, best.time_ranges)
+            cleaned_text, cleaned_ranges, cleaned_dur = remove_stammering(
+                best.text, best.segments, best.time_ranges, char_times=filler_char_times,
+            )
             if cleaned_ranges != best.time_ranges:
                 logger.info(f"吃音除去: {best.total_duration:.1f}s→{cleaned_dur:.1f}s ({topic.title})")
                 best.text = cleaned_text
