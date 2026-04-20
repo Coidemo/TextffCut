@@ -553,6 +553,122 @@ def generate_srt_entries_from_segments(
     return _entries_from_char_times(full_text, char_times, seg_bounds, max_chars_per_line, max_lines)
 
 
+# 字幕内で除去する安全なフィラー（長い順）
+SUBTITLE_FILLER_WORDS = sorted(
+    [
+        "やっぱり",
+        "やっぱ",
+        "えーっと",
+        "えっとね",
+        "えーと",
+        "えっと",
+        "あのー",
+        "なんかその",
+        "なんかこう",
+        "なんか",
+        "あのね",
+        "えー",
+    ],
+    key=len,
+    reverse=True,
+)
+
+
+def _remove_inline_fillers(
+    full_text: str,
+    char_times: list[tuple[float, float]],
+    seg_bounds: set[int],
+) -> tuple[str, list[tuple[float, float]], set[int]]:
+    """テキスト内のフィラーを除去し、char_timesとseg_boundsを調整する。
+
+    Returns:
+        (除去後テキスト, 調整後char_times, 調整後seg_bounds)
+    """
+    if not full_text:
+        return full_text, char_times, seg_bounds
+
+    # 除去する区間を収集 [(start_pos, end_pos), ...]
+    remove_ranges: list[tuple[int, int]] = []
+
+    # 1. GiNZA形態素解析でフィラーPOSを検出
+    try:
+        from core.japanese_line_break import JapaneseLineBreakRules
+
+        doc = JapaneseLineBreakRules._analyze(full_text)
+        if doc is not None:
+            for token in doc:
+                tag = JapaneseLineBreakRules._normalize_pos_tag(token.tag_)
+                if tag == "フィラー":
+                    remove_ranges.append((token.idx, token.idx + len(token.text)))
+    except ImportError:
+        pass
+
+    # 2. SUBTITLE_FILLER_WORDSによる追加検出
+    for filler in SUBTITLE_FILLER_WORDS:
+        start = 0
+        while True:
+            idx = full_text.find(filler, start)
+            if idx == -1:
+                break
+            filler_end = idx + len(filler)
+            # 既にカバーされていなければ追加
+            already_covered = any(rs <= idx and filler_end <= re for rs, re in remove_ranges)
+            if not already_covered:
+                remove_ranges.append((idx, filler_end))
+            start = filler_end
+
+    if not remove_ranges:
+        return full_text, char_times, seg_bounds
+
+    # 重複・重なりを統合してソート
+    remove_ranges.sort()
+    merged: list[tuple[int, int]] = []
+    for s, e in remove_ranges:
+        if merged and s <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], e))
+        else:
+            merged.append((s, e))
+
+    # 除去範囲に含まれる位置を集合化
+    remove_set = set()
+    for s, e in merged:
+        for i in range(s, e):
+            remove_set.add(i)
+
+    # 新しいテキスト・char_timesを構築
+    new_text_chars = []
+    new_char_times = []
+    # 位置マッピング: old_pos → new_pos
+    pos_map = {}
+    new_pos = 0
+    for old_pos in range(len(full_text)):
+        if old_pos not in remove_set:
+            new_text_chars.append(full_text[old_pos])
+            new_char_times.append(char_times[old_pos])
+            pos_map[old_pos] = new_pos
+            new_pos += 1
+
+    # seg_boundsを調整
+    new_seg_bounds = set()
+    for bound in seg_bounds:
+        # boundは「ここから新セグメント」の位置
+        # bound以上で最初の残存位置を探す
+        mapped = None
+        for check_pos in range(bound, len(full_text)):
+            if check_pos in pos_map:
+                mapped = pos_map[check_pos]
+                break
+        if mapped is not None and mapped > 0:
+            new_seg_bounds.add(mapped)
+    # 末尾を追加
+    new_len = len(new_text_chars)
+    if new_len > 0:
+        new_seg_bounds.add(new_len)
+    new_seg_bounds.discard(0)
+
+    new_text = "".join(new_text_chars)
+    return new_text, new_char_times, new_seg_bounds
+
 
 
 def _trim_incomplete_ending(entries: list[SRTEntry]) -> list[SRTEntry]:
@@ -606,8 +722,7 @@ def _entries_from_char_times(
     max_lines: int,
 ) -> list[SRTEntry]:
     """char_timesベースでSRTEntryリストを生成する（共通処理）。"""
-    # フィラー除去はPhase 3.4のtime_rangesカットに統一
-    # （collect_partsがtime_range外の文字を除外済み）
+    full_text, char_times, seg_bounds = _remove_inline_fillers(full_text, char_times, seg_bounds)
     if not full_text:
         return []
 
@@ -1220,11 +1335,9 @@ def collect_parts(time_ranges, tmap, transcription, speed=1.0):
 
             # 文字がtime_range内に含まれるか判定するヘルパー
             # 文字の開始時刻がいずれかのRangeに収まっていれば含める
-            # 上限は < (exclusive) — Phase 3.4でフィラー境界にカットされた
-            # time_rangesのギャップと一致させるため
             def _char_in_ranges(c_start: float, c_end: float) -> bool:
                 for tr_s, tr_e in time_ranges:
-                    if tr_s * speed <= c_start < tr_e * speed:
+                    if tr_s * speed <= c_start <= tr_e * speed:
                         return True
                 return False
 
