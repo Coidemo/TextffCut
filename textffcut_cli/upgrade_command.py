@@ -120,6 +120,10 @@ def run_upgrade(argv: list[str]) -> None:
     """upgradeサブコマンドを実行する"""
     check_only = "--check" in argv
 
+    # キャッシュをクリアして常に最新を取得
+    if LAST_CHECK_FILE.exists():
+        LAST_CHECK_FILE.unlink(missing_ok=True)
+
     current = _get_current_version()
     console.print(f"現在のバージョン: [cyan]{current}[/]")
 
