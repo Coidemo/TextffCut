@@ -488,3 +488,110 @@ def _extract_char_times(
             else:
                 char_times.append((seg.start, seg.start))
     return char_times
+
+
+# ---------------------------------------------------------------------------
+# Phase 3.4: クリップのtime_rangesからフィラー音声を除去
+# ---------------------------------------------------------------------------
+
+_MIN_RANGE_DURATION = 0.02  # この秒数未満の断片は捨てる
+
+
+def _apply_single_cut(
+    time_ranges: list[tuple[float, float]],
+    cut_start: float,
+    cut_end: float,
+) -> list[tuple[float, float]]:
+    """time_rangesから1つのフィラー時間帯を切り取る。
+
+    各rangeについてフィラー時間帯との重なりを判定し、
+    重なる場合はrangeをフィラー前後に分割する。
+    """
+    result: list[tuple[float, float]] = []
+    for rs, re_ in time_ranges:
+        if cut_end <= rs or cut_start >= re_:
+            # 重なりなし → そのまま
+            result.append((rs, re_))
+        else:
+            # フィラー前の部分
+            if cut_start > rs and cut_start - rs >= _MIN_RANGE_DURATION:
+                result.append((rs, cut_start))
+            # フィラー後の部分
+            if cut_end < re_ and re_ - cut_end >= _MIN_RANGE_DURATION:
+                result.append((cut_end, re_))
+    return result
+
+
+def remove_fillers_from_clip(
+    text: str,
+    segments: list[TranscriptionSegment],
+    segment_indices: list[int],
+    time_ranges: list[tuple[float, float]],
+    filler_map: FillerMap,
+) -> tuple[str, list[tuple[float, float]], float, list[tuple[float, float]]]:
+    """クリップのtime_rangesとテキストからフィラーを除去する。
+
+    Args:
+        text: クリップのテキスト
+        segments: 対応するTranscriptionSegmentリスト
+        segment_indices: 元のtranscription内でのセグメントインデックス
+        time_ranges: クリップの時間範囲リスト
+        filler_map: Phase 0で検出したフィラーマップ
+
+    Returns:
+        (cleaned_text, cleaned_time_ranges, cleaned_duration, cleaned_char_times)
+        cleaned_char_timesはPhase 3.5吃音除去に渡す用
+    """
+    from use_cases.ai.stammering_remover import build_char_times
+
+    all_char_times = build_char_times(segments)
+
+    # 候補内の全フィラーを収集
+    fillers: list[FillerSpan] = []
+    for seg_idx in segment_indices:
+        fillers.extend(filler_map.get(seg_idx, []))
+
+    if not fillers:
+        total_dur = sum(e - s for s, e in time_ranges)
+        return text, time_ranges, total_dur, all_char_times
+
+    # time_rangesからフィラー時間帯をカット
+    cleaned_ranges = list(time_ranges)
+    for filler in fillers:
+        cleaned_ranges = _apply_single_cut(cleaned_ranges, filler.time_start, filler.time_end)
+
+    # テキスト+char_timesからフィラー文字を除去
+    # セグメントごとのオフセットを計算
+    seg_offsets: dict[int, int] = {}
+    offset = 0
+    for i, seg in enumerate(segments):
+        seg_offsets[segment_indices[i]] = offset
+        offset += len(seg.text)
+
+    keep = [True] * len(text)
+    for seg_idx in segment_indices:
+        base = seg_offsets.get(seg_idx, -1)
+        if base < 0:
+            continue
+        for filler in filler_map.get(seg_idx, []):
+            for k in range(filler.char_start, filler.char_end):
+                pos = base + k
+                if 0 <= pos < len(keep):
+                    keep[pos] = False
+
+    cleaned_text = "".join(c for c, k in zip(text, keep) if k)
+    if len(all_char_times) == len(keep):
+        cleaned_char_times = [t for t, k in zip(all_char_times, keep) if k]
+    else:
+        logger.warning(
+            "char_times長(%d) != text長(%d): フィラーテキスト除去をスキップ",
+            len(all_char_times), len(keep),
+        )
+        cleaned_char_times = all_char_times
+
+    if not cleaned_ranges:
+        total_dur = sum(e - s for s, e in time_ranges)
+        return text, time_ranges, total_dur, all_char_times
+
+    cleaned_dur = sum(e - s for s, e in cleaned_ranges)
+    return cleaned_text, cleaned_ranges, cleaned_dur, cleaned_char_times

@@ -224,7 +224,10 @@ class TestEndToEnd:
         return full_text, char_times, seg_bounds
 
     def test_integration_with_filler(self):
-        """フィラー含むセグメントからの字幕生成"""
+        """フィラー含むセグメントからの字幕生成
+
+        _remove_inline_fillers により「なんか」が字幕テキストから除去される。
+        """
         segments = [
             {"text": "なんか今日の天気は", "start": 0.0, "end": 2.0},
             {"text": "すごく良いですね", "start": 2.0, "end": 4.0},
@@ -232,10 +235,10 @@ class TestEndToEnd:
         full_text, char_times, seg_bounds = self._make_char_times_for_segments(segments)
         entries = _entries_from_char_times(full_text, char_times, seg_bounds, 11, 2)
 
-        # フィラー「なんか」が除去されていること
         all_text = " ".join(e.text.replace("\n", "") for e in entries)
         assert "なんか" not in all_text
         assert "今日の天気は" in all_text
+        assert "すごく良いですね" in all_text
 
     def test_integration_no_filler(self):
         """フィラーなしセグメントでも正常動作"""

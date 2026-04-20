@@ -207,19 +207,20 @@ class SuggestAndExportUseCase:
         # Phase 6: SRT用の再文字起こしを事前並列実行
         srt_segments_map: dict[int, list[dict] | None] = {}
         _srt_api_key = self.gateway.api_key
-        if request.generate_srt:
-            from concurrent.futures import ThreadPoolExecutor
-
-            from use_cases.ai.srt_subtitle_generator import _SRT_TRANSCRIPTION_FAILED, _transcribe_output_audio
-
-            def _transcribe_for_srt(idx_sugg: tuple[int, ClipSuggestion]) -> tuple[int, list[dict]]:
-                idx, sugg = idx_sugg
-                result = _transcribe_output_audio(sugg.time_ranges, actual_video_path, api_key=_srt_api_key)
-                return idx, result if result is not None else _SRT_TRANSCRIPTION_FAILED
-
-            with ThreadPoolExecutor(max_workers=min(len(suggestions), 4)) as executor:
-                for idx, segments in executor.map(_transcribe_for_srt, enumerate(suggestions)):
-                    srt_segments_map[idx] = segments
+        # TODO: 一時的にWhisper再文字起こしを無効化（元文字起こしの精度検証中）
+        # if request.generate_srt:
+        #     from concurrent.futures import ThreadPoolExecutor
+        #
+        #     from use_cases.ai.srt_subtitle_generator import _SRT_TRANSCRIPTION_FAILED, _transcribe_output_audio
+        #
+        #     def _transcribe_for_srt(idx_sugg: tuple[int, ClipSuggestion]) -> tuple[int, list[dict]]:
+        #         idx, sugg = idx_sugg
+        #         result = _transcribe_output_audio(sugg.time_ranges, actual_video_path, api_key=_srt_api_key)
+        #         return idx, result if result is not None else _SRT_TRANSCRIPTION_FAILED
+        #
+        #     with ThreadPoolExecutor(max_workers=min(len(suggestions), 4)) as executor:
+        #         for idx, segments in executor.map(_transcribe_for_srt, enumerate(suggestions)):
+        #             srt_segments_map[idx] = segments
 
         _phase_times["Phase6a SRT用Whisper文字起こし"] = _time.time() - _t5
         _t6 = _time.time()
@@ -325,7 +326,7 @@ class SuggestAndExportUseCase:
             if not parts:
                 return None
 
-            segments = [{"text": text, "start": tl_s, "end": tl_e} for text, tl_s, tl_e in parts]
+            segments = [{"text": p[0], "start": p[1], "end": p[2]} for p in parts]
             srt_entries = generate_srt_entries_from_segments(
                 segments,
                 max_chars_per_line=srt_max_chars,

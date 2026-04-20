@@ -59,19 +59,20 @@ def generate_srt(
     original_parts = collect_parts(suggestion.time_ranges, tmap, transcription, speed=speed)
 
     # Whisper再文字起こし結果を取得
+    # TODO: 一時的にWhisper再文字起こしを無効化（元文字起こしの精度検証中）
     whisper_segments = None
-    if precomputed_segments is _SRT_TRANSCRIPTION_FAILED:
-        whisper_segments = None  # 失敗済み
-    elif precomputed_segments is not None:
-        whisper_segments = precomputed_segments
-    elif video_path:
-        whisper_segments = _transcribe_output_audio(suggestion.time_ranges, video_path, api_key=api_key)
+    # if precomputed_segments is _SRT_TRANSCRIPTION_FAILED:
+    #     whisper_segments = None  # 失敗済み
+    # elif precomputed_segments is not None:
+    #     whisper_segments = precomputed_segments
+    # elif video_path:
+    #     whisper_segments = _transcribe_output_audio(suggestion.time_ranges, video_path, api_key=api_key)
 
     # Phase 6a: Whisper再文字起こし vs 元文字起こしを比較
     if whisper_segments and original_parts:
         use_whisper = select_better_transcription(whisper_segments, original_parts)
         if use_whisper:
-            logger.debug("SRT: Whisper再文字起こしを採用")
+            logger.debug("SRT: Whisper再文字起こしを採用（強制アライメント済み）")
             return _generate_from_segments(whisper_segments, output_path, max_chars_per_line, max_lines)
         else:
             logger.debug("SRT: 元の文字起こしを採用（Whisperより高品質）")
@@ -86,6 +87,9 @@ def generate_srt(
     full_text, char_times, seg_bounds = _build_char_time_map(original_parts)
     if not full_text:
         return None
+
+    # セグメント末尾のsilence膨張を補正
+    _trim_segment_end_silence(char_times, seg_bounds)
 
     return _generate_from_char_times(
         full_text,
@@ -343,18 +347,65 @@ def _transcribe_output_audio(
                 start = seg.start if hasattr(seg, "start") else seg.get("start", 0)
                 end = seg.end if hasattr(seg, "end") else seg.get("end", 0)
                 if text and end > start:
-                    # Whisperが音声長を超えるタイムスタンプを返すことがあるのでクランプ
                     start = min(start, total_duration)
                     end = min(end, total_duration)
                     if end > start:
                         segments.append({"text": text, "start": start, "end": end})
 
             logger.info(f"出力音声文字起こし: {len(segments)}セグメント")
+
+            # mlx-forced-alignerで精密アライメント（chars付与）
+            segments = _forced_align_segments(f"{tmpdir}/out.wav", segments)
+
             return segments
 
     except Exception as e:
         logger.warning(f"出力音声文字起こし失敗: {e}")
         return None
+
+
+def _forced_align_segments(audio_path: str, segments: list[dict]) -> list[dict]:
+    """mlx-forced-alignerでセグメントに精密なcharsタイムスタンプを付与する。
+
+    元の文字起こしパイプライン（core/transcription.py）と同じ手法。
+    失敗時は元のセグメントをそのまま返す（フォールバック）。
+    """
+    if not segments:
+        return segments
+
+    try:
+        from mlx_forced_aligner import ForcedAligner
+
+        aligner = ForcedAligner()
+        segments_for_align = [
+            {"start": s["start"], "end": s["end"], "text": s["text"].strip()}
+            for s in segments
+            if s.get("text", "").strip()
+        ]
+        if not segments_for_align:
+            return segments
+
+        align_result = aligner.align(audio_path, "", segments=segments_for_align)
+        logger.info(f"SRT強制アライメント完了: {len(align_result.segments)}セグメント")
+
+        # アライメント結果でcharsを付与
+        aligned = []
+        for seg in align_result.segments:
+            aligned.append({
+                "text": seg["text"],
+                "start": seg["start"],
+                "end": seg["end"],
+                "chars": seg.get("chars"),
+                "words": seg.get("words"),
+            })
+        return aligned
+
+    except ImportError:
+        logger.debug("mlx-forced-aligner未インストール、アライメントをスキップ")
+        return segments
+    except Exception as e:
+        logger.warning(f"SRT強制アライメント失敗: {e}")
+        return segments
 
 
 def _generate_from_segments(
@@ -363,11 +414,11 @@ def _generate_from_segments(
     max_chars_per_line: int,
     max_lines: int,
 ) -> Path | None:
-    """Whisperセグメントから字幕を生成する。"""
+    """Whisperセグメントから字幕を生成する。word-levelデータがあれば精密タイミングを使用。"""
     if not segments:
         return None
 
-    # 全テキスト結合 + セグメントベースのchar_times
+    # 全テキスト結合 + char_times構築
     full_text = ""
     char_times = []
     seg_bounds = set()
@@ -379,10 +430,25 @@ def _generate_from_segments(
         seg_bounds.add(len(full_text))
         start = seg["start"]
         end = seg["end"]
-        dur = end - start
-        n = max(len(text), 1)
-        for i in range(len(text)):
-            char_times.append((start + dur * i / n, start + dur * (i + 1) / n))
+
+        # 優先順位: chars（強制アライナー） > words（Whisper API） > 均等割り
+        chars = seg.get("chars")
+        if chars and len(chars) == len(text):
+            for c in chars:
+                c_s = c.get("start", start)
+                c_e = c.get("end", start)
+                char_times.append((c_s, c_e))
+        else:
+            words = seg.get("words")
+            if words and _try_build_word_char_times(text, words, start, end, char_times):
+                pass  # word-level char_timesが追加済み
+            else:
+                # フォールバック: 均等割り
+                dur = end - start
+                n = max(len(text), 1)
+                for i in range(len(text)):
+                    char_times.append((start + dur * i / n, start + dur * (i + 1) / n))
+
         full_text += text
 
     seg_bounds.add(len(full_text))
@@ -390,6 +456,9 @@ def _generate_from_segments(
 
     if not full_text:
         return None
+
+    # セグメント末尾のsilence膨張を補正
+    _trim_segment_end_silence(char_times, seg_bounds)
 
     return _generate_from_char_times(
         full_text,
@@ -399,6 +468,45 @@ def _generate_from_segments(
         max_chars_per_line,
         max_lines,
     )
+
+
+def _trim_segment_end_silence(
+    char_times: list[tuple[float, float]], seg_bounds: set[int]
+) -> None:
+    """セグメント末尾の文字timing膨張を補正する。
+
+    Whisper API / forced alignerのセグメント境界は発話後のsilenceを含む。
+    そのため最終文字のdurationが不自然に長くなる。前の文字のdurationから
+    推定して膨張分をキャップする。
+    """
+    if not char_times or not seg_bounds:
+        return
+
+    for bound in sorted(seg_bounds):
+        if bound < 2 or bound > len(char_times):
+            continue
+
+        last_idx = bound - 1
+        # 前の5文字（最大）の平均durationを計算
+        sample_start = max(0, last_idx - 5)
+        sample_durs = []
+        for i in range(sample_start, last_idx):
+            d = char_times[i][1] - char_times[i][0]
+            if d > 0:
+                sample_durs.append(d)
+
+        if not sample_durs:
+            continue
+
+        avg_dur = sum(sample_durs) / len(sample_durs)
+        last_dur = char_times[last_idx][1] - char_times[last_idx][0]
+
+        # 平均の2倍以上なら膨張とみなしキャップ
+        if last_dur > avg_dur * 2:
+            char_times[last_idx] = (
+                char_times[last_idx][0],
+                char_times[last_idx][0] + avg_dur,
+            )
 
 
 def generate_srt_entries_from_segments(
@@ -562,6 +670,7 @@ def _remove_inline_fillers(
     return new_text, new_char_times, new_seg_bounds
 
 
+
 def _trim_incomplete_ending(entries: list[SRTEntry]) -> list[SRTEntry]:
     """SRT末尾が不完全文で終わる場合、最後の完結点まで切り詰める。
 
@@ -613,7 +722,6 @@ def _entries_from_char_times(
     max_lines: int,
 ) -> list[SRTEntry]:
     """char_timesベースでSRTEntryリストを生成する（共通処理）。"""
-    # フィラー除去
     full_text, char_times, seg_bounds = _remove_inline_fillers(full_text, char_times, seg_bounds)
     if not full_text:
         return []
@@ -1221,8 +1329,76 @@ def collect_parts(time_ranges, tmap, transcription, speed=1.0):
                 if tl_s is not None and tl_e is not None:
                     matched_tl.append((tl_s, tl_e))
         if matched_tl:
-            # 全マッチの最初の開始〜最後の終了でテキスト全体をカバー
-            parts.append((seg.text, matched_tl[0][0], matched_tl[-1][1]))
+            tl_start = matched_tl[0][0]
+            tl_end = matched_tl[-1][1]
+            char_tl_times = None
+
+            # 文字がtime_range内に含まれるか判定するヘルパー
+            # 文字の開始時刻がいずれかのRangeに収まっていれば含める
+            def _char_in_ranges(c_start: float, c_end: float) -> bool:
+                for tr_s, tr_e in time_ranges:
+                    if tr_s * speed <= c_start <= tr_e * speed:
+                        return True
+                return False
+
+            # 優先1: chars（文字単位タイムスタンプ - forced aligner由来）
+            # ギャップ内（time_range外）の文字はテキストからも除外する
+            seg_chars = getattr(seg, "chars", None)
+            filtered_text = None
+            if seg_chars and len(seg_chars) == len(seg.text):
+                char_tl_times = []
+                filtered_chars = []
+                for ci, ch in enumerate(seg_chars):
+                    c_s = ch.start if hasattr(ch, "start") else ch.get("start", 0)
+                    c_e = ch.end if hasattr(ch, "end") else ch.get("end", 0)
+                    if not _char_in_ranges(c_s, c_e):
+                        continue
+                    tl_cs = _to_tl(c_s / speed, tmap)
+                    tl_ce = _to_tl(c_e / speed, tmap)
+                    if tl_cs is None:
+                        tl_cs = tl_ce
+                    if tl_ce is None:
+                        tl_ce = tl_cs
+                    if tl_cs is None:
+                        continue
+                    char_tl_times.append((tl_cs, tl_ce))
+                    filtered_chars.append(seg.text[ci])
+                if not char_tl_times:
+                    char_tl_times = None
+                else:
+                    filtered_text = "".join(filtered_chars)
+
+            # 優先2: words（単語単位 - 比例マッピング、フォールバック）
+            if char_tl_times is None:
+                seg_words = getattr(seg, "words", None)
+                seg_dur = seg.end - seg.start
+                tl_total = tl_end - tl_start
+                if seg_words and len(seg_words) == len(seg.text) and seg_dur > 0:
+                    char_tl_times = []
+                    filtered_chars = []
+                    for wi, w in enumerate(seg_words):
+                        w_s = w.start if hasattr(w, "start") else w.get("start", 0)
+                        w_e = w.end if hasattr(w, "end") else w.get("end", 0)
+                        if not _char_in_ranges(w_s, w_e):
+                            continue
+                        tl_ws = _to_tl(w_s / speed, tmap)
+                        tl_we = _to_tl(w_e / speed, tmap)
+                        if tl_ws is None:
+                            tl_ws = tl_we
+                        if tl_we is None:
+                            tl_we = tl_ws
+                        if tl_ws is None:
+                            continue
+                        char_tl_times.append((tl_ws, tl_we))
+                        filtered_chars.append(seg.text[wi])
+                    if not char_tl_times:
+                        char_tl_times = None
+                    else:
+                        filtered_text = "".join(filtered_chars)
+
+            out_text = filtered_text if filtered_text is not None else seg.text
+            if out_text:
+                parts.append((out_text, tl_start, tl_end, char_tl_times))
     return parts
 
 
@@ -1230,16 +1406,85 @@ def _build_char_time_map(parts):
     full = ""
     ctimes = []
     seg_bounds = set()
-    for text, tl_s, tl_e in parts:
+    for part in parts:
+        text, tl_s, tl_e = part[0], part[1], part[2]
+        char_tl_times = part[3] if len(part) > 3 else None
         seg_bounds.add(len(full))
-        dur = tl_e - tl_s
-        n = max(len(text), 1)
-        for i in range(len(text)):
-            ctimes.append((tl_s + dur * i / n, tl_s + dur * (i + 1) / n))
+        if char_tl_times and len(char_tl_times) == len(text):
+            # word-level timestamps（forced aligner由来）を使用
+            ctimes.extend(char_tl_times)
+        else:
+            # フォールバック: 均等割り
+            dur = tl_e - tl_s
+            n = max(len(text), 1)
+            for i in range(len(text)):
+                ctimes.append((tl_s + dur * i / n, tl_s + dur * (i + 1) / n))
         full += text
     seg_bounds.add(len(full))
     seg_bounds.discard(0)
     return full, ctimes, seg_bounds
+
+
+def _try_build_word_char_times(
+    text: str,
+    words: list[dict],
+    seg_start: float,
+    seg_end: float,
+    out_char_times: list,
+) -> bool:
+    """Whisper APIのword-levelデータからchar_timesを構築する。
+
+    Whisper APIのwordsは単語単位（"こんにちは"等）。各単語の時間範囲内で
+    文字を均等に配分し、セグメント全体のchar_timesを構築する。
+
+    Returns:
+        True: 成功してout_char_timesに追加済み, False: フォールバック必要
+    """
+    if not words:
+        return False
+
+    # wordsを結合してテキストと一致するか検証
+    words_text = "".join(w.get("word", "").strip() for w in words)
+
+    # テキストの前後空白を除去して比較（Whisperは先頭スペースを付けることがある）
+    clean_text = text.strip()
+    if words_text != clean_text:
+        # 完全一致しない場合はフォールバック
+        return False
+
+    # 各wordの文字を時間範囲内で均等配分
+    char_times_tmp = []
+    for w in words:
+        w_text = w.get("word", "").strip()
+        w_start = w.get("start", seg_start)
+        w_end = w.get("end", seg_end)
+        if not w_text:
+            continue
+        w_dur = w_end - w_start
+        n = len(w_text)
+        for i in range(n):
+            char_times_tmp.append((w_start + w_dur * i / n, w_start + w_dur * (i + 1) / n))
+
+    # テキスト先頭の空白分を補填（textが" こんにちは"等の場合）
+    leading = len(text) - len(text.lstrip())
+    if leading > 0:
+        # 先頭空白はセグメント開始〜最初のword開始の間
+        first_start = char_times_tmp[0][0] if char_times_tmp else seg_start
+        for i in range(leading):
+            ratio = i / max(leading, 1)
+            out_char_times.append((seg_start + ratio * (first_start - seg_start), seg_start + (ratio + 1 / leading) * (first_start - seg_start)))
+
+    out_char_times.extend(char_times_tmp)
+
+    # テキスト末尾の空白分を補填
+    trailing = len(text) - len(text.rstrip())
+    if trailing > 0:
+        last_end = char_times_tmp[-1][1] if char_times_tmp else seg_end
+        for i in range(trailing):
+            ratio = i / max(trailing, 1)
+            out_char_times.append((last_end + ratio * (seg_end - last_end), last_end + (ratio + 1 / trailing) * (seg_end - last_end)))
+
+    return len(out_char_times) >= len(text)
 
 
 def _write_srt(entries, output_path):
