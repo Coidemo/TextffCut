@@ -245,6 +245,47 @@ class TestRelinkFolder:
         assert r2.rewritten_count == 0
         assert r2.status == RelinkStatus.UP_TO_DATE
 
+    def test_file_localhost_uri_format(self, tmp_path):
+        """file://localhost/... 形式のURIも正しく解釈して書き換え。"""
+        cache_dir, videos_root, _ = _setup_cache_dir(tmp_path)
+        (videos_root / "demo.mp4").write_bytes(b"")
+
+        old_uri = "file://localhost/old/videos/demo.mp4"
+        fcpxml_path = cache_dir / "fcpxml" / "a.fcpxml"
+        fcpxml_path.write_text(_make_fcpxml(old_uri), encoding="utf-8")
+
+        result = relink_folder(cache_dir)
+        assert result.status == RelinkStatus.RELINKED
+
+        new_text = fcpxml_path.read_text(encoding="utf-8")
+        expected = _path_to_uri(videos_root / "demo.mp4")
+        assert expected in new_text
+
+    def test_uppercase_extension(self, tmp_path):
+        """大文字拡張子（.MP4 等）もvideos本体として分類される。"""
+        cache_dir, videos_root, _ = _setup_cache_dir(tmp_path)
+        (videos_root / "demo.MP4").write_bytes(b"")
+
+        old_uri = "file:///old/videos/demo.MP4"
+        fcpxml_path = cache_dir / "fcpxml" / "a.fcpxml"
+        fcpxml_path.write_text(_make_fcpxml(old_uri), encoding="utf-8")
+
+        result = relink_folder(cache_dir)
+        assert result.status == RelinkStatus.RELINKED
+
+    def test_atomic_write_no_leftover_tmp(self, tmp_path):
+        """書き換え後に .tmp ファイルが残らない。"""
+        cache_dir, videos_root, _ = _setup_cache_dir(tmp_path)
+        (videos_root / "demo.mp4").write_bytes(b"")
+        old_uri = "file:///old/videos/demo.mp4"
+        fcpxml_path = cache_dir / "fcpxml" / "a.fcpxml"
+        fcpxml_path.write_text(_make_fcpxml(old_uri), encoding="utf-8")
+
+        relink_folder(cache_dir)
+
+        tmp_files = list(cache_dir.rglob("*.tmp"))
+        assert tmp_files == []
+
     def test_url_encoded_japanese_filename(self, tmp_path):
         """URLエンコードされた日本語ファイル名の旧URIを正しく書き換え。"""
         cache_dir, videos_root, _ = _setup_cache_dir(tmp_path, video_name="動画")

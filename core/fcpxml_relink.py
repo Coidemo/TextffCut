@@ -21,6 +21,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 from dataclasses import dataclass, field
 from enum import Enum
@@ -56,14 +57,9 @@ class RelinkResult:
 
 
 def _uri_to_path(uri: str) -> Path:
-    """`file:///...` を復号して Path に変換。"""
-    if uri.startswith("file:///"):
-        raw = uri[len("file://") :]
-    elif uri.startswith("file://localhost"):
-        raw = uri[len("file://localhost") :]
-    else:
-        raw = uri[len("file://") :]
-    return Path(unquote(raw))
+    """`file:///...` または `file://localhost/...` を復号して Path に変換。"""
+    prefix = "file://localhost" if uri.startswith("file://localhost") else "file://"
+    return Path(unquote(uri[len(prefix) :]))
 
 
 def _path_to_uri(path: Path) -> str:
@@ -104,7 +100,7 @@ def _remap_path(
         rel = Path(*parts[idx + 1 :])
         return current_preset_root / rel
 
-    # videos/ 直下の動画本体（拡張子で判定。cache_dir.parent.name と同じ親配下にあれば videos/）
+    # videos/ 直下の動画本体（拡張子で判定）
     video_exts = {".mp4", ".mov", ".avi", ".mkv", ".webm", ".mp3", ".wav", ".m4a"}
     if old_path.suffix.lower() in video_exts:
         return current_videos_root / old_path.name
@@ -161,10 +157,14 @@ def _process_single_fcpxml(
     if new_text == original_text:
         return False
 
+    # 原子的書き込み: tempfile に書いて rename（クラッシュ時の部分書き込み破損を防ぐ）
+    tmp_path = fcpxml_path.with_suffix(fcpxml_path.suffix + ".tmp")
     try:
-        fcpxml_path.write_text(new_text, encoding="utf-8")
+        tmp_path.write_text(new_text, encoding="utf-8")
+        os.replace(tmp_path, fcpxml_path)
     except OSError as e:
         logger.error(f"FCPXML書き込み失敗: {fcpxml_path} - {e}")
+        tmp_path.unlink(missing_ok=True)
         return False
     return True
 

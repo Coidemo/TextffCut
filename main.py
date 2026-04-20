@@ -35,16 +35,25 @@ def _relink_fcpxml_in_videos_root(videos_root: str) -> None:
     if not relinked:
         return
 
-    shown = st.session_state.setdefault("_fcpxml_relink_shown", set())
     for r in relinked:
-        key = (str(r.cache_dir), r.rewritten_count)
-        if key in shown:
-            continue
-        shown.add(key)
         msg = f"🔗 パスを更新: {r.cache_dir.name} ({r.rewritten_count}ファイル)"
         if r.missing_files:
             msg += f" ⚠ 参照先なし{len(r.missing_files)}件"
         st.toast(msg)
+
+
+def _maybe_relink_fcpxml(videos_root: str) -> None:
+    """初回セッション or 🔄更新ボタン押下時のみ relink を実行する。
+
+    毎rerunで走らないようにガード。rerunごとの無駄な FCPXML 読み書きを避ける。
+    """
+    should_run = not st.session_state.get("_fcpxml_relink_ran") or st.session_state.pop(
+        "_fcpxml_relink_requested", False
+    )
+    if not should_run:
+        return
+    _relink_fcpxml_in_videos_root(videos_root)
+    st.session_state["_fcpxml_relink_ran"] = True
 
 
 def render_video_input_section(container):
@@ -64,13 +73,14 @@ def render_video_input_section(container):
             video_input_presenter.select_video(filename)
         del st.session_state.downloaded_video
 
-    # FCPXML の絶対パスを現在のマシン用にrelink（別マシンで生成されたキャッシュフォルダ対応）
-    _relink_fcpxml_in_videos_root(video_input_presenter.view_model.video_directory)
-
     from presentation.views.video_input import VideoInputView
 
     view = VideoInputView(video_input_presenter)
     view.render()
+
+    # FCPXML の絶対パスを現在のマシン用にrelink（別マシンで生成されたキャッシュフォルダ対応）
+    # 初回セッション or 🔄更新ボタン押下時のみ実行（毎rerunではスキップ）
+    _maybe_relink_fcpxml(video_input_presenter.view_model.video_directory)
 
     # 動画が選択されたかチェック（mainブランチのようにシンプルに）
     if video_input_presenter.view_model.selected_file:

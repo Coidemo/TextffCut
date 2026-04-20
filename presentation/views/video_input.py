@@ -91,6 +91,8 @@ class VideoInputView:
         with col2:
             if st.button("🔄 更新", help="動画ファイル一覧を更新", use_container_width=True):
                 self.presenter.refresh_video_list()
+                # FCPXML relink も再実行させるためのシグナル
+                st.session_state["_fcpxml_relink_requested"] = True
 
         # 選択が変更された場合
         if self.view_model.video_files:
