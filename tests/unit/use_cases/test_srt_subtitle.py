@@ -16,6 +16,8 @@ from use_cases.ai.srt_subtitle_generator import (
     _phase1_split,
     _remove_inline_fillers,
     _transcribe_output_audio,
+    build_timeline_map,
+    collect_parts,
 )
 
 
@@ -417,3 +419,134 @@ class TestTranscribeOutputAudioApiKey:
         ):
             result = _transcribe_output_audio([(0.0, 1.0)], MagicMock(), api_key=None)
             assert result is None
+
+
+# ---------------------------------------------------------------------------
+# collect_parts の境界マッチング（word-level timestamp対応）
+# ---------------------------------------------------------------------------
+
+
+def _seg(start, end, text, words=None):
+    """テスト用のセグメントモック。word-level timestampを含む。"""
+    s = MagicMock()
+    s.start = start
+    s.end = end
+    s.text = text
+    s.words = words
+    return s
+
+
+def _word(w, start, end):
+    """テスト用のワードモック。"""
+    mw = MagicMock()
+    mw.word = w
+    mw.start = start
+    mw.end = end
+    return mw
+
+
+class TestCollectPartsWordLevel:
+    """collect_parts が word-level timestamp を使い、
+    短い重なりでセグメント全文を詰め込むバグを回避することを検証。
+    """
+
+    def test_full_segment_in_range_uses_all_words(self):
+        """セグメント全体がレンジ内なら全テキストを採用。"""
+        # seg [10-15s] "こんにちは" 5文字、レンジ [10-15s]
+        words = [_word("こ", 10.0, 11.0), _word("ん", 11.0, 12.0), _word("に", 12.0, 13.0), _word("ち", 13.0, 14.0), _word("は", 14.0, 15.0)]
+        seg = _seg(10.0, 15.0, "こんにちは", words)
+        transcription = MagicMock()
+        transcription.segments = [seg]
+
+        time_ranges = [(10.0, 15.0)]
+        tmap = build_timeline_map(time_ranges)
+        parts = collect_parts(time_ranges, tmap, transcription, speed=1.0)
+
+        assert len(parts) == 1
+        text, tl_s, tl_e = parts[0]
+        assert text == "こんにちは"
+        assert tl_s == 0.0
+        assert abs(tl_e - 5.0) < 0.01
+
+    def test_tiny_overlap_only_captures_overlapping_words(self):
+        """重なりが0.1秒だけなら、その0.1秒に含まれる word だけ採用。
+        バグ前は全テキスト（"まああの" 4文字）がこの0.1秒に詰め込まれていた。
+        """
+        # seg [113.5-115.5s] "まああの" 4文字、word timestamps で各語を振る
+        words = [
+            _word("ま", 113.5, 113.7),  # ← 最初の0.2s
+            _word("あ", 113.7, 114.0),
+            _word("あ", 114.0, 114.5),
+            _word("の", 114.5, 115.5),
+        ]
+        seg = _seg(113.5, 115.5, "まああの", words)
+        transcription = MagicMock()
+        transcription.segments = [seg]
+
+        # レンジは [113.5-113.6] の0.1秒だけ
+        time_ranges = [(113.5, 113.6)]
+        tmap = build_timeline_map(time_ranges)
+        parts = collect_parts(time_ranges, tmap, transcription, speed=1.0)
+
+        # word「ま」(113.5-113.7)だけがレンジと重なる → 1部だけ収集
+        # バグ前は "まああの" 全文が tl 0-0.1 に詰め込まれていた
+        assert len(parts) == 1
+        text, tl_s, tl_e = parts[0]
+        assert text == "ま"
+        assert tl_s == 0.0
+        # tl_e は word の end か range end の小さいほう
+        assert tl_e <= 0.1 + 0.01
+
+    def test_segment_spans_two_ranges_words_go_to_each(self):
+        """1セグメントが2レンジに跨る場合、各レンジに対応する word がそれぞれ収集される。"""
+        # seg [100-110s] "ABCDEFGHIJ" 10文字、word timestamps
+        words = [_word(ch, 100.0 + i, 101.0 + i) for i, ch in enumerate("ABCDEFGHIJ")]
+        seg = _seg(100.0, 110.0, "ABCDEFGHIJ", words)
+        transcription = MagicMock()
+        transcription.segments = [seg]
+
+        # レンジ1: 100-103s (word A,B,C), レンジ2: 107-110s (word H,I,J)
+        time_ranges = [(100.0, 103.0), (107.0, 110.0)]
+        tmap = build_timeline_map(time_ranges)
+        parts = collect_parts(time_ranges, tmap, transcription, speed=1.0)
+
+        # 各レンジごとに別のpartが出る
+        # part1: "ABC" at tl 0-3
+        # part2: "HIJ" at tl 3-6
+        texts = [p[0] for p in parts]
+        assert "ABC" in texts
+        assert "HIJ" in texts
+        # D,E,F,Gは含まれない
+        combined = "".join(texts)
+        assert "D" not in combined and "E" not in combined
+
+    def test_missing_words_raises(self):
+        """words が無いセグメントはエラーにする（キャッシュ無しと同等扱い）。"""
+        seg = _seg(10.0, 15.0, "こんにちは", words=None)
+        transcription = MagicMock()
+        transcription.segments = [seg]
+        time_ranges = [(10.0, 15.0)]
+        tmap = build_timeline_map(time_ranges)
+
+        import pytest as _pytest
+        with _pytest.raises(ValueError, match="word"):
+            collect_parts(time_ranges, tmap, transcription, speed=1.0)
+
+    def test_speed_adjusted_timestamps(self):
+        """time_ranges は speed 除算済み、seg は元時間の前提で正しく変換される。"""
+        # seg [120-126s] "123456" 6文字、1文字=1秒
+        words = [_word(ch, 120.0 + i, 121.0 + i) for i, ch in enumerate("123456")]
+        seg = _seg(120.0, 126.0, "123456", words)
+        transcription = MagicMock()
+        transcription.segments = [seg]
+
+        # speed=1.2, time_rangeは 100-105 (= orig 120-126)
+        time_ranges = [(100.0, 105.0)]
+        tmap = build_timeline_map(time_ranges)
+        parts = collect_parts(time_ranges, tmap, transcription, speed=1.2)
+
+        assert len(parts) == 1
+        text, tl_s, tl_e = parts[0]
+        assert text == "123456"
+        assert tl_s == 0.0
+        assert abs(tl_e - 5.0) < 0.01
