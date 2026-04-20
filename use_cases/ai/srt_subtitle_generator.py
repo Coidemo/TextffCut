@@ -1199,30 +1199,77 @@ def _to_tl(orig, tmap):
 
 
 def collect_parts(time_ranges, tmap, transcription, speed=1.0):
+    """word-levelタイムスタンプを使ってtime_rangesに含まれる発話を抽出する。
+
+    各 transcription segment の word 単位で「最も重なりが大きい range」に1回だけ
+    割り当て、その range 内の連続 word 群を1つの part として収集する。
+
+    time_ranges は speed 除算済み、seg.start/end と seg.words の時間は元時間。
+
+    Raises:
+        ValueError: seg に word-level タイムスタンプが無い場合
+            （旧キャッシュ対応。上流でキャッシュ無し扱いにしてもらう）
+    """
     if speed <= 0:
         raise ValueError(f"speed must be > 0, got {speed}")
     from use_cases.ai.filler_constants import FILLER_ONLY_TEXTS
+
+    def _orig_to_tl(orig_time: float) -> float | None:
+        return _to_tl(orig_time / speed, tmap)
+
+    # 各 range を元時間で事前計算
+    orig_ranges = [(tr_s * speed, tr_e * speed) for tr_s, tr_e in time_ranges]
+
+    def _best_range_idx(word) -> int | None:  # noqa: ANN001
+        """word と最も重なりが大きい range のインデックスを返す。重なり0なら None。"""
+        best_idx = None
+        best_overlap = 0.0
+        for idx, (orig_s, orig_e) in enumerate(orig_ranges):
+            overlap = max(0.0, min(word.end, orig_e) - max(word.start, orig_s))
+            if overlap > best_overlap:
+                best_overlap = overlap
+                best_idx = idx
+        return best_idx
 
     parts = []
     for seg in transcription.segments:
         if seg.text.strip() in FILLER_ONLY_TEXTS:
             continue
-        # セグメントが複数クリップにまたがる場合があるので全マッチを収集
-        matched_tl = []
-        for tr_s, tr_e in time_ranges:
-            # time_rangesは速度調整済み（/ speed）だが、segは元のタイムスタンプ
-            orig_s = tr_s * speed
-            orig_e = tr_e * speed
-            if seg.end > orig_s and seg.start < orig_e:
-                clipped_start = max(seg.start, orig_s)
-                clipped_end = min(seg.end, orig_e)
-                tl_s = _to_tl(clipped_start / speed, tmap)
-                tl_e = _to_tl(clipped_end / speed, tmap)
-                if tl_s is not None and tl_e is not None:
-                    matched_tl.append((tl_s, tl_e))
-        if matched_tl:
-            # 全マッチの最初の開始〜最後の終了でテキスト全体をカバー
-            parts.append((seg.text, matched_tl[0][0], matched_tl[-1][1]))
+        if not getattr(seg, "words", None):
+            raise ValueError(
+                f"segment at {seg.start:.2f}s has no word-level timestamps. "
+                "Transcription cache is outdated; re-transcribe the video."
+            )
+
+        # 各 word を「最適な range」に割り当て、range ごとに連続 word を 1 part にまとめる
+        current_range_idx: int | None = None
+        current_words: list = []
+
+        def _flush(range_idx: int, words_buf: list) -> None:
+            if range_idx is None or not words_buf:
+                return
+            text = "".join(w.word for w in words_buf)
+            if not text.strip():
+                return
+            orig_s, orig_e = orig_ranges[range_idx]
+            clipped_s = max(words_buf[0].start, orig_s)
+            clipped_e = min(words_buf[-1].end, orig_e)
+            tl_s = _orig_to_tl(clipped_s)
+            tl_e = _orig_to_tl(clipped_e)
+            if tl_s is None or tl_e is None or tl_e <= tl_s:
+                return
+            parts.append((text, tl_s, tl_e))
+
+        for w in seg.words:
+            r_idx = _best_range_idx(w)
+            if r_idx != current_range_idx:
+                _flush(current_range_idx, current_words)
+                current_range_idx = r_idx
+                current_words = []
+            if r_idx is not None:
+                current_words.append(w)
+        _flush(current_range_idx, current_words)
+
     return parts
 
 

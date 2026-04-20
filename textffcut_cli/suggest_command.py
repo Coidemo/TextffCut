@@ -506,14 +506,24 @@ def _load_transcription_cache(video_path: Path, model: str) -> "TranscriptionRes
 
     try:
         data = json.loads(cache_file.read_text(encoding="utf-8"))
+
+        # word-level タイムスタンプが無いキャッシュは SRT 境界ズレを起こすため再文字起こしさせる
+        segments = data.get("segments", [])
+        if segments and not all(s.get("words") for s in segments):
+            console.print(
+                "  [yellow]キャッシュに word-level タイムスタンプが無いため、"
+                "再文字起こしします（SRT字幕精度のため）[/]"
+            )
+            return None
+
         from domain.entities.transcription import TranscriptionResult
 
         return TranscriptionResult(
             id=f"cache_{video_path.stem}",
             video_id=str(video_path),
             language=data.get("language", "ja"),
-            segments=data["segments"],
-            duration=data["segments"][-1]["end"] if data["segments"] else 0.0,
+            segments=segments,
+            duration=segments[-1]["end"] if segments else 0.0,
             original_audio_path=data.get("original_audio_path", ""),
             model_size=data.get("model_size", model),
             processing_time=data.get("processing_time", 0.0),

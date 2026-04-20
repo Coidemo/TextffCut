@@ -91,6 +91,17 @@ class LoadTranscriptionCacheUseCase(UseCase[LoadCacheRequest, TranscriptionResul
             if not result.segments:
                 raise TranscriptionError("Cached result has no segments")
 
+            # word-level タイムスタンプ必須（SRT字幕境界ズレ防止）
+            # 旧キャッシュは words 無しの場合があるため、再文字起こしを強制する
+            if not all(getattr(s, "words", None) for s in result.segments):
+                self.logger.warning(
+                    "Cache missing word-level timestamps (outdated format). "
+                    "Treating as cache-miss to force re-transcription."
+                )
+                raise CacheNotFoundError(
+                    "Cache missing word-level timestamps; re-transcription required"
+                )
+
             self.logger.info(
                 f"Cache loaded successfully. " f"Language: {result.language}, " f"Segments: {len(result.segments)}"
             )
