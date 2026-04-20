@@ -14,7 +14,6 @@ from use_cases.ai.srt_subtitle_generator import (
     _entries_from_char_times,
     _parse_pos,
     _phase1_split,
-    _remove_inline_fillers,
     _transcribe_output_audio,
 )
 
@@ -113,88 +112,6 @@ class TestSentenceEndings:
         assert not _ends_with_sentence("起きている")
 
 
-class TestInlineFillerRemoval:
-    """フィラー除去のテスト"""
-
-    def _make_char_times(self, text: str, start: float = 0.0) -> list[tuple[float, float]]:
-        """テスト用に均等なchar_timesを生成"""
-        n = len(text)
-        dur = 1.0  # 1秒/テキスト全体
-        return [(start + dur * i / n, start + dur * (i + 1) / n) for i in range(n)]
-
-    def test_basic_filler_removal(self):
-        """基本的なフィラー除去"""
-        text = "なんか今日は良い天気"
-        char_times = self._make_char_times(text)
-        seg_bounds = {len(text)}
-
-        new_text, new_ct, new_sb = _remove_inline_fillers(text, char_times, seg_bounds)
-        assert "なんか" not in new_text
-        assert "今日は良い天気" in new_text
-
-    def test_multiple_fillers_removal(self):
-        """複数フィラーの除去"""
-        text = "えーとなんかこれはあのすごい"
-        char_times = self._make_char_times(text)
-        seg_bounds = {len(text)}
-
-        new_text, new_ct, new_sb = _remove_inline_fillers(text, char_times, seg_bounds)
-        assert "えーと" not in new_text
-        assert "なんか" not in new_text
-        # 「あの」はGiNZAが連体詞と判定するため、リスト除去の対象外
-        # （指示代名詞「あの人」の誤除去を防ぐ）
-        assert "これは" in new_text
-        assert "すごい" in new_text
-
-    def test_char_times_shift(self):
-        """char_timesがフィラー除去後に正しくシフトされるか"""
-        text = "えーとテスト"  # "えーと" = 3文字除去
-        char_times = self._make_char_times(text)
-        seg_bounds = {len(text)}
-
-        new_text, new_ct, new_sb = _remove_inline_fillers(text, char_times, seg_bounds)
-        assert new_text == "テスト"
-        assert len(new_ct) == 3  # "テスト" = 3文字
-
-    def test_non_filler_preserved(self):
-        """フィラーでない語は保持される"""
-        text = "問題があるからこれは対応する"
-        char_times = self._make_char_times(text)
-        seg_bounds = {len(text)}
-
-        new_text, new_ct, new_sb = _remove_inline_fillers(text, char_times, seg_bounds)
-        assert new_text == text  # フィラーなし → 変更なし
-        assert len(new_ct) == len(char_times)
-
-    def test_seg_bounds_adjusted(self):
-        """seg_boundsがフィラー除去後に正しく調整されるか"""
-        text = "なんかテスト次のセグメント"
-        # "なんか" = 3文字、セグメント境界は6文字目（"次"の位置）
-        char_times = self._make_char_times(text)
-        seg_bounds = {6, len(text)}  # 6="次"の位置
-
-        new_text, new_ct, new_sb = _remove_inline_fillers(text, char_times, seg_bounds)
-        # "なんか"除去後: "テスト次のセグメント"
-        # 元の位置6("次") → 新位置3
-        assert new_text == "テスト次のセグメント"
-        assert 3 in new_sb  # "次"の新しい位置
-
-    def test_empty_text(self):
-        """空テキストでエラーにならない"""
-        new_text, new_ct, new_sb = _remove_inline_fillers("", [], set())
-        assert new_text == ""
-        assert new_ct == []
-        assert new_sb == set()
-
-    def test_yappari_removal(self):
-        """やっぱり/やっぱの除去"""
-        text = "やっぱりこれは良い"
-        char_times = self._make_char_times(text)
-        seg_bounds = {len(text)}
-
-        new_text, new_ct, new_sb = _remove_inline_fillers(text, char_times, seg_bounds)
-        assert "やっぱり" not in new_text
-        assert "これは良い" in new_text
 
 
 class TestEndToEnd:

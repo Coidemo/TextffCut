@@ -197,6 +197,7 @@ class GenerateClipSuggestionsUseCase:
                     seg_dict["text"] = ""
         except Exception as e:
             logger.warning(f"Phase 0 フィラー検出スキップ: {e}")
+            self._filler_map = {}
             self._clean_segments = None
 
         # Phase 1: AI話題検出

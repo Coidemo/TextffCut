@@ -580,7 +580,14 @@ def remove_fillers_from_clip(
                     keep[pos] = False
 
     cleaned_text = "".join(c for c, k in zip(text, keep) if k)
-    cleaned_char_times = [t for t, k in zip(all_char_times, keep) if k] if len(all_char_times) == len(keep) else all_char_times
+    if len(all_char_times) == len(keep):
+        cleaned_char_times = [t for t, k in zip(all_char_times, keep) if k]
+    else:
+        logger.warning(
+            "char_times長(%d) != text長(%d): フィラーテキスト除去をスキップ",
+            len(all_char_times), len(keep),
+        )
+        cleaned_char_times = all_char_times
 
     if not cleaned_ranges:
         total_dur = sum(e - s for s, e in time_ranges)
