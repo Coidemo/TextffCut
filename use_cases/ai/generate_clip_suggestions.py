@@ -181,6 +181,7 @@ class GenerateClipSuggestionsUseCase:
             from use_cases.ai.early_filler_detection import build_clean_segments, predetect_fillers
 
             filler_map = predetect_fillers(transcription)
+            self._filler_map = filler_map  # Phase 3.6 音声切除で再利用
             self._clean_segments = build_clean_segments(transcription, filler_map)
 
             # Phase 1にはフィラー除去済みテキストを渡す
@@ -197,6 +198,7 @@ class GenerateClipSuggestionsUseCase:
         except Exception as e:
             logger.warning(f"Phase 0 フィラー検出スキップ: {e}")
             self._clean_segments = None
+            self._filler_map = None
 
         # Phase 1: AI話題検出
         phase1_start = time.time()
@@ -471,6 +473,25 @@ class GenerateClipSuggestionsUseCase:
                 best.total_duration = cleaned_dur
         except Exception as e:
             logger.warning(f"吃音除去スキップ: {e}")
+
+        # Phase 3.6: Phase 0 で検出済みフィラーの音声区間を物理的に切除
+        filler_map = getattr(self, "_filler_map", None)
+        if filler_map:
+            try:
+                from use_cases.ai.filler_audio_removal import apply_filler_removal
+
+                pre_dur = best.total_duration
+                new_ranges, cut_count = apply_filler_removal(best.time_ranges, filler_map)
+                if cut_count > 0:
+                    new_dur = sum(e - s for s, e in new_ranges)
+                    logger.info(
+                        f"フィラー音声切除: {pre_dur:.1f}s→{new_dur:.1f}s "
+                        f"({cut_count}箇所除去, {topic.title})"
+                    )
+                    best.time_ranges = new_ranges
+                    best.total_duration = new_dur
+            except Exception as e:
+                logger.warning(f"フィラー音声切除スキップ: {e}")
 
         # 結合部のmicro buffer追加（音声途切れ防止）
         buffered_ranges = self._apply_range_buffers(best.time_ranges)
