@@ -6,3 +6,6 @@ checkpoints/
 data/
 *.pt
 *.safetensors
+# MLX 変換済みモデルの大きな重みは commit しない
+# (merge_and_convert_mlx.py で再生成可能、adapter と config.json は残す)
+mlx_models/*/weights.npz
