@@ -465,6 +465,36 @@ SUBTITLE_FILLER_WORDS = sorted(
     reverse=True,
 )
 
+# 文脈依存フィラー: 直後が特定パターンなら文法的用法として保持
+# 例: 「あの人」「あの時」は連体詞、「あの世界」「あの仕事」はフィラー
+AMBIGUOUS_SUBTITLE_FILLERS: tuple[str, ...] = ("あの", "まあ", "まぁ")
+
+# 「あの」の直後が以下で始まれば連体詞（保持）
+_ANO_DEMONSTRATIVE_FOLLOWERS: tuple[str, ...] = (
+    "人", "時", "方", "事", "こと", "件", "日", "間", "頃", "あと", "前", "後",
+    "とき", "ひと", "ほう", "ころ", "あいだ", "もの", "やつ", "とこ", "ところ",
+    "会社", "店", "所", "場所", "話", "中", "なか", "辺", "あたり", "感じ", "時間",
+    "お方", "場面", "時代", "当時", "家", "街", "町",
+)
+
+# 「まあ」の直後が以下で始まれば副詞（保持）
+_MAA_ADVERB_FOLLOWERS: tuple[str, ...] = (
+    "いい", "良い", "よい", "OK", "ok", "大丈夫", "何とか", "なんとか",
+    "しか", "しょうがな", "仕方", "しかたな", "まあ", "どう", "そこそこ",
+)
+
+
+def _is_ambiguous_filler_to_keep(filler: str, text_after: str) -> bool:
+    """ambiguous filler の直後を見て「残すべき文法用法」かを判定。
+
+    text_after は filler の直後に続くテキスト（先頭10文字程度を想定）。
+    """
+    if filler == "あの":
+        return any(text_after.startswith(k) for k in _ANO_DEMONSTRATIVE_FOLLOWERS)
+    if filler in ("まあ", "まぁ"):
+        return any(text_after.startswith(k) for k in _MAA_ADVERB_FOLLOWERS)
+    return False
+
 
 def _remove_inline_fillers(
     full_text: str,
@@ -504,6 +534,24 @@ def _remove_inline_fillers(
                 break
             filler_end = idx + len(filler)
             # 既にカバーされていなければ追加
+            already_covered = any(rs <= idx and filler_end <= re for rs, re in remove_ranges)
+            if not already_covered:
+                remove_ranges.append((idx, filler_end))
+            start = filler_end
+
+    # 3. AMBIGUOUS_SUBTITLE_FILLERSによる文脈判定除去
+    # 「あの人」「まあいい」等の文法用法は保持、それ以外は除去
+    for filler in AMBIGUOUS_SUBTITLE_FILLERS:
+        start = 0
+        while True:
+            idx = full_text.find(filler, start)
+            if idx == -1:
+                break
+            filler_end = idx + len(filler)
+            text_after = full_text[filler_end : filler_end + 10]
+            if _is_ambiguous_filler_to_keep(filler, text_after):
+                start = filler_end
+                continue
             already_covered = any(rs <= idx and filler_end <= re for rs, re in remove_ranges)
             if not already_covered:
                 remove_ranges.append((idx, filler_end))

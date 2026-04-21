@@ -198,6 +198,61 @@ class TestInlineFillerRemoval:
         assert "やっぱり" not in new_text
         assert "これは良い" in new_text
 
+    # --- 新規: 文脈依存「あの」「まあ」の処理 -----------------------------
+
+    def test_ano_demonstrative_preserved(self):
+        """連体詞「あの+人/時/こと」は保持される"""
+        for text in ("あの人はすごい", "あの時の話", "あのこともあった", "あの頃は楽しかった"):
+            ct = self._make_char_times(text)
+            sb = {len(text)}
+            new_text, _, _ = _remove_inline_fillers(text, ct, sb)
+            assert text == new_text, f"demonstrative should be preserved: {text!r} → {new_text!r}"
+
+    def test_ano_filler_removed(self):
+        """フィラー「あの+一般名詞/動詞」は除去される"""
+        # 実データ由来の例
+        cases = [
+            ("あの世界はどんどん変わる", "世界はどんどん変わる"),
+            ("あの仕事がちゃんと回る", "仕事がちゃんと回る"),
+            ("あの意外とそうですね", "意外とそうですね"),
+            ("あのシンプルに言うと", "シンプルに言うと"),
+        ]
+        for text, expected_contains in cases:
+            ct = self._make_char_times(text)
+            sb = {len(text)}
+            new_text, _, _ = _remove_inline_fillers(text, ct, sb)
+            assert "あの" not in new_text, f"filler should be removed: {text!r} → {new_text!r}"
+            assert expected_contains in new_text
+
+    def test_ano_with_comma_removed(self):
+        """「あの、」は常にフィラー扱いで除去"""
+        text = "あの、そうですね"
+        ct = self._make_char_times(text)
+        sb = {len(text)}
+        new_text, _, _ = _remove_inline_fillers(text, ct, sb)
+        assert "あの" not in new_text
+
+    def test_maa_adverb_preserved(self):
+        """副詞「まあ+評価語」は保持（まあいい/まあ大丈夫）"""
+        for text in ("まあいいか", "まあ大丈夫だよ", "まあ仕方ないね"):
+            ct = self._make_char_times(text)
+            sb = {len(text)}
+            new_text, _, _ = _remove_inline_fillers(text, ct, sb)
+            assert "まあ" in new_text, f"adverb まあ should be preserved: {text!r} → {new_text!r}"
+
+    def test_maa_filler_removed(self):
+        """フィラー「まあ+一般語」は除去"""
+        cases = [
+            ("まあ、そうですね", "そうですね"),
+            ("まあ普通にやれば", "普通にやれば"),
+        ]
+        for text, expected_contains in cases:
+            ct = self._make_char_times(text)
+            sb = {len(text)}
+            new_text, _, _ = _remove_inline_fillers(text, ct, sb)
+            assert "まあ" not in new_text, f"filler まあ should be removed: {text!r} → {new_text!r}"
+            assert expected_contains in new_text
+
 
 class TestEndToEnd:
     """実セグメントデータでの統合テスト"""
