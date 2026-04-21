@@ -18,8 +18,23 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## バージョン情報
 
-### v2.0.6 (2026-04-15) — 最新安定版
-- **タグ**: `v2.0.6`
+### v2.0.10 (2026-04-21) — 最新安定版
+- **タグ**: `v2.0.10`
+- **フィラー削減の大幅改善**:
+  - Whisper `initial_prompt` を自然文+例形式に改善（PR #115）
+  - SRT字幕の「あの」「まあ」を文脈判定で除去（PR #116、削減率 -92%）
+  - Phase 3.6 フィラー音声の物理的切除を追加（PR #117、duration -3.7%, 最大-27%）
+  - Whisperデフォルトを medium → large-v3（PR #118、CER -26%, 固有名詞認識 +18%）
+- 処理時間は +60% だが、固有名詞（人名等）の誤認識が大幅改善
+
+### v2.0.9 (2026-04-20)
+- FCPXML別マシン配布対応 (`textffcut relink` コマンド、PR #113)
+- SRT字幕の境界ズレをword-levelタイムスタンプで解消（PR #114）
+
+### v2.0.8 (2026-04-20)
+- CLI外部実行対応 + GUIポート競合回避 + バージョン統一
+
+### v2.0.6 (2026-04-15)
 - タイトル画像にドロップシャドウ追加（4パス描画）
 - 黒文字+黒内縁バグ修正（セグメント単位の輝度判定）
 
@@ -67,10 +82,16 @@ TextffCut/
 │   ├── suggest_and_export.py       # AI切り抜き→FCPXML+SRT出力
 │   ├── generate_clip_suggestions.py # クリップ候補生成
 │   ├── srt_subtitle_generator.py   # SRT字幕生成（Phase 1-3）
+│   ├── early_filler_detection.py   # Phase 0: フィラー位置検出
+│   ├── filler_audio_removal.py     # Phase 3.6: フィラー音声物理切除
+│   ├── stammering_remover.py       # Phase 3.5: 吃音（連続反復）除去
 │   ├── title_image_generator.py    # タイトル画像生成
 │   ├── auto_anchor_detector.py     # 被写体位置自動検出
 │   ├── se_placement.py             # 効果音配置
 │   └── final_video_generator.py    # 最終動画生成
+├── core/
+│   ├── fcpxml_relink.py            # 別マシン向けFCPXMLパス書き換え
+│   └── ...
 ├── adapters/                # インターフェースアダプター層
 ├── di/                      # 依存性注入コンテナ
 ├── domain/                  # ドメインモデル
@@ -152,6 +173,26 @@ textffcut upgrade
 2. **Phase 2**: 改行挿入（max_chars制限内で2行化）
 3. **Phase 3**: 短いエントリの結合（SENTENCE_ENDINGSで結合判定）
 
+## フィラー除去パイプライン（v2.0.10〜）
+
+4層でフィラーを段階的に削除：
+
+1. **文字起こし層** (`core/transcription.py`): Whisper `initial_prompt` で
+   フィラー保持を指示。`large-v3` モデルで捕捉率向上。
+2. **Phase 0 検出** (`use_cases/ai/early_filler_detection.py`):
+   `FILLER_WORDS` リスト + GiNZA文脈判定で位置を特定。`filler_map` を生成。
+3. **Phase 3.5 吃音除去** (`use_cases/ai/stammering_remover.py`):
+   連続反復パターン（「ない人はない人は」等）を検出・除去。time_ranges を更新。
+4. **Phase 3.6 音声切除** (`use_cases/ai/filler_audio_removal.py`):
+   Phase 0 の `filler_map` を使い、time_ranges からフィラー区間を物理的に減算。
+   短すぎる（<0.15s）フィラーは音飛び防止でスキップ。
+5. **SRT 字幕層** (`srt_subtitle_generator.py::_remove_inline_fillers`):
+   SUBTITLE_FILLER_WORDS + 文脈依存フィラー（「あの」「まあ」）の最終除去。
+   Phase 0 が検出できなかったセグメント境界またぎを補完。
+
+**設計原則**: 音声切除（4）が効くと字幕も自動追従する。文脈判定（5）は
+その後の最終クリーンアップ。両者相補で 90%+ 削減を実現。
+
 ### 日本語NLP
 
 - **GiNZA/spaCy**: 文節境界API + 形態素解析
@@ -228,4 +269,4 @@ brew install coidemo/textffcut/textffcut
 
 ---
 
-最終更新: 2026-04-12
+最終更新: 2026-04-21
