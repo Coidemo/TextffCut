@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>文字起こしエディタ</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header>
+    <div class="header-left">
+      <div class="title">文字起こしエディタ</div>
+      <div class="stats">
+        <span>全体: <b id="total-count">0</b></span>
+        <span>編集済み: <b id="modified-count">0</b></span>
+        <span>除外: <b id="skip-count">0</b></span>
+      </div>
+    </div>
+    <div class="header-right">
+      <span id="save-status" class="save-status"></span>
+      <button id="save-btn" class="primary" title="保存 (⌘S)">保存</button>
+    </div>
+  </header>
+
+  <div id="help">
+    <details>
+      <summary>キーボードショートカットと使い方</summary>
+      <ul>
+        <li><b>▶ ボタン</b> または <b>スペース</b>: 現在のセグメントを再生 (選択中の場合)</li>
+        <li><b>⌘S / Ctrl+S</b>: 保存</li>
+        <li><b>Esc</b>: 再生停止</li>
+        <li>テキスト欄を編集するとオレンジの左枠が出ます（= 変更あり）</li>
+        <li>Skip: 学習データから除外（例: BGM 区間、無意味な音）</li>
+        <li>30 秒毎に自動保存。手動保存は ⌘S</li>
+      </ul>
+    </details>
+  </div>
+
+  <main id="segments-container">読み込み中...</main>
+
+  <audio id="player" preload="auto"></audio>
+  <script src="/app.js"></script>
+</body>
+</html>
