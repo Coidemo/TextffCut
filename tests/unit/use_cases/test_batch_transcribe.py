@@ -555,7 +555,7 @@ class TestCLIParser:
         parser = build_parser()
         args = parser.parse_args(["video.mp4"])
 
-        assert args.model == "medium"
+        assert args.model == "large-v3"
         assert args.use_cache is True
         assert args.simulate is False
         assert args.quiet is False

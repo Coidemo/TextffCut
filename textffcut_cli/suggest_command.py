@@ -42,10 +42,10 @@ def build_suggest_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "-m",
         "--model",
-        default="medium",
+        default="large-v3",
         choices=["tiny", "base", "small", "medium", "large-v3", "large-v3-turbo"],
         metavar="MODEL",
-        help="文字起こしモデル（デフォルト: medium）",
+        help="文字起こしモデル（デフォルト: large-v3）",
     )
     parser.add_argument(
         "--ai-model",

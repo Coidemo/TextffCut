@@ -171,13 +171,13 @@ class SidebarView(BaseView[SidebarViewModel]):
             try:
                 import mlx_whisper  # noqa: F401
 
-                models = ["medium", "large-v3", "large-v3-turbo", "small", "base"]
+                models = ["large-v3", "medium", "large-v3-turbo", "small", "base"]
             except ImportError:
                 models = ["medium", "small", "base"]
 
-            current_model = get_config_value("default_model", "medium")
+            current_model = get_config_value("default_model", "large-v3")
             if current_model not in models:
-                current_model = "medium"
+                current_model = "large-v3"
             current_index = models.index(current_model)
 
             selected_model = st.selectbox(
