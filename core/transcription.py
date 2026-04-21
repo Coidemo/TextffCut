@@ -519,12 +519,28 @@ class Transcriber:
                 "まあ、まぁ、んー、あー、そうですね"
             )
 
+        # LoRA 適用モデルは特定フレーズ (「まあまあ」等) で反復 hallucination を
+        # 起こしやすい。condition_on_previous_text=False で前ウィンドウ由来のバイアスを
+        # 遮断し、compression_ratio_threshold を下げて反復検知時の温度フォールバックを
+        # 早期に発動させる。base モデルはデフォルトのまま。
+        mlx_kwargs: dict[str, Any] = {
+            "language": lang,
+            "initial_prompt": initial_prompt,
+        }
+        if "lora" in (model_size or "").lower():
+            mlx_kwargs.update(
+                {
+                    "condition_on_previous_text": False,
+                    "compression_ratio_threshold": 1.8,
+                }
+            )
+            logger.info("LoRA モデル検出: hallucination 対策 decoding 設定を適用")
+
         logger.info(f"mlx-whisperで文字起こし開始: {mlx_model}")
         whisper_result = mlx_whisper.transcribe(
             str(video_path),
             path_or_hf_repo=mlx_model,
-            language=lang,
-            initial_prompt=initial_prompt,
+            **mlx_kwargs,
         )
         logger.info(f"mlx-whisper完了: {len(whisper_result.get('segments', []))}セグメント")
 
