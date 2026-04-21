@@ -459,12 +459,19 @@ class Transcriber:
         return result
 
     # MLXモデル名マッピング
+    # LoRA 適用済みモデルはローカルのマージ済み MLX モデルを指す。
+    # experiments/whisper_lora/ 配下に配置する運用 (merge_and_convert_mlx.py で生成)。
+    _PROJECT_ROOT = Path(__file__).parent.parent
+    _LORA_MLX_DIR = _PROJECT_ROOT / "experiments" / "whisper_lora" / "mlx_models"
+
     MLX_MODEL_MAP = {
         "large-v3": "mlx-community/whisper-large-v3-mlx",
         "large-v3-turbo": "mlx-community/whisper-large-v3-turbo",
         "medium": "mlx-community/whisper-medium-mlx",
         "small": "mlx-community/whisper-small-mlx",
         "base": "mlx-community/whisper-base-mlx",
+        # LoRA 適用済み (Phase A: 同一話者 20260129 動画で学習)
+        "large-v3-lora-20260129": str(_LORA_MLX_DIR / "whisper-large-v3-lora-20260129"),
     }
 
     def _transcribe_mlx(
