@@ -78,10 +78,11 @@ class DataCollatorWhisperLoRA:
     """
 
     processor: WhisperProcessor
+    dtype: torch.dtype = torch.float16  # モデル重みに揃える
 
     def __call__(self, features: list[dict]) -> dict[str, torch.Tensor]:
         input_features = torch.tensor(
-            [f["input_features"] for f in features], dtype=torch.float32
+            [f["input_features"] for f in features], dtype=self.dtype
         )
         label_batch = self.processor.tokenizer.pad(
             [{"input_ids": f["labels"]} for f in features],

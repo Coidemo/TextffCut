@@ -109,22 +109,24 @@ def transcribe_one(
     processor: WhisperProcessor,
     audio: torch.Tensor,
     device: torch.device,
-    use_initial_prompt: bool = True,
 ) -> str:
+    """initial_prompt を使わずに transcribe (base / LoRA 同条件比較のため)。
+
+    prompt を使うと「フィラー語例を与える」ことで base にも恩恵が出てしまい、
+    LoRA 自体の学習効果を計測しにくくなる。また Whisper の 448 token 制限にも
+    かかりやすくなる。
+    """
     features = processor.feature_extractor(
         audio.numpy(), sampling_rate=SAMPLE_RATE, return_tensors="pt"
     ).input_features.to(device, dtype=next(model.parameters()).dtype)
 
-    gen_kwargs: dict = {
-        "max_new_tokens": 440,  # Whisper max decoder length ~= 448
-        "language": "japanese",
-        "task": "transcribe",
-    }
-    if use_initial_prompt:
-        gen_kwargs["prompt_ids"] = processor.get_prompt_ids(INITIAL_PROMPT_JA, return_tensors="pt").to(device)
-
     with torch.no_grad():
-        pred_ids = model.generate(features, **gen_kwargs)
+        pred_ids = model.generate(
+            features,
+            max_new_tokens=440,
+            language="japanese",
+            task="transcribe",
+        )
     text = processor.batch_decode(pred_ids, skip_special_tokens=True)[0]
     return text.strip()
 
