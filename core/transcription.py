@@ -501,10 +501,16 @@ class Transcriber:
         # initial_prompt: フィラー語を含めることでWhisperにフィラーを文字起こしさせる
         # condition_on_previous_text=True(デフォルト)により後続ウィンドウにも効果が伝播
         # 日本語のみ適用（他言語では無関係なトークンが混入するため）
+        # 自然文の指示 + フィラー例の組み合わせが、列挙形式より広いコンテンツ捕捉を示す
+        # （9分×3サンプルA/B検証: 総文字数 +1.2%、フィラー捕捉数 +3%、冒頭セグメントスキップの解消）
         lang = self.config.transcription.language
         initial_prompt = None
         if lang == "ja":
-            initial_prompt = "えー、あの、えーと、まあ、なんか、うーん、まぁ、んー、えっと、そうですね"
+            initial_prompt = (
+                "以下は話し言葉のインタビューです。間投詞や言い淀みも省略せずに書き起こしてください。"
+                "例: えーっと、えー、あのー、あの、うーん、うーんと、なんか、なんかその、"
+                "まあ、まぁ、んー、あー、そうですね"
+            )
 
         logger.info(f"mlx-whisperで文字起こし開始: {mlx_model}")
         whisper_result = mlx_whisper.transcribe(
