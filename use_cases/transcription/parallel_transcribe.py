@@ -17,7 +17,7 @@ class ParallelTranscribeRequest:
     """並列文字起こしリクエスト"""
 
     video_path: FilePath
-    model_size: str = "medium"
+    model_size: str = "large-v3"
     language: str | None = None
     chunk_duration: float = 600.0  # 10分
     num_workers: int = 2

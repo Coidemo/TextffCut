@@ -17,7 +17,7 @@ class TranscribeVideoRequest:
     """動画文字起こしリクエスト"""
 
     video_path: FilePath
-    model_size: str = "medium"
+    model_size: str = "large-v3"
     language: str | None = None
     use_cache: bool = False  # デフォルトをFalseに変更（新規実行が基本）
     skip_alignment: bool = False

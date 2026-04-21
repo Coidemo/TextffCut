@@ -175,7 +175,7 @@ def run_setup() -> None:
     # --- 3. デフォルト文字起こしモデル ---
     console.print("\n[bold]3. デフォルト文字起こしモデル[/]")
     models = ["tiny", "base", "small", "medium", "large-v3", "large-v3-turbo"]
-    current_model = config.get("default_model", "medium")
+    current_model = config.get("default_model", "large-v3")
     new_model = _prompt_choice("  モデルを選択:", models, default=current_model)
     if new_model != current_model:
         config["default_model"] = new_model
@@ -238,7 +238,7 @@ def _format_summary(config: dict) -> str:
         lines.append("OpenAI API: [yellow]未設定[/]（clipコマンドには必要）")
 
     # モデル
-    model = config.get("default_model", "medium")
+    model = config.get("default_model", "large-v3")
     lines.append(f"モデル:     [cyan]{model}[/]")
 
     return "\n".join(lines)

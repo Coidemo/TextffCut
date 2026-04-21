@@ -382,7 +382,7 @@ def test_lifecycle_manager():
     # 初期化タスクを送信
     print("\n--- Initializing Workers ---")
     for i in range(manager.num_workers):
-        init_task = {"type": "initialize", "model_size": "medium", "language": "ja"}
+        init_task = {"type": "initialize", "model_size": "large-v3", "language": "ja"}
         manager.submit_task(f"init_{i}", init_task)
 
     # メッセージ処理とステータス表示

@@ -108,7 +108,7 @@ class ProcessTranscriptionWorker(BaseWorker):
     def _handle_initialize(self, task_id: str, task_data: dict[str, Any]) -> None:
         """エンジン初期化タスクを処理"""
         try:
-            model_size = task_data.get("model_size", "medium")
+            model_size = task_data.get("model_size", "large-v3")
             language = task_data.get("language", "ja")
             device = task_data.get("device", "auto")
             compute_type = task_data.get("compute_type", "int8")
@@ -293,7 +293,7 @@ def test_process_worker() -> None:
         print(f"✓ Worker ready: {msg.worker_id}")
 
     # 初期化タスクを送信
-    init_task = {"type": "initialize", "model_size": "medium", "language": "ja"}
+    init_task = {"type": "initialize", "model_size": "large-v3", "language": "ja"}
     pool.submit_task("init_task", init_task)
     print("→ Sent initialization task")
 

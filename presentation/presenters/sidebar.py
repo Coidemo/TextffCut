@@ -148,7 +148,7 @@ class SidebarPresenter(BasePresenter[SidebarViewModel]):
             # 高度な設定
             advanced_settings = settings.get("advanced", {})
             self.view_model.update_advanced_settings(
-                model_size=advanced_settings.get("model_size", "medium"),
+                model_size=advanced_settings.get("model_size", "large-v3"),
                 language=advanced_settings.get("language", "ja"),
                 compute_type=advanced_settings.get("compute_type", "float16"),
                 device=advanced_settings.get("device", "cuda"),

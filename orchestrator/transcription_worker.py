@@ -357,7 +357,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--segment", type=str, required=True)
     parser.add_argument("--audio", type=str, required=True)
-    parser.add_argument("--model", type=str, default="medium")
+    parser.add_argument("--model", type=str, default="large-v3")
     parser.add_argument("--language", type=str, default="ja")
     parser.add_argument("--device", type=str, default="auto")
     parser.add_argument("--compute", type=str, default="int8")

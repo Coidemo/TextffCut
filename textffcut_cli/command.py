@@ -144,10 +144,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "-m",
         "--model",
-        default="medium",
+        default="large-v3",
         choices=["tiny", "base", "small", "medium", "large-v3", "large-v3-turbo"],
         metavar="MODEL",
-        help="使用するモデルサイズ（デフォルト: medium）tiny/base/small/medium/large-v3/large-v3-turbo",
+        help="使用するモデルサイズ（デフォルト: large-v3）tiny/base/small/medium/large-v3/large-v3-turbo",
     )
     parser.add_argument(
         "-n",
@@ -208,9 +208,9 @@ def _cmd_models() -> None:
         ("tiny", "39M", "最速・低精度。動作確認用"),
         ("base", "74M", "高速・やや低精度"),
         ("small", "244M", "バランス型"),
-        ("medium", "769M", "推奨。精度と速度のバランスが良い"),
-        ("large-v3", "1.5G", "高精度・低速"),
-        ("large-v3-turbo", "809M", "large-v3 の高速版（推奨）"),
+        ("medium", "769M", "やや高速。精度と速度のバランス型"),
+        ("large-v3", "1.5G", "推奨。最高精度（フィラー・固有名詞に強い）"),
+        ("large-v3-turbo", "809M", "large-v3 の蒸留版（精度低下あり）"),
     ]
 
     con = Console()
@@ -222,7 +222,7 @@ def _cmd_models() -> None:
     table.add_column("説明")
 
     for name, size, desc in models:
-        marker = " ◀ デフォルト" if name == "medium" else ""
+        marker = " ◀ デフォルト" if name == "large-v3" else ""
         table.add_row(name, size, desc + marker)
 
     con.print(table)

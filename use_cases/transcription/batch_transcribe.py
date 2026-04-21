@@ -31,7 +31,7 @@ class BatchTranscribeRequest:
     """バッチ文字起こしリクエスト"""
 
     video_paths: list[FilePath]
-    model_size: str = "medium"
+    model_size: str = "large-v3"
     language: str | None = None
     use_cache: bool = True  # バッチではキャッシュ活用がデフォルト
     max_workers: int = 1  # MLXのメモリ効率のためデフォルト1
