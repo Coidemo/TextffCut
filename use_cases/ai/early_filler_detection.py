@@ -43,7 +43,12 @@ _CONTEXT_WINDOW = 50
 # Phase 0でGiNZA判定不能(None)をフィラーとして積極除去する語
 # 話し言葉ではほぼフィラーだが、GiNZAだけでは確定できないケース
 # Phase 4では同じ語もLLM判定に委譲される（_is_grammatical_by_contextは共有）
-_PHASE0_AGGRESSIVE: frozenset[str] = frozenset({"なんか", "あの", "まあ", "まぁ"})
+# これらは AMBIGUOUS_FILLERS に含まれるが、GiNZA 判定不能時でも積極的に除去する
+_PHASE0_AGGRESSIVE: frozenset[str] = frozenset({
+    "なんか", "あの", "まあ", "まぁ",
+    "やっぱ", "やっぱり",  # 副詞用法もあるが conversational 日本語ではほぼフィラー
+    "要は",  # 接続詞用法あるが ほぼフィラー
+})
 
 
 @dataclass
@@ -254,6 +259,15 @@ def _is_grammatical_by_context(filler_text: str, seg_text: str, char_pos: int) -
         # 文末 → フィラー（同意要求）
         if after_pos >= len(seg_text) - 1:
             return False
+        return None
+
+    if filler_text == "要は":
+        # 直前が句点・読点・文頭 → 接続詞用法も多い (「〜。要は〜」)
+        # が、conversational 日本語では接続詞自体がフィラー的に使われる
+        # ため、文頭 or 直前が句点なら基本フィラー扱い
+        if char_pos == 0 or (before_text and before_text.endswith(("。", "、", "!", "?"))):
+            return False
+        # 直後が名詞で具体的な話題 → 接続詞「要はポイント」→ フィラー扱い
         return None
 
     # 未知の曖昧フィラー → LLM委譲

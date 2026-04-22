@@ -462,6 +462,7 @@ SUBTITLE_FILLER_WORDS = sorted(
         "なんか",
         "あのね",
         "えー",
+        "要は",  # Phase 3.6 音声切除が 0.15s 閾値で落ちた時のセーフティネット
     ],
     key=len,
     reverse=True,

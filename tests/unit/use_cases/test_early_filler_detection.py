@@ -162,3 +162,18 @@ class TestIsGrammaticalByContext:
         """文頭の「なんか」はフィラー"""
         result = _is_grammatical_by_context("なんか", "なんか変なんだよね", 0)
         assert result is False
+
+    def test_youwa_at_start_is_filler(self):
+        """文頭の「要は」はフィラー扱い"""
+        result = _is_grammatical_by_context("要は", "要は昔だったら", 0)
+        assert result is False
+
+    def test_youwa_after_period_is_filler(self):
+        """句点の後の「要は」もフィラー扱い"""
+        result = _is_grammatical_by_context("要は", "だよね。要は簡単に言うと", 4)
+        assert result is False
+
+    def test_youwa_midsentence_ambiguous(self):
+        """文中の「要は」は判定不能 (LLM/aggressive に委譲)"""
+        result = _is_grammatical_by_context("要は", "これ要はこういうこと", 2)
+        assert result is None
