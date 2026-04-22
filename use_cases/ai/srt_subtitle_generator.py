@@ -1032,6 +1032,7 @@ def _collect_parts_core(
         if range_idx is None or not words_buf:
             return
         orig_s, orig_e = orig_ranges[range_idx]
+        is_last_range = range_idx == len(orig_ranges) - 1
 
         word_tl_list: list[tuple[str, float, float]] = []
         prev_tl_e = 0.0
@@ -1039,7 +1040,13 @@ def _collect_parts_core(
             clipped_s = max(w.start, orig_s)
             clipped_e = min(w.end, orig_e)
             if clipped_e <= clipped_s:
-                # range 外の orphan を吸収したケース — word 全体を range 端に寄せる
+                # range 外の orphan word. silence-removal gap の word は隣接 range
+                # に吸収して連続性を保つ (原典 clip 音声の "つなぎ" に相当) が、
+                # 最終 range の末尾を越えた word は clip 音声に存在しないので
+                # drop する ("ありがとうござ" のような 0-duration ゴミ entry 防止).
+                if is_last_range and w.start > orig_e:
+                    continue
+                # word 全体を range 端に寄せる
                 if w.end < orig_s:
                     clipped_s = clipped_e = orig_s
                 elif w.start > orig_e:
