@@ -117,10 +117,15 @@ class SuggestAndExportUseCase:
                 suggestion.time_ranges = [(s / speed, e / speed) for s, e in suggestion.time_ranges]
                 suggestion.total_duration = sum(e - s for s, e in suggestion.time_ranges)
 
-        # キャッシュ保存
+        # キャッシュ保存 (speed は字幕エディタの meta backfill で使うため保存)
         cache_dir = base_dir / "clip_suggestions"
         cache_dir.mkdir(parents=True, exist_ok=True)
-        self._save_cache(suggestions, detection, cache_dir / f"{detection.model_used}.json")
+        self._save_cache(
+            suggestions,
+            detection,
+            cache_dir / f"{detection.model_used}.json",
+            speed=request.speed,
+        )
 
         # メディア素材検出
         from utils.media_asset_detector import detect_media_assets
@@ -654,12 +659,13 @@ class SuggestAndExportUseCase:
         output_path.write_text(xml, encoding="utf-8")
         return True
 
-    def _save_cache(self, suggestions, detection, path: Path) -> None:
+    def _save_cache(self, suggestions, detection, path: Path, *, speed: float = 1.0) -> None:
         cache_data = {
             "model_used": detection.model_used,
             "processing_time": detection.processing_time,
             "token_usage": detection.token_usage,
             "estimated_cost_usd": detection.estimated_cost_usd,
+            "speed": float(speed),  # 字幕エディタの meta backfill で参照
             "topics": [t.to_dict() for t in detection.topics],
             "suggestions": [s.to_dict() for s in suggestions],
         }

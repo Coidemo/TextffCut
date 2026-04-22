@@ -508,7 +508,13 @@ class TestCollectPartsWordLevel:
     def test_full_segment_in_range_uses_all_words(self):
         """セグメント全体がレンジ内なら全テキストを採用。"""
         # seg [10-15s] "こんにちは" 5文字、レンジ [10-15s]
-        words = [_word("こ", 10.0, 11.0), _word("ん", 11.0, 12.0), _word("に", 12.0, 13.0), _word("ち", 13.0, 14.0), _word("は", 14.0, 15.0)]
+        words = [
+            _word("こ", 10.0, 11.0),
+            _word("ん", 11.0, 12.0),
+            _word("に", 12.0, 13.0),
+            _word("ち", 13.0, 14.0),
+            _word("は", 14.0, 15.0),
+        ]
         seg = _seg(10.0, 15.0, "こんにちは", words)
         transcription = MagicMock()
         transcription.segments = [seg]
@@ -524,17 +530,17 @@ class TestCollectPartsWordLevel:
         assert abs(tl_e - 5.0) < 0.01
 
     def test_tiny_overlap_only_captures_overlapping_words(self):
-        """重なりが0.1秒だけなら、その0.1秒に含まれる word だけ採用。
+        """短い range でも、tolerance (0.3s) を超えて離れた word は含まない。
         バグ前は全テキスト（"まああの" 4文字）がこの0.1秒に詰め込まれていた。
         """
-        # seg [113.5-115.5s] "まああの" 4文字、word timestamps で各語を振る
+        # seg [113.5-117.0s] "まああの" — 各 word の間隔を tolerance (0.3s) 以上空ける
         words = [
-            _word("ま", 113.5, 113.7),  # ← 最初の0.2s
-            _word("あ", 113.7, 114.0),
-            _word("あ", 114.0, 114.5),
-            _word("の", 114.5, 115.5),
+            _word("ま", 113.5, 113.7),
+            _word("あ", 115.0, 115.2),  # 1.3s 離れた位置 → tolerance 外
+            _word("あ", 115.5, 115.7),
+            _word("の", 116.0, 116.2),
         ]
-        seg = _seg(113.5, 115.5, "まああの", words)
+        seg = _seg(113.5, 117.0, "まああの", words)
         transcription = MagicMock()
         transcription.segments = [seg]
 
@@ -544,36 +550,95 @@ class TestCollectPartsWordLevel:
         parts = collect_parts(time_ranges, tmap, transcription, speed=1.0)
 
         # word「ま」(113.5-113.7)だけがレンジと重なる → 1部だけ収集
-        # バグ前は "まああの" 全文が tl 0-0.1 に詰め込まれていた
         assert len(parts) == 1
         text, tl_s, tl_e = parts[0]
         assert text == "ま"
         assert tl_s == 0.0
-        # tl_e は word の end か range end の小さいほう
-        assert tl_e <= 0.1 + 0.01
+        assert tl_e <= 0.25  # word.end (113.7) クランプ先は range.end (113.6) ではなく word.end
 
     def test_segment_spans_two_ranges_words_go_to_each(self):
-        """1セグメントが2レンジに跨る場合、各レンジに対応する word がそれぞれ収集される。"""
-        # seg [100-110s] "ABCDEFGHIJ" 10文字、word timestamps
-        words = [_word(ch, 100.0 + i, 101.0 + i) for i, ch in enumerate("ABCDEFGHIJ")]
-        seg = _seg(100.0, 110.0, "ABCDEFGHIJ", words)
+        """1セグメントが2レンジに跨る場合、各レンジに対応する word がそれぞれ収集される。
+        tolerance 外の word はどちらにも入らない。"""
+        # word の配置に tolerance 以上の明示ギャップを設ける
+        # range1 [100-103]: A[100-101], B[101-102], C[102-103]
+        # range2 [110-114]: K[110-111], L[111-112], M[112-113], N[113-114]
+        # 中間 word D-J は各 range から 0.5s 以上離す
+        words = [
+            _word("A", 100.0, 101.0),
+            _word("B", 101.0, 102.0),
+            _word("C", 102.0, 103.0),
+            _word("D", 103.5, 104.0),  # r1 との gap = 0.5s > tolerance
+            _word("E", 104.5, 105.0),
+            _word("F", 105.5, 106.0),
+            _word("G", 106.5, 107.0),
+            _word("H", 107.5, 108.0),
+            _word("I", 108.5, 109.0),
+            _word("J", 109.0, 109.5),  # r2 との gap = 0.5s > tolerance
+            _word("K", 110.0, 111.0),
+            _word("L", 111.0, 112.0),
+            _word("M", 112.0, 113.0),
+            _word("N", 113.0, 114.0),
+        ]
+        seg = _seg(100.0, 114.0, "ABCDEFGHIJKLMN", words)
         transcription = MagicMock()
         transcription.segments = [seg]
 
-        # レンジ1: 100-103s (word A,B,C), レンジ2: 107-110s (word H,I,J)
-        time_ranges = [(100.0, 103.0), (107.0, 110.0)]
+        time_ranges = [(100.0, 103.0), (110.0, 114.0)]
         tmap = build_timeline_map(time_ranges)
         parts = collect_parts(time_ranges, tmap, transcription, speed=1.0)
 
-        # 各レンジごとに別のpartが出る
-        # part1: "ABC" at tl 0-3
-        # part2: "HIJ" at tl 3-6
         texts = [p[0] for p in parts]
         assert "ABC" in texts
-        assert "HIJ" in texts
-        # D,E,F,Gは含まれない
+        assert "KLMN" in texts
         combined = "".join(texts)
-        assert "D" not in combined and "E" not in combined
+        # 中間 word はすべて tolerance 外 → 含まれない
+        for ch in "DEFGHIJ":
+            assert ch not in combined
+
+    def test_orphan_word_absorbed_within_tolerance(self):
+        """silence-removal で生じた小さなギャップに落ちた word は、
+        tolerance (0.3s) 内なら最近傍 range に吸収される（Fix2）。"""
+        # range1 [100-103] と range2 [103.15-106] の間に 0.15s のギャップ
+        # その間に word X [103.00-103.10] を配置
+        words = [
+            _word("A", 100.0, 101.0),
+            _word("B", 101.0, 102.0),
+            _word("X", 103.00, 103.10),  # range1 の直後 0 - 0.1s、tolerance 内
+            _word("Y", 103.20, 104.0),
+            _word("Z", 104.0, 105.0),
+        ]
+        seg = _seg(100.0, 105.0, "ABXYZ", words)
+        transcription = MagicMock()
+        transcription.segments = [seg]
+
+        time_ranges = [(100.0, 103.0), (103.15, 106.0)]
+        tmap = build_timeline_map(time_ranges)
+        parts = collect_parts(time_ranges, tmap, transcription, speed=1.0)
+
+        # X は range1 (dist 0s) or range2 (dist 0.05s) の最小距離に吸収される
+        # どちらに入るかは実装依存だが、全体から欠落してはいけない
+        combined = "".join(p[0] for p in parts)
+        assert "X" in combined, f"orphan word X が dropout: parts={parts}"
+        assert combined == "ABXYZ", f"順序が崩れた: {combined}"
+
+    def test_segment_boundary_does_not_fragment_parts(self):
+        """同一 range 内で Whisper segment が切り替わっても part は分断されない（Fix1）。"""
+        # seg1 [100-102] "AB" / seg2 [102-104] "CD" — いずれも range [100-104] に収まる
+        seg1 = _seg(100.0, 102.0, "AB", [_word("A", 100.0, 101.0), _word("B", 101.0, 102.0)])
+        seg2 = _seg(102.0, 104.0, "CD", [_word("C", 102.0, 103.0), _word("D", 103.0, 104.0)])
+        transcription = MagicMock()
+        transcription.segments = [seg1, seg2]
+
+        time_ranges = [(100.0, 104.0)]
+        tmap = build_timeline_map(time_ranges)
+        parts = collect_parts(time_ranges, tmap, transcription, speed=1.0)
+
+        # バグ前は seg 境界で flush されて 2 parts になっていた
+        assert len(parts) == 1, f"segment 境界で part が分断された: {parts}"
+        text, tl_s, tl_e = parts[0]
+        assert text == "ABCD"
+        assert tl_s == 0.0
+        assert abs(tl_e - 4.0) < 0.01
 
     def test_missing_words_raises(self):
         """words が無いセグメントはエラーにする（キャッシュ無しと同等扱い）。"""
@@ -584,6 +649,7 @@ class TestCollectPartsWordLevel:
         tmap = build_timeline_map(time_ranges)
 
         import pytest as _pytest
+
         with _pytest.raises(ValueError, match="word"):
             collect_parts(time_ranges, tmap, transcription, speed=1.0)
 
@@ -605,3 +671,68 @@ class TestCollectPartsWordLevel:
         assert text == "123456"
         assert tl_s == 0.0
         assert abs(tl_e - 5.0) < 0.01
+
+
+class TestCharTimeMapWordLevel:
+    """_build_char_time_map が word 境界ベースで char_times を構築することの検証（Fix3）。"""
+
+    def test_char_times_follow_word_boundaries_not_uniform(self):
+        """part 内で word ごとの tl が保持され、膨張 word の影響が局所化される。"""
+        from use_cases.ai.srt_subtitle_generator import _build_char_time_map, _collect_parts_core
+
+        # word 'の' が 1.98 秒（大幅膨張）、他は 0.1 秒。実音響は 'の' の末尾にある想定。
+        words = [
+            _word("な", 100.0, 100.02),
+            _word("の", 100.02, 102.0),  # 膨張
+            _word("で", 102.0, 102.1),
+            _word("す", 102.1, 102.2),
+        ]
+        seg = _seg(100.0, 102.2, "なのです", words)
+        transcription = MagicMock()
+        transcription.segments = [seg]
+
+        time_ranges = [(100.0, 102.2)]
+        tmap = build_timeline_map(time_ranges)
+        parts_with_words = _collect_parts_core(time_ranges, tmap, transcription, speed=1.0)
+        full, ctimes, _ = _build_char_time_map(parts_with_words)
+
+        assert full == "なのです"
+        assert len(ctimes) == 4
+        # 'な' は 0.0-0.02 付近
+        assert ctimes[0][0] == 0.0
+        assert ctimes[0][1] < 0.1
+        # 'の' は膨張 word なので 0.02-2.0 に広がる
+        assert ctimes[1][0] < 0.1
+        assert abs(ctimes[1][1] - 2.0) < 0.05
+        # 'で' は 'の' の膨張を引きずらず、単独 word の tl に従う（2.0-2.1）
+        assert abs(ctimes[2][0] - 2.0) < 0.05
+        assert abs(ctimes[2][1] - 2.1) < 0.05
+        # 'す' も同様
+        assert abs(ctimes[3][0] - 2.1) < 0.05
+
+    def test_char_times_monotonic_across_multiple_parts(self):
+        """複数 part を連結しても char_times は単調非減少。"""
+        from use_cases.ai.srt_subtitle_generator import _build_char_time_map, _collect_parts_core
+
+        words = [
+            _word("A", 100.0, 101.0),
+            _word("B", 101.0, 102.0),
+            _word("C", 110.0, 111.0),
+            _word("D", 111.0, 112.0),
+        ]
+        seg = _seg(100.0, 112.0, "ABCD", words)
+        transcription = MagicMock()
+        transcription.segments = [seg]
+
+        time_ranges = [(100.0, 102.0), (110.0, 112.0)]
+        tmap = build_timeline_map(time_ranges)
+        parts_with_words = _collect_parts_core(time_ranges, tmap, transcription, speed=1.0)
+        full, ctimes, _ = _build_char_time_map(parts_with_words)
+
+        assert full == "ABCD"
+        assert len(ctimes) == 4
+        prev_end = -1.0
+        for i, (cs, ce) in enumerate(ctimes):
+            assert cs >= prev_end - 1e-6, f"ctimes[{i}] が後退: {cs} < {prev_end}"
+            assert ce >= cs, f"ctimes[{i}] で end<start: {cs} {ce}"
+            prev_end = ce

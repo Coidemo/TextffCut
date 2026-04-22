@@ -233,6 +233,14 @@ def render_export_section(container):
     view.render()
 
 
+def render_subtitle_editing_section():
+    """字幕編集セクション (処理済み動画の SRT を編集)."""
+    from ui.subtitle_editor import render_subtitle_editor_section
+
+    videos_root = st.session_state.get("videos_root", "videos")
+    render_subtitle_editor_section(st, videos_root=videos_root)
+
+
 def main():
     """メインアプリケーション（ワンページ版）"""
 
@@ -402,6 +410,10 @@ def main():
 
                     # 4. エクスポート
                     render_export_section(app_container)
+
+        # 5. 字幕編集（処理済み動画があれば常に利用可能 — 動画選択の有無を問わない）
+        st.markdown("---")
+        render_subtitle_editing_section()
 
     except Exception as e:
         logger.error(f"アプリケーションエラー: {e}", exc_info=True)
