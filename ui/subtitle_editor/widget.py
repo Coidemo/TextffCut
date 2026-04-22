@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 
-import json
+import html
 import re
 import unicodedata
 from dataclasses import dataclass
@@ -114,7 +114,7 @@ def render_preview_html(entries: list[SRTEntry], max_chars: int = MAX_CHARS) -> 
         bg = "#a06a28" if is_over else "#2a4d6e"
         color = "#fff" if is_over else "#aaf"
         title = f"#{i} [{e.end_time - e.start_time:.2f}s] " + " / ".join(e.lines)
-        title_escaped = json.dumps(title, ensure_ascii=False)[1:-1]
+        title_escaped = html.escape(title, quote=True)
         blocks_html.append(
             f'<div style="position:absolute;top:0;bottom:0;'
             f'left:{left:.2f}%;width:{width:.2f}%;'

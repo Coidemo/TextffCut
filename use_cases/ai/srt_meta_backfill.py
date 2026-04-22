@@ -16,10 +16,15 @@ from use_cases.ai.srt_edit_log import meta_path_for, save_srt_meta
 logger = logging.getLogger(__name__)
 
 
-def _load_suggestion_cache(base_dir: Path, srt_stem: str) -> dict | None:
-    """{base_dir}/clip_suggestions/*.json から srt_stem に対応する suggestion を探す.
+def _load_suggestion_cache(base_dir: Path, srt_stem: str) -> tuple[dict, float] | None:
+    """{base_dir}/clip_suggestions/*.json から srt_stem に対応する (suggestion, speed) を探す.
 
-    suggestion.title をサニタイズして "{idx:02d}_{sanitized}" と比較.
+    suggestion.title をサニタイズして "{NN}_{sanitized}" と厳密一致させる.
+    一致する suggestion が無ければ None (複数 JSON がある場合に間違った
+    clip の time_ranges を使わないため).
+
+    Returns:
+        (suggestion_dict, speed_value) or None
     """
     cache_dir = base_dir / "clip_suggestions"
     if not cache_dir.exists():
@@ -34,13 +39,33 @@ def _load_suggestion_cache(base_dir: Path, srt_stem: str) -> dict | None:
     if not m:
         return None
     idx_1based = int(m.group(1))
+    expected_rest = srt_stem[m.end():]  # "AIで情報収集格差が爆増中!" 部分
 
+    # sanitize_filename と同じロジックを再実装 (suggest_and_export との循環 import 回避)
+    import unicodedata
+
+    def _sanitize(title: str) -> str:
+        t = unicodedata.normalize("NFKC", title)
+        t = re.sub(r'[<>:"/\\|?*]', "", t)
+        t = t.replace(" ", "_").replace("　", "_")
+        if len(t) > 50:
+            t = t[:50]
+        return t.strip("_") or "untitled"
+
+    # mtime 降順で探索 (新しいキャッシュから)
+    json_files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
     for jf in json_files:
         try:
             data = json.loads(jf.read_text(encoding="utf-8"))
             sugs = data.get("suggestions", [])
-            if 0 < idx_1based <= len(sugs):
-                return sugs[idx_1based - 1]
+            if not (0 < idx_1based <= len(sugs)):
+                continue
+            candidate = sugs[idx_1based - 1]
+            title = candidate.get("title", "")
+            if _sanitize(title) == expected_rest:
+                # 生成時の speed (古いキャッシュには無いので 1.0 fallback)
+                speed = float(data.get("speed", 1.0))
+                return candidate, speed
         except (json.JSONDecodeError, KeyError):
             continue
     return None
@@ -112,13 +137,11 @@ def _reconstruct_char_times(
 def ensure_srt_meta(
     base_dir: Path,
     srt_path: Path,
-    *,
-    default_speed: float = 1.2,
 ) -> tuple[str, list[tuple[float, float]]] | None:
     """meta が無ければ backfill. 成功すれば (full_text, char_times) を返す.
 
-    既に meta が存在する場合はそのまま返す.
-    backfill 不可能なら None.
+    生成時の speed は clip_suggestions キャッシュに保存されていれば使用、
+    無ければ 1.0 にフォールバック. 既に meta が存在する場合はそのまま返す.
     """
     from use_cases.ai.srt_edit_log import load_srt_meta
 
@@ -126,15 +149,15 @@ def ensure_srt_meta(
     if existing is not None:
         return existing
 
-    suggestion = _load_suggestion_cache(base_dir, srt_path.stem)
-    if not suggestion:
+    found = _load_suggestion_cache(base_dir, srt_path.stem)
+    if not found:
         logger.debug(f"suggestion not found for {srt_path.stem}")
         return None
+    suggestion, speed = found
 
     time_ranges = suggestion.get("time_ranges")
     if not time_ranges:
         return None
-    # [(s, e), ...] 形式に正規化
     time_ranges_tuples = [(float(s), float(e)) for s, e in time_ranges]
 
     transcription = _load_transcription_cache(base_dir)
@@ -142,14 +165,14 @@ def ensure_srt_meta(
         logger.debug(f"transcription not found for {base_dir}")
         return None
 
-    result = _reconstruct_char_times(time_ranges_tuples, transcription, default_speed)
+    result = _reconstruct_char_times(time_ranges_tuples, transcription, speed)
     if not result:
         return None
 
     full_text, char_times = result
     try:
         save_srt_meta(srt_path, full_text, char_times)
-        logger.info(f"SRT meta を backfill: {meta_path_for(srt_path).name}")
+        logger.info(f"SRT meta を backfill (speed={speed}): {meta_path_for(srt_path).name}")
     except Exception as e:
         logger.warning(f"meta 保存失敗: {e}")
 

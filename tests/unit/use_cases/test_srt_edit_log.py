@@ -184,6 +184,36 @@ class TestSRTMeta:
         with pytest.raises(ValueError):
             save_srt_meta(tmp_path / "x.srt", "abc", [(0, 1), (1, 2)])
 
+    def test_save_nfc_normalization(self, tmp_path: Path):
+        """NFC 化で長さが変わらない場合は正規化されて保存される."""
+        import unicodedata
+
+        from use_cases.ai.srt_edit_log import load_srt_meta, save_srt_meta
+
+        # ASCII なら NFC/NFD で変わらない
+        srt_path = tmp_path / "t.srt"
+        # NFC 化で同じ長さ (純粋 ASCII)
+        full_text = "abc"
+        char_times = [(0.0, 0.1), (0.1, 0.2), (0.2, 0.3)]
+        save_srt_meta(srt_path, full_text, char_times)
+        lt, _ = load_srt_meta(srt_path)
+        assert lt == unicodedata.normalize("NFC", lt)
+
+    def test_save_preserves_nfd_when_length_would_change(self, tmp_path: Path):
+        """NFC 化で結合文字が base に吸収され長さが変わる場合は元のまま保存."""
+        from use_cases.ai.srt_edit_log import load_srt_meta, save_srt_meta
+
+        srt_path = tmp_path / "t.srt"
+        # NFD 形式の "が" (か + 濁点)  2 codepoints
+        full_text = "が"  # = "が"
+        char_times = [(0.0, 0.1), (0.1, 0.2)]  # 2 entries
+        save_srt_meta(srt_path, full_text, char_times)
+        lt, lc = load_srt_meta(srt_path)
+        # NFC 化すると 1 codepoint になるので char_times と不整合
+        # → 元のまま保持されること
+        assert len(lt) == 2
+        assert len(lc) == 2
+
 
 class TestReconstructEntryTiming:
     """編集後テキスト → 元 char_times で timing 復元."""

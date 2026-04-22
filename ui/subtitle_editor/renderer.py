@@ -59,19 +59,30 @@ def _handle_save(
     edited: list[SRTEntry],
     clip_id: str,
     *,
+    meta: tuple[str, list[tuple[float, float]]] | None = None,
     algorithm_version: str = "v2_fix_f",
     edit_duration_sec: float | None = None,
 ) -> None:
-    """SRT 上書き + edit log 追記."""
+    """SRT 上書き + edit log 追記.
+
+    meta が渡された場合、char_times と full_text を log に保存して LoRA 訓練時の
+    timing mapping を可能にする (docstring 通りの挙動).
+    """
     write_srt(edited, srt_path)
-    full_text = "".join(e.text.replace("\n", "") for e in original)
+    if meta is not None:
+        meta_full_text, meta_char_times = meta
+    else:
+        # meta 無し (近似モード): SRT エントリから flat text 構築、char_times は None
+        meta_full_text = "".join(e.text.replace("\n", "") for e in original)
+        meta_char_times = None
     log_path = append_edit_log(
         base_dir=base_dir,
         clip_id=clip_id,
         original=original,
         edited=edited,
         algorithm_version=algorithm_version,
-        full_text=full_text,
+        full_text=meta_full_text,
+        char_times=meta_char_times,
         edit_duration_sec=edit_duration_sec,
     )
     st.success(f"✓ 保存しました: {srt_path.name}  (ログ: {log_path.name})")
@@ -165,8 +176,8 @@ def render_subtitle_editor_section(container: Any, videos_root: str = "videos") 
     parsed_blocks = parse_edited_text(edited_text)
     edited_entries: list[SRTEntry] = []
     timing_source = ""
+    meta = ensure_srt_meta(base_dir, srt_path) if v.ok else None
     if v.ok and parsed_blocks:
-        meta = ensure_srt_meta(base_dir, srt_path)
         if meta is not None:
             full_text, char_times = meta
             reconstructed = reconstruct_entry_timing(parsed_blocks, full_text, char_times)
@@ -216,6 +227,7 @@ def render_subtitle_editor_section(container: Any, videos_root: str = "videos") 
                 original=original_entries,
                 edited=edited_entries,
                 clip_id=clip_id,
+                meta=meta,
             )
             # 保存成功: session_state をリセットフラグで clear して
             # 次 rerun で disk から再ロードさせる (mode 切替時の stale データ防止)

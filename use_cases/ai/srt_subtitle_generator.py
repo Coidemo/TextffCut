@@ -701,19 +701,27 @@ def _generate_from_char_times(
     max_lines: int,
 ) -> Path | None:
     """char_timesベースで字幕を生成する（共通処理）。"""
-    entries = _entries_from_char_times(full_text, char_times, seg_bounds, max_chars_per_line, max_lines)
+    # フィラー除去: meta 保存も SRT 生成も同じ post-filter 値を使うため、
+    # ここで明示的に filter してから両方に渡す
+    filtered_text, filtered_ctimes, filtered_bounds = _remove_inline_fillers(
+        full_text, char_times, seg_bounds
+    )
+
+    entries = _entries_from_char_times(
+        filtered_text, filtered_ctimes, filtered_bounds, max_chars_per_line, max_lines
+    )
 
     if not entries:
         return None
 
     _write_srt(entries, output_path)
 
-    # 字幕エディタ用の meta サイドカー (char_times) を保存
-    # 編集時に音響的に正確な timing 復元に使う
+    # 字幕エディタ用の meta サイドカー (post-filter の full_text + char_times)
+    # SRT と内容が一致し、backfill 経路とも semantics が揃う
     try:
         from use_cases.ai.srt_edit_log import save_srt_meta
 
-        save_srt_meta(output_path, full_text, char_times)
+        save_srt_meta(output_path, filtered_text, filtered_ctimes)
     except Exception as e:
         logger.debug("SRT meta 保存失敗 (non-fatal): %s", e)
 

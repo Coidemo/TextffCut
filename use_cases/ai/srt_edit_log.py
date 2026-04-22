@@ -213,11 +213,22 @@ def save_srt_meta(
     """SRT に対応する meta サイドカーを保存.
 
     full_text は SRT 全体の裸文字列 (改行なし)、char_times は各文字の (start, end).
+
+    NFC 正規化で Unicode 表現揺れを吸収する. ただし NFC 化で文字数が変わる
+    (結合文字が base に吸収される) 場合は元のまま保存 (char_times alignment 保護).
     """
+    import unicodedata
+
     if len(full_text) != len(char_times):
         raise ValueError(
             f"full_text ({len(full_text)} chars) と char_times ({len(char_times)}) の長さが一致しない"
         )
+
+    # NFC 正規化 (length が変わらない場合のみ適用、編集側 parse_edited_text と揃える)
+    nfc_text = unicodedata.normalize("NFC", full_text)
+    if len(nfc_text) == len(full_text):
+        full_text = nfc_text
+
     path = meta_path_for(srt_path)
     path.write_text(
         json.dumps(
@@ -284,16 +295,17 @@ def reconstruct_entry_timing(
         SRTEntry list (accurate timing) or None if reconstruction fails.
     """
     import re
+    import unicodedata
 
-    # 元の full_text を空白除去した flat text
-    original_flat = re.sub(r"\s", "", full_text)
-    if len(original_flat) != len(char_times):
-        # full_text 自体が改行含むかもしれないので meta は flat で保存されてる前提
-        # 不一致なら abort
+    # 編集側は parse_edited_text が NFC 化しているので、meta 側も合わせる
+    original_flat_nfc = unicodedata.normalize("NFC", re.sub(r"\s", "", full_text))
+    # NFC 化で長さが変わらない (= 結合文字なし) 場合のみ char_times と対応可能
+    if len(original_flat_nfc) != len(char_times):
         return None
+    original_flat = original_flat_nfc
 
     edited_flat = "".join(ln for block in edited_blocks for ln in block)
-    edited_flat_clean = re.sub(r"\s", "", edited_flat)
+    edited_flat_clean = unicodedata.normalize("NFC", re.sub(r"\s", "", edited_flat))
 
     mapping = _map_edited_to_original_indices(edited_flat_clean, original_flat)
     if mapping is None:
