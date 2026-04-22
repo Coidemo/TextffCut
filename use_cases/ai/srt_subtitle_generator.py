@@ -707,6 +707,16 @@ def _generate_from_char_times(
         return None
 
     _write_srt(entries, output_path)
+
+    # 字幕エディタ用の meta サイドカー (char_times) を保存
+    # 編集時に音響的に正確な timing 復元に使う
+    try:
+        from use_cases.ai.srt_edit_log import save_srt_meta
+
+        save_srt_meta(output_path, full_text, char_times)
+    except Exception as e:
+        logger.debug("SRT meta 保存失敗 (non-fatal): %s", e)
+
     logger.info("SRT生成: %dエントリ → %s", len(entries), output_path.name)
     return output_path
 
