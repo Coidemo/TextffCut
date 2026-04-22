@@ -18,7 +18,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## バージョン情報
 
-### v2.0.10 (2026-04-21) — 最新安定版
+### v2.1.0 (2026-04-22) — 最新安定版
+- **タグ**: `v2.1.0`
+- **Phase A Whisper LoRA PoC 完成** (PR #119):
+  - 同一話者 50 分データで Whisper Large-v3 に LoRA を適用、Char WER −35%・FIR 3.7倍
+  - `textffcut -m large-v3-filler` で LoRA 適用モデルを選択可能 (HF Hub から自動 DL)
+  - HF 配布: [`Coidemo/whisper-large-v3-filler-lora`](https://huggingface.co/Coidemo/whisper-large-v3-filler-lora) (42MB adapter) / [`Coidemo/whisper-large-v3-filler-mlx`](https://huggingface.co/Coidemo/whisper-large-v3-filler-mlx) (2.9GB MLX マージ済み)
+- **境界重複 dedup + hallucination retry**: `core/mlx_whisper_refine.py` で base/LoRA 両モデル共通の後処理を実装。Whisper 30秒ウィンドウ境界の重複削除と反復 hallucination の selective retry。
+- **学習パイプライン一式**: `experiments/whisper_lora/` にブラウザ編集ツール・LoRA 学習・MLX 変換・評価の 8 スクリプトを配置
+- **クリップ品質の劇的向上**: 実動画処理でユーザー体感確認済み
+
+### v2.0.10 (2026-04-21)
 - **タグ**: `v2.0.10`
 - **フィラー削減の大幅改善**:
   - Whisper `initial_prompt` を自然文+例形式に改善（PR #115）
