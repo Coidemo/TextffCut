@@ -17,6 +17,7 @@ from ui.subtitle_editor.widget import (
     MAX_CHARS,
     assign_timing_from_structure,
     entries_to_text,
+    flatten_text,
     parse_edited_text,
     render_preview_html,
     validate_edit,
@@ -72,8 +73,10 @@ def _handle_save(
     if meta is not None:
         meta_full_text, meta_char_times = meta
     else:
-        # meta 無し (近似モード): SRT エントリから flat text 構築、char_times は None
-        meta_full_text = "".join(e.text.replace("\n", "") for e in original)
+        # meta 無し (近似モード): canonical flat (全空白除去 + NFC) で構築.
+        # meta 経路と semantics を揃えて、log 消費側が経路による揺れで
+        # 困らないようにする.
+        meta_full_text = flatten_text("".join(e.text for e in original))
         meta_char_times = None
     log_path = append_edit_log(
         base_dir=base_dir,
@@ -136,9 +139,13 @@ def render_subtitle_editor_section(container: Any, videos_root: str = "videos") 
     reset_flag_key = f"_reset_req__{ta_cache_key}"
     original_text = entries_to_text(original_entries)
 
-    # リセット要求があれば cache をクリア
+    # リセット要求があれば cache + widget state の両方をクリア
+    # (widget は key= 指定のため session_state[widget_key] を直接持つので
+    #  ta_cache_key だけ消しても widget 側は古い値を保持し続ける)
+    widget_key = f"widget_{ta_cache_key}"
     if st.session_state.pop(reset_flag_key, False):
         st.session_state.pop(ta_cache_key, None)
+        st.session_state.pop(widget_key, None)
 
     default_text = st.session_state.get(ta_cache_key, original_text)
 
@@ -147,7 +154,7 @@ def render_subtitle_editor_section(container: Any, videos_root: str = "videos") 
         value=default_text,
         height=340,
         help=f"**改行・空行の編集のみ**可能。文字の追加・削除・変更は不可。1 行最大 {MAX_CHARS} 字。",
-        key=f"widget_{ta_cache_key}",
+        key=widget_key,
     )
     st.session_state[ta_cache_key] = edited_text
     ta_key = ta_cache_key

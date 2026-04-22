@@ -92,6 +92,25 @@ class TestValidateEdit:
         assert not v.ok
 
 
+class TestParseEditedTextWhitespace:
+    """parse_edited_text が line 内 whitespace を全除去することの検証."""
+
+    def test_inline_space_removed(self):
+        """line 内の半角スペースは除去される (validate_edit と semantics 揃える)."""
+        # ユーザーが誤って半角スペース挿入 → validation は通るが parse でも空白除去
+        parsed = parse_edited_text("abc def\n\nghi")
+        assert parsed == [["abcdef"], ["ghi"]]
+
+    def test_inline_tab_removed(self):
+        parsed = parse_edited_text("a\tb\nc")
+        assert parsed == [["ab", "c"]]
+
+    def test_ideographic_space_removed(self):
+        """全角スペースも除去."""
+        parsed = parse_edited_text("あ　い\n\nう")
+        assert parsed == [["あい"], ["う"]]
+
+
 class TestAssignTimingFromStructure:
     """文字位置比で timing 再配分 (backfill 無い時の fallback)."""
 

@@ -310,3 +310,22 @@ class TestReconstructEntryTiming:
         blocks = [["abcxyz"]]  # 'xyz' は元に無い
         result = reconstruct_entry_timing(blocks, full_text, char_times)
         assert result is None
+
+    def test_nfd_meta_full_text_accepted(self):
+        """NFD full_text (save_srt_meta が alignment 保護のため保存した形) でも復元可能."""
+        import unicodedata
+
+        from use_cases.ai.srt_edit_log import reconstruct_entry_timing
+
+        # NFD 「が」 = U+304B + U+3099 (2 codepoints)
+        nfd_ga = unicodedata.normalize("NFD", "が")
+        assert len(nfd_ga) == 2
+        full_text = nfd_ga  # NFD のまま
+        char_times = [(0.0, 0.1), (0.1, 0.2)]  # 2 entry で alignment
+        # 編集側は NFD のまま操作する前提（同じ文字列を blocks に入れる）
+        blocks = [[nfd_ga]]
+        result = reconstruct_entry_timing(blocks, full_text, char_times)
+        assert result is not None
+        assert len(result) == 1
+        assert result[0].start_time == pytest.approx(0.0)
+        assert result[0].end_time == pytest.approx(0.2)

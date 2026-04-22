@@ -297,15 +297,25 @@ def reconstruct_entry_timing(
     import re
     import unicodedata
 
-    # 編集側は parse_edited_text が NFC 化しているので、meta 側も合わせる
-    original_flat_nfc = unicodedata.normalize("NFC", re.sub(r"\s", "", full_text))
-    # NFC 化で長さが変わらない (= 結合文字なし) 場合のみ char_times と対応可能
-    if len(original_flat_nfc) != len(char_times):
+    # 編集側は parse_edited_text が NFC 化しているので、meta 側も合わせる.
+    # ただし save_srt_meta が char_times alignment 保護のため NFD を敢えて
+    # 保存するケースがあるので、その場合は NFD のまま比較する.
+    stripped = re.sub(r"\s", "", full_text)
+    nfc_stripped = unicodedata.normalize("NFC", stripped)
+    if len(nfc_stripped) == len(char_times):
+        original_flat = nfc_stripped
+        nfc_matching = True
+    elif len(stripped) == len(char_times):
+        # NFC で長さが変わる = NFD が保存されている. そのまま比較に使う.
+        original_flat = stripped
+        nfc_matching = False
+    else:
         return None
-    original_flat = original_flat_nfc
 
     edited_flat = "".join(ln for block in edited_blocks for ln in block)
-    edited_flat_clean = unicodedata.normalize("NFC", re.sub(r"\s", "", edited_flat))
+    edited_flat_clean = re.sub(r"\s", "", edited_flat)
+    if nfc_matching:
+        edited_flat_clean = unicodedata.normalize("NFC", edited_flat_clean)
 
     mapping = _map_edited_to_original_indices(edited_flat_clean, original_flat)
     if mapping is None:

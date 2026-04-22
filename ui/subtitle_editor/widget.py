@@ -24,12 +24,18 @@ class ValidationResult:
 
 
 def parse_edited_text(text: str) -> list[list[str]]:
-    """textarea 内容を [[line, ...], ...] にパース (NFC 正規化)."""
+    """textarea 内容を [[line, ...], ...] にパース (NFC + 全空白除去).
+
+    validate_edit が flatten_text (全空白除去) で検証するので、こちらも
+    line 内の空白を全除去する。そうしないとユーザーが半角スペースを
+    混入させても validation が通り、SRT に空白が紛れ込んでしまう。
+    """
     normalized = unicodedata.normalize("NFC", text)
     blocks = re.split(r"\n\s*\n", normalized)
     result = []
     for b in blocks:
-        lines = [ln.strip() for ln in b.strip().split("\n") if ln.strip()]
+        lines = [re.sub(r"\s", "", ln) for ln in b.split("\n")]
+        lines = [ln for ln in lines if ln]
         if lines:
             result.append(lines)
     return result
