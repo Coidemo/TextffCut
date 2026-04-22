@@ -141,19 +141,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="処理する動画ファイルまたはフォルダのパス（グロブパターン可）",
     )
 
+    # MLX_MODEL_MAP を single source of truth にしてモデル一覧を取得。
+    # GUI (presentation/presenters/transcription.py) も同じマップを参照。
+    from core.transcription import Transcriber
+
+    _mlx_models = list(Transcriber.MLX_MODEL_MAP.keys())
+    # "tiny" は MLX_MODEL_MAP に無いが API モード用として choices には残す
+    _all_models = sorted({"tiny", *_mlx_models})
     parser.add_argument(
         "-m",
         "--model",
         default="large-v3",
-        choices=[
-            "tiny", "base", "small", "medium", "large-v3", "large-v3-turbo",
-            "large-v3-filler",
-        ],
+        choices=_all_models,
         metavar="MODEL",
-        help=(
-            "使用するモデル（デフォルト: large-v3）"
-            " tiny/base/small/medium/large-v3/large-v3-turbo/large-v3-filler"
-        ),
+        help=f"使用するモデル（デフォルト: large-v3）利用可能: {'/'.join(_all_models)}",
     )
     parser.add_argument(
         "-n",

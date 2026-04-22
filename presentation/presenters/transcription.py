@@ -76,8 +76,11 @@ class TranscriptionPresenter(BasePresenter[TranscriptionViewModel]):
 
         self.view_model.mlx_whisper_available = MLX_AVAILABLE
         if MLX_AVAILABLE:
-            # MLX利用可能時はlarge-v3をデフォルトに（精度優先）
-            self.view_model.available_models = ["large-v3", "medium", "large-v3-turbo", "small", "base"]
+            # MLX_MODEL_MAP を single source of truth にしてモデル一覧を取得。
+            # これにより LoRA 適用モデル等の新規追加が自動で GUI/CLI に反映される。
+            from core.transcription import Transcriber
+
+            self.view_model.available_models = list(Transcriber.MLX_MODEL_MAP.keys())
         else:
             self.view_model.available_models = ["medium", "small", "base"]
 
