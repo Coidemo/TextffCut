@@ -1102,7 +1102,6 @@ class TextEditorView:
                             suggestion=suggestion,
                             transcription=actual_result,
                             output_path=srt_path,
-                            video_path=actual_video_path,
                             speed=float(speed),
                         )
 
