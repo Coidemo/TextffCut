@@ -54,9 +54,11 @@ def generate_srt(
     if not suggestion.time_ranges:
         return None
 
-    # 元の文字起こしからpartsを構築（比較用）
+    # 元の文字起こしからpartsを構築（word 境界付き 4-tuple）
     tmap = build_timeline_map(suggestion.time_ranges)
-    original_parts = collect_parts(suggestion.time_ranges, tmap, transcription, speed=speed)
+    parts_with_words = _collect_parts_core(suggestion.time_ranges, tmap, transcription, speed=speed)
+    # select_better_transcription 用の 3-tuple ビュー
+    original_parts = [(text, tl_s, tl_e) for text, tl_s, tl_e, _ in parts_with_words]
 
     # Whisper再文字起こし結果を取得
     whisper_segments = None
@@ -80,10 +82,10 @@ def generate_srt(
         return _generate_from_segments(whisper_segments, output_path, max_chars_per_line, max_lines)
 
     # フォールバック / 元テキスト採用: 元の文字起こしを使用
-    if not original_parts:
+    if not parts_with_words:
         return None
 
-    full_text, char_times, seg_bounds = _build_char_time_map(original_parts)
+    full_text, char_times, seg_bounds = _build_char_time_map(parts_with_words)
     if not full_text:
         return None
 
@@ -1246,17 +1248,32 @@ def _to_tl(orig, tmap):
     return None
 
 
-def collect_parts(time_ranges, tmap, transcription, speed=1.0):
-    """word-levelタイムスタンプを使ってtime_rangesに含まれる発話を抽出する。
+# 無音削除で消えたギャップに word が落ちた場合、この秒数以内なら最近傍 range に吸収する。
+# silence-removal の典型的なギャップ（0.1〜0.3s）を拾うため 0.3s に設定。
+_ORPHAN_WORD_TOLERANCE = 0.3
 
-    各 transcription segment の word 単位で「最も重なりが大きい range」に1回だけ
-    割り当て、その range 内の連続 word 群を1つの part として収集する。
+
+def _collect_parts_core(
+    time_ranges: list[tuple[float, float]],
+    tmap: list[tuple[float, float, float]],
+    transcription: TranscriptionResult,
+    speed: float = 1.0,
+) -> list[tuple[str, float, float, list[tuple[str, float, float]]]]:
+    """word 単位で range に割当てて parts を構築する（内部実装）。
+
+    Returns:
+        list of (text, tl_s, tl_e, word_tl_list)
+          word_tl_list = [(word_text, w_tl_s, w_tl_e), ...]
+
+    挙動：
+    - segment 境界を跨いでも同一 range の連続 word は 1 part にまとめる（Fix1）
+    - どの range とも重ならない word は tolerance 内の最近傍 range に吸収（Fix2）
+    - part 内は word 単位の tl を保持（Fix3 の素材、_build_char_time_map が使う）
 
     time_ranges は speed 除算済み、seg.start/end と seg.words の時間は元時間。
 
     Raises:
-        ValueError: seg に word-level タイムスタンプが無い場合
-            （旧キャッシュ対応。上流でキャッシュ無し扱いにしてもらう）
+        ValueError: seg に word-level タイムスタンプが無い場合（旧キャッシュ対応）
     """
     if speed <= 0:
         raise ValueError(f"speed must be > 0, got {speed}")
@@ -1269,7 +1286,11 @@ def collect_parts(time_ranges, tmap, transcription, speed=1.0):
     orig_ranges = [(tr_s * speed, tr_e * speed) for tr_s, tr_e in time_ranges]
 
     def _best_range_idx(word) -> int | None:  # noqa: ANN001
-        """word と最も重なりが大きい range のインデックスを返す。重なり0なら None。"""
+        """word と最も重なりが大きい range のインデックスを返す。
+
+        重なり 0 の orphan word でも、tolerance 内の最近傍 range に吸収する（Fix2）。
+        どの range からも離れすぎた word のみ None を返す。
+        """
         best_idx = None
         best_overlap = 0.0
         for idx, (orig_s, orig_e) in enumerate(orig_ranges):
@@ -1277,9 +1298,25 @@ def collect_parts(time_ranges, tmap, transcription, speed=1.0):
             if overlap > best_overlap:
                 best_overlap = overlap
                 best_idx = idx
+        if best_idx is not None:
+            return best_idx
+
+        # Fix2: orphan word — tolerance 内なら最近傍 range に吸収
+        best_dist = _ORPHAN_WORD_TOLERANCE
+        for idx, (orig_s, orig_e) in enumerate(orig_ranges):
+            if word.end < orig_s:
+                dist = orig_s - word.end
+            elif word.start > orig_e:
+                dist = word.start - orig_e
+            else:
+                dist = 0.0
+            if dist < best_dist:
+                best_dist = dist
+                best_idx = idx
         return best_idx
 
-    parts = []
+    # Fix1: 全 segment を flat な word 列に展開し、segment 境界で flush しない
+    all_words: list = []
     for seg in transcription.segments:
         if seg.text.strip() in FILLER_ONLY_TEXTS:
             continue
@@ -1288,50 +1325,93 @@ def collect_parts(time_ranges, tmap, transcription, speed=1.0):
                 f"segment at {seg.start:.2f}s has no word-level timestamps. "
                 "Transcription cache is outdated; re-transcribe the video."
             )
+        all_words.extend(seg.words)
 
-        # 各 word を「最適な range」に割り当て、range ごとに連続 word を 1 part にまとめる
-        current_range_idx: int | None = None
-        current_words: list = []
+    parts: list = []
+    current_range_idx: int | None = None
+    current_words: list = []
 
-        def _flush(range_idx: int, words_buf: list) -> None:
-            if range_idx is None or not words_buf:
-                return
-            text = "".join(w.word for w in words_buf)
-            if not text.strip():
-                return
-            orig_s, orig_e = orig_ranges[range_idx]
-            clipped_s = max(words_buf[0].start, orig_s)
-            clipped_e = min(words_buf[-1].end, orig_e)
-            tl_s = _orig_to_tl(clipped_s)
-            tl_e = _orig_to_tl(clipped_e)
-            if tl_s is None or tl_e is None or tl_e <= tl_s:
-                return
-            parts.append((text, tl_s, tl_e))
+    def _flush(range_idx: int | None, words_buf: list) -> None:
+        if range_idx is None or not words_buf:
+            return
+        orig_s, orig_e = orig_ranges[range_idx]
 
-        for w in seg.words:
-            r_idx = _best_range_idx(w)
-            if r_idx != current_range_idx:
-                _flush(current_range_idx, current_words)
-                current_range_idx = r_idx
-                current_words = []
-            if r_idx is not None:
-                current_words.append(w)
-        _flush(current_range_idx, current_words)
+        word_tl_list: list[tuple[str, float, float]] = []
+        prev_tl_e = 0.0
+        for w in words_buf:
+            clipped_s = max(w.start, orig_s)
+            clipped_e = min(w.end, orig_e)
+            if clipped_e <= clipped_s:
+                # range 外の orphan を吸収したケース — word 全体を range 端に寄せる
+                if w.end < orig_s:
+                    clipped_s = clipped_e = orig_s
+                elif w.start > orig_e:
+                    clipped_s = clipped_e = orig_e
+            w_tl_s = _orig_to_tl(clipped_s)
+            w_tl_e = _orig_to_tl(clipped_e)
+            if w_tl_s is None or w_tl_e is None:
+                continue
+            # 単調増加を強制（膨張 timestamp が前 word と逆転するのを防ぐ）
+            if word_tl_list and w_tl_s < prev_tl_e:
+                w_tl_s = prev_tl_e
+            if w_tl_e < w_tl_s:
+                w_tl_e = w_tl_s
+            word_tl_list.append((w.word, w_tl_s, w_tl_e))
+            prev_tl_e = w_tl_e
+
+        if not word_tl_list:
+            return
+        text = "".join(wt[0] for wt in word_tl_list)
+        if not text.strip():
+            return
+        tl_s = word_tl_list[0][1]
+        tl_e = word_tl_list[-1][2]
+        if tl_e <= tl_s:
+            return
+        parts.append((text, tl_s, tl_e, word_tl_list))
+
+    for w in all_words:
+        r_idx = _best_range_idx(w)
+        if r_idx is None:
+            # tolerance 外の orphan — 現在の part を破壊しないようスキップだけ
+            continue
+        if r_idx != current_range_idx:
+            _flush(current_range_idx, current_words)
+            current_range_idx = r_idx
+            current_words = []
+        current_words.append(w)
+    _flush(current_range_idx, current_words)
 
     return parts
 
 
-def _build_char_time_map(parts):
+def collect_parts(time_ranges, tmap, transcription, speed=1.0):
+    """word-levelタイムスタンプを使ってtime_rangesに含まれる発話を抽出する。
+
+    Returns:
+        list of (text, tl_s, tl_e) tuples. 外部 API 互換。
+    """
+    return [(text, tl_s, tl_e) for text, tl_s, tl_e, _ in _collect_parts_core(time_ranges, tmap, transcription, speed)]
+
+
+def _build_char_time_map(parts_with_words):
+    """word 境界ベースで char_times を構築する（Fix3）。
+
+    Args:
+        parts_with_words: _collect_parts_core() の戻り値
+            list of (text, tl_s, tl_e, word_tl_list)
+    """
     full = ""
     ctimes = []
     seg_bounds = set()
-    for text, tl_s, tl_e in parts:
+    for _text, _tl_s, _tl_e, word_tl_list in parts_with_words:
         seg_bounds.add(len(full))
-        dur = tl_e - tl_s
-        n = max(len(text), 1)
-        for i in range(len(text)):
-            ctimes.append((tl_s + dur * i / n, tl_s + dur * (i + 1) / n))
-        full += text
+        for word_text, w_tl_s, w_tl_e in word_tl_list:
+            n = max(len(word_text), 1)
+            dur = max(w_tl_e - w_tl_s, 0.0)
+            for i in range(len(word_text)):
+                ctimes.append((w_tl_s + dur * i / n, w_tl_s + dur * (i + 1) / n))
+            full += word_text
     seg_bounds.add(len(full))
     seg_bounds.discard(0)
     return full, ctimes, seg_bounds
