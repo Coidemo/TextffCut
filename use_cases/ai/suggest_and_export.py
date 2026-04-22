@@ -208,25 +208,6 @@ class SuggestAndExportUseCase:
                 logger.warning("アンカー自動検出スキップ: %s", e)
 
         _phase_times["Phase5.7 タイトル画像"] = _time.time() - _t4
-        _t5 = _time.time()
-        # Phase 6: SRT用の再文字起こしを事前並列実行
-        srt_segments_map: dict[int, list[dict] | None] = {}
-        _srt_api_key = self.gateway.api_key
-        if request.generate_srt:
-            from concurrent.futures import ThreadPoolExecutor
-
-            from use_cases.ai.srt_subtitle_generator import _SRT_TRANSCRIPTION_FAILED, _transcribe_output_audio
-
-            def _transcribe_for_srt(idx_sugg: tuple[int, ClipSuggestion]) -> tuple[int, list[dict]]:
-                idx, sugg = idx_sugg
-                result = _transcribe_output_audio(sugg.time_ranges, actual_video_path, api_key=_srt_api_key)
-                return idx, result if result is not None else _SRT_TRANSCRIPTION_FAILED
-
-            with ThreadPoolExecutor(max_workers=min(len(suggestions), 4)) as executor:
-                for idx, segments in executor.map(_transcribe_for_srt, enumerate(suggestions)):
-                    srt_segments_map[idx] = segments
-
-        _phase_times["Phase6a SRT用Whisper文字起こし"] = _time.time() - _t5
         _t6 = _time.time()
         # Phase 6: AI SE配置 + FCPXML + SRT生成
         exported_files: list[Path] = []
@@ -275,12 +256,9 @@ class SuggestAndExportUseCase:
                     suggestion=suggestion,
                     transcription=request.transcription,
                     output_path=srt_path,
-                    video_path=actual_video_path,
                     max_chars_per_line=request.srt_max_chars,
                     max_lines=request.srt_max_lines,
                     speed=request.speed,
-                    precomputed_segments=srt_segments_map.get(i - 1),
-                    api_key=_srt_api_key,
                 )
 
         _phase_times["Phase6b SE+FCPXML+SRT生成"] = _time.time() - _t6

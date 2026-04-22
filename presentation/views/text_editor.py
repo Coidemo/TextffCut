@@ -1102,14 +1102,18 @@ class TextEditorView:
                             suggestion=suggestion,
                             transcription=actual_result,
                             output_path=srt_path,
-                            video_path=actual_video_path,
                             speed=float(speed),
                         )
 
                 # キャッシュ保存
                 cache_dir = base_dir / "clip_suggestions"
                 cache_dir.mkdir(parents=True, exist_ok=True)
-                use_case._save_cache(suggestions, detection, cache_dir / f"{detection.model_used}.json")
+                use_case._save_cache(
+                    suggestions,
+                    detection,
+                    cache_dir / f"{detection.model_used}.json",
+                    speed=float(speed),
+                )
 
                 status.update(label=f"✅ {total}件の切り抜きを生成完了", state="complete", expanded=False)
 

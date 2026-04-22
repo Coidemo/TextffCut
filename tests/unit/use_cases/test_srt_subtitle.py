@@ -2,10 +2,9 @@
 
 Phase 1スコアリング改善、SENTENCE_ENDINGS追加、フィラー除去のテスト。
 GiNZA文節ベーススコアリング、POS正規化のテスト。
-APIキーフォールバックのテスト。
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from core.japanese_line_break import JapaneseLineBreakRules
 from use_cases.ai.srt_subtitle_generator import (
@@ -15,7 +14,6 @@ from use_cases.ai.srt_subtitle_generator import (
     _parse_pos,
     _phase1_split,
     _remove_inline_fillers,
-    _transcribe_output_audio,
     build_timeline_map,
     collect_parts,
 )
@@ -197,6 +195,23 @@ class TestInlineFillerRemoval:
         new_text, new_ct, new_sb = _remove_inline_fillers(text, char_times, seg_bounds)
         assert "やっぱり" not in new_text
         assert "これは良い" in new_text
+
+    def test_youwa_after_kanji_preserved(self):
+        """漢字直後の「要は」は "必要は" "重要は" 等の複合語末尾なので保持する"""
+        for text in ("必要はない", "重要は別にある", "概要は以下", "需要はある"):
+            ct = self._make_char_times(text)
+            sb = {len(text)}
+            new_text, _, _ = _remove_inline_fillers(text, ct, sb)
+            assert new_text == text, f"漢字 prefix の「要は」が誤除去された: {text!r} → {new_text!r}"
+
+    def test_youwa_at_start_removed(self):
+        """文頭の「要は」はフィラーとして除去される"""
+        text = "要は簡単に言うと"
+        ct = self._make_char_times(text)
+        sb = {len(text)}
+        new_text, _, _ = _remove_inline_fillers(text, ct, sb)
+        assert "要は" not in new_text
+        assert "簡単に言うと" in new_text
 
     # --- 新規: 文脈依存「あの」「まあ」の処理 -----------------------------
 
@@ -406,74 +421,6 @@ class TestCompatTokenizer:
         shuujoshi_found = any("終助詞" in t.part_of_speech for t in tokens)
         assert shuujoshi_found, "終助詞が検出されなかった"
 
-
-class TestTranscribeOutputAudioApiKey:
-    """_transcribe_output_audio APIキーフォールバックのテスト"""
-
-    def test_explicit_api_key_takes_priority(self):
-        """引数で渡したapi_keyが優先される"""
-        mock_client = MagicMock()
-        mock_resp = MagicMock()
-        mock_resp.segments = [
-            MagicMock(text="テスト", start=0.0, end=1.0),
-        ]
-        mock_client.return_value.audio.transcriptions.create.return_value = mock_resp
-
-        with (
-            patch("use_cases.ai.srt_subtitle_generator.os.environ.get", return_value=None),
-            patch("use_cases.ai.srt_subtitle_generator._extract_audio_parts_parallel", return_value=["/tmp/p0.wav"]),
-            patch("subprocess.run") as mock_run,
-            patch("builtins.open", MagicMock()),
-            (
-                patch("use_cases.ai.srt_subtitle_generator.OpenAI", mock_client)
-                if False
-                else patch.dict("sys.modules", {})
-            ),
-        ):
-            # OpenAIのimportをモックするために、関数内のロジックだけテスト
-            # api_key引数ありの場合、環境変数は参照されないことを確認
-            from use_cases.ai import srt_subtitle_generator
-
-            original_env_get = srt_subtitle_generator.os.environ.get
-            env_calls = []
-
-            def tracking_env_get(key, *args):
-                env_calls.append(key)
-                return None
-
-            with patch.object(srt_subtitle_generator.os.environ, "get", side_effect=tracking_env_get):
-                # api_key="sk-test" を渡す → 環境変数は参照されない
-                # ただしOpenAIのimportで例外が出るため、Noneが返る
-                result = _transcribe_output_audio([(0.0, 1.0)], MagicMock(), api_key="sk-test")
-                # 環境変数は参照されないはず
-                assert "OPENAI_API_KEY" not in env_calls
-                assert "TEXTFFCUT_API_KEY" not in env_calls
-
-    def test_fallback_to_api_key_manager(self):
-        """環境変数なし時にapi_key_managerフォールバックが呼ばれる"""
-        mock_manager = MagicMock()
-        mock_manager.load_api_key.return_value = "sk-from-manager"
-
-        with (
-            patch.dict("os.environ", {}, clear=True),
-            patch("utils.api_key_manager.api_key_manager", mock_manager),
-        ):
-            # api_key=None + 環境変数なし → api_key_managerが呼ばれるはず
-            # OpenAIのimportで例外が出るが、api_key_managerは呼ばれる
-            result = _transcribe_output_audio([(0.0, 1.0)], MagicMock(), api_key=None)
-            mock_manager.load_api_key.assert_called_once()
-
-    def test_returns_none_when_no_api_key(self):
-        """APIキーが一切ない場合はNoneを返す"""
-        mock_manager = MagicMock()
-        mock_manager.load_api_key.return_value = None
-
-        with (
-            patch.dict("os.environ", {}, clear=True),
-            patch("utils.api_key_manager.api_key_manager", mock_manager),
-        ):
-            result = _transcribe_output_audio([(0.0, 1.0)], MagicMock(), api_key=None)
-            assert result is None
 
 
 # ---------------------------------------------------------------------------

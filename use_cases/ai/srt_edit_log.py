@@ -214,6 +214,10 @@ def save_srt_meta(
 
     full_text は SRT 全体の裸文字列 (改行なし)、char_times は各文字の (start, end).
 
+    保存時に空白・改行は除去する (対応する char_times も drop) — エディタ側の
+    `reconstruct_entry_timing` は空白除去後の flat text と char_times を突き合わせ
+    るため、空白を含んだまま保存すると長さ不一致で timing 復元に失敗する.
+
     NFC 正規化で Unicode 表現揺れを吸収する. ただし NFC 化で文字数が変わる
     (結合文字が base に吸収される) 場合は元のまま保存 (char_times alignment 保護).
     """
@@ -223,6 +227,16 @@ def save_srt_meta(
         raise ValueError(
             f"full_text ({len(full_text)} chars) と char_times ({len(char_times)}) の長さが一致しない"
         )
+
+    # 空白・改行を除去 (対応する char_times も同時に drop してアライン維持)
+    stripped_chars: list[str] = []
+    stripped_ctimes: list[tuple[float, float]] = []
+    for ch, ct in zip(full_text, char_times, strict=True):
+        if not ch.isspace():
+            stripped_chars.append(ch)
+            stripped_ctimes.append(ct)
+    full_text = "".join(stripped_chars)
+    char_times = stripped_ctimes
 
     # NFC 正規化 (length が変わらない場合のみ適用、編集側 parse_edited_text と揃える)
     nfc_text = unicodedata.normalize("NFC", full_text)
@@ -300,6 +314,18 @@ def reconstruct_entry_timing(
     # 編集側は parse_edited_text が NFC 化しているので、meta 側も合わせる.
     # ただし save_srt_meta が char_times alignment 保護のため NFD を敢えて
     # 保存するケースがあるので、その場合は NFD のまま比較する.
+    # 旧版の meta は full_text に空白が含まれ char_times と 1:1 対応する形式
+    # だったので、その場合は空白位置の char_times も drop して整合させる.
+    if len(full_text) == len(char_times) and any(ch.isspace() for ch in full_text):
+        stripped_chars: list[str] = []
+        stripped_ctimes: list[tuple[float, float]] = []
+        for ch, ct in zip(full_text, char_times, strict=True):
+            if not ch.isspace():
+                stripped_chars.append(ch)
+                stripped_ctimes.append(ct)
+        full_text = "".join(stripped_chars)
+        char_times = stripped_ctimes
+
     stripped = re.sub(r"\s", "", full_text)
     nfc_stripped = unicodedata.normalize("NFC", stripped)
     if len(nfc_stripped) == len(char_times):
