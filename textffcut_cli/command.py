@@ -141,13 +141,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="処理する動画ファイルまたはフォルダのパス（グロブパターン可）",
     )
 
+    # MLX_MODEL_MAP を single source of truth にしてモデル一覧を取得。
+    # GUI (presentation/presenters/transcription.py) も同じマップを参照。
+    from core.transcription import Transcriber
+
+    _mlx_models = list(Transcriber.MLX_MODEL_MAP.keys())
+    # "tiny" は MLX_MODEL_MAP に無いが API モード用として choices には残す
+    _all_models = sorted({"tiny", *_mlx_models})
     parser.add_argument(
         "-m",
         "--model",
         default="large-v3",
-        choices=["tiny", "base", "small", "medium", "large-v3", "large-v3-turbo"],
+        choices=_all_models,
         metavar="MODEL",
-        help="使用するモデルサイズ（デフォルト: large-v3）tiny/base/small/medium/large-v3/large-v3-turbo",
+        help=f"使用するモデル（デフォルト: large-v3）利用可能: {'/'.join(_all_models)}",
     )
     parser.add_argument(
         "-n",
@@ -211,6 +218,8 @@ def _cmd_models() -> None:
         ("medium", "769M", "やや高速。精度と速度のバランス型"),
         ("large-v3", "1.5G", "推奨。最高精度（フィラー・固有名詞に強い）"),
         ("large-v3-turbo", "809M", "large-v3 の蒸留版（精度低下あり）"),
+        ("large-v3-filler", "1.5G",
+         "large-v3 + 日本語フィラー強化 LoRA（話者特化・実験的）"),
     ]
 
     con = Console()

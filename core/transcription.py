@@ -459,12 +459,16 @@ class Transcriber:
         return result
 
     # MLXモデル名マッピング
+    # LoRA 適用済みモデルは HuggingFace Hub でホストされた MLX 変換版を指す。
+    # mlx_whisper.transcribe() が初回のみ自動で DL してキャッシュする。
     MLX_MODEL_MAP = {
         "large-v3": "mlx-community/whisper-large-v3-mlx",
         "large-v3-turbo": "mlx-community/whisper-large-v3-turbo",
         "medium": "mlx-community/whisper-medium-mlx",
         "small": "mlx-community/whisper-small-mlx",
         "base": "mlx-community/whisper-base-mlx",
+        # LoRA 適用済み (Phase A: 同一話者日本語ポッドキャスト 50分で学習、フィラー捕捉強化)
+        "large-v3-filler": "Coidemo/whisper-large-v3-filler-mlx",
     }
 
     def _transcribe_mlx(
@@ -512,10 +516,16 @@ class Transcriber:
                 "まあ、まぁ、んー、あー、そうですね"
             )
 
-        logger.info(f"mlx-whisperで文字起こし開始: {mlx_model}")
-        whisper_result = mlx_whisper.transcribe(
-            str(video_path),
-            path_or_hf_repo=mlx_model,
+        # 通常 transcribe → 境界重複 dedup → hallucination retry の 3 段階で
+        # Whisper の 30 秒ウィンドウ由来の境界重複と反復 hallucination を緩和する。
+        # base / LoRA 共通で有効。処理時間への影響は軽微 (数秒増)。
+        # 詳細は core/mlx_whisper_refine.py を参照。
+        from core.mlx_whisper_refine import transcribe_refined
+
+        logger.info(f"mlx-whisperで文字起こし開始 (refined mode): {mlx_model}")
+        whisper_result = transcribe_refined(
+            audio_path=str(video_path),
+            model_path=mlx_model,
             language=lang,
             initial_prompt=initial_prompt,
         )
