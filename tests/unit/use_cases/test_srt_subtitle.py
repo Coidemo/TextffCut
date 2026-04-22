@@ -196,6 +196,23 @@ class TestInlineFillerRemoval:
         assert "やっぱり" not in new_text
         assert "これは良い" in new_text
 
+    def test_youwa_after_kanji_preserved(self):
+        """漢字直後の「要は」は "必要は" "重要は" 等の複合語末尾なので保持する"""
+        for text in ("必要はない", "重要は別にある", "概要は以下", "需要はある"):
+            ct = self._make_char_times(text)
+            sb = {len(text)}
+            new_text, _, _ = _remove_inline_fillers(text, ct, sb)
+            assert new_text == text, f"漢字 prefix の「要は」が誤除去された: {text!r} → {new_text!r}"
+
+    def test_youwa_at_start_removed(self):
+        """文頭の「要は」はフィラーとして除去される"""
+        text = "要は簡単に言うと"
+        ct = self._make_char_times(text)
+        sb = {len(text)}
+        new_text, _, _ = _remove_inline_fillers(text, ct, sb)
+        assert "要は" not in new_text
+        assert "簡単に言うと" in new_text
+
     # --- 新規: 文脈依存「あの」「まあ」の処理 -----------------------------
 
     def test_ano_demonstrative_preserved(self):

@@ -177,3 +177,15 @@ class TestIsGrammaticalByContext:
         """文中の「要は」は判定不能 (LLM/aggressive に委譲)"""
         result = _is_grammatical_by_context("要は", "これ要はこういうこと", 2)
         assert result is None
+
+    def test_youwa_after_kanji_is_grammatical(self):
+        """漢字直後の「要は」は "必要は" 等の複合語末尾なので文法用法確定"""
+        # 「必要は」
+        result = _is_grammatical_by_context("要は", "これ必要はないです", 3)
+        assert result is True
+        # 「重要は」
+        result = _is_grammatical_by_context("要は", "最重要はこれ", 2)
+        assert result is True
+        # 「概要は」
+        result = _is_grammatical_by_context("要は", "概要は以下", 1)
+        assert result is True

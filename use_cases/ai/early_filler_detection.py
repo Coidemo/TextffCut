@@ -262,6 +262,10 @@ def _is_grammatical_by_context(filler_text: str, seg_text: str, char_pos: int) -
         return None
 
     if filler_text == "要は":
+        # 直前が漢字 → "必要は" "重要は" "概要は" 等の複合名詞の末尾なので文法用法確定
+        # (これを先に判定しないと _PHASE0_AGGRESSIVE で強制除去されて "必は" 等に破壊される)
+        if before_text and re.search(r"[一-鿿]$", before_text):
+            return True
         # 直前が句点・読点・文頭 → 接続詞用法も多い (「〜。要は〜」)
         # が、conversational 日本語では接続詞自体がフィラー的に使われる
         # ため、文頭 or 直前が句点なら基本フィラー扱い
