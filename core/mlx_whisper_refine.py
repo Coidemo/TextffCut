@@ -19,7 +19,10 @@ base / LoRA 両モデルに適用して問題なし。
 from __future__ import annotations
 
 import gzip
+import subprocess
+import tempfile
 from collections import Counter
+from pathlib import Path
 from typing import Any
 
 from utils.logging import get_logger
@@ -46,6 +49,18 @@ BOUNDARY_TOUCH_SEC = 0.1
 # 5-6 文字のケースは自然な発話の反復 (e.g. 「〜というのが」の連続発話) 混在。
 # 7 文字を閾値にすると Type B 検出率を保ちつつ Type C 誤検出 0 を達成。
 BOUNDARY_MATCH_MIN_CHARS = 7
+
+
+# --- Silero VAD 前処理の閾値 (WhisperX "VAD Cut & Merge" 相当) ---
+# 300ms 以上の silence を区間境界として採用。短すぎると発話間のマイクロ pause を過剰分割する。
+_VAD_MIN_SILENCE_MS = 300
+# 100ms 未満の speech は誤検出の可能性が高いのでまとめる。
+_VAD_MIN_SPEECH_MS = 100
+# Whisper の 30 秒ウィンドウに収まるよう chunk をマージする最大秒数。
+# 30 秒ちょうどより少し短め (28s) にして余裕を持たせる。
+_VAD_MAX_CHUNK_SEC = 28.0
+# chunk 境界で word が分断されないよう前後に付ける padding。
+_VAD_CHUNK_PADDING_SEC = 0.2
 
 
 # ------------------------------------------------------------
@@ -306,6 +321,64 @@ def retry_hallucinated_segments(
 # メインエントリ
 # ------------------------------------------------------------
 
+# ------------------------------------------------------------
+# Silero VAD 前処理 (WhisperX "VAD Cut & Merge")
+# ------------------------------------------------------------
+
+
+def _vad_speech_ranges(audio_path: str) -> list[tuple[float, float]]:
+    """Silero VAD で speech 区間を検出。戻り値は秒単位の (start, end) リスト。"""
+    from silero_vad import get_speech_timestamps, load_silero_vad, read_audio
+
+    model = load_silero_vad()
+    audio = read_audio(audio_path, sampling_rate=16000)
+    ranges = get_speech_timestamps(
+        audio,
+        model,
+        sampling_rate=16000,
+        return_seconds=True,
+        min_silence_duration_ms=_VAD_MIN_SILENCE_MS,
+        min_speech_duration_ms=_VAD_MIN_SPEECH_MS,
+    )
+    return [(r["start"], r["end"]) for r in ranges]
+
+
+def _merge_vad_into_chunks(
+    speech_ranges: list[tuple[float, float]],
+    max_chunk_sec: float = _VAD_MAX_CHUNK_SEC,
+) -> list[tuple[float, float]]:
+    """speech 区間を max_chunk_sec 以下になるよう隣接ランをマージする。
+
+    Whisper は 30 秒ウィンドウで内部処理するので、各 chunk を 30 秒以下に収める。
+    短い speech 区間を詰めて chunk を作ることで chunk 数を減らし、呼び出し回数を削減。
+    """
+    if not speech_ranges:
+        return []
+    merged: list[list[float]] = [list(speech_ranges[0])]
+    for s, e in speech_ranges[1:]:
+        last = merged[-1]
+        if e - last[0] <= max_chunk_sec:
+            last[1] = e
+        else:
+            merged.append([s, e])
+    return [(m[0], m[1]) for m in merged]
+
+
+def _extract_audio_range(audio_path: str, start: float, end: float, out_path: str) -> None:
+    """ffmpeg で音声ファイルの [start, end] を 16kHz mono WAV として抽出。"""
+    cmd = [
+        "ffmpeg", "-y",
+        "-ss", str(start),
+        "-i", audio_path,
+        "-t", str(end - start),
+        "-ar", "16000",
+        "-ac", "1",
+        "-c:a", "pcm_s16le",
+        out_path,
+    ]
+    subprocess.run(cmd, capture_output=True, check=True)
+
+
 def transcribe_refined(
     audio_path: str,
     model_path: str,
@@ -313,7 +386,19 @@ def transcribe_refined(
     initial_prompt: str | None = None,
     **mlx_kwargs: Any,
 ) -> dict[str, Any]:
-    """通常 transcribe → 境界 dedup → hallucination retry の一連を実行。
+    """Silero VAD cut → chunk 分割 → Whisper → 境界 dedup → hallucination retry。
+
+    処理の流れ:
+      1. Silero VAD で speech 区間検出
+      2. max 28s の chunk にマージ (WhisperX VAD Cut & Merge 相当)
+      3. 各 chunk に padding 0.2s を付けて個別に mlx_whisper.transcribe
+      4. 元時刻に timestamp をオフセットして統合
+      5. 境界重複 dedup + hallucination retry
+
+    VAD 前処理により Whisper が「長無音を 1 segment に巻き込む」問題 (長 segment
+    化 + 発話の認識漏れ) を構造的に防ぐ。
+
+    VAD がライブラリ不在で失敗した場合は従来の一発 transcribe にフォールバック。
 
     Args:
         audio_path:     音声 / 動画ファイルパス
@@ -321,27 +406,63 @@ def transcribe_refined(
         language:       言語コード
         initial_prompt: Whisper に渡す初期 prompt
         **mlx_kwargs:   mlx_whisper.transcribe に追加で渡したいパラメータ
-                        (例: word_timestamps, temperature, verbose など)
 
     戻り値は mlx_whisper.transcribe 互換 ({"segments": [...], "language": "..."})。
     """
     import mlx_whisper
 
-    logger.info("mlx_whisper.transcribe を実行 (通常モード)")
-    result = mlx_whisper.transcribe(
-        audio_path,
-        path_or_hf_repo=model_path,
-        language=language,
-        initial_prompt=initial_prompt,
-        **mlx_kwargs,
-    )
-    segments = list(result.get("segments", []))
+    # Step 1-2: VAD で speech 区間検出 → chunk マージ
+    try:
+        speech_ranges = _vad_speech_ranges(audio_path)
+        chunks = _merge_vad_into_chunks(speech_ranges)
+        logger.info(f"Silero VAD: {len(speech_ranges)} speech ranges → {len(chunks)} chunks")
+    except Exception as e:
+        logger.warning(f"Silero VAD 失敗、通常モードにフォールバック: {e}")
+        chunks = []
+
+    if not chunks:
+        # フォールバック: VAD 不使用の従来動作
+        logger.info("mlx_whisper.transcribe を実行 (通常モード)")
+        result = mlx_whisper.transcribe(
+            audio_path,
+            path_or_hf_repo=model_path,
+            language=language,
+            initial_prompt=initial_prompt,
+            **mlx_kwargs,
+        )
+        segments = list(result.get("segments", []))
+    else:
+        # Step 3-4: 各 chunk を個別 transcribe し、元時刻にオフセット
+        segments = []
+        with tempfile.TemporaryDirectory(prefix="vad_chunks_") as tmpdir:
+            for i, (c_start, c_end) in enumerate(chunks):
+                padded_start = max(0.0, c_start - _VAD_CHUNK_PADDING_SEC)
+                padded_end = c_end + _VAD_CHUNK_PADDING_SEC
+                chunk_wav = str(Path(tmpdir) / f"chunk_{i:03d}.wav")
+                _extract_audio_range(audio_path, padded_start, padded_end, chunk_wav)
+
+                logger.info(f"  chunk {i+1}/{len(chunks)}: {padded_start:.2f}-{padded_end:.2f}s")
+                chunk_result = mlx_whisper.transcribe(
+                    chunk_wav,
+                    path_or_hf_repo=model_path,
+                    language=language,
+                    initial_prompt=initial_prompt,
+                    **mlx_kwargs,
+                )
+                # 元音声の時刻にオフセット補正
+                for seg in chunk_result.get("segments", []):
+                    if not seg.get("text", "").strip():
+                        continue
+                    seg["start"] = float(seg["start"]) + padded_start
+                    seg["end"] = float(seg["end"]) + padded_start
+                    segments.append(seg)
+
     logger.info(f"  初期セグメント数: {len(segments)}")
 
-    # 境界重複を削除
+    # Step 5a: 境界重複を削除
     segments = dedupe_boundary_overlaps(segments)
 
-    # hallucination を検出して再試行
+    # Step 5b: hallucination を検出して再試行 (元音声に対して実行)
     segments = retry_hallucinated_segments(
         audio_path=audio_path,
         model_path=model_path,
@@ -352,5 +473,5 @@ def transcribe_refined(
 
     return {
         "segments": segments,
-        "language": result.get("language", language),
+        "language": language,
     }

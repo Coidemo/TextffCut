@@ -15,6 +15,7 @@ from core.mlx_whisper_refine import (
     BOUNDARY_MATCH_MIN_CHARS,
     BOUNDARY_TOUCH_SEC,
     _longest_suffix_prefix_match,
+    _merge_vad_into_chunks,
     dedupe_boundary_overlaps,
     detect_hallucination,
     retry_hallucinated_segments,
@@ -324,13 +325,18 @@ class TestRetryHallucinatedSegments:
         assert not any("うん" * 50 == s["text"] for s in out)
 
 
+def _disable_vad():
+    """VAD を失敗させて従来 (一発 transcribe) 経路にフォールバックさせる patch。"""
+    return patch("core.mlx_whisper_refine._vad_speech_ranges", side_effect=RuntimeError("no vad"))
+
+
 class TestTranscribeRefined:
-    """transcribe_refined (主パイプライン) の 3 ステップ orchestration。"""
+    """transcribe_refined (主パイプライン) の 3 ステップ orchestration (VAD 失敗フォールバック経路)。"""
 
     def test_empty_transcription_passes_through(self) -> None:
         """mlx_whisper.transcribe が空結果を返すと dedup/retry も no-op。"""
         fake_result = {"segments": [], "language": "ja"}
-        with patch("mlx_whisper.transcribe", return_value=fake_result):
+        with _disable_vad(), patch("mlx_whisper.transcribe", return_value=fake_result):
             out = transcribe_refined(
                 audio_path="fake.wav",
                 model_path="fake-model",
@@ -341,7 +347,6 @@ class TestTranscribeRefined:
 
     def test_dedup_then_retry_pipeline(self) -> None:
         """通常 transcribe → 境界 dedup → hallucination retry が順に走ること。"""
-        # 初回 transcribe: 境界重複 1 組 + hallucination 1 個
         initial_segments = [
             _seg(0.0, 5.0, "これは普通の発話"),
             _seg(5.0, 10.0, "これは普通の発話"),  # 直前と完全同一、dedup 対象
@@ -357,6 +362,7 @@ class TestTranscribeRefined:
             return initial_result if len(calls) == 1 else retry_result
 
         with (
+            _disable_vad(),
             patch("mlx_whisper.transcribe", side_effect=fake_transcribe),
             patch(
                 "librosa.load",
@@ -367,27 +373,114 @@ class TestTranscribeRefined:
                 audio_path="fake.wav",
                 model_path="fake-model",
             )
-        # mlx_whisper は 2 回呼ばれる (初回 transcribe + 1 つの hallucination retry)
         assert len(calls) == 2
-        # 出力: dedup 後 2 segments + retry 置換 = 1 (残) + 1 (retry) = 2 segments
         texts = [s["text"] for s in out["segments"]]
-        # 重複した 2 個目の「これは普通の発話」が削除されている (1 個だけ残る)
         assert texts.count("これは普通の発話") == 1
-        # hallucination が retry 結果で置換
         assert "直された文" in texts
         assert "まあ" * 50 not in texts
 
     def test_mlx_kwargs_passthrough(self) -> None:
         """**mlx_kwargs が mlx_whisper.transcribe に渡されること。"""
-        with patch(
+        with _disable_vad(), patch(
             "mlx_whisper.transcribe", return_value={"segments": [], "language": "ja"}
         ) as mock_tx:
             transcribe_refined(
                 audio_path="fake.wav",
                 model_path="fake-model",
-                word_timestamps=True,  # 追加の mlx_kwargs
+                word_timestamps=True,
             )
         assert mock_tx.call_args.kwargs["word_timestamps"] is True
+
+
+class TestMergeVadIntoChunks:
+    """VAD speech 区間を max_chunk_sec 以下の chunk にマージするロジック。"""
+
+    def test_empty_returns_empty(self) -> None:
+        assert _merge_vad_into_chunks([]) == []
+
+    def test_short_ranges_merge_into_single_chunk(self) -> None:
+        """すべて max_chunk_sec 内に収まれば 1 chunk にマージされる。"""
+        ranges = [(0.0, 2.0), (3.0, 5.0), (6.0, 10.0)]
+        result = _merge_vad_into_chunks(ranges, max_chunk_sec=30.0)
+        assert result == [(0.0, 10.0)]
+
+    def test_split_when_exceeds_max_chunk_sec(self) -> None:
+        """max_chunk_sec を超える場合は新 chunk を開始。"""
+        ranges = [(0.0, 10.0), (11.0, 20.0), (50.0, 55.0)]
+        result = _merge_vad_into_chunks(ranges, max_chunk_sec=25.0)
+        assert result == [(0.0, 20.0), (50.0, 55.0)]
+
+    def test_chunk_boundary_at_max_chunk_sec(self) -> None:
+        """ちょうど max_chunk_sec なら同 chunk に入る (<=)。"""
+        ranges = [(0.0, 5.0), (25.0, 28.0)]
+        result = _merge_vad_into_chunks(ranges, max_chunk_sec=28.0)
+        assert result == [(0.0, 28.0)]
+
+
+class TestTranscribeRefinedWithVad:
+    """VAD が有効な場合のパイプライン: chunk 分割 → 個別 transcribe → 元時刻オフセット。"""
+
+    def test_chunks_are_transcribed_separately_and_offset_applied(self) -> None:
+        """VAD が chunk を返せば各々 transcribe され、元時刻にオフセットされる。"""
+        # VAD が 2 chunks を返す (10-20s, 40-50s)
+        # chunk ごとに異なる segment を返す
+        chunk_results = [
+            {"segments": [{"start": 0.5, "end": 8.0, "text": "chunk1 の発話"}]},
+            {"segments": [{"start": 0.2, "end": 7.0, "text": "chunk2 の発話"}]},
+        ]
+        call_idx = [0]
+
+        def fake_transcribe(*args, **kwargs):
+            r = chunk_results[call_idx[0]]
+            call_idx[0] += 1
+            return r
+
+        with (
+            patch("core.mlx_whisper_refine._vad_speech_ranges", return_value=[(10.0, 20.0), (40.0, 50.0)]),
+            patch("core.mlx_whisper_refine._extract_audio_range"),  # ffmpeg 呼び出しを no-op に
+            patch("mlx_whisper.transcribe", side_effect=fake_transcribe),
+        ):
+            out = transcribe_refined(
+                audio_path="fake.wav",
+                model_path="fake-model",
+                language="ja",
+            )
+
+        # 2 chunks 分の segment、両方とも元時刻にオフセットされている
+        assert len(out["segments"]) == 2
+        # chunk 1 は padding 0.2s 引いた 9.8s をオフセットに加える
+        seg1 = out["segments"][0]
+        assert abs(seg1["start"] - (0.5 + 9.8)) < 1e-6
+        assert seg1["text"] == "chunk1 の発話"
+        # chunk 2 は 39.8s をオフセットに加える
+        seg2 = out["segments"][1]
+        assert abs(seg2["start"] - (0.2 + 39.8)) < 1e-6
+        assert seg2["text"] == "chunk2 の発話"
+
+    def test_empty_segments_in_chunks_are_skipped(self) -> None:
+        """chunk が空 segment (text 空白) を返した場合は除外される。"""
+        chunk_results = [
+            {"segments": [{"start": 0.0, "end": 1.0, "text": "   "}, {"start": 2.0, "end": 3.0, "text": "本物"}]},
+        ]
+        with (
+            patch("core.mlx_whisper_refine._vad_speech_ranges", return_value=[(5.0, 8.0)]),
+            patch("core.mlx_whisper_refine._extract_audio_range"),
+            patch("mlx_whisper.transcribe", return_value=chunk_results[0]),
+        ):
+            out = transcribe_refined(audio_path="fake.wav", model_path="fake-model")
+        assert len(out["segments"]) == 1
+        assert out["segments"][0]["text"] == "本物"
+
+    def test_vad_returns_empty_falls_back_to_normal(self) -> None:
+        """VAD が speech 区間を検出できなければ従来経路 (一発 transcribe) へフォールバック。"""
+        with (
+            patch("core.mlx_whisper_refine._vad_speech_ranges", return_value=[]),
+            patch("mlx_whisper.transcribe", return_value={"segments": [{"start": 0.0, "end": 1.0, "text": "fallback"}], "language": "ja"}) as mock_tx,
+        ):
+            out = transcribe_refined(audio_path="fake.wav", model_path="fake-model")
+        # 通常モード: 一発 transcribe が呼ばれる
+        assert mock_tx.call_count == 1
+        assert out["segments"][0]["text"] == "fallback"
 
 
 # ============================================================
