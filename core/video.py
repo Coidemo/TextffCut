@@ -115,6 +115,16 @@ class SilenceInfo:
         return self.end - self.start
 
 
+# 救済 range に両側で付与する最小 padding（秒）。FCPXML 30fps 丸めで duration=0 に
+# ならないよう 1 frame 相当を確保する。
+_RESCUE_PADDING = 1.0 / 30.0
+
+# 救済 range を隣接する既存 keep に強制マージする際の最大 gap（秒）。
+# 独立した超短 asset-clip がタイムラインに残るのを防ぎ、編集体験を保つ。
+# 閾値以内の無音は「発話の立ち上がり前の静音」として許容する。
+_RESCUE_MERGE_GAP = 0.5
+
+
 def _rescue_missing_words(
     keep_ranges: list[tuple[float, float]],
     words: list[Any],
@@ -122,9 +132,15 @@ def _rescue_missing_words(
 ) -> list[tuple[float, float]]:
     """無音削除後の keep_ranges に含まれない word を救済する。
 
-    word が完全に keep 区間外（= silence 領域に落ちた）場合、その word の時間範囲
-    そのものを keep_ranges に追加する（padding なし）。word を含む元 time_range
-    に完全に収まっているため、境界が元 time_ranges の外に出ることは無い。
+    手順:
+    1. word が keep 区間外かつ元 time_range 内に完全包含される場合を救済対象とする
+    2. 救済 range = word + 1 frame padding、元 time_range 境界で clip
+    3. 同じ元 time_range 内で gap < _RESCUE_MERGE_GAP の既存 keep があれば強制マージ
+       (独立した超短 asset-clip を出さないため)
+    4. 近接 keep が無ければ独立 range として追加
+
+    padding は word を含む元 time_range の境界内に閉じるので、前後 segment へ
+    食み込むことは無い。
     """
 
     def _word_attr(w: Any, name: str) -> float | None:
@@ -139,6 +155,10 @@ def _rescue_missing_words(
         return any(start < r_end and end > r_start for r_start, r_end in ranges)
 
     rescued = list(keep_ranges)
+    # 既に救済した word の「生範囲 (padding なし)」。overlap 判定で padding 込み範囲を
+    # 使うと、直後の word が誤って「音として残っている」と判定される (word b の start が
+    # word a の padding と重なる) ため、判定用に別リストで管理する。
+    rescued_word_ranges: list[tuple[float, float]] = []
     rescue_count = 0
     for w in words:
         w_start = _word_attr(w, "start")
@@ -146,20 +166,44 @@ def _rescue_missing_words(
         if w_start is None or w_end is None or w_end <= w_start:
             continue
         # word が完全に含まれる元 time_range を特定（境界跨ぎの word はスキップ）
-        if not any(r_s <= w_start and w_end <= r_e for r_s, r_e in time_ranges):
+        containing = next(((r_s, r_e) for r_s, r_e in time_ranges if r_s <= w_start and w_end <= r_e), None)
+        if containing is None:
             continue
-        # keep 区間のいずれかと少しでも重なっていれば「音として残っている」と見做し救済対象外
-        if _overlaps_any(w_start, w_end, rescued):
+        # 音として残っている判定: 元 keep_ranges もしくは既救済 word の生範囲と overlap
+        if _overlaps_any(w_start, w_end, keep_ranges) or _overlaps_any(w_start, w_end, rescued_word_ranges):
             continue
-        # 救済: word 範囲そのまま（padding 無し）。word は元 time_range 内なので
-        # 境界を超えることは無い。
-        rescued.append((w_start, w_end))
+
+        tr_s, tr_e = containing
+        res_start = max(tr_s, w_start - _RESCUE_PADDING)
+        res_end = min(tr_e, w_end + _RESCUE_PADDING)
+
+        # 近接マージ: 同じ元 time_range 内の既存 keep と gap < _RESCUE_MERGE_GAP なら
+        # その keep を救済範囲まで拡張する（独立 asset-clip を作らない）
+        merged_into_existing = False
+        for i, (ks, ke) in enumerate(rescued):
+            # 同じ元 time_range 内の keep のみ対象
+            if not (tr_s <= ks and ke <= tr_e):
+                continue
+            # 後方 keep (救済 range の後ろ) と gap < 閾値 → keep の start を前方拡張
+            if ks >= res_end and (ks - res_end) < _RESCUE_MERGE_GAP:
+                rescued[i] = (res_start, ke)
+                merged_into_existing = True
+                break
+            # 前方 keep (救済 range の前) と gap < 閾値 → keep の end を後方拡張
+            if ke <= res_start and (res_start - ke) < _RESCUE_MERGE_GAP:
+                rescued[i] = (ks, res_end)
+                merged_into_existing = True
+                break
+
+        if not merged_into_existing:
+            rescued.append((res_start, res_end))
+        rescued_word_ranges.append((w_start, w_end))
         rescue_count += 1
 
     if rescue_count == 0:
         return keep_ranges
 
-    # マージ: 重なる/接する range を統合
+    # 最終マージ: 重なる/接する range を統合
     rescued.sort(key=lambda x: x[0])
     merged: list[tuple[float, float]] = []
     for s, e in rescued:
