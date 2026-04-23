@@ -327,20 +327,42 @@ def retry_hallucinated_segments(
 
 
 def _vad_speech_ranges(audio_path: str) -> list[tuple[float, float]]:
-    """Silero VAD で speech 区間を検出。戻り値は秒単位の (start, end) リスト。"""
+    """Silero VAD で speech 区間を検出。戻り値は秒単位の (start, end) リスト。
+
+    silero_vad.read_audio は WAV など torchaudio 対応 format しか開けないため、
+    動画ファイル (.mp4 等) は一度 ffmpeg で 16kHz mono WAV に変換する。
+    """
     from silero_vad import get_speech_timestamps, load_silero_vad, read_audio
 
-    model = load_silero_vad()
-    audio = read_audio(audio_path, sampling_rate=16000)
-    ranges = get_speech_timestamps(
-        audio,
-        model,
-        sampling_rate=16000,
-        return_seconds=True,
-        min_silence_duration_ms=_VAD_MIN_SILENCE_MS,
-        min_speech_duration_ms=_VAD_MIN_SPEECH_MS,
-    )
-    return [(r["start"], r["end"]) for r in ranges]
+    # 動画 / 非 WAV ファイルを 16kHz mono WAV に変換
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tf:
+        tmp_wav = tf.name
+    try:
+        subprocess.run(
+            [
+                "ffmpeg", "-y",
+                "-i", audio_path,
+                "-ar", "16000",
+                "-ac", "1",
+                "-c:a", "pcm_s16le",
+                tmp_wav,
+            ],
+            capture_output=True,
+            check=True,
+        )
+        model = load_silero_vad()
+        audio = read_audio(tmp_wav, sampling_rate=16000)
+        ranges = get_speech_timestamps(
+            audio,
+            model,
+            sampling_rate=16000,
+            return_seconds=True,
+            min_silence_duration_ms=_VAD_MIN_SILENCE_MS,
+            min_speech_duration_ms=_VAD_MIN_SPEECH_MS,
+        )
+        return [(r["start"], r["end"]) for r in ranges]
+    finally:
+        Path(tmp_wav).unlink(missing_ok=True)
 
 
 def _merge_vad_into_chunks(

@@ -392,6 +392,39 @@ class TestTranscribeRefined:
         assert mock_tx.call_args.kwargs["word_timestamps"] is True
 
 
+class TestVadSpeechRanges:
+    """_vad_speech_ranges は動画ファイル (.mp4) でも ffmpeg 経由で動作する。"""
+
+    def test_converts_non_wav_via_ffmpeg(self) -> None:
+        """silero_vad.read_audio は torchaudio 依存で mp4 非対応なので、
+        一度 ffmpeg で 16kHz mono WAV に変換してから VAD を実行すること。
+        """
+        import core.mlx_whisper_refine as mr
+
+        fake_ranges = [{"start": 0.5, "end": 2.0}, {"start": 3.0, "end": 5.5}]
+        ffmpeg_calls: list[list[str]] = []
+
+        def fake_subprocess_run(cmd, **kwargs):
+            ffmpeg_calls.append(cmd)
+            from unittest.mock import MagicMock
+            m = MagicMock()
+            m.returncode = 0
+            return m
+
+        with (
+            patch("subprocess.run", side_effect=fake_subprocess_run),
+            patch.object(mr, "_vad_speech_ranges", wraps=mr._vad_speech_ranges),
+            patch("silero_vad.load_silero_vad", return_value=object()),
+            patch("silero_vad.read_audio", return_value=np.zeros(16000 * 10, dtype=np.float32)),
+            patch("silero_vad.get_speech_timestamps", return_value=fake_ranges),
+        ):
+            result = mr._vad_speech_ranges("videos/input.mp4")
+        # ffmpeg が呼ばれて変換したこと
+        assert any(cmd[0] == "ffmpeg" for cmd in ffmpeg_calls)
+        # 戻り値の形
+        assert result == [(0.5, 2.0), (3.0, 5.5)]
+
+
 class TestMergeVadIntoChunks:
     """VAD speech 区間を max_chunk_sec 以下の chunk にマージするロジック。"""
 
