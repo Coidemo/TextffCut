@@ -57,9 +57,7 @@ def test_short_word_at_range_head_survives_through_srt():
     rescued = _rescue_missing_words(keep_after_silence, words, time_ranges_orig)
 
     # 'そ' の range が復活している
-    assert any(s <= 435.980 and e >= 436.000 for s, e in rescued), (
-        f"word 'そ' が rescued に含まれない: {rescued}"
-    )
+    assert any(s <= 435.980 and e >= 436.000 for s, e in rescued), f"word 'そ' が rescued に含まれない: {rescued}"
 
     # 救済後 time_ranges を SRT 生成に流す
     tmap = build_timeline_map(rescued)
@@ -92,9 +90,7 @@ def test_out_of_range_word_is_not_picked_up_by_srt():
     time_ranges_orig = [(435.980, 436.840)]
     keep_after_silence = [(436.387, 436.840)]
 
-    rescued = _rescue_missing_words(
-        keep_after_silence, prev_words + curr_words, time_ranges_orig
-    )
+    rescued = _rescue_missing_words(keep_after_silence, prev_words + curr_words, time_ranges_orig)
 
     tmap = build_timeline_map(rescued)
     parts = collect_parts(rescued, tmap, transcription, speed=1.0)
@@ -125,14 +121,10 @@ def test_filler_removed_word_does_not_get_rescued():
     # 無音削除は特に切らない想定
     keep_after_silence = [(10.0, 10.2), (10.6, 11.3)]
 
-    rescued = _rescue_missing_words(
-        keep_after_silence, words, time_ranges_after_filler_removal
-    )
+    rescued = _rescue_missing_words(keep_after_silence, words, time_ranges_after_filler_removal)
 
     # filler word 'ー' は time_ranges 外なので救済されない
-    assert not any(s <= 10.2 and e >= 10.6 for s, e in rescued), (
-        f"filler 'ー' が誤って救済された: {rescued}"
-    )
+    assert not any(s <= 10.2 and e >= 10.6 for s, e in rescued), f"filler 'ー' が誤って救済された: {rescued}"
 
     tmap = build_timeline_map(rescued)
     parts = collect_parts(rescued, tmap, transcription, speed=1.0)
