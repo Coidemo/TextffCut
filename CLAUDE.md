@@ -269,6 +269,8 @@ make pre-commit
 1. **FCPXMLのアセット参照**: 同じ動画は1つのアセットとして定義し、全クリップが同一アセットを参照
 2. **SRT字幕**: 文字起こしタイムスタンプに基づいて生成。無音削除時はTimeMapperで字幕位置を調整
 3. **時間計算**: フレーム単位の丸めによる0.1秒程度の誤差は正常
+4. **FCPXML フレーム丸め (30fps)**: `duration` は `round(seconds × 30)` で frame に量子化される。`round(0.5)=0`（banker's rounding）で `duration="0/1s"` が生成されるとアセット参照が壊れるため、無音削除後の `keep_range` は **最低 1 frame (33ms) の duration を保証** する必要がある。`core/video.py::_rescue_missing_words` の `_RESCUE_PADDING` がこれを担保。
+5. **無音削除の word 救済**: `remove_silence_new` は `transcription_words` 引数を受け取る。GUI (`presentation/views/text_editor.py`) と CLI (`use_cases/ai/suggest_and_export.py`) の両方から `transcription` を伝播する必要がある。伝播が抜けると silence 判定で落とされた short word が SRT から欠落する。
 
 ## 配布
 
