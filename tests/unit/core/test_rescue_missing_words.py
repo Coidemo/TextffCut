@@ -123,3 +123,97 @@ def test_adjacent_rescues_merge():
     assert (0.0, 2.0) in result
     assert (5.0, 10.0) in result
     assert len(result) == 2
+
+
+def test_empty_keep_ranges_with_word_in_time_range():
+    """silencedetect で全区間が silence 判定された場合 (keep_ranges 空)。
+
+    time_ranges 内の word はすべて救済され、merge で 1 つの range になる。
+    """
+    time_ranges = [(0.0, 5.0)]
+    keep_ranges: list[tuple[float, float]] = []
+    words = [
+        _FakeWord("a", 0.5, 0.7),
+        _FakeWord("b", 0.7, 1.2),  # 連続 → merge
+        _FakeWord("c", 3.0, 3.3),  # 離れている → 別 range
+    ]
+
+    result = _rescue_missing_words(keep_ranges, words, time_ranges)
+
+    # (0.5, 1.2) と (3.0, 3.3) の 2 個に集約される
+    assert len(result) == 2
+    assert (0.5, 1.2) in result
+    assert (3.0, 3.3) in result
+
+
+def test_multiple_rescues_merge_with_existing_keep():
+    """同一 time_range 内で複数 word が救済されて既存 keep と merge される。"""
+    time_ranges = [(0.0, 10.0)]
+    keep_ranges = [(5.0, 10.0)]
+    words = [
+        _FakeWord("a", 1.0, 1.5),  # 孤立 → 単独 range
+        _FakeWord("b", 2.0, 2.3),  # a と離れている → 別 range
+        _FakeWord("c", 4.9, 5.0),  # 既存 keep 直前 → keep と merge
+    ]
+
+    result = _rescue_missing_words(keep_ranges, words, time_ranges)
+
+    # (1.0, 1.5), (2.0, 2.3), (4.9, 10.0) の 3 個
+    assert len(result) == 3
+    assert (1.0, 1.5) in result
+    assert (2.0, 2.3) in result
+    assert (4.9, 10.0) in result  # c が既存 keep と merge
+
+
+def test_word_end_touching_keep_start_is_rescued():
+    """word.end == keep.start（境界接触）の word は overlap=0 扱いで救済対象。
+
+    接触を overlap と見做すと、Whisper の連続 word timestamp (前 end=次 start)
+    で誤って「keep にいる」判定になり救済されなくなるため、strict な不等式で
+    判定している。
+    """
+    time_ranges = [(0.0, 10.0)]
+    keep_ranges = [(1.0, 10.0)]
+    words = [
+        _FakeWord("a", 0.5, 1.0),  # end == keep.start の接触 → overlap なし → 救済
+    ]
+
+    result = _rescue_missing_words(keep_ranges, words, time_ranges)
+
+    # 救済 range (0.5, 1.0) と既存 keep (1.0, 10.0) が merge されて 1 個
+    assert len(result) == 1
+    assert result[0] == (0.5, 10.0)
+
+
+def test_word_with_none_timestamp_is_skipped():
+    """word.start/end が None でも例外にならず、該当 word だけ skip する。"""
+    time_ranges = [(0.0, 10.0)]
+    keep_ranges = [(5.0, 10.0)]
+    words = [
+        _FakeWord("broken", None, None),  # type: ignore[arg-type]
+        _FakeWord("ok", 1.0, 2.0),
+    ]
+
+    result = _rescue_missing_words(keep_ranges, words, time_ranges)
+
+    assert (1.0, 2.0) in result
+    assert (5.0, 10.0) in result
+
+
+def test_word_with_zero_or_negative_duration_is_skipped():
+    """duration が 0 以下の word は silencedetect の範囲指定がおかしくなるため skip。"""
+    time_ranges = [(0.0, 10.0)]
+    keep_ranges = [(5.0, 10.0)]
+    words = [
+        _FakeWord("zero", 2.0, 2.0),  # duration 0
+        _FakeWord("neg", 3.0, 2.9),  # end < start
+        _FakeWord("ok", 1.0, 1.5),
+    ]
+
+    result = _rescue_missing_words(keep_ranges, words, time_ranges)
+
+    # zero と neg は skip され、ok のみ救済
+    assert (1.0, 1.5) in result
+    assert (5.0, 10.0) in result
+    assert not any(s == 2.0 and e == 2.0 for s, e in result)
+    assert not any(s == 3.0 for s, e in result)
