@@ -122,7 +122,9 @@ _RESCUE_PADDING = 1.0 / 30.0
 # 救済 range を隣接する既存 keep に強制マージする際の最大 gap（秒）。
 # 独立した超短 asset-clip がタイムラインに残るのを防ぎ、編集体験を保つ。
 # 閾値以内の無音は「発話の立ち上がり前の静音」として許容する。
-_RESCUE_MERGE_GAP = 0.5
+# Whisper アライメントの粗さで 20ms 級の短 word が連続するケース (救済 range が
+# 複数個生まれ、互いに 0.5-1.0s 程度の gap で隣接する) を merge するため 1.0s に設定。
+_RESCUE_MERGE_GAP = 1.0
 
 
 def _rescue_missing_words(
