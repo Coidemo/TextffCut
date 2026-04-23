@@ -9,6 +9,7 @@ from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from config import Config
 from utils.file_utils import ensure_directory
@@ -112,6 +113,63 @@ class SilenceInfo:
     @property
     def duration(self) -> float:
         return self.end - self.start
+
+
+def _rescue_missing_words(
+    keep_ranges: list[tuple[float, float]],
+    words: list[Any],
+    time_ranges: list[tuple[float, float]],
+) -> list[tuple[float, float]]:
+    """無音削除後の keep_ranges に含まれない word を救済する。
+
+    word が完全に keep 区間外（= silence 領域に落ちた）場合、その word の時間範囲
+    そのものを keep_ranges に追加する（padding なし）。word を含む元 time_range
+    に完全に収まっているため、境界が元 time_ranges の外に出ることは無い。
+    """
+
+    def _word_attr(w: Any, name: str) -> float | None:
+        if hasattr(w, name):
+            return getattr(w, name)
+        if isinstance(w, dict):
+            return w.get(name)
+        return None
+
+    def _overlaps_any(start: float, end: float, ranges: list[tuple[float, float]]) -> bool:
+        """word と range 群のいずれかに重なりがあるか（境界接触は含まない）。"""
+        return any(start < r_end and end > r_start for r_start, r_end in ranges)
+
+    rescued = list(keep_ranges)
+    rescue_count = 0
+    for w in words:
+        w_start = _word_attr(w, "start")
+        w_end = _word_attr(w, "end")
+        if w_start is None or w_end is None or w_end <= w_start:
+            continue
+        # word が完全に含まれる元 time_range を特定（境界跨ぎの word はスキップ）
+        if not any(r_s <= w_start and w_end <= r_e for r_s, r_e in time_ranges):
+            continue
+        # keep 区間のいずれかと少しでも重なっていれば「音として残っている」と見做し救済対象外
+        if _overlaps_any(w_start, w_end, rescued):
+            continue
+        # 救済: word 範囲そのまま（padding 無し）。word は元 time_range 内なので
+        # 境界を超えることは無い。
+        rescued.append((w_start, w_end))
+        rescue_count += 1
+
+    if rescue_count == 0:
+        return keep_ranges
+
+    # マージ: 重なる/接する range を統合
+    rescued.sort(key=lambda x: x[0])
+    merged: list[tuple[float, float]] = []
+    for s, e in rescued:
+        if merged and s <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], e))
+        else:
+            merged.append((s, e))
+
+    logger.info(f"無音削除: {rescue_count}個のword を救済（消失防止）")
+    return merged
 
 
 class VideoProcessor:
@@ -517,6 +575,7 @@ class VideoProcessor:
         padding_start: float = 0.1,
         padding_end: float = 0.1,
         progress_callback: Callable[[float, str], None] | None = None,
+        transcription_words: list[Any] | None = None,
     ) -> list[tuple[float, float]]:
         """
         新フロー：時間範囲から無音を検出し、残す部分の時間範囲を返す
@@ -595,6 +654,14 @@ class VideoProcessor:
 
         # 時間順にソート
         keep_ranges.sort(key=lambda x: x[0])
+
+        # 消えた word を救済（word が完全に silence 領域に落ちた場合のみ復活）
+        if transcription_words:
+            keep_ranges = _rescue_missing_words(
+                keep_ranges,
+                transcription_words,
+                time_ranges,
+            )
 
         return keep_ranges
 

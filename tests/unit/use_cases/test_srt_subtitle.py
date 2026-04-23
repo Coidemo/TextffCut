@@ -505,22 +505,21 @@ class TestCollectPartsWordLevel:
 
     def test_segment_spans_two_ranges_words_go_to_each(self):
         """1セグメントが2レンジに跨る場合、各レンジに対応する word がそれぞれ収集される。
-        tolerance 外の word はどちらにも入らない。"""
-        # word の配置に tolerance 以上の明示ギャップを設ける
+        どのレンジとも overlap が無い word は drop される。"""
         # range1 [100-103]: A[100-101], B[101-102], C[102-103]
         # range2 [110-114]: K[110-111], L[111-112], M[112-113], N[113-114]
-        # 中間 word D-J は各 range から 0.5s 以上離す
+        # 中間 word D-J はどのレンジとも overlap なし → drop
         words = [
             _word("A", 100.0, 101.0),
             _word("B", 101.0, 102.0),
             _word("C", 102.0, 103.0),
-            _word("D", 103.5, 104.0),  # r1 との gap = 0.5s > tolerance
+            _word("D", 103.5, 104.0),
             _word("E", 104.5, 105.0),
             _word("F", 105.5, 106.0),
             _word("G", 106.5, 107.0),
             _word("H", 107.5, 108.0),
             _word("I", 108.5, 109.0),
-            _word("J", 109.0, 109.5),  # r2 との gap = 0.5s > tolerance
+            _word("J", 109.0, 109.5),
             _word("K", 110.0, 111.0),
             _word("L", 111.0, 112.0),
             _word("M", 112.0, 113.0),
@@ -538,19 +537,22 @@ class TestCollectPartsWordLevel:
         assert "ABC" in texts
         assert "KLMN" in texts
         combined = "".join(texts)
-        # 中間 word はすべて tolerance 外 → 含まれない
+        # 中間 word はすべて overlap 無し → 含まれない
         for ch in "DEFGHIJ":
             assert ch not in combined
 
-    def test_orphan_word_absorbed_within_tolerance(self):
-        """silence-removal で生じた小さなギャップに落ちた word は、
-        tolerance (0.3s) 内なら最近傍 range に吸収される（Fix2）。"""
-        # range1 [100-103] と range2 [103.15-106] の間に 0.15s のギャップ
-        # その間に word X [103.00-103.10] を配置
+    def test_orphan_word_without_overlap_is_dropped(self):
+        """どの range とも overlap しない word は drop される。
+
+        無音削除で range 間の gap に落ちた word を救済する責務は、SRT 層ではなく
+        無音削除層の _rescue_missing_words が担う。SRT 層は time_ranges を真実として
+        扱い、range 外の word は拾わない（orphan tolerance は廃止）。
+        """
+        # range1 [100-103] と range2 [103.15-106] の間の 0.15s gap に word X を配置
         words = [
             _word("A", 100.0, 101.0),
             _word("B", 101.0, 102.0),
-            _word("X", 103.00, 103.10),  # range1 の直後 0 - 0.1s、tolerance 内
+            _word("X", 103.00, 103.10),  # どの range とも overlap なし
             _word("Y", 103.20, 104.0),
             _word("Z", 104.0, 105.0),
         ]
@@ -562,11 +564,10 @@ class TestCollectPartsWordLevel:
         tmap = build_timeline_map(time_ranges)
         parts = collect_parts(time_ranges, tmap, transcription, speed=1.0)
 
-        # X は range1 (dist 0s) or range2 (dist 0.05s) の最小距離に吸収される
-        # どちらに入るかは実装依存だが、全体から欠落してはいけない
         combined = "".join(p[0] for p in parts)
-        assert "X" in combined, f"orphan word X が dropout: parts={parts}"
-        assert combined == "ABXYZ", f"順序が崩れた: {combined}"
+        # X は SRT 層では drop される（別途 _rescue_missing_words で range 側救済）
+        assert "X" not in combined, f"orphan word X が SRT 層で拾われた: parts={parts}"
+        assert combined == "ABYZ", f"順序が崩れた: {combined}"
 
     def test_segment_boundary_does_not_fragment_parts(self):
         """同一 range 内で Whisper segment が切り替わっても part は分断されない（Fix1）。"""
