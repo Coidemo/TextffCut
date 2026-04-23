@@ -18,7 +18,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## バージョン情報
 
-### v2.1.0 (2026-04-22) — 最新安定版
+### v2.1.1 (2026-04-23) — 最新安定版
+- **タグ**: `v2.1.1`
+- **無音削除で word が消えるバグを修正** (PR #122/#123/#124):
+  - `core/video.py::_rescue_missing_words` で無音削除後に silence 判定で落ちた word を救済
+  - SRT 層の `_ORPHAN_WORD_TOLERANCE` を撤去 (構造的に不要、境界跨ぎ誤吸収バグも同時に解消)
+  - 救済 range に 1 frame padding + 近接 keep マージで FCPXML 30fps 丸めの `duration="0/1s"` 問題を回避
+  - GUI 経路 (`presentation/views/text_editor.py`) と CLI 経路 (`use_cases/ai/suggest_and_export.py`) の両方で transcription を伝播
+- **設計整理** (CLAUDE.md 注意事項に追記, PR #125):
+  - FCPXML 30fps フレーム丸め (`round(0.5)=0`) で壊れた asset-clip が生成される罠を明文化
+  - 無音削除の word 救済を「GUI/CLI 両経路で伝播」の運用注意として記録
+
+### v2.1.0 (2026-04-22)
 - **タグ**: `v2.1.0`
 - **Phase A Whisper LoRA PoC 完成** (PR #119):
   - 同一話者 50 分データで Whisper Large-v3 に LoRA を適用、Char WER −35%・FIR 3.7倍
@@ -281,4 +292,4 @@ brew install coidemo/textffcut/textffcut
 
 ---
 
-最終更新: 2026-04-21
+最終更新: 2026-04-23
