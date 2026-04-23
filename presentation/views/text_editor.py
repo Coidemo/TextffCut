@@ -923,7 +923,9 @@ class TextEditorView:
                     base_dir = video_path_obj.parent / f"{video_name}_TextffCut"
                     for i, suggestion in enumerate(suggestions):
                         progress_text.write(f"🔇 無音削除中... ({i + 1}/{total})")
-                        use_case._apply_silence_removal(suggestion, video_path_obj, base_dir)
+                        use_case._apply_silence_removal(
+                            suggestion, video_path_obj, base_dir, transcription=actual_result
+                        )
 
                 # Phase 3.5: 速度変更
                 actual_video_path = video_path_obj
