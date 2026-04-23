@@ -96,7 +96,9 @@ class SuggestAndExportUseCase:
         # Phase 5: 無音削除（最終候補にのみ適用）
         if request.remove_silence:
             for suggestion in suggestions:
-                self._apply_silence_removal(suggestion, request.video_path, base_dir)
+                self._apply_silence_removal(
+                    suggestion, request.video_path, base_dir, transcription=request.transcription
+                )
 
         # Phase 5.5: 速度変更
         actual_video_path = request.video_path
@@ -339,7 +341,13 @@ class SuggestAndExportUseCase:
             logger.warning(f"AI SE配置スキップ: {e}")
             return None
 
-    def _apply_silence_removal(self, suggestion: ClipSuggestion, video_path: Path, base_dir: Path) -> None:
+    def _apply_silence_removal(
+        self,
+        suggestion: ClipSuggestion,
+        video_path: Path,
+        base_dir: Path,
+        transcription: TranscriptionResult | None = None,
+    ) -> None:
         """1つの候補に無音削除を適用する。"""
         try:
             from config import Config
@@ -348,10 +356,15 @@ class SuggestAndExportUseCase:
             vp = VideoProcessor(Config())
             temp_dir = str(base_dir / "temp_wav")
 
+            words_list: list | None = None
+            if transcription is not None:
+                words_list = [w for seg in transcription.segments for w in (seg.words or [])]
+
             new_ranges = vp.remove_silence_new(
                 input_path=str(video_path),
                 time_ranges=suggestion.time_ranges,
                 output_dir=temp_dir,
+                transcription_words=words_list,
             )
             if new_ranges:
                 old_dur = suggestion.total_duration

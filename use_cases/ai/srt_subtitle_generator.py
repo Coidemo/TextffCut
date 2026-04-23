@@ -945,11 +945,6 @@ def _to_tl(orig, tmap):
     return None
 
 
-# 無音削除で消えたギャップに word が落ちた場合、この秒数以内なら最近傍 range に吸収する。
-# silence-removal の典型的なギャップ（0.1〜0.3s）を拾うため 0.3s に設定。
-_ORPHAN_WORD_TOLERANCE = 0.3
-
-
 def _collect_parts_core(
     time_ranges: list[tuple[float, float]],
     tmap: list[tuple[float, float, float]],
@@ -964,7 +959,8 @@ def _collect_parts_core(
 
     挙動：
     - segment 境界を跨いでも同一 range の連続 word は 1 part にまとめる（Fix1）
-    - どの range とも重ならない word は tolerance 内の最近傍 range に吸収（Fix2）
+    - どの range とも重ならない word は drop（無音削除で消えた word は
+      core/video.py::_rescue_missing_words が range 側で復活させる責務）
     - part 内は word 単位の tl を保持（Fix3 の素材、_build_char_time_map が使う）
 
     time_ranges は speed 除算済み、seg.start/end と seg.words の時間は元時間。
@@ -985,8 +981,7 @@ def _collect_parts_core(
     def _best_range_idx(word) -> int | None:  # noqa: ANN001
         """word と最も重なりが大きい range のインデックスを返す。
 
-        重なり 0 の orphan word でも、tolerance 内の最近傍 range に吸収する（Fix2）。
-        どの range からも離れすぎた word のみ None を返す。
+        どの range とも overlap が無い word は None を返し、呼び出し側で drop する。
         """
         best_idx = None
         best_overlap = 0.0
@@ -994,21 +989,6 @@ def _collect_parts_core(
             overlap = max(0.0, min(word.end, orig_e) - max(word.start, orig_s))
             if overlap > best_overlap:
                 best_overlap = overlap
-                best_idx = idx
-        if best_idx is not None:
-            return best_idx
-
-        # Fix2: orphan word — tolerance 内なら最近傍 range に吸収
-        best_dist = _ORPHAN_WORD_TOLERANCE
-        for idx, (orig_s, orig_e) in enumerate(orig_ranges):
-            if word.end < orig_s:
-                dist = orig_s - word.end
-            elif word.start > orig_e:
-                dist = word.start - orig_e
-            else:
-                dist = 0.0
-            if dist < best_dist:
-                best_dist = dist
                 best_idx = idx
         return best_idx
 
@@ -1032,7 +1012,6 @@ def _collect_parts_core(
         if range_idx is None or not words_buf:
             return
         orig_s, orig_e = orig_ranges[range_idx]
-        is_last_range = range_idx == len(orig_ranges) - 1
 
         word_tl_list: list[tuple[str, float, float]] = []
         prev_tl_e = 0.0
@@ -1040,17 +1019,9 @@ def _collect_parts_core(
             clipped_s = max(w.start, orig_s)
             clipped_e = min(w.end, orig_e)
             if clipped_e <= clipped_s:
-                # range 外の orphan word. silence-removal gap の word は隣接 range
-                # に吸収して連続性を保つ (原典 clip 音声の "つなぎ" に相当) が、
-                # 最終 range の末尾を越えた word は clip 音声に存在しないので
-                # drop する ("ありがとうござ" のような 0-duration ゴミ entry 防止).
-                if is_last_range and w.start > orig_e:
-                    continue
-                # word 全体を range 端に寄せる
-                if w.end < orig_s:
-                    clipped_s = clipped_e = orig_s
-                elif w.start > orig_e:
-                    clipped_s = clipped_e = orig_e
+                # _best_range_idx が overlap > 0 を保証するので通常ここには来ないが、
+                # 浮動小数点誤差対策で防御的に skip.
+                continue
             w_tl_s = _orig_to_tl(clipped_s)
             w_tl_e = _orig_to_tl(clipped_e)
             if w_tl_s is None or w_tl_e is None:
@@ -1077,7 +1048,8 @@ def _collect_parts_core(
     for w in all_words:
         r_idx = _best_range_idx(w)
         if r_idx is None:
-            # tolerance 外の orphan — 現在の part を破壊しないようスキップだけ
+            # どの range とも overlap 無し → drop (無音削除で切られた word は
+            # core/video.py::_rescue_missing_words が range 側で復活させる責務)
             continue
         if r_idx != current_range_idx:
             _flush(current_range_idx, current_words)
