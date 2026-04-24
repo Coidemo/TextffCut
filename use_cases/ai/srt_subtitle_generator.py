@@ -302,14 +302,32 @@ def _remove_inline_fillers(
                 remove_ranges.append((idx, filler_end))
             start = filler_end
 
+    _PUNCT_COMPRESS = frozenset("、。")
+
+    # 4. 孤立「ー」(長音) の削除
+    # word-level 分配で「あー」フィラーの「あ」が range gap に落ちて drop され、
+    # 「ー」だけが次 range の先頭に残るケースがある (_collect_parts_core 由来)。
+    # 前後が句読点 / 境界に挟まれた単独「ー」は filler 残滓として削除する。
+    for i, ch in enumerate(full_text):
+        if ch != "ー":
+            continue
+        # 既に削除予定ならスキップ
+        if any(rs <= i < re for rs, re in remove_ranges):
+            continue
+        before_last = full_text[i - 1] if i > 0 else ""
+        after_first = full_text[i + 1] if i + 1 < len(full_text) else ""
+        before_ok = (not before_last) or (before_last in _PUNCT_COMPRESS)
+        after_ok = (not after_first) or (after_first in _PUNCT_COMPRESS)
+        if before_ok and after_ok:
+            remove_ranges.append((i, i + 1))
+
     if not remove_ranges:
         return full_text, char_times, seg_bounds
 
-    # 4. フィラー削除で発生する連続句読点の圧縮
+    # 5. フィラー削除で発生する連続句読点の圧縮
     # 例: 「ので、あー、危険」→「ので、、危険」(連続「、、」) を避けるため、
     #      前後両方が句読点に挟まれている削除範囲は右側の句読点も削除に含める。
     # 「、」「。」どちらの組み合わせでも圧縮する。
-    _PUNCT_COMPRESS = frozenset("、。")
     expanded_ranges: list[tuple[int, int]] = []
     for s, e in remove_ranges:
         has_before = s > 0 and full_text[s - 1] in _PUNCT_COMPRESS

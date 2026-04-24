@@ -374,6 +374,36 @@ class TestInlineFillerRemoval:
         assert "あー" not in new_text
         assert "、" in new_text  # 前の「、」は保持
 
+    # --- 孤立「ー」の削除 (Step 4A) ---
+
+    def test_orphan_dash_between_punct_removed(self):
+        """前後が句読点に挟まれた孤立「ー」は削除される (word-level 分配で
+        「あー」→「ー」だけ残った残滓対策)"""
+        cases = [
+            ("ので、ー、危険だなー", "ので、危険だなー"),  # 「、ー、」→「、」
+            ("思います。ー、悪いこと", "思います。悪いこと"),  # 「。ー、」→「。」
+            ("なるので、ー、危険だなー", "なるので、危険だなー"),
+        ]
+        for text, expected in cases:
+            ct = self._make_char_times(text)
+            sb = {len(text)}
+            new_text, _, _ = _remove_inline_fillers(text, ct, sb)
+            assert "ー、" not in new_text[:3], f"孤立「ー」が残った: {text!r} → {new_text!r}"
+            assert new_text == expected, f"expected {expected!r}, got {new_text!r}"
+
+    def test_dash_in_word_preserved(self):
+        """語の一部の「ー」(「たいなー」「危険だなー」「ドーパミン」) は保持"""
+        for text in (
+            "見たいなーみたいな",
+            "危険だなーと思います",
+            "ドーパミンとか",
+            "なぜいくのーとか",
+        ):
+            ct = self._make_char_times(text)
+            sb = {len(text)}
+            new_text, _, _ = _remove_inline_fillers(text, ct, sb)
+            assert "ー" in new_text, f"語の一部の「ー」は保持: {text!r} → {new_text!r}"
+
 
 class TestEndToEnd:
     """実セグメントデータでの統合テスト"""
