@@ -343,6 +343,37 @@ class TestInlineFillerRemoval:
             new_text, _, _ = _remove_inline_fillers(text, ct, sb)
             assert "そう" in new_text, f"adverb そう should be preserved: {text!r} → {new_text!r}"
 
+    # --- 連続句読点の圧縮 ---
+
+    def test_consecutive_commas_compressed(self):
+        """filler の前後両方が「、」「。」に挟まれていれば右側の句読点も削除。"""
+        cases = [
+            ("ので、あー、危険だなーと思います", "ので、危険だなーと思います"),
+            ("それなら、あー、正直どうかな", "それなら、正直どうかな"),
+            # 「。」でも同じ圧縮が効く
+            ("ですね。うん。あと現場", "ですね。あと現場"),
+            # 「、。」「。、」混在
+            ("思います、あー。次は", "思います、次は"),
+        ]
+        for text, expected in cases:
+            ct = self._make_char_times(text)
+            sb = {len(text)}
+            new_text, _, _ = _remove_inline_fillers(text, ct, sb)
+            assert "、、" not in new_text, f"連続「、、」が残った: {text!r} → {new_text!r}"
+            assert "。。" not in new_text, f"連続「。。」が残った: {text!r} → {new_text!r}"
+            assert new_text == expected, f"expected {expected!r}, got {new_text!r}"
+
+    def test_single_surrounding_comma_not_removed_twice(self):
+        """filler の片側だけ「、」の場合は二重削除しない"""
+        # 前だけ「、」: 「ので、あー」→「ので、」(後ろの、は存在しないので影響なし)
+        text = "ので、あー"
+        ct = self._make_char_times(text)
+        sb = {len(text)}
+        new_text, _, _ = _remove_inline_fillers(text, ct, sb)
+        # 「あー」削除後「ので、」、先頭・末尾の「、」は残って良い
+        assert "あー" not in new_text
+        assert "、" in new_text  # 前の「、」は保持
+
 
 class TestEndToEnd:
     """実セグメントデータでの統合テスト"""

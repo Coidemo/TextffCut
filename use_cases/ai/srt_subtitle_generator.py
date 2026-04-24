@@ -305,6 +305,22 @@ def _remove_inline_fillers(
     if not remove_ranges:
         return full_text, char_times, seg_bounds
 
+    # 4. フィラー削除で発生する連続句読点の圧縮
+    # 例: 「ので、あー、危険」→「ので、、危険」(連続「、、」) を避けるため、
+    #      前後両方が句読点に挟まれている削除範囲は右側の句読点も削除に含める。
+    # 「、」「。」どちらの組み合わせでも圧縮する。
+    _PUNCT_COMPRESS = frozenset("、。")
+    expanded_ranges: list[tuple[int, int]] = []
+    for s, e in remove_ranges:
+        has_before = s > 0 and full_text[s - 1] in _PUNCT_COMPRESS
+        has_after = e < len(full_text) and full_text[e] in _PUNCT_COMPRESS
+        if has_before and has_after:
+            # 両側句読点: 右側を削除 (左側は発話の区切りとして残す)
+            expanded_ranges.append((s, e + 1))
+        else:
+            expanded_ranges.append((s, e))
+    remove_ranges = expanded_ranges
+
     # 重複・重なりを統合してソート
     remove_ranges.sort()
     merged: list[tuple[int, int]] = []
