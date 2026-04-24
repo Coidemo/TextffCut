@@ -16,6 +16,11 @@ from use_cases.ai.brute_force_clip_generator import ClipCandidate
 logger = logging.getLogger(__name__)
 
 # 言い切り判定用の文末パターン
+# 句点系 (「。」「？」「！」) は VAD 統合後の Whisper 出力で文末に現れる典型パターン。
+# VAD 統合 (PR #128) 前は Whisper が句点を出さず「です/ます」終わりで segment を切っていた
+# ため動作していたが、VAD chunk 単位処理では Whisper が chunk 全体を 1 文として
+# 句点付きで出力する傾向があり、句点を言い切りとして認識しないと Phase 2c の anchor が
+# ほぼ全てスキップされる (実測: VAD 後 segment の 64% が「。」終わり、complete 判定 0.4%)。
 _COMPLETE_ENDINGS = (
     "です",
     "ます",
@@ -32,6 +37,12 @@ _COMPLETE_ENDINGS = (
     "ますよ",
     "ません",
     "ですか",
+    # 句点系 (VAD 統合後に典型的)
+    "。",
+    "?",
+    "!",
+    "?",
+    "!",
 )
 
 
