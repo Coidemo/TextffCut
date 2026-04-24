@@ -345,44 +345,52 @@ class TestInlineFillerRemoval:
 
     # --- 連続句読点の圧縮 ---
 
-    def test_consecutive_commas_compressed(self):
-        """filler の前後両方が「、」「。」に挟まれていれば右側の句読点も削除。"""
+    def test_all_punctuation_stripped(self):
+        """日本語 TV 字幕の慣習: 句読点 (、。?!?!) はすべて除去される。"""
         cases = [
-            ("ので、あー、危険だなーと思います", "ので、危険だなーと思います"),
-            ("それなら、あー、正直どうかな", "それなら、正直どうかな"),
-            # 「。」でも同じ圧縮が効く
-            ("ですね。うん。あと現場", "ですね。あと現場"),
-            # 「、。」「。、」混在
-            ("思います、あー。次は", "思います、次は"),
+            ("ので、あー、危険だなーと思います", "ので危険だなーと思います"),
+            ("それなら、あー、正直どうかな", "それならあー正直どうかな"),
+            ("ですね。うん。あと現場", "ですねうんあと現場"),
+            # 感嘆符も除去
+            ("すごい!面白い?", "すごい面白い"),
+            # 半角も除去
+            ("すごい!面白い?", "すごい面白い"),
+        ]
+        # 注: これらは filler 除去を経由しない純粋な句読点除去のテスト
+        # filler「あー」は別途 AMBIGUOUS/SUBTITLE で除去されるため、ここでは混在を許容
+        for text, _expected_note in cases:
+            ct = self._make_char_times(text)
+            sb = {len(text)}
+            new_text, _, _ = _remove_inline_fillers(text, ct, sb)
+            # 全句読点が除去されているか検証
+            for punct in "、。?!?!":
+                assert punct not in new_text, f"句読点「{punct}」が残った: {text!r} → {new_text!r}"
+
+    def test_consecutive_commas_fully_removed(self):
+        """filler 除去と句読点除去の組合せで、連続句読点問題は自然に解消される。"""
+        cases = [
+            ("ので、あー、危険だなーと思います", "ので危険だなーと思います"),
+            ("それなら、あー、正直どうかな", "それなら正直どうかな"),
+            ("ですね。うん。あと現場", "ですねあと現場"),
+            ("思います、あー。次は", "思います次は"),
         ]
         for text, expected in cases:
             ct = self._make_char_times(text)
             sb = {len(text)}
             new_text, _, _ = _remove_inline_fillers(text, ct, sb)
-            assert "、、" not in new_text, f"連続「、、」が残った: {text!r} → {new_text!r}"
-            assert "。。" not in new_text, f"連続「。。」が残った: {text!r} → {new_text!r}"
+            assert "、" not in new_text
+            assert "。" not in new_text
             assert new_text == expected, f"expected {expected!r}, got {new_text!r}"
-
-    def test_single_surrounding_comma_not_removed_twice(self):
-        """filler の片側だけ「、」の場合は二重削除しない"""
-        # 前だけ「、」: 「ので、あー」→「ので、」(後ろの、は存在しないので影響なし)
-        text = "ので、あー"
-        ct = self._make_char_times(text)
-        sb = {len(text)}
-        new_text, _, _ = _remove_inline_fillers(text, ct, sb)
-        # 「あー」削除後「ので、」、先頭・末尾の「、」は残って良い
-        assert "あー" not in new_text
-        assert "、" in new_text  # 前の「、」は保持
 
     # --- 孤立「ー」の削除 (Step 4A) ---
 
     def test_orphan_dash_between_punct_removed(self):
         """前後が句読点に挟まれた孤立「ー」は削除される (word-level 分配で
-        「あー」→「ー」だけ残った残滓対策)"""
+        「あー」→「ー」だけ残った残滓対策)。句読点自体も除去される。"""
         cases = [
-            ("ので、ー、危険だなー", "ので、危険だなー"),  # 「、ー、」→「、」
-            ("思います。ー、悪いこと", "思います。悪いこと"),  # 「。ー、」→「。」
-            ("なるので、ー、危険だなー", "なるので、危険だなー"),
+            ("ので、ー、危険だなー", "ので危険だなー"),
+            ("思います。ー、悪いこと", "思います悪いこと"),
+            ("なるので、ー、危険だなー", "なるので危険だなー"),
         ]
         for text, expected in cases:
             ct = self._make_char_times(text)
@@ -556,7 +564,6 @@ class TestCompatTokenizer:
         tokens = list(tokenizer.tokenize("いいかな"))
         shuujoshi_found = any("終助詞" in t.part_of_speech for t in tokens)
         assert shuujoshi_found, "終助詞が検出されなかった"
-
 
 
 # ---------------------------------------------------------------------------

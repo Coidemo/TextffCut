@@ -73,7 +73,6 @@ def generate_srt(
     )
 
 
-
 def generate_srt_entries_from_segments(
     segments: list[dict],
     max_chars_per_line: int = DEFAULT_MAX_CHARS_PER_LINE,
@@ -187,16 +186,64 @@ _KANJI_RE = re.compile(r"[一-鿿]")
 
 # 「あの」の直後が以下で始まれば連体詞（保持）
 _ANO_DEMONSTRATIVE_FOLLOWERS: tuple[str, ...] = (
-    "人", "時", "方", "事", "こと", "件", "日", "間", "頃", "あと", "前", "後",
-    "とき", "ひと", "ほう", "ころ", "あいだ", "もの", "やつ", "とこ", "ところ",
-    "会社", "店", "所", "場所", "話", "中", "なか", "辺", "あたり", "感じ", "時間",
-    "お方", "場面", "時代", "当時", "家", "街", "町",
+    "人",
+    "時",
+    "方",
+    "事",
+    "こと",
+    "件",
+    "日",
+    "間",
+    "頃",
+    "あと",
+    "前",
+    "後",
+    "とき",
+    "ひと",
+    "ほう",
+    "ころ",
+    "あいだ",
+    "もの",
+    "やつ",
+    "とこ",
+    "ところ",
+    "会社",
+    "店",
+    "所",
+    "場所",
+    "話",
+    "中",
+    "なか",
+    "辺",
+    "あたり",
+    "感じ",
+    "時間",
+    "お方",
+    "場面",
+    "時代",
+    "当時",
+    "家",
+    "街",
+    "町",
 )
 
 # 「まあ」の直後が以下で始まれば副詞（保持）
 _MAA_ADVERB_FOLLOWERS: tuple[str, ...] = (
-    "いい", "良い", "よい", "OK", "ok", "大丈夫", "何とか", "なんとか",
-    "しか", "しょうがな", "仕方", "しかたな", "まあ", "どう", "そこそこ",
+    "いい",
+    "良い",
+    "よい",
+    "OK",
+    "ok",
+    "大丈夫",
+    "何とか",
+    "なんとか",
+    "しか",
+    "しょうがな",
+    "仕方",
+    "しかたな",
+    "まあ",
+    "どう",
+    "そこそこ",
 )
 
 
@@ -303,6 +350,8 @@ def _remove_inline_fillers(
             start = filler_end
 
     _PUNCT_COMPRESS = frozenset("、。")
+    # 字幕から除去する句読点 (日本語 TV 字幕の慣習に従い非表示)
+    _SRT_STRIP_PUNCT = frozenset("、。?!?!")
 
     # 4. 孤立「ー」(長音) の削除
     # word-level 分配で「あー」フィラーの「あ」が range gap に落ちて drop され、
@@ -319,6 +368,12 @@ def _remove_inline_fillers(
         before_ok = (not before_last) or (before_last in _PUNCT_COMPRESS)
         after_ok = (not after_first) or (after_first in _PUNCT_COMPRESS)
         if before_ok and after_ok:
+            remove_ranges.append((i, i + 1))
+
+    # 4.5. 全句読点の除去 (日本語 TV 字幕の慣習)
+    # 句読点は字幕では情報量に寄与せず、改行や空白で代替される。
+    for i, ch in enumerate(full_text):
+        if ch in _SRT_STRIP_PUNCT:
             remove_ranges.append((i, i + 1))
 
     if not remove_ranges:
@@ -480,13 +535,9 @@ def _generate_from_char_times(
     """char_timesベースで字幕を生成する（共通処理）。"""
     # フィラー除去: meta 保存も SRT 生成も同じ post-filter 値を使うため、
     # ここで明示的に filter してから両方に渡す
-    filtered_text, filtered_ctimes, filtered_bounds = _remove_inline_fillers(
-        full_text, char_times, seg_bounds
-    )
+    filtered_text, filtered_ctimes, filtered_bounds = _remove_inline_fillers(full_text, char_times, seg_bounds)
 
-    entries = _entries_from_char_times(
-        filtered_text, filtered_ctimes, filtered_bounds, max_chars_per_line, max_lines
-    )
+    entries = _entries_from_char_times(filtered_text, filtered_ctimes, filtered_bounds, max_chars_per_line, max_lines)
 
     if not entries:
         return None
