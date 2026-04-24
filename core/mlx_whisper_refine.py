@@ -62,6 +62,14 @@ _VAD_MAX_CHUNK_SEC = 28.0
 # chunk 境界で word が分断されないよう前後に付ける padding。
 _VAD_CHUNK_PADDING_SEC = 0.2
 
+# --- 長 segment 後分割パラメータ ---
+# VAD 統合後の Whisper 出力は chunk 単位で長 segment を返す傾向があるため、
+# word-level timestamp を使って句点・word gap で sub-split する後処理。
+_SPLIT_TARGET_SEG_DUR = 4.0  # 目標 segment duration
+_SPLIT_MIN_SEG_DUR = 1.0  # 分割後の最小 segment duration
+_SPLIT_WORD_GAP_THRESHOLD = 0.3  # word 間 gap 閾値 (これ以上なら分割候補点)
+_SPLIT_PUNCT_CHARS = frozenset("。.?!?!")
+
 
 # ------------------------------------------------------------
 # Hallucination 検出
@@ -384,6 +392,89 @@ def _merge_vad_into_chunks(
         else:
             merged.append([s, e])
     return [(m[0], m[1]) for m in merged]
+
+
+def _find_split_points(words: list[dict]) -> list[int]:
+    """word 列の分割候補点 (word index i の直後で切る) を収集する。
+
+    - 句点「。」「？」「！」を含む word の直後
+    - word 間 gap >= _SPLIT_WORD_GAP_THRESHOLD (= 0.3s) の場所
+    """
+    points: list[int] = []
+    for i, w in enumerate(words):
+        text = (w.get("word") or "").strip()
+        if any(ch in _SPLIT_PUNCT_CHARS for ch in text):
+            points.append(i)
+            continue
+        if i + 1 < len(words):
+            gap = float(words[i + 1]["start"]) - float(w["end"])
+            if gap >= _SPLIT_WORD_GAP_THRESHOLD:
+                points.append(i)
+    return points
+
+
+def split_long_segments(segments: list[dict]) -> list[dict]:
+    """VAD 統合後の長 segment を word-level timestamp で sub-split する。
+
+    VAD chunk 単位で Whisper を呼ぶと、Whisper が chunk 全体を 1 つの segment として
+    まとめて出力する傾向がある。これを下流 (Phase 1, 2c 等) の粒度に合わせて細かく
+    分割する。句点位置と word 間 gap を分割候補点として、目標 4 秒前後の
+    segment 列に組み替える。
+
+    word-level timestamp を使うので認識内容と時刻精度は維持される。
+    """
+    result: list[dict] = []
+    for seg in segments:
+        duration = float(seg["end"]) - float(seg["start"])
+        words = seg.get("words") or []
+        if duration <= _SPLIT_TARGET_SEG_DUR or len(words) < 2:
+            result.append(seg)
+            continue
+
+        split_pts = _find_split_points(words)
+        if not split_pts:
+            result.append(seg)
+            continue
+
+        buf_start_i = 0
+        buf_t_start = float(seg["start"])
+        sub_count = 0
+
+        def _flush(end_idx: int, end_time: float) -> None:
+            nonlocal buf_start_i, buf_t_start, sub_count
+            sub_words = words[buf_start_i : end_idx + 1]
+            if not sub_words:
+                return
+            sub_text = "".join((w.get("word") or "") for w in sub_words)
+            sub_seg = {
+                **{k: v for k, v in seg.items() if k not in ("start", "end", "text", "words")},
+                "start": buf_t_start,
+                "end": end_time,
+                "text": sub_text,
+                "words": sub_words,
+            }
+            result.append(sub_seg)
+            buf_start_i = end_idx + 1
+            if buf_start_i < len(words):
+                buf_t_start = float(words[buf_start_i]["start"])
+            sub_count += 1
+
+        for pt in split_pts:
+            cur_dur = float(words[pt]["end"]) - buf_t_start
+            if cur_dur < _SPLIT_MIN_SEG_DUR:
+                continue
+            if cur_dur < _SPLIT_TARGET_SEG_DUR * 0.5:
+                continue  # 短すぎる sub は次の候補点まで繰り越し
+            _flush(pt, float(words[pt]["end"]))
+
+        # 残り word
+        if buf_start_i < len(words):
+            _flush(len(words) - 1, float(seg["end"]))
+
+        if sub_count == 0:
+            result.append(seg)
+
+    return result
 
 
 def _extract_audio_range(audio_path: str, start: float, end: float, out_path: str) -> None:

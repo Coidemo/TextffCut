@@ -19,6 +19,7 @@ from core.mlx_whisper_refine import (
     dedupe_boundary_overlaps,
     detect_hallucination,
     retry_hallucinated_segments,
+    split_long_segments,
     transcribe_refined,
 )
 
@@ -423,6 +424,119 @@ class TestVadSpeechRanges:
         assert any(cmd[0] == "ffmpeg" for cmd in ffmpeg_calls)
         # 戻り値の形
         assert result == [(0.5, 2.0), (3.0, 5.5)]
+
+
+class TestSplitLongSegments:
+    """VAD 統合後の長 segment を word-level で sub-split するロジック。"""
+
+    @staticmethod
+    def _w(text: str, start: float, end: float) -> dict:
+        return {"word": text, "start": start, "end": end}
+
+    def test_short_segment_not_split(self) -> None:
+        """duration が target 以下なら分割しない。"""
+        seg = {
+            "start": 0.0,
+            "end": 3.0,
+            "text": "短い",
+            "words": [self._w("短", 0.0, 1.5), self._w("い", 1.5, 3.0)],
+        }
+        assert split_long_segments([seg]) == [seg]
+
+    def test_split_at_period(self) -> None:
+        """句点「。」で分割される。"""
+        seg = {
+            "start": 0.0,
+            "end": 12.0,
+            "text": "前半です。後半です",
+            "words": [
+                self._w("前", 0.0, 2.0),
+                self._w("半", 2.0, 3.0),
+                self._w("で", 3.0, 4.0),
+                self._w("す", 4.0, 5.0),
+                self._w("。", 5.0, 5.5),  # 句点の直後で分割
+                self._w("後", 5.5, 7.0),
+                self._w("半", 7.0, 9.0),
+                self._w("で", 9.0, 11.0),
+                self._w("す", 11.0, 12.0),
+            ],
+        }
+        result = split_long_segments([seg])
+        # 少なくとも 2 個に分割 (句点の後で切る)
+        assert len(result) >= 2
+        # 最初の sub は句点まで含む
+        assert "。" in result[0]["text"]
+        # 全 word が保存される (テキスト保持)
+        all_text = "".join(s["text"] for s in result)
+        assert all_text == "前半です。後半です"
+
+    def test_split_at_word_gap(self) -> None:
+        """word 間 gap >= 0.3s で分割される (句点無しのケース)。"""
+        seg = {
+            "start": 0.0,
+            "end": 12.0,
+            "text": "あああ いいい",
+            "words": [
+                self._w("あ", 0.0, 1.5),
+                self._w("あ", 1.5, 3.0),
+                self._w("あ", 3.0, 5.0),
+                # 0.5s gap
+                self._w("い", 5.5, 7.5),
+                self._w("い", 7.5, 9.5),
+                self._w("い", 9.5, 12.0),
+            ],
+        }
+        result = split_long_segments([seg])
+        assert len(result) >= 2
+
+    def test_word_level_timestamp_preserved(self) -> None:
+        """分割後も各 word の timestamp はそのまま保持される。"""
+        seg = {
+            "start": 0.0,
+            "end": 10.0,
+            "text": "XX。YY",
+            "words": [
+                self._w("X", 0.0, 2.0),
+                self._w("X", 2.0, 4.0),
+                self._w("。", 4.0, 4.5),
+                self._w("Y", 6.0, 8.0),  # 1.5s gap
+                self._w("Y", 8.0, 10.0),
+            ],
+        }
+        result = split_long_segments([seg])
+        # 全 sub の words を flat にする
+        all_words = []
+        for s in result:
+            all_words.extend(s["words"])
+        # 元の 5 word が全部保持される
+        assert len(all_words) == 5
+        # 先頭 word の start は 0.0
+        assert all_words[0]["start"] == 0.0
+        # 末尾 word の end は 10.0
+        assert all_words[-1]["end"] == 10.0
+
+    def test_no_words_not_split(self) -> None:
+        """word-level timestamp が無い segment は分割対象外。"""
+        seg = {"start": 0.0, "end": 20.0, "text": "長いけど words なし", "words": []}
+        assert split_long_segments([seg]) == [seg]
+
+    def test_extra_fields_preserved(self) -> None:
+        """分割時に segment の任意フィールド (id, chars 等) も sub に引き継がれる。"""
+        seg = {
+            "id": "original-id",
+            "start": 0.0,
+            "end": 12.0,
+            "text": "AB。CD",
+            "words": [
+                self._w("A", 0.0, 2.0),
+                self._w("B", 2.0, 4.0),
+                self._w("。", 4.0, 4.5),
+                self._w("C", 5.0, 7.0),  # 0.5s gap
+                self._w("D", 7.0, 12.0),
+            ],
+        }
+        result = split_long_segments([seg])
+        assert all(s.get("id") == "original-id" for s in result)
 
 
 class TestMergeVadIntoChunks:
