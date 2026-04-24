@@ -552,10 +552,21 @@ class Transcriber:
         if progress_callback:
             progress_callback(0.9, "アライメント完了")
 
-        # 3. TranscriptionResultに変換（_transcribe_localと同じ形式）
+        # 3a. VAD 統合で chunk 単位にまとまった長 segment を word-level timestamp で
+        #     sub-split する (Phase 1/2c 等下流処理の粒度に合わせるため)。
+        from core.mlx_whisper_refine import split_long_segments
+
+        aligned_segments = [dict(s) for s in align_result.segments]
+        split_segments = split_long_segments(aligned_segments)
+        if len(split_segments) != len(aligned_segments):
+            logger.info(
+                f"  長 segment 後分割: {len(aligned_segments)} → {len(split_segments)} セグメント"
+            )
+
+        # 3b. TranscriptionResultに変換（_transcribe_localと同じ形式）
         # mlx-forced-alignerのscoreはlog-probability（Domain層でNoneにリセットされる）
         transcription_segments = []
-        for seg in align_result.segments:
+        for seg in split_segments:
             transcription_segments.append(
                 TranscriptionSegment(
                     start=seg["start"],

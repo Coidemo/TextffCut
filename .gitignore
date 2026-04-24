@@ -245,3 +245,4 @@ scripts/generate_license_key.py
 # Claude Code worktrees and settings
 .claude/
 .mcp.json
+/scripts/experiments/
