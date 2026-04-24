@@ -224,9 +224,7 @@ def save_srt_meta(
     import unicodedata
 
     if len(full_text) != len(char_times):
-        raise ValueError(
-            f"full_text ({len(full_text)} chars) と char_times ({len(char_times)}) の長さが一致しない"
-        )
+        raise ValueError(f"full_text ({len(full_text)} chars) と char_times ({len(char_times)}) の長さが一致しない")
 
     # 空白・改行を除去 (対応する char_times も同時に drop してアライン維持)
     stripped_chars: list[str] = []

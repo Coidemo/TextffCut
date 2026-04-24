@@ -382,9 +382,10 @@ class TestTranscribeRefined:
 
     def test_mlx_kwargs_passthrough(self) -> None:
         """**mlx_kwargs が mlx_whisper.transcribe に渡されること。"""
-        with _disable_vad(), patch(
-            "mlx_whisper.transcribe", return_value={"segments": [], "language": "ja"}
-        ) as mock_tx:
+        with (
+            _disable_vad(),
+            patch("mlx_whisper.transcribe", return_value={"segments": [], "language": "ja"}) as mock_tx,
+        ):
             transcribe_refined(
                 audio_path="fake.wav",
                 model_path="fake-model",
@@ -408,6 +409,7 @@ class TestVadSpeechRanges:
         def fake_subprocess_run(cmd, **kwargs):
             ffmpeg_calls.append(cmd)
             from unittest.mock import MagicMock
+
             m = MagicMock()
             m.returncode = 0
             return m
@@ -622,7 +624,10 @@ class TestTranscribeRefinedWithVad:
         """VAD が speech 区間を検出できなければ従来経路 (一発 transcribe) へフォールバック。"""
         with (
             patch("core.mlx_whisper_refine._vad_speech_ranges", return_value=[]),
-            patch("mlx_whisper.transcribe", return_value={"segments": [{"start": 0.0, "end": 1.0, "text": "fallback"}], "language": "ja"}) as mock_tx,
+            patch(
+                "mlx_whisper.transcribe",
+                return_value={"segments": [{"start": 0.0, "end": 1.0, "text": "fallback"}], "language": "ja"},
+            ) as mock_tx,
         ):
             out = transcribe_refined(audio_path="fake.wav", model_path="fake-model")
         # 通常モード: 一発 transcribe が呼ばれる

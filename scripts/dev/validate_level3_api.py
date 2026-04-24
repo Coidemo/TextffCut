@@ -23,15 +23,33 @@ from utils.api_key_manager import api_key_manager  # noqa: E402
 
 FILLER_PATTERNS = sorted(
     [
-        "えーっと", "えっとね", "えーと", "えっと",
-        "あのー", "うーんと", "うーん",
-        "なんかその", "なんかこう", "なんか",
-        "あのね", "あの",
-        "まあその", "まあね", "まあまあ", "まあ", "まぁ",
-        "えー", "あー", "んー",
-        "やっぱり", "やっぱ",
+        "えーっと",
+        "えっとね",
+        "えーと",
+        "えっと",
+        "あのー",
+        "うーんと",
+        "うーん",
+        "なんかその",
+        "なんかこう",
+        "なんか",
+        "あのね",
+        "あの",
+        "まあその",
+        "まあね",
+        "まあまあ",
+        "まあ",
+        "まぁ",
+        "えー",
+        "あー",
+        "んー",
+        "やっぱり",
+        "やっぱ",
         "そうですね",
-        "でまあ", "でなんか", "であの", "でその",
+        "でまあ",
+        "でなんか",
+        "であの",
+        "でその",
     ],
     key=len,
     reverse=True,
@@ -95,9 +113,7 @@ def run_gpt4o_transcribe(client: OpenAI, audio_path: Path, model: str = "gpt-4o-
     return str(resp), time.perf_counter() - t0
 
 
-def run_gpt4o_audio_refine(
-    client: OpenAI, audio_path: Path, whisper_text: str
-) -> tuple[str, float]:
+def run_gpt4o_audio_refine(client: OpenAI, audio_path: Path, whisper_text: str) -> tuple[str, float]:
     """gpt-4o-audio-preview に音声 + Whisper出力を渡してフィラー補完させる。"""
     t0 = time.perf_counter()
     with open(audio_path, "rb") as f:
@@ -164,7 +180,12 @@ def main() -> None:
     print()
 
     results: dict[str, dict] = {
-        "MLX_medium": {"total": total_wh_local, "fillers": wh_local_fillers, "elapsed": 0.0, "text": whisper_local_text},
+        "MLX_medium": {
+            "total": total_wh_local,
+            "fillers": wh_local_fillers,
+            "elapsed": 0.0,
+            "text": whisper_local_text,
+        },
     }
 
     # whisper-1

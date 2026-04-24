@@ -218,8 +218,7 @@ def _cmd_models() -> None:
         ("medium", "769M", "やや高速。精度と速度のバランス型"),
         ("large-v3", "1.5G", "推奨。最高精度（フィラー・固有名詞に強い）"),
         ("large-v3-turbo", "809M", "large-v3 の蒸留版（精度低下あり）"),
-        ("large-v3-filler", "1.5G",
-         "large-v3 + 日本語フィラー強化 LoRA（話者特化・実験的）"),
+        ("large-v3-filler", "1.5G", "large-v3 + 日本語フィラー強化 LoRA（話者特化・実験的）"),
     ]
 
     con = Console()

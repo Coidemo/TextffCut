@@ -39,7 +39,7 @@ def _load_suggestion_cache(base_dir: Path, srt_stem: str) -> tuple[dict, float] 
     if not m:
         return None
     idx_1based = int(m.group(1))
-    expected_rest = srt_stem[m.end():]  # "AIで情報収集格差が爆増中!" 部分
+    expected_rest = srt_stem[m.end() :]  # "AIで情報収集格差が爆増中!" 部分
 
     # sanitize_filename と同じロジックを再実装 (suggest_and_export との循環 import 回避)
     import unicodedata

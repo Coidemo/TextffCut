@@ -95,12 +95,20 @@ def extract_audio_16khz_mono(video_path: Path, out_path: Path) -> None:
     print(f"  16kHz mono WAV 抽出中: {video_path.name}")
     subprocess.run(
         [
-            "ffmpeg", "-y", "-i", str(video_path),
-            "-ac", "1", "-ar", "16000",
-            "-c:a", "pcm_s16le",
+            "ffmpeg",
+            "-y",
+            "-i",
+            str(video_path),
+            "-ac",
+            "1",
+            "-ar",
+            "16000",
+            "-c:a",
+            "pcm_s16le",
             str(out_path),
         ],
-        check=True, capture_output=True,
+        check=True,
+        capture_output=True,
     )
 
 
@@ -143,11 +151,15 @@ def main() -> None:
     parser.add_argument("--video", type=Path, required=True, help="動画ファイル (1.0x)")
     parser.add_argument("--out", type=Path, required=True, help="出力ディレクトリ")
     parser.add_argument(
-        "--eval-seconds", type=float, default=600,
+        "--eval-seconds",
+        type=float,
+        default=600,
         help="最後の何秒を eval にするか (default=600 = 10分)",
     )
     parser.add_argument(
-        "--max-chunk-sec", type=float, default=MAX_CHUNK_SEC,
+        "--max-chunk-sec",
+        type=float,
+        default=MAX_CHUNK_SEC,
         help=f"チャンクの最大秒数 (default={MAX_CHUNK_SEC})",
     )
     args = parser.parse_args()

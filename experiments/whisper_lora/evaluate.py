@@ -44,10 +44,25 @@ INITIAL_PROMPT_JA = (
 
 # 評価対象フィラー (FIR 計算用)
 FILLERS = [
-    "えー", "えっと", "えーっと", "あの", "あのー", "あのね",
-    "うーん", "うーんと", "んー", "あー", "まあ", "まぁ",
-    "なんか", "なんかその", "そうですね", "やっぱ", "やっぱり",
-    "で、", "ね、",
+    "えー",
+    "えっと",
+    "えーっと",
+    "あの",
+    "あのー",
+    "あのね",
+    "うーん",
+    "うーんと",
+    "んー",
+    "あー",
+    "まあ",
+    "まぁ",
+    "なんか",
+    "なんかその",
+    "そうですね",
+    "やっぱ",
+    "やっぱり",
+    "で、",
+    "ね、",
 ]
 
 
@@ -68,8 +83,8 @@ def char_wer(reference: str, hypothesis: str) -> float:
         for j in range(1, n + 1):
             cost = 0 if ref[i - 1] == hyp[j - 1] else 1
             dp[i][j] = min(
-                dp[i - 1][j] + 1,      # deletion
-                dp[i][j - 1] + 1,      # insertion
+                dp[i - 1][j] + 1,  # deletion
+                dp[i][j - 1] + 1,  # insertion
                 dp[i - 1][j - 1] + cost,  # substitution
             )
     return dp[m][n] / len(ref)
@@ -156,16 +171,18 @@ def evaluate_model(
         for f in FILLERS:
             filler_counter[f] += hyp.count(f)
 
-        records.append({
-            "idx": i,
-            "offset": ex["offset"],
-            "duration": ex["duration"],
-            "reference": ref,
-            "hypothesis": hyp,
-            "char_wer": round(wer, 4),
-            "filler_recalled": recalled,
-            "filler_total": total,
-        })
+        records.append(
+            {
+                "idx": i,
+                "offset": ex["offset"],
+                "duration": ex["duration"],
+                "reference": ref,
+                "hypothesis": hyp,
+                "char_wer": round(wer, 4),
+                "filler_recalled": recalled,
+                "filler_total": total,
+            }
+        )
 
         total_ref_chars += len(ref)
         total_wer_edits += wer * len(ref)
@@ -182,8 +199,7 @@ def evaluate_model(
         "filler_total_in_ref": total_fillers,
         "filler_counts_in_hyp": dict(filler_counter),
     }
-    print(f"[{label}] WER={summary['char_wer']:.4f}, FIR={summary['fir']:.4f} "
-          f"({total_recalled}/{total_fillers})")
+    print(f"[{label}] WER={summary['char_wer']:.4f}, FIR={summary['fir']:.4f} " f"({total_recalled}/{total_fillers})")
     return records, summary
 
 
@@ -237,12 +253,18 @@ def main() -> None:
     print("\n" + "=" * 64)
     print("COMPARISON")
     print("=" * 64)
-    print(f"  Char WER:  base={base_summary['char_wer']:.4f}  lora={lora_summary['char_wer']:.4f}  "
-          f"(Δ {result['improvement']['char_wer_delta']:+.4f})")
-    print(f"  FIR:       base={base_summary['fir']:.4f}  lora={lora_summary['fir']:.4f}  "
-          f"(Δ {result['improvement']['fir_delta']:+.4f})")
-    print(f"  filler recall:  base {base_summary['filler_recalled']}/{base_summary['filler_total_in_ref']}  "
-          f"  lora {lora_summary['filler_recalled']}/{lora_summary['filler_total_in_ref']}")
+    print(
+        f"  Char WER:  base={base_summary['char_wer']:.4f}  lora={lora_summary['char_wer']:.4f}  "
+        f"(Δ {result['improvement']['char_wer_delta']:+.4f})"
+    )
+    print(
+        f"  FIR:       base={base_summary['fir']:.4f}  lora={lora_summary['fir']:.4f}  "
+        f"(Δ {result['improvement']['fir_delta']:+.4f})"
+    )
+    print(
+        f"  filler recall:  base {base_summary['filler_recalled']}/{base_summary['filler_total_in_ref']}  "
+        f"  lora {lora_summary['filler_recalled']}/{lora_summary['filler_total_in_ref']}"
+    )
     print(f"\n詳細: {args.out}")
 
 

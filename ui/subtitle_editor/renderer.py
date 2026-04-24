@@ -38,19 +38,14 @@ logger = logging.getLogger(__name__)
 def _find_textffcut_dirs(videos_root: Path) -> list[Path]:
     if not videos_root.exists():
         return []
-    return sorted(
-        [p for p in videos_root.iterdir() if p.is_dir() and p.name.endswith("_TextffCut")]
-    )
+    return sorted([p for p in videos_root.iterdir() if p.is_dir() and p.name.endswith("_TextffCut")])
 
 
 def _list_srt_files(base_dir: Path) -> list[Path]:
     fcpxml_dir = base_dir / "fcpxml"
     if not fcpxml_dir.exists():
         return []
-    return sorted(
-        p for p in fcpxml_dir.glob("*.srt")
-        if not p.name.endswith(".bak") and re.match(r"^\d+_", p.stem)
-    )
+    return sorted(p for p in fcpxml_dir.glob("*.srt") if not p.name.endswith(".bak") and re.match(r"^\d+_", p.stem))
 
 
 def _handle_save(
@@ -166,6 +161,7 @@ def render_subtitle_editor_section(container: Any, videos_root: str = "videos") 
         # デバッグ: 差分を表示
         with container.expander("🔍 差分の詳細 (デバッグ)"):
             import difflib
+
             o_lines = original_text.split("\n")
             e_lines = edited_text.split("\n")
             diff = list(difflib.unified_diff(o_lines, e_lines, lineterm="", n=2))
@@ -173,9 +169,7 @@ def render_subtitle_editor_section(container: Any, videos_root: str = "videos") 
                 container.code("\n".join(diff[:40]), language="diff")
             else:
                 container.write("差分なし (unified_diff は空) - NFC 正規化等の非表示文字差の可能性")
-            container.caption(
-                f"original 長さ: {len(original_text)}, edited 長さ: {len(edited_text)}"
-            )
+            container.caption(f"original 長さ: {len(original_text)}, edited 長さ: {len(edited_text)}")
 
     # parse & timing 計算
     # 1. meta (char_times) があれば音響正確な timing 復元
@@ -255,7 +249,7 @@ def render_subtitle_editor_section(container: Any, videos_root: str = "videos") 
                         "clip": L.get("clip_id", ""),
                         "mode": L.get("algorithm_version", "").split("_")[-1],
                         "entries": f"{L.get('diff_summary', {}).get('entries_before', '?')}"
-                                   f"→{L.get('diff_summary', {}).get('entries_after', '?')}",
+                        f"→{L.get('diff_summary', {}).get('entries_after', '?')}",
                         "edit_time": L.get("edit_duration_sec"),
                     }
                     for L in logs[-20:]
