@@ -119,8 +119,11 @@ def generate_srt_entries_from_segments(
 
 
 # 字幕内で除去する安全なフィラー（長い順）
+# FILLER_WORDS (Phase 0 音声切除用) と足並みを揃え、音声切除された箇所が
+# 字幕にも残らないようにする。
 SUBTITLE_FILLER_WORDS = sorted(
     [
+        # 基本 filler
         "やっぱり",
         "やっぱ",
         "えーっと",
@@ -134,6 +137,25 @@ SUBTITLE_FILLER_WORDS = sorted(
         "あのね",
         "えー",
         "要は",  # Phase 3.6 音声切除が 0.15s 閾値で落ちた時のセーフティネット
+        # 複合 filler (「まあ」+ filler の連鎖) — 明確にフィラー
+        "まああの",
+        "まあなんか",
+        "まあそう",
+        "まあまあ",
+        "まあその",
+        "まあね",
+        # 接続系 filler (「で」+ filler)
+        "でまあ",
+        "でなんか",
+        "であの",
+        "でその",
+        # 思考・感嘆系 (単体で明確フィラー)
+        "うーん",
+        "んー",
+        "んーっと",
+        "あー",
+        # 注: 「そうですね」は文脈依存 (相槌 vs 「意外とそうですね」等の返答の一部) のため
+        #      SUBTITLE には入れない。FILLER_WORDS (Phase 0) の GiNZA 判定に委ねる。
     ],
     key=len,
     reverse=True,
