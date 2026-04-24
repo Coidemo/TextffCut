@@ -8,8 +8,10 @@ AI切り抜き候補生成ユースケース
 
 from __future__ import annotations
 
+import bisect
 import logging
 import time
+
 from domain.entities.clip_suggestion import (
     ClipSuggestion,
     TopicDetectionRequest,
@@ -499,7 +501,12 @@ class GenerateClipSuggestionsUseCase:
         # filler-aware: buffer が filler word を飛び越えた場合も filler を通り抜ける
         snapped_ranges = self._snap_ranges_to_word_boundaries(buffered_ranges, transcription, filler_map=filler_map)
         if not snapped_ranges:
-            # 全 range が word 未満に縮退した場合は buffer 前に戻す
+            # 全 range が filler 内部に縮退した稀なケース: snap 前に退避
+            # (filler 残留が発生するため後続の SRT 品質確認が必要)
+            logger.warning(
+                f"word 境界スナップで全 range が縮退、buffer 適用版に戻す: {topic.title} "
+                f"(ranges={len(buffered_ranges)}, duration={sum(e - s for s, e in buffered_ranges):.1f}s)"
+            )
             snapped_ranges = buffered_ranges
 
         # topic境界の実時間を算出
@@ -598,33 +605,22 @@ class GenerateClipSuggestionsUseCase:
             else:
                 merged.append([s_t, e_t])
         filler_ranges: list[tuple[float, float]] = [(s, e) for s, e in merged]
-
-        import bisect
-
         span_starts = [sp[0] for sp in filler_ranges]
 
-        def _containing_filler(t: float, exclusive_boundary: bool) -> tuple[float, float] | None:
-            """t を含む filler 区間を返す。
-
-            exclusive_boundary=True: (start, end) 開区間、境界ちょうどは「含まれない」
-            exclusive_boundary=False: [start, end] 閉区間
-            """
+        def _containing_filler(t: float) -> tuple[float, float] | None:
+            """t を含む filler 区間 [start, end] を返す。境界ちょうども含む。"""
             idx = bisect.bisect_right(span_starts, t) - 1
             if idx < 0:
                 return None
             s, e = filler_ranges[idx]
-            if exclusive_boundary:
-                if s < t < e:
-                    return (s, e)
-            else:
-                if s <= t <= e:
-                    return (s, e)
+            if s <= t <= e:
+                return (s, e)
             return None
 
         def snap_start(t: float) -> float:
             # t が filler の内部または開始境界なら、filler の end へ進める
             # 境界ちょうど (t == filler.end) はすでに filler の外なので動かさない
-            span = _containing_filler(t, exclusive_boundary=False)
+            span = _containing_filler(t)
             if span is None or t == span[1]:
                 return t
             return span[1]
@@ -632,7 +628,7 @@ class GenerateClipSuggestionsUseCase:
         def snap_end(t: float) -> float:
             # t が filler の内部または終端なら、filler の start へ戻す
             # 境界ちょうど (t == filler.start) はすでに filler の外なので動かさない
-            span = _containing_filler(t, exclusive_boundary=False)
+            span = _containing_filler(t)
             if span is None or t == span[0]:
                 return t
             return span[0]

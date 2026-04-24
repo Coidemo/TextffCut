@@ -351,7 +351,8 @@ def _remove_inline_fillers(
 
     _PUNCT_COMPRESS = frozenset("、。")
     # 字幕から除去する句読点 (日本語 TV 字幕の慣習に従い非表示)
-    _SRT_STRIP_PUNCT = frozenset("、。?!?!")
+    # 三点リーダー「…」は Whisper が発話末尾に付ける慣例 (「Amazon…」等) のため同時に除去
+    _SRT_STRIP_PUNCT = frozenset("、。?!?!…")
 
     # 4. 孤立「ー」(長音) の削除
     # word-level 分配で「あー」フィラーの「あ」が range gap に落ちて drop され、

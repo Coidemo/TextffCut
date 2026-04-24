@@ -346,7 +346,7 @@ class TestInlineFillerRemoval:
     # --- 連続句読点の圧縮 ---
 
     def test_all_punctuation_stripped(self):
-        """日本語 TV 字幕の慣習: 句読点 (、。?!?!) はすべて除去される。"""
+        """日本語 TV 字幕の慣習: 句読点 (、。?!?!…) はすべて除去される。"""
         cases = [
             ("ので、あー、危険だなーと思います", "ので危険だなーと思います"),
             ("それなら、あー、正直どうかな", "それならあー正直どうかな"),
@@ -355,6 +355,8 @@ class TestInlineFillerRemoval:
             ("すごい!面白い?", "すごい面白い"),
             # 半角も除去
             ("すごい!面白い?", "すごい面白い"),
+            # 三点リーダーも除去 (Whisper が「Amazon…」等に付ける)
+            ("Amazon…ギフト券", "Amazonギフト券"),
         ]
         # 注: これらは filler 除去を経由しない純粋な句読点除去のテスト
         # filler「あー」は別途 AMBIGUOUS/SUBTITLE で除去されるため、ここでは混在を許容
@@ -363,7 +365,7 @@ class TestInlineFillerRemoval:
             sb = {len(text)}
             new_text, _, _ = _remove_inline_fillers(text, ct, sb)
             # 全句読点が除去されているか検証
-            for punct in "、。?!?!":
+            for punct in "、。?!?!…":
                 assert punct not in new_text, f"句読点「{punct}」が残った: {text!r} → {new_text!r}"
 
     def test_consecutive_commas_fully_removed(self):
