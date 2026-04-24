@@ -163,7 +163,24 @@ SUBTITLE_FILLER_WORDS = sorted(
 
 # 文脈依存フィラー: 直後が特定パターンなら文法的用法として保持
 # 例: 「あの人」「あの時」は連体詞、「あの世界」「あの仕事」はフィラー
-AMBIGUOUS_SUBTITLE_FILLERS: tuple[str, ...] = ("あの", "まあ", "まぁ")
+AMBIGUOUS_SUBTITLE_FILLERS: tuple[str, ...] = (
+    "あの",
+    "まあ",
+    "まぁ",
+    # 相槌系: 前後に句読点があれば filler、それ以外は保持 (語の一部の可能性)
+    "うん",  # 「思うん」「使うん」等の撥音便を誤削除しないよう文脈判定
+    "はい",  # 「やるとかはいい」等の「は+いい」を誤削除しないよう文脈判定
+    "ええ",  # 「ええと」等の語の一部を誤削除しないよう文脈判定
+    "そう",  # 「そういう」「そうだね」等の副詞を誤削除しないよう厳格判定
+)
+
+# 句読点・境界文字 (文頭/文末相当の区切り)
+_PUNCT_OR_BOUNDARY = frozenset("、。?!?!　 ")
+
+# 相槌系 filler (削除候補): 前後いずれかが句読点で filler 確定
+_AIZUCHI_FILLERS: frozenset[str] = frozenset({"うん", "はい", "ええ"})
+# 副詞/接続詞と混同しやすい filler: 前後両方が句読点で filler 確定
+_STRICT_BOUNDARY_FILLERS: frozenset[str] = frozenset({"そう"})
 
 # "要は" の境界チェック用 (CJK Unified Ideographs 主要範囲)
 _KANJI_RE = re.compile(r"[一-鿿]")
@@ -183,15 +200,39 @@ _MAA_ADVERB_FOLLOWERS: tuple[str, ...] = (
 )
 
 
-def _is_ambiguous_filler_to_keep(filler: str, text_after: str) -> bool:
-    """ambiguous filler の直後を見て「残すべき文法用法」かを判定。
+def _is_ambiguous_filler_to_keep(filler: str, text_after: str, text_before: str = "") -> bool:
+    """ambiguous filler の文脈から「残すべき文法用法」かを判定。
 
-    text_after は filler の直後に続くテキスト（先頭10文字程度を想定）。
+    Args:
+        filler: 判定対象のフィラー文字列
+        text_after: filler 直後に続くテキスト（先頭10文字程度）
+        text_before: filler 直前のテキスト（末尾10文字程度）— 相槌系 filler の
+                     前後境界判定に使用
     """
     if filler == "あの":
         return any(text_after.startswith(k) for k in _ANO_DEMONSTRATIVE_FOLLOWERS)
     if filler in ("まあ", "まぁ"):
         return any(text_after.startswith(k) for k in _MAA_ADVERB_FOLLOWERS)
+
+    # 相槌系 filler: 前後いずれかが句読点 / 境界なら filler 確定 (削除)、それ以外は保持
+    # 例: 「ですね。うん。あと」→削除 / 「思うんですけど」→保持 (動詞の撥音便)
+    if filler in _AIZUCHI_FILLERS:
+        before_last = text_before[-1] if text_before else ""
+        after_first = text_after[0] if text_after else ""
+        before_ok = (not before_last) or (before_last in _PUNCT_OR_BOUNDARY)
+        after_ok = (not after_first) or (after_first in _PUNCT_OR_BOUNDARY)
+        # 削除条件: 前後のどちらかが境界 → filler として削除 (False = 保持しない)
+        return not (before_ok or after_ok)
+
+    # 副詞/接続詞と混同しやすい filler: 前後両方が句読点のときだけ削除
+    # 例: 「。そう、」→削除 / 「そういう」「そう考える」「なんかそう」→保持
+    if filler in _STRICT_BOUNDARY_FILLERS:
+        before_last = text_before[-1] if text_before else ""
+        after_first = text_after[0] if text_after else ""
+        before_ok = (not before_last) or (before_last in _PUNCT_OR_BOUNDARY)
+        after_ok = (not after_first) or (after_first in _PUNCT_OR_BOUNDARY)
+        return not (before_ok and after_ok)
+
     return False
 
 
@@ -252,7 +293,8 @@ def _remove_inline_fillers(
                 break
             filler_end = idx + len(filler)
             text_after = full_text[filler_end : filler_end + 10]
-            if _is_ambiguous_filler_to_keep(filler, text_after):
+            text_before = full_text[max(0, idx - 10) : idx]
+            if _is_ambiguous_filler_to_keep(filler, text_after, text_before):
                 start = filler_end
                 continue
             already_covered = any(rs <= idx and filler_end <= re for rs, re in remove_ranges)
