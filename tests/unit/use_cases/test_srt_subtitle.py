@@ -268,6 +268,81 @@ class TestInlineFillerRemoval:
             assert "まあ" not in new_text, f"filler まあ should be removed: {text!r} → {new_text!r}"
             assert expected_contains in new_text
 
+    # --- 相槌系 filler: 「うん」「はい」「ええ」---
+
+    def test_un_aizuchi_removed(self):
+        """相槌の「うん」(前後が句読点) は除去"""
+        cases = [
+            ("ですね。うん。あと現場",),
+            ("キロね、うん、すごい",),
+        ]
+        for (text,) in cases:
+            ct = self._make_char_times(text)
+            sb = {len(text)}
+            new_text, _, _ = _remove_inline_fillers(text, ct, sb)
+            assert "うん" not in new_text, f"aizuchi うん should be removed: {text!r} → {new_text!r}"
+
+    def test_un_in_word_preserved(self):
+        """「思うん」「使うん」「戦うん」等の動詞撥音便は保持"""
+        for text in (
+            "ったと思うんですけど",
+            "3時間使うんだっけ",
+            "感じが戦うんですけど",
+        ):
+            ct = self._make_char_times(text)
+            sb = {len(text)}
+            new_text, _, _ = _remove_inline_fillers(text, ct, sb)
+            assert "うん" in new_text, f"verb suffix うん should be preserved: {text!r} → {new_text!r}"
+
+    def test_hai_aizuchi_removed(self):
+        """相槌の「はい」(前後が句読点) は除去"""
+        for text in (
+            "います。はい、なんかで",
+            "なんで、はい。金曜日",
+            "したね。はい。例・そ",
+        ):
+            ct = self._make_char_times(text)
+            sb = {len(text)}
+            new_text, _, _ = _remove_inline_fillers(text, ct, sb)
+            assert "はい" not in new_text, f"aizuchi はい should be removed: {text!r} → {new_text!r}"
+
+    def test_hai_in_word_preserved(self):
+        """「やるとかはいい」の「は+いい」は保持 (「はい」と誤認しない)"""
+        text = "やるとかはいいと思います"
+        ct = self._make_char_times(text)
+        sb = {len(text)}
+        new_text, _, _ = _remove_inline_fillers(text, ct, sb)
+        assert "はいい" in new_text, f"は+いい should be preserved: {text!r} → {new_text!r}"
+
+    # --- 厳格判定系 filler: 「そう」---
+
+    def test_sou_strict_both_boundaries_removed(self):
+        """前後両方が句読点の「そう」は削除 (単独相槌のみ)"""
+        text = "そうだろう、そう、みんなね"
+        ct = self._make_char_times(text)
+        sb = {len(text)}
+        new_text, _, _ = _remove_inline_fillers(text, ct, sb)
+        # 「そうだろう」の「そう」は副詞として保持 (後ろに「だ」が続く)
+        assert "そうだろう" in new_text, f"adverb そう should be preserved: {text!r} → {new_text!r}"
+        # 「、そう、」の「そう」は前後両方句読点なので削除
+        # 「みんな」は保持
+        assert "みんなね" in new_text
+        # そう が減っている (3 個 → 1 個)
+        assert new_text.count("そう") == 1
+
+    def test_sou_adverb_preserved(self):
+        """「そういう」「そうだね」「そう考える」等の副詞/動詞接続は保持"""
+        for text in (
+            "そういうことですね",
+            "そうだねって話",
+            "なんで、そう考えとく",
+            "みんながそうやって、",
+        ):
+            ct = self._make_char_times(text)
+            sb = {len(text)}
+            new_text, _, _ = _remove_inline_fillers(text, ct, sb)
+            assert "そう" in new_text, f"adverb そう should be preserved: {text!r} → {new_text!r}"
+
 
 class TestEndToEnd:
     """実セグメントデータでの統合テスト"""
