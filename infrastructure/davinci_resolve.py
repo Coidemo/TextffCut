@@ -227,7 +227,7 @@ def _add_video_track_on_top(timeline) -> int:
     return after
 
 
-def _normalize_tool_list(tool_list_obj):
+def _normalize_tool_list(tool_list_obj) -> list:
     """GetToolList の戻り (dict / list / 単一) を list に正規化。"""
     if tool_list_obj is None:
         return []
@@ -264,6 +264,10 @@ def _compute_duration_multiplier(
     test_real = test_item.GetDuration()
     timeline.DeleteClips([test_item], False)
     if not test_real or test_real <= 0:
+        logger.warning(
+            f"Text+ duration test の GetDuration() が無効値 (test_real={test_real})、"
+            "multiplier=1.0 で続行します。Text+ クリップ間に隙間が生じる可能性があります"
+        )
         return 1.0
     return test_duration / test_real
 
@@ -380,6 +384,8 @@ def convert_subtitles_to_text_plus(
                 fill_count += 1
 
         # duration_multiplier 補正 (Fusion comp の内部 duration による短縮を打ち消す)
+        # `+ 0.999` は ceiling 風の丸め (Snap Captions Lua line 1063 と同じ慣用)。
+        # math.ceil(...) でも等価だが、Lua 由来の意図を保持するためそのまま採用。
         base_duration = end_frame + 1
         corrected_end_frame = int(base_duration * duration_multiplier + 0.999) - 1
 
@@ -463,9 +469,16 @@ def send_clip_to_resolve(
         fcpxml_path: FCPXML ファイルパス (絶対パス)
         srt_path: SRT ファイルパス。省略時は同名の .srt を探す
         mmdd: 連番計算用の月日 (例: "0210")。省略時は動画ディレクトリ名から抽出
+        text_plus: SRT 取り込み後に Text+ 自動変換を実行 (default: False)。
+            ライブラリ層では明示オプトイン、UI 層 (CLI/GUI) でデフォ ON にして
+            呼び出すレイヤ分離。CLI: `textffcut send` (デフォ ON、`--no-text-plus` で OFF)、
+            GUI: 字幕エディタの「Text+ 自動変換」チェックボックス (デフォ ON)。
+        text_plus_bin: Text+ テンプレートを格納したビン名
+        text_plus_template: Text+ テンプレートクリップ名 (Fusion Title)
 
     Returns:
-        SendResult: 操作結果
+        SendResult: 操作結果。Text+ 変換が実行された場合は ``text_plus`` 属性に
+            TextPlusResult が入る。テンプレ未配置等でスキップした場合は None。
     """
     fcpxml_path = fcpxml_path.resolve()
     if not fcpxml_path.exists():
