@@ -158,6 +158,12 @@ textffcut [動画ファイル ...]
 # AI自動切り抜き → FCPXML + SRT出力
 textffcut clip [動画ファイル ...]
 
+# DaVinci Resolve 取り込み (FCPXML + SRT)
+textffcut send path/to/clip.fcpxml
+
+# DaVinci Resolve 取り込み + Text+ 自動変換 (Snap Captions 互換)
+textffcut send path/to/clip.fcpxml --text-plus
+
 # GUI起動
 textffcut gui
 
@@ -311,6 +317,14 @@ make pre-commit
 4. **FCPXML フレーム丸め (30fps)**: `duration` は `round(seconds × 30)` で frame に量子化される。`round(0.5)=0`（banker's rounding）で `duration="0/1s"` が生成されるとアセット参照が壊れるため、無音削除後の `keep_range` は **最低 1 frame (33ms) の duration を保証** する必要がある。`core/video.py::_rescue_missing_words` の `_RESCUE_PADDING` がこれを担保。
 5. **無音削除の word 救済**: `remove_silence_new` は `transcription_words` 引数を受け取る。GUI (`presentation/views/text_editor.py`) と CLI (`use_cases/ai/suggest_and_export.py`) の両方から `transcription` を伝播する必要がある。伝播が抜けると silence 判定で落とされた short word が SRT から欠落する。
 6. **auto_blur (v2.2.0)**: Apple Silicon Mac 専用 (`ocrmac`/Apple Vision API 依存)。`use_cases/auto_blur/auto_blur_use_case.py::is_apple_silicon()` で起動時にチェック、非対応環境では警告のみ出して機能無効化 (文字起こしは継続)。キャッシュは `{video}_TextffCut/source_blurred.mp4` + sidecar (params hash + 元動画 mtime/size で検証)。クリップ生成時に cache あれば自動利用 (suggest_and_export.py + text_editor.py 両経路)、`--no-blurred-source` / GUI checkbox OFF で明示的に無効化可。
+7. **textffcut send --text-plus (Snap Captions 互換)**: SRT を Fusion Text+ クリップへ自動変換する。事前準備として **Media Pool root に `TextffCut` ビン + `Caption_Default` という Fusion Title (Text+) テンプレート** が必要。実装は `infrastructure/davinci_resolve.py::convert_subtitles_to_text_plus()`。Snap Captions Lua の挙動を独自再実装 (再配布禁止のためコード流用なし)。挙動の要点:
+   - 新規ビデオトラックを最上位に追加 → そこへ配置 (既存トラック衝突回避)
+   - U+2028 → `\n` 改行変換 (Resolve は SRT 改行を Line Separator で保持)
+   - duration_multiplier 補正: テスト clip 配置→測定→削除で Fusion comp の内部 duration による短縮を打ち消す。これがないと隣接 Text+ クリップ間に隙間が生じる
+   - 端伸ばし (extend_edges): 最初の字幕をタイムライン先頭、最後の字幕を末尾まで延長
+   - Fill Gaps: TextffCut SRT は字幕間 gap=0 で連続のため通常は no-op、ユーザー編集後の保険
+   - 完了時に subtitle track 1 を無効化 (Text+ と Subtitle の二重表示回避)
+   - **API 罠**: `AppendToTimeline()` は配置失敗時も `[None]` を返す (要素ごと `GetName() is None` 判定)。`SetInput("StyledText", text)` の戻り値は False を返すが副作用は効いている (戻り値チェック禁止)。
 
 ## 配布
 
@@ -321,4 +335,4 @@ brew install coidemo/textffcut/textffcut
 
 ---
 
-最終更新: 2026-04-25
+最終更新: 2026-04-26
