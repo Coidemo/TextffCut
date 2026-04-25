@@ -51,6 +51,7 @@ class SuggestAndExportRequest:
     title_target_size: tuple[int, int] | None = None  # タイトル画像ターゲットサイズ (width, height)
     title_offset_y: int = 0  # タイトル表示位置の垂直オフセット（px、正=下方向）
     auto_anchor: bool = False  # 被写体位置からアンカーを自動検出（vertical時のみ有効）
+    use_blurred_source: bool = True  # auto_blur で生成済みの source_blurred.mp4 があれば優先使用
 
 
 @dataclass
@@ -102,6 +103,19 @@ class SuggestAndExportUseCase:
 
         # Phase 5.5: 速度変更
         actual_video_path = request.video_path
+        used_blur_source = False  # auto_blur 塗りつぶし版を採用したかの明示フラグ
+
+        # auto_blur cache 検出: source_blurred.mp4 が存在 + use_blurred_source=True で適用
+        if request.use_blurred_source:
+            from use_cases.auto_blur import AutoBlurUseCase
+
+            _blur_uc = AutoBlurUseCase()
+            if _blur_uc.is_cached(request.video_path):
+                blurred_path, _ = _blur_uc.get_cache_paths(request.video_path)
+                actual_video_path = blurred_path
+                used_blur_source = True
+                logger.info(f"auto_blur cache hit、塗りつぶし版動画を使用: {blurred_path}")
+
         if request.speed != 1.0:
             from config import Config
             from core.video import VideoProcessor
@@ -109,8 +123,10 @@ class SuggestAndExportUseCase:
             speed = round(request.speed, 2)
             speed_label = f"{round(speed, 1)}x"
             vp = VideoProcessor(Config())
-            speed_path = base_dir / f"source_{speed_label}.mp4"
-            vp.create_speed_changed_video(str(request.video_path), str(speed_path), speed)
+            # auto_blur cache 利用時はファイル名に _blurred を付ける
+            suffix = "_blurred" if used_blur_source else ""
+            speed_path = base_dir / f"source_{speed_label}{suffix}.mp4"
+            vp.create_speed_changed_video(str(actual_video_path), str(speed_path), speed)
             actual_video_path = speed_path
             logger.info(f"速度変更済み動画を使用: {speed_path}")
 

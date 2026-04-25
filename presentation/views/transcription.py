@@ -214,6 +214,20 @@ class TranscriptionView:
                     with st.expander("詳細"):
                         st.json(self.view_model.error_details)
 
+            # 動画内テキスト自動塗りつぶしオプション
+            auto_blur_default = st.session_state.get("auto_blur_enabled", False)
+            auto_blur_checked = st.checkbox(
+                "🔒 動画内テキスト自動塗りつぶし",
+                value=auto_blur_default,
+                help=(
+                    "コメント欄・UI 文字・チャンネルロゴ等を自動検出して周囲色で塗りつぶし. "
+                    "文字起こしと並列で処理され、結果は次回のクリップ生成時に自動利用されます. "
+                    "(初回のみ動画長の 5-10% 程度の追加時間)"
+                ),
+                key="auto_blur_checkbox",
+            )
+            st.session_state["auto_blur_enabled"] = auto_blur_checked
+
             # 実行ボタン
             button_text = self._get_button_text()
             button_type = "secondary" if self.view_model.available_caches else "primary"
@@ -298,11 +312,57 @@ class TranscriptionView:
                 progress_bar.progress(min(progress, 1.0))
                 status_text.info(status)
 
+            # auto_blur: 文字起こしと並列に動画内テキスト塗りつぶしを起動
+            blur_executor = None
+            blur_future = None
+            auto_blur_enabled = st.session_state.get("auto_blur_enabled", False)
+            if auto_blur_enabled and self.view_model.video_path:
+                try:
+                    from concurrent.futures import ThreadPoolExecutor
+                    from pathlib import Path as _Path
+                    from use_cases.auto_blur import AutoBlurParams, AutoBlurUseCase
+                    from use_cases.auto_blur.auto_blur_use_case import is_apple_silicon
+
+                    if not is_apple_silicon():
+                        st.warning(
+                            "⚠ 動画内テキスト自動塗りつぶしは Apple Silicon Mac 専用です。"
+                            "現環境では機能しないためスキップします。"
+                        )
+                    else:
+                        _video_path = _Path(self.view_model.video_path)
+                        _blur_uc = AutoBlurUseCase(AutoBlurParams())
+                        if not _blur_uc.is_cached(_video_path):
+                            status_text.info("動画内テキスト塗りつぶしを並列起動中...")
+                            blur_executor = ThreadPoolExecutor(max_workers=1)
+                            blur_future = blur_executor.submit(
+                                _blur_uc.execute, _video_path
+                            )
+                except Exception as _e:  # noqa: BLE001
+                    logger.warning(f"auto_blur 起動失敗 (続行): {_e}")
+
             # 文字起こし実行
             logger.info("start_transcription呼び出し開始")
             if self.presenter.start_transcription(progress_callback):
                 # SessionManagerが内部で状態を管理
                 logger.info("文字起こし完了")
+
+                # auto_blur 完了待ち
+                if blur_future is not None:
+                    status_text.info("塗りつぶし処理の完了を待機中...")
+                    try:
+                        _blur_result = blur_future.result()
+                        if _blur_result.cached:
+                            st.info(f"🔒 塗りつぶし版動画 (cache): {_blur_result.blurred_path.name}")
+                        else:
+                            st.info(
+                                f"🔒 塗りつぶし版動画を生成: {_blur_result.blurred_path.name} "
+                                f"({_blur_result.duration_sec:.1f}s)"
+                            )
+                    except Exception as _e:  # noqa: BLE001
+                        st.warning(f"⚠️ 塗りつぶし処理エラー (文字起こしは完了): {_e}")
+                    if blur_executor:
+                        blur_executor.shutdown()
+
                 st.success("✅ 文字起こし完了！")
                 st.rerun()
             else:

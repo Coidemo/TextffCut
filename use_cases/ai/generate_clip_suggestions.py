@@ -244,7 +244,14 @@ class GenerateClipSuggestionsUseCase:
             if result:
                 suggestions.append((idx, result))
 
-        return [s for _, s in suggestions]
+        # AI が指定数より多く生成することがあるため厳密に切り詰める (例: 10 指定で 11 件返ってくる現象対策)
+        final = [s for _, s in suggestions]
+        if len(final) > num_candidates:
+            logger.info(
+                f"指定数 {num_candidates} に切り詰め (AI生成 {len(final)} 件 → {num_candidates} 件)"
+            )
+            final = final[:num_candidates]
+        return final
 
     def _refine_topic_boundaries_unified(
         self,

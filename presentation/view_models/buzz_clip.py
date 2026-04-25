@@ -151,7 +151,7 @@ class BuzzClipViewModel(BaseViewModel):
         if self.min_duration >= self.max_duration:
             return False
 
-        if self.num_candidates < 1 or self.num_candidates > 10:
+        if self.num_candidates < 1:
             return False
 
         return True
