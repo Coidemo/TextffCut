@@ -108,9 +108,13 @@ def run_send(argv: list[str]) -> None:
         print(f"  AI 配置 SE 維持: {kept}")
     if result.text_plus is not None:
         tp = result.text_plus
-        print(
-            f"  Text+ 変換: V{tp.video_track} に {tp.success}/{tp.success + tp.failed} 件配置"
-            + (f" (subtitle 無効化済)" if tp.subtitle_disabled else "")
-        )
+        suffix = " (subtitle 無効化済)" if tp.subtitle_disabled else ""
+        if tp.video_track == 0:
+            print(f"  Text+ 変換: 全件失敗 (空 track は削除){suffix}")
+        else:
+            print(
+                f"  Text+ 変換: V{tp.video_track} に "
+                f"{tp.success}/{tp.success + tp.failed} 件配置{suffix}"
+            )
     elif args.text_plus:
         print("  Text+ 変換: スキップ (詳細はログ参照)")

@@ -287,11 +287,16 @@ def render_subtitle_editor_section(container: Any, videos_root: str = "videos") 
                     msg_lines.append(f"  素材用 SE ミュート: {muted}")
                 if result.text_plus is not None:
                     tp = result.text_plus
-                    msg_lines.append(
-                        f"  Text+ 変換: V{tp.video_track} に "
-                        f"{tp.success}/{tp.success + tp.failed} 件配置"
-                        + (" (subtitle 無効化済)" if tp.subtitle_disabled else "")
-                    )
+                    suffix = " (subtitle 無効化済)" if tp.subtitle_disabled else ""
+                    if tp.video_track == 0:
+                        msg_lines.append(
+                            f"  Text+ 変換: 全件失敗 (空 track は削除){suffix}"
+                        )
+                    else:
+                        msg_lines.append(
+                            f"  Text+ 変換: V{tp.video_track} に "
+                            f"{tp.success}/{tp.success + tp.failed} 件配置{suffix}"
+                        )
                 elif text_plus_enabled:
                     msg_lines.append(
                         "  Text+ 変換: スキップ "

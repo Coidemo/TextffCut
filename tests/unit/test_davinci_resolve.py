@@ -391,6 +391,49 @@ class TestConvertSubtitlesToTextPlus:
         result = convert_subtitles_to_text_plus(ctx["project"], ctx["timeline"])
         assert result.success == 1
 
+    def test_rollback_video_track_when_all_failed(self):
+        """全件失敗時、追加した空 video track を DeleteTrack で削除する。"""
+        subs = [_make_subtitle("a", 0, 30)]
+        # fail_appends_after=1: test 配置 (1回目) のみ成功、本配置 (2回目) で失敗
+        ctx = _make_setup(subs, fail_appends_after=1)
+        ctx["timeline"].DeleteTrack.return_value = True
+        result = convert_subtitles_to_text_plus(
+            ctx["project"], ctx["timeline"], disable_subtitle_after=False
+        )
+        assert result.success == 0
+        assert result.failed == 1
+        # rollback で video_track=0 にマーク、DeleteTrack が呼ばれる
+        assert result.video_track == 0
+        ctx["timeline"].DeleteTrack.assert_called_with("video", 2)
+
+    def test_no_rollback_when_partial_success(self):
+        """部分成功時は video track を残す (DeleteTrack 呼ばれない)。"""
+        subs = [
+            _make_subtitle("a", 0, 30),
+            _make_subtitle("b", 30, 60),
+        ]
+        # test (1) + 本配置1 (2) は成功、本配置2 (3) で失敗
+        ctx = _make_setup(subs, fail_appends_after=2)
+        result = convert_subtitles_to_text_plus(
+            ctx["project"], ctx["timeline"], disable_subtitle_after=False
+        )
+        assert result.success == 1
+        assert result.failed == 1
+        assert result.video_track == 2
+        ctx["timeline"].DeleteTrack.assert_not_called()
+
+    def test_rollback_handles_delete_track_failure(self):
+        """DeleteTrack が False を返しても例外なく続行する。"""
+        subs = [_make_subtitle("a", 0, 30)]
+        ctx = _make_setup(subs, fail_appends_after=1)
+        ctx["timeline"].DeleteTrack.return_value = False
+        # 例外なし
+        result = convert_subtitles_to_text_plus(
+            ctx["project"], ctx["timeline"], disable_subtitle_after=False
+        )
+        # 削除失敗のため video_track はそのまま残る
+        assert result.video_track == 2
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

@@ -64,7 +64,18 @@ SE_KEYWORDS: tuple[str, ...] = (
 
 @dataclass
 class TextPlusResult:
-    """convert_subtitles_to_text_plus() の実行結果。"""
+    """convert_subtitles_to_text_plus() の実行結果。
+
+    Attributes:
+        video_track: Text+ クリップを配置したビデオトラック index (1始まり)。
+            全件失敗で rollback された場合は 0
+        success: 配置に成功した字幕クリップ数
+        failed: 配置に失敗した字幕クリップ数
+        gap_filled: Fill Gaps で gap を埋めた件数
+        head_extended: 最初の字幕をタイムライン先頭まで延長した frame 数
+        tail_extended: 最後の字幕をタイムライン末尾まで延長した frame 数
+        subtitle_disabled: 完了時に subtitle track を無効化したか
+    """
 
     video_track: int
     success: int
@@ -414,7 +425,7 @@ def convert_subtitles_to_text_plus(
 
         if new_item.GetFusionCompCount() == 0:
             logger.error(
-                f"timeline item に Fusion comp が 0 個です。"
+                f"[{idx}/{len(subtitles)}] timeline item に Fusion comp が 0 個です。"
                 f"テンプレート '{template_name}' が Fusion Title (Text+) ではない可能性"
             )
             failed += 1
@@ -436,6 +447,24 @@ def convert_subtitles_to_text_plus(
         text_tools[0].SetInput("StyledText", text)
         success += 1
 
+    # 全件失敗で空トラックが残るのを避ける rollback
+    # (テンプレ不正・トラック衝突などで一件も配置できなかった場合)
+    rolled_back_video_track = target_video_track
+    if success == 0 and failed > 0:
+        try:
+            if timeline.DeleteTrack("video", target_video_track):
+                logger.info(
+                    f"全字幕配置失敗のため空 video track V{target_video_track} を削除"
+                )
+                rolled_back_video_track = 0
+            else:
+                logger.warning(
+                    f"全字幕配置失敗。空 video track V{target_video_track} を"
+                    "削除できませんでした (手動で削除してください)"
+                )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"video track V{target_video_track} 削除中エラー: {e}")
+
     subtitle_disabled = False
     if disable_subtitle_after and success > 0:
         if timeline.SetTrackEnable("subtitle", subtitle_track, False):
@@ -444,7 +473,7 @@ def convert_subtitles_to_text_plus(
             logger.warning(f"subtitle track {subtitle_track} の無効化に失敗")
 
     return TextPlusResult(
-        video_track=target_video_track,
+        video_track=rolled_back_video_track,
         success=success,
         failed=failed,
         gap_filled=fill_count,
