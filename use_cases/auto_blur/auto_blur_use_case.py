@@ -102,7 +102,12 @@ class AutoBlurUseCase:
         )
 
     def is_cached(self, video_path: Path) -> bool:
-        """cache が有効か (params 一致 + ファイル存在 + 元動画 mtime 一致) チェック."""
+        """cache が有効か (params 一致 + ファイル存在 + 元動画 mtime 一致) チェック.
+
+        Apple Silicon 非依存: 別マシン (Intel Mac 等) で生成された cache でも
+        ファイル整合性が取れていれば True を返す. cache を「読むだけ」なら
+        ocrmac は不要なので、この設計で意図的に platform 非依存.
+        """
         out_path, sidecar_path = self.get_cache_paths(video_path)
         if not out_path.exists() or not sidecar_path.exists():
             return False
@@ -156,7 +161,8 @@ class AutoBlurUseCase:
                 progress_callback=progress_callback,
             )
         except Exception:
-            # 失敗時に破損ファイル/中途 sidecar を残さない
+            # 失敗時に破損 mp4 や前回中途終了で残った古い sidecar を一掃する.
+            # (この時点で sidecar はまだ未書き込みだが、防御的にクリーンアップ)
             out_path.unlink(missing_ok=True)
             sidecar_path.unlink(missing_ok=True)
             raise

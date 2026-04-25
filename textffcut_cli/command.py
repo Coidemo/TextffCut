@@ -483,9 +483,6 @@ def main() -> None:
     blur_executor = None
     blur_futures: list = []
     if args.auto_blur:
-        from concurrent.futures import ThreadPoolExecutor
-
-        from use_cases.auto_blur import AutoBlurParams, AutoBlurUseCase
         from use_cases.auto_blur.auto_blur_use_case import is_apple_silicon
 
         if not is_apple_silicon():
@@ -497,6 +494,8 @@ def main() -> None:
             args.auto_blur = False  # フラグを無効化して以下の分岐をスキップ
 
     if args.auto_blur:
+        from concurrent.futures import ThreadPoolExecutor
+
         from use_cases.auto_blur import AutoBlurParams, AutoBlurUseCase
 
         blur_params = AutoBlurParams()
