@@ -209,7 +209,7 @@ def render_subtitle_editor_section(container: Any, videos_root: str = "videos") 
         components.html(render_preview_html(edited_entries), height=56, scrolling=False)
 
     # 操作ボタン
-    btn_cols = container.columns([1, 1, 3])
+    btn_cols = container.columns([1, 1, 1, 2])
     if btn_cols[0].button("↺ リセット", key=f"reset_{ta_key}"):
         st.session_state[reset_flag_key] = True
         st.rerun()
@@ -237,6 +237,37 @@ def render_subtitle_editor_section(container: Any, videos_root: str = "videos") 
         except Exception as e:
             container.error(f"保存処理失敗: {e}")
             logger.exception("SRT 保存エラー")
+
+    # DaVinci Resolve に送信
+    fcpxml_path = srt_path.with_suffix(".fcpxml")
+    send_disabled = save_disabled or (not fcpxml_path.exists())
+    if btn_cols[2].button(
+        "📺 DaVinciへ送信",
+        key=f"send_{ta_key}",
+        disabled=send_disabled,
+        help=(
+            "DaVinci Resolve の現在開いているビンに timeline + 字幕を取り込みます。\n"
+            "保存していない編集内容は反映されません (先に '💾 保存' を押してください)。"
+        ),
+    ):
+        try:
+            from infrastructure.davinci_resolve import ResolveError, send_clip_to_resolve
+
+            result = send_clip_to_resolve(fcpxml_path)
+            msg_lines = [
+                f"✓ Bin {result['bin_name']!r} に {result['timeline_name']} を作成",
+                f"  字幕: {'OK' if result['srt_imported'] else 'スキップ'}",
+            ]
+            if result["se_muted"]:
+                muted = ", ".join(f"A{i}" for i in result["se_muted"])
+                msg_lines.append(f"  素材用 SE ミュート: {muted}")
+            container.success("\n".join(msg_lines))
+        except ResolveError as e:
+            container.error(f"Resolve 送信失敗:\n{e}")
+            logger.warning(f"DaVinci 送信失敗: {e}")
+        except Exception as e:
+            container.error(f"予期しないエラー: {e}")
+            logger.exception("DaVinci 送信エラー")
 
     # 過去の編集ログ概要
     logs = load_edit_log(base_dir)
