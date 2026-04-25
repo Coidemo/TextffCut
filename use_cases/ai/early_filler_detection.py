@@ -44,11 +44,17 @@ _CONTEXT_WINDOW = 50
 # 話し言葉ではほぼフィラーだが、GiNZAだけでは確定できないケース
 # Phase 4では同じ語もLLM判定に委譲される（_is_grammatical_by_contextは共有）
 # これらは AMBIGUOUS_FILLERS に含まれるが、GiNZA 判定不能時でも積極的に除去する
-_PHASE0_AGGRESSIVE: frozenset[str] = frozenset({
-    "なんか", "あの", "まあ", "まぁ",
-    "やっぱ", "やっぱり",  # 副詞用法もあるが conversational 日本語ではほぼフィラー
-    "要は",  # 接続詞用法あるが ほぼフィラー
-})
+_PHASE0_AGGRESSIVE: frozenset[str] = frozenset(
+    {
+        "なんか",
+        "あの",
+        "まあ",
+        "まぁ",
+        "やっぱ",
+        "やっぱり",  # 副詞用法もあるが conversational 日本語ではほぼフィラー
+        "要は",  # 接続詞用法あるが ほぼフィラー
+    }
+)
 
 
 @dataclass

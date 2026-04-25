@@ -93,7 +93,7 @@ def convert_key(hf_key: str, rules: list[tuple[re.Pattern, str]]) -> str:
 # MLX 形式で保存「しない」HF キー (MLX 側で sinusoid 生成 or tied weight のため)
 SKIP_HF_KEYS = {
     "model.encoder.embed_positions.weight",  # MLX は sinusoid を runtime 生成
-    "proj_out.weight",                        # MLX は token_embedding と tied
+    "proj_out.weight",  # MLX は token_embedding と tied
 }
 
 

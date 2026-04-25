@@ -116,9 +116,9 @@ class TestAssignTimingFromStructure:
 
     def test_basic_redistribution(self):
         parsed = [
-            ["abc"],      # 3 chars
-            ["defghi"],   # 6 chars
-            ["j"],        # 1 char
+            ["abc"],  # 3 chars
+            ["defghi"],  # 6 chars
+            ["j"],  # 1 char
         ]
         # 合計 10 chars, 合計 dur = 6.0s (ORIGINAL の 0.0-6.0)
         result = assign_timing_from_structure(parsed, ORIGINAL)

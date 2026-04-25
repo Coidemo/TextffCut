@@ -23,17 +23,36 @@ from utils.api_key_manager import api_key_manager  # noqa: E402
 
 FILLER_PATTERNS = sorted(
     [
-        "えーっと", "えっとね", "えーと", "えっと",
-        "あのー", "うーんと", "うーん",
-        "なんかその", "なんかこう", "なんか",
-        "あのね", "あの",
-        "まあその", "まあね", "まあまあ", "まあ", "まぁ",
-        "えー", "あー", "んー",
-        "やっぱり", "やっぱ",
+        "えーっと",
+        "えっとね",
+        "えーと",
+        "えっと",
+        "あのー",
+        "うーんと",
+        "うーん",
+        "なんかその",
+        "なんかこう",
+        "なんか",
+        "あのね",
+        "あの",
+        "まあその",
+        "まあね",
+        "まあまあ",
+        "まあ",
+        "まぁ",
+        "えー",
+        "あー",
+        "んー",
+        "やっぱり",
+        "やっぱ",
         "そうですね",
-        "でまあ", "でなんか", "であの", "でその",
+        "でまあ",
+        "でなんか",
+        "であの",
+        "でその",
     ],
-    key=len, reverse=True,
+    key=len,
+    reverse=True,
 )
 
 
@@ -100,7 +119,9 @@ def main() -> None:
         print(f"  完了 ({step2_elapsed:.1f}s)")
     except Exception as e:
         print(f"  FAILED: {e}")
-        import traceback; traceback.print_exc()
+        import traceback
+
+        traceback.print_exc()
         sys.exit(1)
 
     # 結果を検証

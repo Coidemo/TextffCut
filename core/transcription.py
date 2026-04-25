@@ -559,9 +559,7 @@ class Transcriber:
         aligned_segments = [dict(s) for s in align_result.segments]
         split_segments = split_long_segments(aligned_segments)
         if len(split_segments) != len(aligned_segments):
-            logger.info(
-                f"  長 segment 後分割: {len(aligned_segments)} → {len(split_segments)} セグメント"
-            )
+            logger.info(f"  長 segment 後分割: {len(aligned_segments)} → {len(split_segments)} セグメント")
 
         # 3b. TranscriptionResultに変換（_transcribe_localと同じ形式）
         # mlx-forced-alignerのscoreはlog-probability（Domain層でNoneにリセットされる）

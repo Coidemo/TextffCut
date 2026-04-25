@@ -64,7 +64,7 @@ def validate_edit(
         return ValidationResult(
             ok=False,
             error_msg="文字内容が変わっています。このエディタは **改行と空行の編集のみ** 可能です。"
-                      "文字の追加・削除が必要な場合は pipeline を再実行してください。",
+            "文字の追加・削除が必要な場合は pipeline を再実行してください。",
         )
     return ValidationResult(ok=True)
 
@@ -123,9 +123,9 @@ def render_preview_html(entries: list[SRTEntry], max_chars: int = MAX_CHARS) -> 
         title_escaped = html.escape(title, quote=True)
         blocks_html.append(
             f'<div style="position:absolute;top:0;bottom:0;'
-            f'left:{left:.2f}%;width:{width:.2f}%;'
-            f'background:{bg};color:{color};border-right:1px solid #000;'
-            f'font-size:10px;display:flex;align-items:center;justify-content:center;'
+            f"left:{left:.2f}%;width:{width:.2f}%;"
+            f"background:{bg};color:{color};border-right:1px solid #000;"
+            f"font-size:10px;display:flex;align-items:center;justify-content:center;"
             f'overflow:hidden;" title="{title_escaped}">{i}</div>'
         )
     return f"""

@@ -45,11 +45,19 @@ def extract_audio(video_path: Path) -> Path:
     print(f"音声抽出中: {video_path.name} -> {out_path.name}")
     subprocess.run(
         [
-            "ffmpeg", "-y", "-i", str(video_path),
-            "-vn", "-c:a", "libmp3lame", "-b:a", "128k",
+            "ffmpeg",
+            "-y",
+            "-i",
+            str(video_path),
+            "-vn",
+            "-c:a",
+            "libmp3lame",
+            "-b:a",
+            "128k",
             str(out_path),
         ],
-        check=True, capture_output=True,
+        check=True,
+        capture_output=True,
     )
     return out_path
 

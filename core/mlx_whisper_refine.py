@@ -75,6 +75,7 @@ _SPLIT_PUNCT_CHARS = frozenset("。.?!?!")
 # Hallucination 検出
 # ------------------------------------------------------------
 
+
 def _compression_ratio(text: str) -> float:
     encoded = text.encode("utf-8")
     if not encoded:
@@ -106,6 +107,7 @@ def detect_hallucination(text: str) -> bool:
 # ------------------------------------------------------------
 # 境界重複 dedup (Type A: 完全重複, Type B: 単語跨ぎ)
 # ------------------------------------------------------------
+
 
 def _longest_suffix_prefix_match(a_text: str, b_text: str, max_len: int = 30) -> int:
     """a の末尾が b の冒頭に完全一致する最長文字数を返す。
@@ -176,9 +178,7 @@ def dedupe_boundary_overlaps(
 
         # Case 1: 完全重複 (Type A)
         if a_text and a_text == b_text:
-            logger.info(
-                f"境界重複削除 [Type A full] at {a['end']:.1f}s: '{a_text[:30]}'"
-            )
+            logger.info(f"境界重複削除 [Type A full] at {a['end']:.1f}s: '{a_text[:30]}'")
             # a の end を b.end まで延長。これにより連続した同一セグメント群
             # (「まあ/まあ/まあ/まあ…」) の 3 つ目以降も次イテレーションで
             # a と boundary-touch 判定でき、チェーン削除が正しく働く。
@@ -192,10 +192,7 @@ def dedupe_boundary_overlaps(
         if match_len >= min_match_chars:
             new_b = b_text[match_len:].lstrip(_LEADING_PUNCT_TO_STRIP)
             if not new_b:
-                logger.info(
-                    f"境界重複削除 [Type B empty] at {a['end']:.1f}s: "
-                    f"'{a_text[-match_len:]}'"
-                )
+                logger.info(f"境界重複削除 [Type B empty] at {a['end']:.1f}s: " f"'{a_text[-match_len:]}'")
                 if float(b["end"]) > float(a["end"]):
                     a["end"] = float(b["end"])
                 removed += 1
@@ -210,16 +207,14 @@ def dedupe_boundary_overlaps(
         else:
             out.append(b)
 
-    logger.info(
-        f"境界重複 dedup: {removed} 削除 + {trimmed} 切り詰め, "
-        f"{len(out)} 残 (元 {len(segments)})"
-    )
+    logger.info(f"境界重複 dedup: {removed} 削除 + {trimmed} 切り詰め, " f"{len(out)} 残 (元 {len(segments)})")
     return out
 
 
 # ------------------------------------------------------------
 # Hallucination retry
 # ------------------------------------------------------------
+
 
 def retry_hallucinated_segments(
     audio_path: str,
@@ -268,10 +263,7 @@ def retry_hallucinated_segments(
     for r_start, r_end, r_indices in merged:
         retry_start = max(0.0, r_start - buffer)
         retry_end = r_end + buffer
-        logger.info(
-            f"  retry [{retry_start:.1f}-{retry_end:.1f}]s "
-            f"(元セグメント {len(r_indices)} 個)"
-        )
+        logger.info(f"  retry [{retry_start:.1f}-{retry_end:.1f}]s " f"(元セグメント {len(r_indices)} 個)")
         start_sample = int(retry_start * sr)
         end_sample = int(retry_end * sr)
         audio_slice = audio_full[start_sample:end_sample]
@@ -290,9 +282,7 @@ def retry_hallucinated_segments(
                 verbose=False,
             )
         except Exception as exc:
-            logger.warning(
-                f"  retry 失敗 [{retry_start:.1f}-{retry_end:.1f}]s: {exc}. 元セグメントを保持"
-            )
+            logger.warning(f"  retry 失敗 [{retry_start:.1f}-{retry_end:.1f}]s: {exc}. 元セグメントを保持")
             continue
 
         retry_segs: list[dict] = []
@@ -348,11 +338,16 @@ def _vad_speech_ranges(audio_path: str) -> list[tuple[float, float]]:
     try:
         subprocess.run(
             [
-                "ffmpeg", "-y",
-                "-i", audio_path,
-                "-ar", "16000",
-                "-ac", "1",
-                "-c:a", "pcm_s16le",
+                "ffmpeg",
+                "-y",
+                "-i",
+                audio_path,
+                "-ar",
+                "16000",
+                "-ac",
+                "1",
+                "-c:a",
+                "pcm_s16le",
                 tmp_wav,
             ],
             capture_output=True,
@@ -480,13 +475,20 @@ def split_long_segments(segments: list[dict]) -> list[dict]:
 def _extract_audio_range(audio_path: str, start: float, end: float, out_path: str) -> None:
     """ffmpeg で音声ファイルの [start, end] を 16kHz mono WAV として抽出。"""
     cmd = [
-        "ffmpeg", "-y",
-        "-ss", str(start),
-        "-i", audio_path,
-        "-t", str(end - start),
-        "-ar", "16000",
-        "-ac", "1",
-        "-c:a", "pcm_s16le",
+        "ffmpeg",
+        "-y",
+        "-ss",
+        str(start),
+        "-i",
+        audio_path,
+        "-t",
+        str(end - start),
+        "-ar",
+        "16000",
+        "-ac",
+        "1",
+        "-c:a",
+        "pcm_s16le",
         out_path,
     ]
     subprocess.run(cmd, capture_output=True, check=True)

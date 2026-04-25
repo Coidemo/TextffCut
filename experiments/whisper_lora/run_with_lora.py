@@ -113,9 +113,7 @@ def run_forced_alignment(video_path: Path, segments: list[dict]) -> list[dict]:
     t0 = time.time()
     aligner = ForcedAligner()
     segs_for_align = [
-        {"start": s["start"], "end": s["end"], "text": s["text"].strip()}
-        for s in segments
-        if s["text"].strip()
+        {"start": s["start"], "end": s["end"], "text": s["text"].strip()} for s in segments if s["text"].strip()
     ]
     align_result = aligner.align(str(video_path), "", segments=segs_for_align)
 

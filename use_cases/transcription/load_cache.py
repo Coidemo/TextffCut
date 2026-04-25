@@ -98,9 +98,7 @@ class LoadTranscriptionCacheUseCase(UseCase[LoadCacheRequest, TranscriptionResul
                     "Cache missing word-level timestamps (outdated format). "
                     "Treating as cache-miss to force re-transcription."
                 )
-                raise CacheNotFoundError(
-                    "Cache missing word-level timestamps; re-transcription required"
-                )
+                raise CacheNotFoundError("Cache missing word-level timestamps; re-transcription required")
 
             self.logger.info(
                 f"Cache loaded successfully. " f"Language: {result.language}, " f"Segments: {len(result.segments)}"

@@ -31,35 +31,54 @@ from utils.api_key_manager import api_key_manager  # noqa: E402
 
 FILLER_PATTERNS = sorted(
     [
-        "えーっと", "えっとね", "えーと", "えっと",
-        "あのー", "うーんと", "うーん",
-        "なんかその", "なんかこう", "なんか",
-        "あのね", "あの",
-        "まあその", "まあね", "まあまあ", "まあ", "まぁ",
-        "えー", "あー", "んー",
-        "やっぱり", "やっぱ",
+        "えーっと",
+        "えっとね",
+        "えーと",
+        "えっと",
+        "あのー",
+        "うーんと",
+        "うーん",
+        "なんかその",
+        "なんかこう",
+        "なんか",
+        "あのね",
+        "あの",
+        "まあその",
+        "まあね",
+        "まあまあ",
+        "まあ",
+        "まぁ",
+        "えー",
+        "あー",
+        "んー",
+        "やっぱり",
+        "やっぱ",
         "そうですね",
-        "でまあ", "でなんか", "であの", "でその",
+        "でまあ",
+        "でなんか",
+        "であの",
+        "でその",
     ],
-    key=len, reverse=True,
+    key=len,
+    reverse=True,
 )
 
 # 固有名詞と専門用語（正しく認識されるべき語）
 PROPER_NOUNS = [
-    "尾原",        # 人名（小原は誤認識、どちらかOK）
-    "深津",        # 人名（復活は誤認識）
+    "尾原",  # 人名（小原は誤認識、どちらかOK）
+    "深津",  # 人名（復活は誤認識）
     "ナイジェル",  # Nigel
-    "ハワード",    # Howard
-    "ジョージ",    # George
-    "ソロス",      # Soros
+    "ハワード",  # Howard
+    "ジョージ",  # George
+    "ソロス",  # Soros
     "メタゲーム",  # concept
     "ディープリサーチ",
     "生成AI",
-    "再帰",        # 再帰性 or 再帰省（どちらかは聞けば分かる）
-    "SNS",         # 大文字小文字差異あり
+    "再帰",  # 再帰性 or 再帰省（どちらかは聞けば分かる）
+    "SNS",  # 大文字小文字差異あり
     "1971",
     "1980年代",
-    "多岐",        # 多機は誤認識
+    "多岐",  # 多機は誤認識
 ]
 
 
@@ -144,9 +163,7 @@ def run_mlx(audio_path: Path, model: str) -> ASRResult:
         "まあ、まぁ、んー、あー、そうですね"
     )
     t0 = time.perf_counter()
-    result = mlx_whisper.transcribe(
-        str(audio_path), path_or_hf_repo=mlx_model, language="ja", initial_prompt=prompt
-    )
+    result = mlx_whisper.transcribe(str(audio_path), path_or_hf_repo=mlx_model, language="ja", initial_prompt=prompt)
     elapsed = time.perf_counter() - t0
     text = "".join(s.get("text", "") for s in result.get("segments", []))
     return ASRResult(label=f"MLX-{model}", text=text, elapsed_sec=elapsed, cost_usd=0.0)
@@ -167,9 +184,7 @@ def run_openai_transcribe(client: OpenAI, audio_path: Path, model: str, cost_per
         )
     elapsed = time.perf_counter() - t0
     duration_min = 2.0  # 2分サンプル前提
-    return ASRResult(
-        label=model, text=str(resp), elapsed_sec=elapsed, cost_usd=cost_per_min * duration_min
-    )
+    return ASRResult(label=model, text=str(resp), elapsed_sec=elapsed, cost_usd=cost_per_min * duration_min)
 
 
 def run_gpt4o_audio_direct(client: OpenAI, audio_path: Path) -> ASRResult:
@@ -180,17 +195,22 @@ def run_gpt4o_audio_direct(client: OpenAI, audio_path: Path) -> ASRResult:
     resp = client.chat.completions.create(
         model="gpt-4o-audio-preview",
         modalities=["text"],
-        messages=[{
-            "role": "user",
-            "content": [
-                {"type": "text", "text": (
-                    "この音声を正確に日本語で書き起こしてください。"
-                    "間投詞（えーっと、あのー、うーん、なんか、まあ等）"
-                    "も省略せずそのまま含めてください。書き起こしテキストのみ返してください。"
-                )},
-                {"type": "input_audio", "input_audio": {"data": audio_data, "format": "wav"}},
-            ],
-        }],
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": (
+                            "この音声を正確に日本語で書き起こしてください。"
+                            "間投詞（えーっと、あのー、うーん、なんか、まあ等）"
+                            "も省略せずそのまま含めてください。書き起こしテキストのみ返してください。"
+                        ),
+                    },
+                    {"type": "input_audio", "input_audio": {"data": audio_data, "format": "wav"}},
+                ],
+            }
+        ],
         temperature=0.0,
     )
     elapsed = time.perf_counter() - t0
@@ -221,19 +241,19 @@ def run_refine(client: OpenAI, audio_path: Path, base_text: str, label: str) -> 
     resp = client.chat.completions.create(
         model="gpt-4o-audio-preview",
         modalities=["text"],
-        messages=[{
-            "role": "user",
-            "content": [
-                {"type": "text", "text": prompt},
-                {"type": "input_audio", "input_audio": {"data": audio_data, "format": "wav"}},
-            ],
-        }],
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {"type": "input_audio", "input_audio": {"data": audio_data, "format": "wav"}},
+                ],
+            }
+        ],
         temperature=0.0,
     )
     elapsed = time.perf_counter() - t0
-    return ASRResult(
-        label=label, text=resp.choices[0].message.content or "", elapsed_sec=elapsed, cost_usd=0.25
-    )
+    return ASRResult(label=label, text=resp.choices[0].message.content or "", elapsed_sec=elapsed, cost_usd=0.25)
 
 
 def test_aligner(audio_path: Path, text: str) -> tuple[bool, int]:
@@ -351,7 +371,9 @@ def main() -> None:
         err = cer(gt_text, r.text) * 100
         nouns = count_proper_nouns(r.text)
         align = f"{r.aligner_chars}字" if r.aligner_ok else "✗"
-        print(f"{r.label:<35} {len(r.text):>5} {err:>5.1f}% {n_fillers:>6} {c_rate:>6.0f}% {nouns:>4}/{len(PROPER_NOUNS):<3} {r.elapsed_sec:>5.1f}s ${r.cost_usd:>5.3f}  {align:>8}")
+        print(
+            f"{r.label:<35} {len(r.text):>5} {err:>5.1f}% {n_fillers:>6} {c_rate:>6.0f}% {nouns:>4}/{len(PROPER_NOUNS):<3} {r.elapsed_sec:>5.1f}s ${r.cost_usd:>5.3f}  {align:>8}"
+        )
 
     # --- フィラー別詳細 ---
     print()

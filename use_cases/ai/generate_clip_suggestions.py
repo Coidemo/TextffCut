@@ -8,8 +8,10 @@ AI切り抜き候補生成ユースケース
 
 from __future__ import annotations
 
+import bisect
 import logging
 import time
+
 from domain.entities.clip_suggestion import (
     ClipSuggestion,
     TopicDetectionRequest,
@@ -485,8 +487,7 @@ class GenerateClipSuggestionsUseCase:
                 if cut_count > 0:
                     new_dur = sum(e - s for s, e in new_ranges)
                     logger.info(
-                        f"フィラー音声切除: {pre_dur:.1f}s→{new_dur:.1f}s "
-                        f"({cut_count}箇所除去, {topic.title})"
+                        f"フィラー音声切除: {pre_dur:.1f}s→{new_dur:.1f}s " f"({cut_count}箇所除去, {topic.title})"
                     )
                     best.time_ranges = new_ranges
                     best.total_duration = new_dur
@@ -495,6 +496,18 @@ class GenerateClipSuggestionsUseCase:
 
         # 結合部のmicro buffer追加（音声途切れ防止）
         buffered_ranges = self._apply_range_buffers(best.time_ranges)
+
+        # word 境界にスナップ (断片残留を構造的に防止)
+        # filler-aware: buffer が filler word を飛び越えた場合も filler を通り抜ける
+        snapped_ranges = self._snap_ranges_to_word_boundaries(buffered_ranges, transcription, filler_map=filler_map)
+        if not snapped_ranges:
+            # 全 range が filler 内部に縮退した稀なケース: snap 前に退避
+            # (filler 残留が発生するため後続の SRT 品質確認が必要)
+            logger.warning(
+                f"word 境界スナップで全 range が縮退、buffer 適用版に戻す: {topic.title} "
+                f"(ranges={len(buffered_ranges)}, duration={sum(e - s for s, e in buffered_ranges):.1f}s)"
+            )
+            snapped_ranges = buffered_ranges
 
         # topic境界の実時間を算出
         topic_start_time = transcription.segments[topic.segment_start_index].start
@@ -505,8 +518,8 @@ class GenerateClipSuggestionsUseCase:
             id=str(best.segment_indices[0]),
             title=topic.title,
             text=best.text,
-            time_ranges=buffered_ranges,
-            total_duration=sum(e - s for s, e in buffered_ranges),
+            time_ranges=snapped_ranges,
+            total_duration=sum(e - s for s, e in snapped_ranges),
             score=topic.score,
             category=topic.category,
             reasoning=topic.reasoning,
@@ -551,6 +564,81 @@ class GenerateClipSuggestionsUseCase:
 
             result[i] = (round(s, 3), round(e, 3))
 
+        return result
+
+    @staticmethod
+    def _snap_ranges_to_word_boundaries(
+        time_ranges: list[tuple[float, float]],
+        transcription: TranscriptionResult,
+        filler_map: dict | None = None,
+    ) -> list[tuple[float, float]]:
+        """range 境界が filler word の内部を指している場合のみ、filler 外側へスナップする。
+
+        Phase 3.6 が filler 切除後の range (word 境界一致) を出力したあと、
+        _apply_range_buffers が ±50-80ms 広げて filler word の内部に境界を落とし、
+        filler word の断片 (or word 全体) が range に残留する現象を修正する。
+
+        - 範囲境界が filler 内部/末尾/連続 filler を指すときだけ発動
+        - 非 filler word の境界は動かさない (従来挙動を維持、副作用なし)
+        - 連続 filler は filler 群全体を通り抜ける
+        """
+        if not filler_map:
+            return list(time_ranges)
+
+        # filler 区間の正規化: 時間順にソートして重複/隣接 filler をマージ
+        raw_spans: list[tuple[float, float]] = []
+        for spans in filler_map.values():
+            for sp in spans:
+                s_t = sp.time_start if hasattr(sp, "time_start") else sp.get("time_start")
+                e_t = sp.time_end if hasattr(sp, "time_end") else sp.get("time_end")
+                if s_t is not None and e_t is not None:
+                    raw_spans.append((float(s_t), float(e_t)))
+        if not raw_spans:
+            return list(time_ranges)
+        raw_spans.sort()
+
+        # 隣接 (sp2.start <= sp1.end) はマージして連続 filler を 1 つの区間に
+        merged: list[list[float]] = []
+        for s_t, e_t in raw_spans:
+            if merged and s_t <= merged[-1][1]:
+                merged[-1][1] = max(merged[-1][1], e_t)
+            else:
+                merged.append([s_t, e_t])
+        filler_ranges: list[tuple[float, float]] = [(s, e) for s, e in merged]
+        span_starts = [sp[0] for sp in filler_ranges]
+
+        def _containing_filler(t: float) -> tuple[float, float] | None:
+            """t を含む filler 区間 [start, end] を返す。境界ちょうども含む。"""
+            idx = bisect.bisect_right(span_starts, t) - 1
+            if idx < 0:
+                return None
+            s, e = filler_ranges[idx]
+            if s <= t <= e:
+                return (s, e)
+            return None
+
+        def snap_start(t: float) -> float:
+            # t が filler の内部または開始境界なら、filler の end へ進める
+            # 境界ちょうど (t == filler.end) はすでに filler の外なので動かさない
+            span = _containing_filler(t)
+            if span is None or t == span[1]:
+                return t
+            return span[1]
+
+        def snap_end(t: float) -> float:
+            # t が filler の内部または終端なら、filler の start へ戻す
+            # 境界ちょうど (t == filler.start) はすでに filler の外なので動かさない
+            span = _containing_filler(t)
+            if span is None or t == span[0]:
+                return t
+            return span[0]
+
+        result: list[tuple[float, float]] = []
+        for s, e in time_ranges:
+            new_s = snap_start(s)
+            new_e = snap_end(e)
+            if new_e > new_s:
+                result.append((round(new_s, 3), round(new_e, 3)))
         return result
 
     def _ai_select_best(

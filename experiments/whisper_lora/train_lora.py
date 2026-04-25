@@ -60,9 +60,7 @@ def preprocess_audio_text(example: dict, processor: WhisperProcessor) -> dict:
         mono=True,
     )
     # 80-mel, 3000 frames (30秒分にパディング済み)
-    features = processor.feature_extractor(
-        audio, sampling_rate=SAMPLE_RATE, return_tensors="np"
-    )
+    features = processor.feature_extractor(audio, sampling_rate=SAMPLE_RATE, return_tensors="np")
     example["input_features"] = features.input_features[0]  # (80, 3000)
     # 日本語/transcribe prefix は processor に設定済みなので自動付与される
     example["labels"] = processor.tokenizer(example["text"]).input_ids
@@ -81,16 +79,12 @@ class DataCollatorWhisperLoRA:
     dtype: torch.dtype = torch.float16  # モデル重みに揃える
 
     def __call__(self, features: list[dict]) -> dict[str, torch.Tensor]:
-        input_features = torch.tensor(
-            [f["input_features"] for f in features], dtype=self.dtype
-        )
+        input_features = torch.tensor([f["input_features"] for f in features], dtype=self.dtype)
         label_batch = self.processor.tokenizer.pad(
             [{"input_ids": f["labels"]} for f in features],
             return_tensors="pt",
         )
-        labels = label_batch["input_ids"].masked_fill(
-            label_batch.attention_mask.ne(1), -100
-        )
+        labels = label_batch["input_ids"].masked_fill(label_batch.attention_mask.ne(1), -100)
         # Whisper は bos/prefix を自前で付けるケースがあるので、全行 bos で
         # 始まっていれば先頭を削る (HF Whisper fine-tune の定石)
         bos = self.processor.tokenizer.bos_token_id
@@ -102,9 +96,7 @@ class DataCollatorWhisperLoRA:
 def build_model(lora_r: int, lora_alpha: int, lora_dropout: float) -> WhisperForConditionalGeneration:
     """Whisper Large-v3 に Decoder-only LoRA を装着。"""
     print(f"Loading {MODEL_ID} (fp16) ...")
-    model = WhisperForConditionalGeneration.from_pretrained(
-        MODEL_ID, dtype=torch.float16
-    )
+    model = WhisperForConditionalGeneration.from_pretrained(MODEL_ID, dtype=torch.float16)
 
     # 生成時のデフォルト設定
     model.generation_config.language = "japanese"
@@ -119,9 +111,7 @@ def build_model(lora_r: int, lora_alpha: int, lora_dropout: float) -> WhisperFor
     lora_config = LoraConfig(
         r=lora_r,
         lora_alpha=lora_alpha,
-        target_modules=(
-            r".*decoder\.layers\.\d+\.(self_attn|encoder_attn)\.(q_proj|k_proj|v_proj|out_proj)"
-        ),
+        target_modules=(r".*decoder\.layers\.\d+\.(self_attn|encoder_attn)\.(q_proj|k_proj|v_proj|out_proj)"),
         lora_dropout=lora_dropout,
         bias="none",
     )
@@ -149,9 +139,7 @@ def main() -> None:
     args.out.mkdir(parents=True, exist_ok=True)
 
     # Processor (language/task は processor に設定しておくと tokenize 時に prefix 自動付与)
-    processor = WhisperProcessor.from_pretrained(
-        MODEL_ID, language="japanese", task="transcribe"
-    )
+    processor = WhisperProcessor.from_pretrained(MODEL_ID, language="japanese", task="transcribe")
 
     # Model
     model = build_model(args.lora_r, args.lora_alpha, args.lora_dropout)
