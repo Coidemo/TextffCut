@@ -1,6 +1,7 @@
-"""共通: EasyOCR ベースのテキスト bbox 検出.
+"""動画内テキストの bbox 検出ロジック.
 
-P1-P4 で共通利用される検出ロジック.
+OcrmacDetector (Apple Vision API) を本番で使用. Box / merge_boxes / sample_edge_color
+は他モジュール (tracker, ffmpeg, chunk_worker) からも共通利用される.
 """
 
 from __future__ import annotations
@@ -105,56 +106,6 @@ class OcrmacDetector:
             y1 = int((1.0 - y_n_bl - h_n) * small_h * inv)
             y2 = int((1.0 - y_n_bl) * small_h * inv)
             boxes.append(Box(min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2)))
-
-        return boxes
-
-
-class TextDetector:
-    """EasyOCR の detect-only モードでテキスト bbox を抽出."""
-
-    def __init__(
-        self,
-        languages: list[str] | None = None,
-        gpu: bool = False,
-        detect_scale: float = 1.0,
-    ) -> None:
-        import easyocr
-
-        self.languages = languages or ["ja", "en"]
-        self.reader = easyocr.Reader(self.languages, gpu=gpu, verbose=False)
-        self.detect_scale = detect_scale
-
-    def detect(self, image: np.ndarray) -> list[Box]:
-        if self.detect_scale != 1.0:
-            small = cv2.resize(
-                image,
-                None,
-                fx=self.detect_scale,
-                fy=self.detect_scale,
-                interpolation=cv2.INTER_AREA,
-            )
-            horizontal_list, free_list = self.reader.detect(small)
-            inv = 1.0 / self.detect_scale
-        else:
-            horizontal_list, free_list = self.reader.detect(image)
-            inv = 1.0
-
-        boxes: list[Box] = []
-        for box in horizontal_list[0]:
-            x_min, x_max, y_min, y_max = box
-            boxes.append(
-                Box(
-                    int(x_min * inv),
-                    int(y_min * inv),
-                    int(x_max * inv),
-                    int(y_max * inv),
-                )
-            )
-
-        for poly in free_list[0]:
-            xs = [int(p[0] * inv) for p in poly]
-            ys = [int(p[1] * inv) for p in poly]
-            boxes.append(Box(min(xs), min(ys), max(xs), max(ys)))
 
         return boxes
 

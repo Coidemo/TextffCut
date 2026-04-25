@@ -103,6 +103,7 @@ class SuggestAndExportUseCase:
 
         # Phase 5.5: 速度変更
         actual_video_path = request.video_path
+        used_blur_source = False  # auto_blur ぼかし版を採用したかの明示フラグ
 
         # auto_blur cache 検出: source_blurred.mp4 が存在 + use_blurred_source=True で適用
         if request.use_blurred_source:
@@ -112,6 +113,7 @@ class SuggestAndExportUseCase:
             if _blur_uc.is_cached(request.video_path):
                 blurred_path, _ = _blur_uc.get_cache_paths(request.video_path)
                 actual_video_path = blurred_path
+                used_blur_source = True
                 logger.info(f"auto_blur cache hit、ぼかし版動画を使用: {blurred_path}")
 
         if request.speed != 1.0:
@@ -122,7 +124,7 @@ class SuggestAndExportUseCase:
             speed_label = f"{round(speed, 1)}x"
             vp = VideoProcessor(Config())
             # auto_blur cache 利用時はファイル名に _blurred を付ける
-            suffix = "_blurred" if actual_video_path != request.video_path else ""
+            suffix = "_blurred" if used_blur_source else ""
             speed_path = base_dir / f"source_{speed_label}{suffix}.mp4"
             vp.create_speed_changed_video(str(actual_video_path), str(speed_path), speed)
             actual_video_path = speed_path

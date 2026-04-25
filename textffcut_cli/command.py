@@ -486,6 +486,18 @@ def main() -> None:
         from concurrent.futures import ThreadPoolExecutor
 
         from use_cases.auto_blur import AutoBlurParams, AutoBlurUseCase
+        from use_cases.auto_blur.auto_blur_use_case import is_apple_silicon
+
+        if not is_apple_silicon():
+            print(
+                "[auto-blur] ⚠ Apple Silicon Mac 専用機能です (ocrmac/Vision API 依存)。"
+                "--auto-blur オプションを無視して文字起こしのみ実行します。",
+                file=sys.stderr,
+            )
+            args.auto_blur = False  # フラグを無効化して以下の分岐をスキップ
+
+    if args.auto_blur:
+        from use_cases.auto_blur import AutoBlurParams, AutoBlurUseCase
 
         blur_params = AutoBlurParams()
         blur_use_case = AutoBlurUseCase(blur_params)

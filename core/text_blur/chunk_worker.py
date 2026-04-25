@@ -22,7 +22,6 @@ def process_full_chunk(args: dict) -> dict:
 
     from core.text_blur.detector import (
         OcrmacDetector,
-        TextDetector,
         merge_boxes,
         sample_edge_color,
     )
@@ -38,6 +37,7 @@ def process_full_chunk(args: dict) -> dict:
     output_path: str = args["output_path"]
     abs_start: float = args["abs_start"]
     abs_dur: float = args["abs_dur"]
+    ffmpeg_timeout = args.get("ffmpeg_timeout_sec", 1200)
 
     # ── Step 1: scene detect on chunk range ──────────────────────────────
     cmd = [
@@ -48,7 +48,7 @@ def process_full_chunk(args: dict) -> dict:
         "-vf", f"select='gt(scene,{args['scene_threshold']})',showinfo",
         "-an", "-f", "null", "-",
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=ffmpeg_timeout)
     pat = re.compile(r"pts_time:([\d.]+)")
     # pts_time は -ss 適用後 (chunk-local) で出る
     scene_changes = [float(m.group(1)) for m in pat.finditer(result.stderr)]
@@ -69,14 +69,9 @@ def process_full_chunk(args: dict) -> dict:
     timestamps_sorted = sorted(timestamps)
 
     # ── Step 3: detect at timestamps (with skip) ─────────────────────────
-    if args["detector_backend"] == "ocrmac":
-        detector = OcrmacDetector(
-            languages=args["languages"], detect_scale=args["detect_scale"]
-        )
-    else:
-        detector = TextDetector(
-            languages=args["languages"], detect_scale=args["detect_scale"]
-        )
+    detector = OcrmacDetector(
+        languages=args["languages"], detect_scale=args["detect_scale"]
+    )
 
     cap = cv2.VideoCapture(str(input_video))
     src_fps = cap.get(cv2.CAP_PROP_FPS)
@@ -92,7 +87,7 @@ def process_full_chunk(args: dict) -> dict:
 
     skip_threshold = args["skip_threshold"]
     max_skip_streak = args["max_skip_streak"]
-    diff_resize = (320, 180)
+    diff_resize = (args.get("diff_resize_w", 320), args.get("diff_resize_h", 180))
 
     for t_local in timestamps_sorted:
         if t_local < 0 or t_local >= abs_dur:
@@ -146,7 +141,9 @@ def process_full_chunk(args: dict) -> dict:
         if not ret:
             continue
         ub = _track_union_bbox(tr, args["padding"], width, height)
-        tr.fill_color = sample_edge_color(frame, ub, border_width=10)
+        tr.fill_color = sample_edge_color(
+            frame, ub, border_width=args.get("color_sample_border", 10)
+        )
     cap.release()
 
     # ── Step 6: build chunk filter (chunk-local times = use chunk_start=0) ─
@@ -187,7 +184,7 @@ def process_full_chunk(args: dict) -> dict:
                 str(output_path),
             ]
         )
-        subprocess.run(cmd, check=True)
+        subprocess.run(cmd, check=True, timeout=ffmpeg_timeout)
     finally:
         Path(script_path).unlink(missing_ok=True)
 

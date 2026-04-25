@@ -929,6 +929,7 @@ class TextEditorView:
 
                 # Phase 3.5: 速度変更
                 actual_video_path = video_path_obj
+                used_blur_source = False  # auto_blur ぼかし版を採用したかの明示フラグ
 
                 # auto_blur cache 検出 (export_settings の checkbox 設定を尊重)
                 _use_blurred = st.session_state.get("export_use_blurred_source", True)
@@ -940,6 +941,7 @@ class TextEditorView:
                         if _blur_uc.is_cached(video_path_obj):
                             blurred_path, _ = _blur_uc.get_cache_paths(video_path_obj)
                             actual_video_path = blurred_path
+                            used_blur_source = True
                             progress_text.write("🔒 ぼかし版動画をソースとして使用")
                     except Exception:  # noqa: BLE001
                         pass
@@ -953,7 +955,7 @@ class TextEditorView:
                     video_name = video_path_obj.stem
                     base_dir = video_path_obj.parent / f"{video_name}_TextffCut"
                     vp = VideoProcessor(Config())
-                    suffix = "_blurred" if actual_video_path != video_path_obj else ""
+                    suffix = "_blurred" if used_blur_source else ""
                     speed_path = base_dir / f"source_{speed_label}{suffix}.mp4"
                     vp.create_speed_changed_video(str(actual_video_path), str(speed_path), round(speed, 2))
                     actual_video_path = speed_path

@@ -321,15 +321,22 @@ class TranscriptionView:
                     from concurrent.futures import ThreadPoolExecutor
                     from pathlib import Path as _Path
                     from use_cases.auto_blur import AutoBlurParams, AutoBlurUseCase
+                    from use_cases.auto_blur.auto_blur_use_case import is_apple_silicon
 
-                    _video_path = _Path(self.view_model.video_path)
-                    _blur_uc = AutoBlurUseCase(AutoBlurParams())
-                    if not _blur_uc.is_cached(_video_path):
-                        status_text.info("動画内テキストぼかしを並列起動中...")
-                        blur_executor = ThreadPoolExecutor(max_workers=1)
-                        blur_future = blur_executor.submit(
-                            _blur_uc.execute, _video_path
+                    if not is_apple_silicon():
+                        st.warning(
+                            "⚠ 動画内テキスト自動ぼかしは Apple Silicon Mac 専用です。"
+                            "現環境では機能しないためスキップします。"
                         )
+                    else:
+                        _video_path = _Path(self.view_model.video_path)
+                        _blur_uc = AutoBlurUseCase(AutoBlurParams())
+                        if not _blur_uc.is_cached(_video_path):
+                            status_text.info("動画内テキストぼかしを並列起動中...")
+                            blur_executor = ThreadPoolExecutor(max_workers=1)
+                            blur_future = blur_executor.submit(
+                                _blur_uc.execute, _video_path
+                            )
                 except Exception as _e:  # noqa: BLE001
                     logger.warning(f"auto_blur 起動失敗 (続行): {_e}")
 

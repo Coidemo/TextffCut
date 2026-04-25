@@ -18,7 +18,28 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## バージョン情報
 
-### v2.1.1 (2026-04-23) — 最新安定版
+### v2.2.0 (2026-04-25) — 最新安定版
+- **タグ**: `v2.2.0`
+- **動画内テキスト自動ぼかし機能** (PR #135):
+  - コメント欄・UI 文字・チャンネルロゴ等を自動検出して塗りつぶし、DaVinci 取り込み前の前処理として使用
+  - **Apple Vision API (ocrmac)** ベース検出 → Apple Silicon Mac 専用機能 (Neural Engine 活用、EasyOCR 比 2.4x 高速)
+  - **drawbox 方式** で塗りつぶし (gblur より 5x 高速、色滲みなし、bbox 縁から自動色サンプリング)
+  - **検出スキップ最適化**: フレーム差分で前回 bbox を再利用 (検出回数 -70%)
+  - **フルチャンク並列化**: 4 並列で 64 分動画を 4分16秒で処理
+- **CLI**:
+  - `textffcut --auto-blur video.mp4`: Whisper 文字起こしと**並列実行** (Whisper 21s + blur 25s が並走、5min 動画 26.6s で完了)
+  - `textffcut clip video.mp4`: cache 自動利用、なければ警告 + 元動画
+  - `textffcut clip --no-blurred-source`: 明示的に元動画使用
+- **GUI**:
+  - 文字起こし画面: 「🔒 動画内テキスト自動ぼかし」チェックボックス
+  - クリップ生成画面: cache 存在時のみ「ぼかし版を利用」チェックボックス表示
+- **キャッシュ**: `{video}_TextffCut/source_blurred.mp4` + params sidecar (params hash + 元動画 mtime/size で検証)
+- **依存追加** (`pyproject.toml`):
+  - `ocrmac>=1.0.0` (Apple Vision Framework wrapper)
+  - `opencv-python>=4.10.0` (numpy 2 対応版)
+  - numpy `<2.0` 制約撤去 (主要 dep の numpy 2 対応確認済)
+
+### v2.1.1 (2026-04-23)
 - **タグ**: `v2.1.1`
 - **無音削除で word が消えるバグを修正** (PR #122/#123/#124):
   - `core/video.py::_rescue_missing_words` で無音削除後に silence 判定で落ちた word を救済
@@ -98,7 +119,13 @@ TextffCut/
 │   ├── japanese_line_break.py  # GiNZA文節ベース日本語改行
 │   ├── srt_diff_exporter.py    # SRT差分エクスポート
 │   ├── export.py            # FCPXML/EDLエクスポート
-│   └── video.py             # 動画処理・無音検出
+│   ├── video.py             # 動画処理・無音検出
+│   ├── fcpxml_relink.py        # 別マシン向けFCPXMLパス書き換え
+│   └── text_blur/              # 動画内テキスト検出+ぼかし (v2.2.0)
+│       ├── detector.py            # OcrmacDetector + Box / merge_boxes
+│       ├── tracker.py             # IoU マッチングで track 化
+│       ├── ffmpeg.py              # filter_complex 構築 + 実行
+│       └── chunk_worker.py        # full-chunk 並列化ワーカー
 ├── use_cases/ai/            # AI機能
 │   ├── suggest_and_export.py       # AI切り抜き→FCPXML+SRT出力
 │   ├── generate_clip_suggestions.py # クリップ候補生成
@@ -110,9 +137,8 @@ TextffCut/
 │   ├── auto_anchor_detector.py     # 被写体位置自動検出
 │   ├── se_placement.py             # 効果音配置
 │   └── final_video_generator.py    # 最終動画生成
-├── core/
-│   ├── fcpxml_relink.py            # 別マシン向けFCPXMLパス書き換え
-│   └── ...
+├── use_cases/auto_blur/     # 動画内テキスト自動ぼかし (v2.2.0)
+│   └── auto_blur_use_case.py   # AutoBlurUseCase + キャッシュ層
 ├── adapters/                # インターフェースアダプター層
 ├── di/                      # 依存性注入コンテナ
 ├── domain/                  # ドメインモデル
@@ -282,6 +308,7 @@ make pre-commit
 3. **時間計算**: フレーム単位の丸めによる0.1秒程度の誤差は正常
 4. **FCPXML フレーム丸め (30fps)**: `duration` は `round(seconds × 30)` で frame に量子化される。`round(0.5)=0`（banker's rounding）で `duration="0/1s"` が生成されるとアセット参照が壊れるため、無音削除後の `keep_range` は **最低 1 frame (33ms) の duration を保証** する必要がある。`core/video.py::_rescue_missing_words` の `_RESCUE_PADDING` がこれを担保。
 5. **無音削除の word 救済**: `remove_silence_new` は `transcription_words` 引数を受け取る。GUI (`presentation/views/text_editor.py`) と CLI (`use_cases/ai/suggest_and_export.py`) の両方から `transcription` を伝播する必要がある。伝播が抜けると silence 判定で落とされた short word が SRT から欠落する。
+6. **auto_blur (v2.2.0)**: Apple Silicon Mac 専用 (`ocrmac`/Apple Vision API 依存)。`use_cases/auto_blur/auto_blur_use_case.py::is_apple_silicon()` で起動時にチェック、非対応環境では警告のみ出して機能無効化 (文字起こしは継続)。キャッシュは `{video}_TextffCut/source_blurred.mp4` + sidecar (params hash + 元動画 mtime/size で検証)。クリップ生成時に cache あれば自動利用 (suggest_and_export.py + text_editor.py 両経路)、`--no-blurred-source` / GUI checkbox OFF で明示的に無効化可。
 
 ## 配布
 
@@ -292,4 +319,4 @@ brew install coidemo/textffcut/textffcut
 
 ---
 
-最終更新: 2026-04-23
+最終更新: 2026-04-25

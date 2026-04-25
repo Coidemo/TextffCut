@@ -11,7 +11,6 @@
 from core.text_blur.detector import (
     Box,
     OcrmacDetector,
-    TextDetector,
     merge_boxes,
     sample_edge_color,
 )
@@ -26,7 +25,6 @@ from core.text_blur.tracker import (
 __all__ = [
     "Box",
     "OcrmacDetector",
-    "TextDetector",
     "Track",
     "TrackPoint",
     "build_tracks",

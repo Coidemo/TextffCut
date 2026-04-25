@@ -17,12 +17,22 @@ from __future__ import annotations
 import concurrent.futures as futures
 import hashlib
 import json
+import platform
 import subprocess
 import tempfile
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Callable
+
+
+def is_apple_silicon() -> bool:
+    """Apple Silicon Mac (M1/M2/M3/M4 etc.) かどうか判定.
+
+    auto_blur は ocrmac (Apple Vision API) に依存するため Apple Silicon Mac 専用.
+    Intel Mac / Linux / Windows 等では機能しない.
+    """
+    return platform.system() == "Darwin" and platform.machine() == "arm64"
 
 
 @dataclass
@@ -46,6 +56,13 @@ class AutoBlurParams:
     bitrate: str = "8M"
     full_chunks: int = 4
     languages: list[str] = field(default_factory=lambda: ["ja", "en"])
+    # 色サンプリング: bbox 縁のサンプリング幅 (px)
+    color_sample_border: int = 10
+    # フレーム差分計算用 resize サイズ (cv2.resize の (width, height))
+    diff_resize_w: int = 320
+    diff_resize_h: int = 180
+    # ffmpeg subprocess timeout (秒). チャンクごとの処理時間上限
+    ffmpeg_timeout_sec: int = 1200  # 20 分
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -130,13 +147,19 @@ class AutoBlurUseCase:
         out_path.parent.mkdir(parents=True, exist_ok=True)
 
         t0 = time.time()
-        _run_full_chunk_pipeline(
-            input_path=video_path,
-            output_path=out_path,
-            params=self.params,
-            speed=1.0,  # speed 変更はここでは適用しない
-            progress_callback=progress_callback,
-        )
+        try:
+            _run_full_chunk_pipeline(
+                input_path=video_path,
+                output_path=out_path,
+                params=self.params,
+                speed=1.0,  # speed 変更はここでは適用しない
+                progress_callback=progress_callback,
+            )
+        except Exception:
+            # 失敗時に破損ファイル/中途 sidecar を残さない
+            out_path.unlink(missing_ok=True)
+            sidecar_path.unlink(missing_ok=True)
+            raise
         elapsed = time.time() - t0
 
         # sidecar 保存
@@ -220,6 +243,10 @@ def _run_full_chunk_pipeline(
                     "crf": 20,
                     "preset": "medium",
                     "bitrate": params.bitrate,
+                    "color_sample_border": params.color_sample_border,
+                    "diff_resize_w": params.diff_resize_w,
+                    "diff_resize_h": params.diff_resize_h,
+                    "ffmpeg_timeout_sec": params.ffmpeg_timeout_sec,
                 }
             )
 
@@ -253,4 +280,5 @@ def _run_full_chunk_pipeline(
             "error",
             str(output_path),
         ]
-        subprocess.run(cmd, check=True)
+        # concat は -c copy なので 60 秒程度で十分 (4 chunk なら数秒)
+        subprocess.run(cmd, check=True, timeout=300)
