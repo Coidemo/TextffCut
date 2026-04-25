@@ -68,14 +68,14 @@ def run_send(argv: list[str]) -> None:
         print(f"❌ {e}", file=sys.stderr)
         sys.exit(1)
 
-    print(f"✓ Bin {result['bin_name']!r} に {result['timeline_name']} を作成")
-    if result["srt_imported"]:
+    print(f"✓ Bin {result.bin_name!r} に {result.timeline_name} を作成")
+    if result.srt_imported:
         print(f"  字幕トラック追加: OK")
     else:
         print(f"  字幕: スキップ (SRT 未検出 or import 失敗)")
-    if result["se_muted"]:
-        muted = ", ".join(f"A{i}" for i in result["se_muted"])
+    if result.se_muted:
+        muted = ", ".join(f"A{i}" for i in result.se_muted)
         print(f"  素材用 SE ミュート: {muted}")
-    if result["se_kept"]:
-        kept = ", ".join(f"A{i}" for i in result["se_kept"])
+    if result.se_kept:
+        kept = ", ".join(f"A{i}" for i in result.se_kept)
         print(f"  AI 配置 SE 維持: {kept}")

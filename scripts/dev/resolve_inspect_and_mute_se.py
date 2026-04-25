@@ -18,27 +18,21 @@ SE track を判定してミュートする。
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(ROOT))
 
-def setup_resolve_path() -> None:
-    api_root = os.environ.get(
-        "RESOLVE_SCRIPT_API",
-        "/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting",
-    )
-    sys.path.insert(0, str(Path(api_root) / "Modules"))
+from infrastructure.davinci_resolve import connect_resolve, is_se_clip_name
 
 
 def connect():
-    import DaVinciResolveScript as dvr_script  # type: ignore[import-not-found]
-
-    resolve = dvr_script.scriptapp("Resolve")
-    if resolve is None:
-        print("❌ Resolve に接続できません", file=sys.stderr)
+    try:
+        return connect_resolve()
+    except Exception as e:
+        print(f"❌ {e}", file=sys.stderr)
         sys.exit(1)
-    return resolve
 
 
 def find_timeline_by_name(project, name: str):
@@ -48,39 +42,6 @@ def find_timeline_by_name(project, name: str):
         if tl and tl.GetName() == name:
             return tl
     return None
-
-
-# SE 判定キーワード (preset/ 配下の SE ファイル名から)
-SE_KEYWORDS = (
-    "ジャン",
-    "きらーん",
-    "キュピーン",
-    "グサッ",
-    "シャキーン",
-    "チリン",
-    "ニュッ",
-    "ビシッ",
-    "ピアノ",
-    "不安",
-    "和太鼓",
-    "拍子木",
-    "涙",
-    "間抜け",
-    "シャ",
-    "ドン",
-    "コン",
-    "ピコ",
-    "ジャラン",
-    "テロップ",
-)
-
-
-def is_se_clip_name(name: str) -> bool:
-    if "bgm" in name.lower() or "BGM" in name:
-        return False
-    if "source_" in name.lower():
-        return False
-    return any(kw in name for kw in SE_KEYWORDS) or name.endswith(".mp3")
 
 
 def main() -> None:

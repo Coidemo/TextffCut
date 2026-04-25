@@ -240,34 +240,44 @@ def render_subtitle_editor_section(container: Any, videos_root: str = "videos") 
 
     # DaVinci Resolve に送信
     fcpxml_path = srt_path.with_suffix(".fcpxml")
+    # 未保存編集あり: 送信すると disk 上の古い SRT が送られるので警告
+    has_unsaved_edits = edited_text.strip() != original_text.strip()
     send_disabled = save_disabled or (not fcpxml_path.exists())
+
+    send_help = (
+        "DaVinci Resolve の現在開いているビンに timeline + 字幕を取り込みます。\n"
+        "timeline 名は 00_MMDD_Clip{NN} (NN はビン内既存 max+1)。素材用 SE は自動 mute。"
+    )
+    if has_unsaved_edits:
+        send_help += "\n⚠ 未保存の編集があります。送信前に '💾 保存' を押してください。"
+
     if btn_cols[2].button(
         "📺 DaVinciへ送信",
         key=f"send_{ta_key}",
         disabled=send_disabled,
-        help=(
-            "DaVinci Resolve の現在開いているビンに timeline + 字幕を取り込みます。\n"
-            "保存していない編集内容は反映されません (先に '💾 保存' を押してください)。"
-        ),
+        help=send_help,
     ):
-        try:
-            from infrastructure.davinci_resolve import ResolveError, send_clip_to_resolve
+        if has_unsaved_edits:
+            container.warning("⚠ 未保存の編集があります。先に '💾 保存' を押してから送信してください。")
+        else:
+            try:
+                from infrastructure.davinci_resolve import ResolveError, send_clip_to_resolve
 
-            result = send_clip_to_resolve(fcpxml_path)
-            msg_lines = [
-                f"✓ Bin {result['bin_name']!r} に {result['timeline_name']} を作成",
-                f"  字幕: {'OK' if result['srt_imported'] else 'スキップ'}",
-            ]
-            if result["se_muted"]:
-                muted = ", ".join(f"A{i}" for i in result["se_muted"])
-                msg_lines.append(f"  素材用 SE ミュート: {muted}")
-            container.success("\n".join(msg_lines))
-        except ResolveError as e:
-            container.error(f"Resolve 送信失敗:\n{e}")
-            logger.warning(f"DaVinci 送信失敗: {e}")
-        except Exception as e:
-            container.error(f"予期しないエラー: {e}")
-            logger.exception("DaVinci 送信エラー")
+                result = send_clip_to_resolve(fcpxml_path)
+                msg_lines = [
+                    f"✓ Bin {result.bin_name!r} に {result.timeline_name} を作成",
+                    f"  字幕: {'OK' if result.srt_imported else 'スキップ'}",
+                ]
+                if result.se_muted:
+                    muted = ", ".join(f"A{i}" for i in result.se_muted)
+                    msg_lines.append(f"  素材用 SE ミュート: {muted}")
+                container.success("\n".join(msg_lines))
+            except ResolveError as e:
+                container.error(f"Resolve 送信失敗:\n{e}")
+                logger.warning(f"DaVinci 送信失敗: {e}")
+            except Exception as e:
+                container.error(f"予期しないエラー: {e}")
+                logger.exception("DaVinci 送信エラー")
 
     # 過去の編集ログ概要
     logs = load_edit_log(base_dir)

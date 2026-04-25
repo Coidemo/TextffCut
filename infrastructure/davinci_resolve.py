@@ -2,6 +2,7 @@
 
 CLI (`textffcut send`) と GUI から共通利用される。
 Resolve は起動済み + Local scripting 有効化 + プロジェクト open 前提。
+TextffCut は Apple Silicon Mac 専用のため、パスも macOS 前提で決め打ち。
 
 主要関数:
   - send_clip_to_resolve(): FCPXML + SRT を 1 コマンドで取り込み + SE ミュート
@@ -13,19 +14,20 @@ import logging
 import os
 import re
 import sys
+from dataclasses import dataclass, field
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
 
 # DaVinci Resolve scripting API モジュールのデフォルトパス (macOS)
-_DEFAULT_API_ROOT = (
-    "/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting"
-)
+# TextffCut は Apple Silicon Mac 専用のためこのパスで固定
+_DEFAULT_API_ROOT = "/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting"
 
 
 # SE 判定用のキーワード (preset/ 配下の SE ファイル名から)
-_SE_KEYWORDS = (
+# 保守性のため、preset/ ディレクトリに新しい SE を追加したらここにも追加する
+SE_KEYWORDS: tuple[str, ...] = (
     "ジャン",
     "きらーん",
     "キュピーン",
@@ -47,6 +49,17 @@ _SE_KEYWORDS = (
     "ジャラン",
     "テロップ",
 )
+
+
+@dataclass
+class SendResult:
+    """send_clip_to_resolve() の実行結果。"""
+
+    timeline_name: str
+    bin_name: str
+    srt_imported: bool = False
+    se_muted: list[int] = field(default_factory=list)
+    se_kept: list[int] = field(default_factory=list)
 
 
 class ResolveError(Exception):
@@ -83,15 +96,6 @@ def connect_resolve():
     return resolve
 
 
-def _find_timeline_by_name(project, name: str):
-    count = project.GetTimelineCount()
-    for i in range(1, count + 1):
-        tl = project.GetTimelineByIndex(i)
-        if tl and tl.GetName() == name:
-            return tl
-    return None
-
-
 def _compute_next_seq(folder, mmdd: str) -> int:
     """ビン内の `00_{mmdd}_Clip{NN}` パターンから max+1 を返す。"""
     pattern = re.compile(rf"^00_{mmdd}_Clip(\d+)$")
@@ -112,12 +116,18 @@ def _extract_mmdd_from_path(fcpxml_path: Path) -> str | None:
     return None
 
 
-def _is_se_clip_name(name: str) -> bool:
-    if "bgm" in name.lower():
+def is_se_clip_name(name: str) -> bool:
+    """SE_KEYWORDS のいずれかを含む名前を SE と判定する。
+
+    BGM や本編動画 (source_*) は明示的に除外。
+    .mp3 拡張子だけでは SE 扱いしない (ナレーション等の可能性があるため)。
+    """
+    lower = name.lower()
+    if "bgm" in lower:
         return False
-    if "source_" in name.lower():
+    if "source_" in lower:
         return False
-    return any(kw in name for kw in _SE_KEYWORDS) or name.endswith(".mp3")
+    return any(kw in name for kw in SE_KEYWORDS)
 
 
 def _detect_and_mute_material_se(timeline) -> tuple[list[int], list[int]]:
@@ -135,7 +145,7 @@ def _detect_and_mute_material_se(timeline) -> tuple[list[int], list[int]]:
         clip_names = [item.GetName() for item in items]
         if any("source_" in n for n in clip_names):
             continue
-        se_count = sum(1 for n in clip_names if _is_se_clip_name(n))
+        se_count = sum(1 for n in clip_names if is_se_clip_name(n))
         if se_count >= len(items) / 2:
             se_tracks.append((i, len(items)))
 
@@ -167,7 +177,7 @@ def send_clip_to_resolve(
     *,
     srt_path: Path | None = None,
     mmdd: str | None = None,
-) -> dict:
+) -> SendResult:
     """FCPXML と SRT を Resolve の現在開いているビンに送信する。
 
     Args:
@@ -176,12 +186,7 @@ def send_clip_to_resolve(
         mmdd: 連番計算用の月日 (例: "0210")。省略時は動画ディレクトリ名から抽出
 
     Returns:
-        操作結果の dict:
-          - timeline_name: 作成された timeline 名
-          - bin_name: 配置されたビン名
-          - srt_imported: SRT を import したか
-          - se_muted: ミュートした SE track index リスト
-          - se_kept: 有効化を保持した SE track index リスト
+        SendResult: 操作結果
     """
     fcpxml_path = fcpxml_path.resolve()
     if not fcpxml_path.exists():
@@ -229,6 +234,9 @@ def send_clip_to_resolve(
             logger.warning(f"timeline rename 失敗: {timeline.GetName()!r} → {new_name!r}")
 
     # SRT import
+    # Resolve 20 には SRT 専用 import API がないため、ImportMedia → AppendToTimeline で代替。
+    # ImportMedia が SRT を subtitle clip として認識するのは heuristic (公式ドキュメント化されていない) 。
+    # 将来バージョンで挙動が変われば要再検証。
     srt_imported = False
     if srt_path is not None:
         project.SetCurrentTimeline(timeline)
@@ -248,10 +256,10 @@ def send_clip_to_resolve(
     # SE ミュート
     se_muted, se_kept = _detect_and_mute_material_se(timeline)
 
-    return {
-        "timeline_name": new_name,
-        "bin_name": bin_name,
-        "srt_imported": srt_imported,
-        "se_muted": se_muted,
-        "se_kept": se_kept,
-    }
+    return SendResult(
+        timeline_name=new_name,
+        bin_name=bin_name,
+        srt_imported=srt_imported,
+        se_muted=se_muted,
+        se_kept=se_kept,
+    )
