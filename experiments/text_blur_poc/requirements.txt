@@ -1,0 +1,17 @@
+# Text Blur PoC 用の独立依存
+# 本体 TextffCut とは分離する（torch バージョン衝突等を避けるため）
+
+# テキスト検出 (CRAFT 内蔵、detect-only でも使える)
+easyocr>=1.7.0
+
+# PyTorch (MPS バックエンド対応)
+torch>=2.2.0
+torchvision>=0.17.0
+
+# 動画フレーム処理
+opencv-python>=4.9.0
+numpy>=1.26.0,<2.0
+Pillow>=10.0.0
+
+# CLI 引数 / 進捗バー
+tqdm>=4.66.0

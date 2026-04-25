@@ -324,6 +324,38 @@ class ExportSettingsView:
                     key=TestIds.EXPORT_INCLUDE_SRT_CHECKBOX,
                 )
                 self.presenter.set_include_srt(include_srt)
+
+            # auto_blur 利用設定: cache 存在時のみ有効化
+            try:
+                from use_cases.auto_blur import AutoBlurUseCase as _AutoBlurUseCase
+
+                _blur_uc = _AutoBlurUseCase()
+                _blur_cached = (
+                    self.view_model.video_path is not None
+                    and _blur_uc.is_cached(self.view_model.video_path)
+                )
+            except Exception:  # noqa: BLE001
+                _blur_cached = False
+
+            if _blur_cached:
+                use_blurred_default = st.session_state.get("export_use_blurred_source", True)
+                use_blurred_source = st.checkbox(
+                    "🔒 ぼかし版動画をソースとして利用",
+                    value=use_blurred_default,
+                    help=(
+                        "文字起こし時に生成されたぼかし版動画を使ってクリップを生成します. "
+                        "OFF にすると元動画 (ぼかしなし) が使われます."
+                    ),
+                    key="export_use_blurred_source",
+                )
+                st.session_state["export_use_blurred_source"] = use_blurred_source
+            else:
+                # cache がなければ説明だけ表示
+                st.session_state.pop("export_use_blurred_source", None)
+                st.caption(
+                    "ℹ️ 動画内テキスト自動ぼかしを使うには、文字起こし画面で「🔒 動画内テキスト自動ぼかし」"
+                    "を有効にして再実行してください."
+                )
         else:
             # SRT字幕のみの場合：無音削除のみ
             remove_silence = st.checkbox(
