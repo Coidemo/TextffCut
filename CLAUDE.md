@@ -18,21 +18,23 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## バージョン情報
 
-### v2.2.0 (2026-04-25) — 最新安定版
+### v2.2.0 (2026-04-26) — 最新安定版
 - **タグ**: `v2.2.0`
-- **動画内テキスト自動ぼかし機能** (PR #135):
-  - コメント欄・UI 文字・チャンネルロゴ等を自動検出して塗りつぶし、DaVinci 取り込み前の前処理として使用
+- **動画内テキスト自動塗りつぶし機能** (PR #135):
+  - 命名注意: コード上は `auto_blur` (内部識別子・CLI フラグは互換性維持)、ユーザー向け表現は「塗りつぶし」で統一
+  - 実装は `drawbox` による塗りつぶし (gaussian blur ではない). 将来 mosaic / gaussian も engine 切替で追加可能な設計
+  - コメント欄・UI 文字・チャンネルロゴ等を自動検出して周囲色で塗りつぶし、DaVinci 取り込み前の前処理として使用
   - **Apple Vision API (ocrmac)** ベース検出 → Apple Silicon Mac 専用機能 (Neural Engine 活用、EasyOCR 比 2.4x 高速)
   - **drawbox 方式** で塗りつぶし (gblur より 5x 高速、色滲みなし、bbox 縁から自動色サンプリング)
   - **検出スキップ最適化**: フレーム差分で前回 bbox を再利用 (検出回数 -70%)
   - **フルチャンク並列化**: 4 並列で 64 分動画を 4分16秒で処理
 - **CLI**:
-  - `textffcut --auto-blur video.mp4`: Whisper 文字起こしと**並列実行** (Whisper 21s + blur 25s が並走、5min 動画 26.6s で完了)
+  - `textffcut --auto-blur video.mp4`: Whisper 文字起こしと**並列実行** (Whisper 21s + 塗りつぶし 25s が並走、5min 動画 26.6s で完了)
   - `textffcut clip video.mp4`: cache 自動利用、なければ警告 + 元動画
   - `textffcut clip --no-blurred-source`: 明示的に元動画使用
 - **GUI**:
-  - 文字起こし画面: 「🔒 動画内テキスト自動ぼかし」チェックボックス
-  - クリップ生成画面: cache 存在時のみ「ぼかし版を利用」チェックボックス表示
+  - 文字起こし画面: 「🔒 動画内テキスト自動塗りつぶし」チェックボックス
+  - クリップ生成画面: cache 存在時のみ「塗りつぶし版を利用」チェックボックス表示
 - **キャッシュ**: `{video}_TextffCut/source_blurred.mp4` + params sidecar (params hash + 元動画 mtime/size で検証)
 - **依存追加** (`pyproject.toml`):
   - `ocrmac>=1.0.0` (Apple Vision Framework wrapper)

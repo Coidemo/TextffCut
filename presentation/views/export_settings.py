@@ -340,11 +340,11 @@ class ExportSettingsView:
             if _blur_cached:
                 use_blurred_default = st.session_state.get("export_use_blurred_source", True)
                 use_blurred_source = st.checkbox(
-                    "🔒 ぼかし版動画をソースとして利用",
+                    "🔒 塗りつぶし版動画をソースとして利用",
                     value=use_blurred_default,
                     help=(
-                        "文字起こし時に生成されたぼかし版動画を使ってクリップを生成します. "
-                        "OFF にすると元動画 (ぼかしなし) が使われます."
+                        "文字起こし時に生成された塗りつぶし版動画を使ってクリップを生成します. "
+                        "OFF にすると元動画 (塗りつぶしなし) が使われます."
                     ),
                     key="export_use_blurred_source",
                 )
@@ -353,7 +353,7 @@ class ExportSettingsView:
                 # cache がなければ説明だけ表示
                 st.session_state.pop("export_use_blurred_source", None)
                 st.caption(
-                    "ℹ️ 動画内テキスト自動ぼかしを使うには、文字起こし画面で「🔒 動画内テキスト自動ぼかし」"
+                    "ℹ️ 動画内テキスト自動塗りつぶしを使うには、文字起こし画面で「🔒 動画内テキスト自動塗りつぶし」"
                     "を有効にして再実行してください."
                 )
         else:

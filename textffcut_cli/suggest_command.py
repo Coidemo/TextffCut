@@ -158,7 +158,7 @@ def build_suggest_parser() -> argparse.ArgumentParser:
         default=False,
         help=(
             "auto_blur で生成済みの source_blurred.mp4 が存在しても無視し、元動画を使用. "
-            "デフォルトでは存在すれば自動的にぼかし版を使用."
+            "デフォルトでは存在すれば自動的に塗りつぶし版を使用."
         ),
     )
     parser.add_argument(
@@ -388,9 +388,9 @@ def _process_single_video(
             _blur_uc = _AutoBlurUC()
             if not _blur_uc.is_cached(video_path.resolve()):
                 console.print(
-                    "[yellow]⚠ ぼかし版動画 (source_blurred.mp4) のキャッシュがありません。"
+                    "[yellow]⚠ 塗りつぶし版動画 (source_blurred.mp4) のキャッシュがありません。"
                     "元動画でクリップ生成します。[/]\n"
-                    "[dim]   事前にぼかしを生成するには: "
+                    "[dim]   事前に塗りつぶしを生成するには: "
                     f"textffcut --auto-blur {video_path.name}[/]"
                 )
         except Exception:  # noqa: BLE001

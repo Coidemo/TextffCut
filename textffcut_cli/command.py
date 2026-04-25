@@ -184,9 +184,9 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=False,
         help=(
-            "動画内テキスト (コメント・UI文字・ロゴ等) を自動検出してぼかしを適用. "
-            "文字起こしと並列で実行され、ぼかし版動画は次回クリップ生成時に自動利用される. "
-            "(Apple Silicon Mac 推奨)"
+            "動画内テキスト (コメント・UI文字・ロゴ等) を自動検出して周囲色で塗りつぶし. "
+            "文字起こしと並列で実行され、塗りつぶし版動画は次回クリップ生成時に自動利用される. "
+            "(Apple Silicon Mac 専用 / フラグ名は互換性維持のため auto-blur)"
         ),
     )
 
@@ -479,7 +479,7 @@ def main() -> None:
     def on_progress(progress):
         display.update(progress)
 
-    # ── auto-blur: Whisper と並列に動画内テキストぼかしを実行 ──
+    # ── auto-blur: Whisper と並列に動画内テキスト塗りつぶしを実行 ──
     blur_executor = None
     blur_futures: list = []
     if args.auto_blur:
@@ -488,7 +488,8 @@ def main() -> None:
         if not is_apple_silicon():
             print(
                 "[auto-blur] ⚠ Apple Silicon Mac 専用機能です (ocrmac/Vision API 依存)。"
-                "--auto-blur オプションを無視して文字起こしのみ実行します。",
+                "--auto-blur オプションを無視して文字起こしのみ実行します。"
+                "(機能名: 動画内テキスト自動塗りつぶし)",
                 file=sys.stderr,
             )
             args.auto_blur = False  # フラグを無効化して以下の分岐をスキップ
@@ -508,7 +509,7 @@ def main() -> None:
         if videos_to_blur:
             if not args.quiet:
                 print(
-                    f"[auto-blur] {len(videos_to_blur)} 件の動画を文字起こしと並列でぼかし処理"
+                    f"[auto-blur] {len(videos_to_blur)} 件の動画を文字起こしと並列で塗りつぶし処理"
                 )
             # 1 動画ずつ順番に処理 (1 動画内で full-chunks 並列するので外側並列は 1)
             blur_executor = ThreadPoolExecutor(max_workers=1)
@@ -538,7 +539,7 @@ def main() -> None:
     # ── auto-blur 完了待ち ──
     if blur_executor is not None:
         if not args.quiet:
-            print("[auto-blur] ぼかし処理の完了を待機中...")
+            print("[auto-blur] 塗りつぶし処理の完了を待機中...")
         for fut in blur_futures:
             try:
                 blur_result = fut.result()

@@ -619,7 +619,7 @@ class TextEditorView:
         # 設定UI
         col1, col2, col3 = st.columns(3)
         with col1:
-            num_candidates = st.number_input("候補数", min_value=1, max_value=10, value=saved_num, key="ai_clip_num")
+            num_candidates = st.number_input("候補数", min_value=1, value=saved_num, key="ai_clip_num")
         with col2:
             min_duration = st.number_input("最小秒数", min_value=10, max_value=120, value=saved_min, key="ai_clip_min")
         with col3:
@@ -929,7 +929,7 @@ class TextEditorView:
 
                 # Phase 3.5: 速度変更
                 actual_video_path = video_path_obj
-                used_blur_source = False  # auto_blur ぼかし版を採用したかの明示フラグ
+                used_blur_source = False  # auto_blur 塗りつぶし版を採用したかの明示フラグ
 
                 # auto_blur cache 検出 (export_settings の checkbox 設定を尊重)
                 _use_blurred = st.session_state.get("export_use_blurred_source", True)
@@ -942,7 +942,7 @@ class TextEditorView:
                             blurred_path, _ = _blur_uc.get_cache_paths(video_path_obj)
                             actual_video_path = blurred_path
                             used_blur_source = True
-                            progress_text.write("🔒 ぼかし版動画をソースとして使用")
+                            progress_text.write("🔒 塗りつぶし版動画をソースとして使用")
                     except Exception:  # noqa: BLE001
                         pass
 

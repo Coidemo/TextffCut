@@ -103,7 +103,7 @@ class SuggestAndExportUseCase:
 
         # Phase 5.5: 速度変更
         actual_video_path = request.video_path
-        used_blur_source = False  # auto_blur ぼかし版を採用したかの明示フラグ
+        used_blur_source = False  # auto_blur 塗りつぶし版を採用したかの明示フラグ
 
         # auto_blur cache 検出: source_blurred.mp4 が存在 + use_blurred_source=True で適用
         if request.use_blurred_source:
@@ -114,7 +114,7 @@ class SuggestAndExportUseCase:
                 blurred_path, _ = _blur_uc.get_cache_paths(request.video_path)
                 actual_video_path = blurred_path
                 used_blur_source = True
-                logger.info(f"auto_blur cache hit、ぼかし版動画を使用: {blurred_path}")
+                logger.info(f"auto_blur cache hit、塗りつぶし版動画を使用: {blurred_path}")
 
         if request.speed != 1.0:
             from config import Config
