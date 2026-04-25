@@ -56,8 +56,12 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--text-plus",
-        action="store_true",
-        help="SRT 取り込み後に字幕を Fusion Text+ クリップへ自動変換 (Snap Captions 互換)",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "SRT 取り込み後に字幕を Fusion Text+ クリップへ自動変換 (default: 有効)。"
+            "Media Pool に TextffCut ビンと Caption_Default テンプレートが無ければ自動スキップ"
+        ),
     )
     parser.add_argument(
         "--text-plus-bin",
