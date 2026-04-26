@@ -61,6 +61,7 @@ class SuggestAndExportResult:
     output_dir: Path
     detection_processing_time: float
     detection_cost_usd: float
+    srt_failed_count: int = 0  # Phase 5.6 で SRT 先行生成に失敗した clip 数
 
 
 class SuggestAndExportUseCase:
@@ -164,6 +165,7 @@ class SuggestAndExportUseCase:
         # Phase 5.6: SRT 字幕を先行生成 (Phase 5.7 のタイトル画像 AI が
         # 字幕内容を踏まえてタイトルを生成するため、Phase 6 から前出ししている)
         srt_paths_list: list[Path | None] = [None] * len(suggestions)
+        srt_failed_count = 0
         if request.generate_srt:
             from use_cases.ai.srt_subtitle_generator import generate_srt as _gen_srt
 
@@ -181,8 +183,17 @@ class SuggestAndExportUseCase:
                     )
                     if result:
                         srt_paths_list[i] = result
+                    else:
+                        srt_failed_count += 1
+                        logger.warning(f"SRT 先行生成失敗 (#{i+1}): generate_srt が None を返した")
                 except Exception as e:  # noqa: BLE001
+                    srt_failed_count += 1
                     logger.warning(f"SRT 先行生成失敗 (#{i+1}): {e}")
+            if srt_failed_count > 0:
+                logger.warning(
+                    f"SRT 先行生成: {srt_failed_count}/{len(suggestions)} 件が失敗。"
+                    "Phase 5.7 (タイトル画像) は対応 clip で SRT モード無効化、title ベースにフォールバック。"
+                )
 
         # Phase 5.7: タイトル画像生成（バッチ1回のAI呼び出し、Phase A: SRT 渡す）
         title_image_paths: dict[int, Path] = {}
@@ -309,6 +320,7 @@ class SuggestAndExportUseCase:
             output_dir=fcpxml_dir,
             detection_processing_time=detection.processing_time,
             detection_cost_usd=detection.estimated_cost_usd,
+            srt_failed_count=srt_failed_count if request.generate_srt else 0,
         )
 
     def _compute_ai_se_placements(

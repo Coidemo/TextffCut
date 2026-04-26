@@ -347,6 +347,14 @@ make pre-commit
    - 完了時に subtitle track 1 を無効化 (Text+ と Subtitle の二重表示回避)
    - **API 罠**: `AppendToTimeline()` は配置失敗時も `[None]` を返す (要素ごと `GetName() is None` 判定)。`SetInput("StyledText", text)` の戻り値は False を返すが副作用は効いている (戻り値チェック禁止)。
 8. **タイトル画像 文字内ループ穴の白アウトライン (PR #137)**: 「な」「は」「ぱ」「べ」「使」等で白アウトラインがリング描画されると穴の周辺に細リングが残って見た目が汚い。`use_cases/ai/title_image_generator.py::_fill_mask_holes()` で flood-fill により穴を埋めて対処。outer_mask は全穴埋めでシルエット全体塗りつぶし、inner_mask は `font_size × 0.06` の二乗以下の小穴のみ埋める (大きいループ穴を埋めると黒インナーが文字細部まで広がって潰れるため)。**境界全周から flood-fill 起点を取る** ことが重要 (1点起動だと複数文字間で stroke 分断された背景が穴と誤認され「ひどい」状態になる)。連結成分判定は `scipy.ndimage.label`。
+9. **タイトル画像 改行強制 + 縦中央配置 (Phase B/C、PR #140)**: AI が 1 行で長すぎるタイトルを返す問題と、画像上端のみ占有する問題を解消。`_TITLE_FORCE_BREAK_THRESHOLD = 11` 文字を超える 1 line は `_enforce_line_break()` で強制分割。target_size 指定時は `_center_design_in_target()` で content_height bbox 測定 → padding_top 動的計算 → 縦中央配置。
+10. **タイトル画像 SRT ベース AI 生成 (Phase A、PR #141)**: タイトル画像の AI インプットを Phase 1 (元動画全体話題検出) の `ClipSuggestion.title + keywords` から **clip 範囲の最終 SRT 字幕** に切り替え、タイトルと字幕の内容ズレを構造的に解消。
+   - **パイプライン順序**: Phase 5.6 (SRT 先行生成、新設) → 5.7 (タイトル画像、SRT パスを AI に渡す) → 5.8 (アンカー検出) → 6 (FCPXML 生成、SRT は Phase 5.6 で書き出し済)
+   - **AI 自由生成許容**: SRT モードでは `reconstructed != title` のバリデーションを緩和。AI が SRT 内容を踏まえてタイトル文字列を再生成 (元 title からの大幅書き換え可)
+   - **ファイル名と PNG 内タイトルの乖離**: ファイル名は元 `suggestion.title` でサニタイズ維持 (= ファイル名規則保護)、PNG 内タイトルは AI 自由生成版。両者が乖離する仕様は意図したもの (clip 内容判別は PNG 視覚確認で行う設計)
+   - **プロンプト**: `prompts/title_image_candidates_from_srt.md` (SRT モード用)、`title_image_candidates.md` (既存モード用) の 2 種類。`design_title_layout_candidates(srt_text=...)` で分岐
+   - **`{MAX_LINE_CHARS}` placeholder**: プロンプト内の文字数制限は `_TITLE_FORCE_BREAK_THRESHOLD` 定数から流し込み (= プロンプトとコード定数の同期維持)
+   - **失敗時 graceful degradation**: SRT 生成失敗 → `SuggestAndExportResult.srt_failed_count` でカウント、対応 clip は title ベースにフォールバック。AI 候補生成失敗 → fallback design (元 title) で render
 
 ## 配布
 
