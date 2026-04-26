@@ -18,8 +18,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## バージョン情報
 
-### v2.5.0 (進行中) — 最新
-- **動画内テキスト塗りつぶし: 1 clip = 1 合成 PNG 方式に完全置換** (feature/blur-overlay):
+### v2.5.0 (2026-04-26) — 最新安定版
+- **タグ**: `v2.5.0` (PR #143-#145 一括リリース)
+- **動画内テキスト塗りつぶし: 1 clip = 1 合成 PNG 方式に完全置換** (PR #143):
   - 旧 v2.2.0 / v2.3.0 の drawbox 方式 (元動画 73 分すべてを再エンコード → `source_blurred.mp4` 4.2GB) を廃止
   - 新方式: clip 候補の `time_ranges` 範囲だけ OCR + track 化、**全 track の bbox を 1 枚の透過 PNG に OR 合成**
   - PNG は FCPXML の **V2 レーン** (動画の直上、frame の下) に asset-clip として配置 — 元動画は無加工
@@ -30,6 +31,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   - DaVinci 上で塗りつぶしの位置・色・有無を編集可能 (clip ごとに 1 枚の PNG)
   - `time_ranges` を複数 segment 跨ぎで分割するロジックを `core/export.py` に追加 (frame/title/BGM の lane を blur あり時 +1 シフト)
   - sidecar version=2 で旧 v1 (1 track = 1 PNG) キャッシュは自動無効化
+- **Text+ Fill Gaps しきい値を user 指定可に** (PR #145):
+  - `TEXT_PLUS_DEFAULT_MAX_FILL_FRAMES`: 10 → **9999** (≈5.5 min @30fps、実用上ほぼ無制限)
+  - 旧 10 frame では字幕間の長い gap が埋まらず Resolve 上で繋がりが切れる問題を解消
+  - CLI: `textffcut send --text-plus-max-fill-frames N`
+  - GUI: 字幕エディタ「📺 DaVinciへ送信」エリアに number_input、`text_plus_max_fill_frames` キーで `settings_manager` に永続化
+  - 0 で Fill Gaps を実質無効化可能
+- **字幕編集画面の動画フォルダ selectbox 撤去** (PR #144):
+  - 上部「🎥 動画ファイル選択」で選択済の動画から `_TextffCut/` を自動解決
+  - 二重選択 UX を解消、動画選択は画面上部 1 箇所に集約
+  - `subtitle_editor_srt_idx` key を base_dir 名込みに分離 (動画切替時の stale state 衝突防止)
 - **削除済み**: `core/text_blur/{ffmpeg.py, chunk_worker.py}` (708 行)、`use_cases/auto_blur/auto_blur_use_case.py` (290 行)、`tests/unit/use_cases/test_auto_blur_use_case.py`
 - **新規**: `use_cases/auto_blur/blur_overlay_use_case.py::BlurOverlayUseCase` (434 行)、`tests/unit/use_cases/test_blur_overlay_use_case.py`
 - **キャッシュ**: `{video}_TextffCut/blur_overlays/{clip_id}.overlays.json` + PNG 群
@@ -37,11 +48,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   - `textffcut clip video.mp4`: デフォルトで blur overlay 自動生成
   - `textffcut clip --no-auto-blur`: 塗りつぶしを無効化 (旧 `--no-blurred-source` リネーム)
   - `textffcut --auto-blur` (top-level、文字起こしと並列の旧コマンド) は廃止
+  - `textffcut send --text-plus-max-fill-frames N`: Fill Gaps しきい値指定
 - **GUI**:
   - 文字起こし画面: 旧 「🔒 動画内テキスト自動塗りつぶし」 チェックボックスは削除 (clip 段階で動くため不要)
   - クリップ設定画面: 「🔒 動画内テキスト塗りつぶし (V2 オーバーレイ)」 チェックボックス (Apple Silicon Mac でのみ表示)
+  - 字幕編集画面: 「Fill Gaps 最大フレーム数」 number_input (Text+ 自動変換 ON 時のみ有効)
+  - 字幕編集画面: 動画フォルダ selectbox 撤去 (上部で選択した動画と自動連動)
 
-### v2.4.0 (2026-04-26) — 最新安定版
+### v2.4.0 (2026-04-26)
 - **タグ**: `v2.4.0`
 - **タイトル画像 改行強制 + 縦中央配置** (PR #140 / Phase B + C):
   - 11 文字超のタイトルが 1 行で文字小さく上端だけ占有する問題を解消
@@ -411,4 +425,4 @@ brew install coidemo/textffcut/textffcut
 
 ---
 
-最終更新: 2026-04-26 (v2.4.0 リリース、PR #140/#141 を含む)
+最終更新: 2026-04-26 (v2.5.0 リリース、PR #143/#144/#145 を含む)
