@@ -1223,9 +1223,21 @@ def _draw_segment(
     else:
         outer_mask = inner_mask.copy()
 
+    # 「な」「は」「ぱ」「べ」「使」等の文字内ループ穴を埋める。
+    # outer_mask: 全穴を埋めてシルエット全体で白アウトラインを塗りつぶす。
+    # inner_mask: 「使」のような小さい閉じ領域のみ埋める。
+    #   「な」「は」「き」等の大きいループ穴を埋めると黒インナーが文字の細部まで
+    #   広がって潰れてしまうため、面積上限で選別する。
+    #   font_size に対する目安: font_size の 4% ≒ 「使」の中の閉じ領域、
+    #   それ以上の穴は意図的なループ穴として残す。
+    outer_mask_solid = _fill_mask_holes(outer_mask)
+    # font_size を基準に閾値を決定 (font_size=190 なら ~130px²)
+    # 0.06 = 「使」の右側にある小さな閉じ領域は埋め、「き」の横棒間隙間は埋めない値
+    inner_hole_threshold = max(36, int((font.size * 0.06) ** 2))
+    inner_mask_solid = _fill_mask_holes(inner_mask, max_hole_area=inner_hole_threshold)
+
     # --- リングマスク（差分） ---
-    outer_ring = ImageChops.subtract(outer_mask, inner_mask)
-    inner_ring = ImageChops.subtract(inner_mask, text_mask)
+    inner_ring = ImageChops.subtract(inner_mask_solid, text_mask)
 
     # --- 描画 ---
     # ドロップシャドウ（外側マスクをぼかしてオフセット描画）
@@ -1243,9 +1255,11 @@ def _draw_segment(
         sy = max(0, ry - pad + _SHADOW_OFFSET_Y)
         img.paste(shadow_layer, (sx, sy), shadow_layer)
 
-    # 外側リング
+    # 外側 (白アウトライン): リング差分ではなく、穴埋め済みシルエット全体を塗りつぶす。
+    # ループ穴のある文字 (な/は/ぱ/べ等) でリング描画だと穴の内側に細リングが残り、
+    # 「白アウトラインの隙間」として目立つ。シルエット全体塗りで穴の中まで白で覆う。
     if "outer" in layers and outer_outline_width > 0:
-        _paint_mask(img, outer_ring, (rx, ry), outer_outline_color)
+        _paint_mask(img, outer_mask_solid, (rx, ry), outer_outline_color)
 
     # 内側リング
     if "inner" in layers and inner_outline_width > 0:
@@ -1270,6 +1284,64 @@ def _paint_mask(
     layer = Image.new("RGBA", mask.size, rgba)
     layer.putalpha(mask)
     img.paste(layer, pos, layer)
+
+
+def _fill_mask_holes(mask: Image.Image, max_hole_area: int | None = None) -> Image.Image:
+    """L モードマスクの内側の穴 (周囲を 255 に囲まれた 0 領域) を 255 で埋める。
+
+    「な」「は」「ぱ」「べ」「使」等の文字内ループ穴を埋めて、白アウトラインを
+    シルエット全体で塗りつぶすために使う。
+
+    Args:
+        max_hole_area: 埋める穴の最大面積 (px²)。None なら全穴を埋める (outer_mask 用)。
+            指定すると面積 <= max_hole_area の穴のみ埋める。
+            「使」の中の小さい閉じ領域だけ埋め、「な」「は」の大ループ穴 (黒インナーが
+            広がりすぎると文字の細部が潰れる) は埋めない、といった選択的処理に使う。
+
+    アルゴリズム:
+      1. 境界 (上下左右の各辺) 全周をスキャンし 0 点から flood-fill で外背景を塗る
+         (複数文字間の stroke 分断にも対応するため境界全周から起点を取る)。
+      2. 反転すると「外背景=0、グリフ=0、穴=255」のマスクが得られる。
+      3. max_hole_area が指定されていれば、scipy.ndimage.label で連結成分に分け、
+         小さい穴のみ採用する。
+      4. 元 mask に加算 → ソリッドシルエット。
+    """
+    import numpy as np  # 遅延 import (scipy も同様)
+
+    work = mask.copy()
+    w, h = work.size
+    sample_step = 2
+    for x in range(0, w, sample_step):
+        if work.getpixel((x, 0)) == 0:
+            ImageDraw.floodfill(work, (x, 0), 255)
+        if work.getpixel((x, h - 1)) == 0:
+            ImageDraw.floodfill(work, (x, h - 1), 255)
+    for y in range(0, h, sample_step):
+        if work.getpixel((0, y)) == 0:
+            ImageDraw.floodfill(work, (0, y), 255)
+        if work.getpixel((w - 1, y)) == 0:
+            ImageDraw.floodfill(work, (w - 1, y), 255)
+    holes = ImageChops.invert(work)
+
+    if max_hole_area is None:
+        return ImageChops.add(mask, holes)
+
+    # 面積判定: 小さい穴のみ採用
+    from scipy.ndimage import label  # transitive 依存 (librosa 経由)
+
+    holes_arr = np.array(holes) > 0
+    labels, n_components = label(holes_arr)
+    if n_components == 0:
+        return mask
+    # 各 component の面積
+    areas = np.bincount(labels.ravel())
+    # label=0 は「穴でない領域」なので除外
+    small_label_ids = [i for i in range(1, n_components + 1) if areas[i] <= max_hole_area]
+    if not small_label_ids:
+        return mask
+    small_holes_arr = np.isin(labels, small_label_ids).astype(np.uint8) * 255
+    small_holes = Image.fromarray(small_holes_arr, mode="L")
+    return ImageChops.add(mask, small_holes)
 
 
 def _draw_gradient_fill(
