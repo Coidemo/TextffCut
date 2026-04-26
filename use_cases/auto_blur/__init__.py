@@ -1,15 +1,26 @@
-"""動画内テキスト自動ぼかしのユースケース層.
+"""動画内テキスト塗りつぶしオーバーレイのユースケース層.
 
 公開 API:
-- AutoBlurUseCase: 検出+ぼかし+キャッシュを提供する
-- AutoBlurParams: パラメータ. キャッシュキーに使用される
-- AutoBlurResult: 実行結果
+- BlurOverlayUseCase: clip 候補の time_ranges を OCR + track 化して塗りつぶし PNG を生成
+- BlurOverlayParams: パラメータ
+- BlurOverlay / BlurOverlayResult: 実行結果
+
+V2.5.0 で drawbox 方式 (source_blurred.mp4 を再エンコード) から PNG オーバーレイ方式に
+完全置換された (旧実装は元動画の 12 倍 = 4.2GB のサイズ問題があった)。
 """
 
-from use_cases.auto_blur.auto_blur_use_case import (
-    AutoBlurParams,
-    AutoBlurResult,
-    AutoBlurUseCase,
+from use_cases.auto_blur.blur_overlay_use_case import (
+    BlurOverlay,
+    BlurOverlayParams,
+    BlurOverlayResult,
+    BlurOverlayUseCase,
+    is_apple_silicon,
 )
 
-__all__ = ["AutoBlurParams", "AutoBlurResult", "AutoBlurUseCase"]
+__all__ = [
+    "BlurOverlay",
+    "BlurOverlayParams",
+    "BlurOverlayResult",
+    "BlurOverlayUseCase",
+    "is_apple_silicon",
+]

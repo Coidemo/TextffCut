@@ -929,22 +929,6 @@ class TextEditorView:
 
                 # Phase 3.5: 速度変更
                 actual_video_path = video_path_obj
-                used_blur_source = False  # auto_blur 塗りつぶし版を採用したかの明示フラグ
-
-                # auto_blur cache 検出 (export_settings の checkbox 設定を尊重)
-                _use_blurred = st.session_state.get("export_use_blurred_source", True)
-                if _use_blurred:
-                    try:
-                        from use_cases.auto_blur import AutoBlurUseCase as _AutoBlurUC
-
-                        _blur_uc = _AutoBlurUC()
-                        if _blur_uc.is_cached(video_path_obj):
-                            blurred_path, _ = _blur_uc.get_cache_paths(video_path_obj)
-                            actual_video_path = blurred_path
-                            used_blur_source = True
-                            progress_text.write("🔒 塗りつぶし版動画をソースとして使用")
-                    except Exception:  # noqa: BLE001
-                        pass
 
                 if speed != 1.0:
                     from config import Config
@@ -955,8 +939,7 @@ class TextEditorView:
                     video_name = video_path_obj.stem
                     base_dir = video_path_obj.parent / f"{video_name}_TextffCut"
                     vp = VideoProcessor(Config())
-                    suffix = "_blurred" if used_blur_source else ""
-                    speed_path = base_dir / f"source_{speed_label}{suffix}.mp4"
+                    speed_path = base_dir / f"source_{speed_label}.mp4"
                     vp.create_speed_changed_video(str(actual_video_path), str(speed_path), round(speed, 2))
                     actual_video_path = speed_path
 
@@ -1078,6 +1061,36 @@ class TextEditorView:
                         logger.error("アンカー自動検出エラー: %s", e, exc_info=True)
                         progress_text.write(f"⚠️ アンカー自動検出スキップ: {e}")
 
+                # Phase 3.9: 動画内テキスト塗りつぶしオーバーレイ PNG 生成 (clip 単位)
+                blur_overlays_per_clip: dict[int, list[dict]] = {}
+                _enable_blur_overlay = st.session_state.get("export_use_blurred_source", True)
+                if _enable_blur_overlay:
+                    try:
+                        from use_cases.auto_blur.blur_overlay_use_case import (
+                            BlurOverlayUseCase,
+                            is_apple_silicon,
+                        )
+
+                        if is_apple_silicon():
+                            blur_uc = BlurOverlayUseCase()
+                            blur_dir = base_dir / "blur_overlays"
+                            for i, suggestion in enumerate(suggestions, 1):
+                                sanitized = sanitize_filename(suggestion.title)
+                                clip_id = f"{i:02d}_{sanitized}"
+                                progress_text.write(f"🔒 塗りつぶし overlay 生成中... ({i}/{total})")
+                                try:
+                                    result = blur_uc.execute(
+                                        video_path=actual_video_path,
+                                        clip_id=clip_id,
+                                        time_ranges=suggestion.time_ranges,
+                                        output_dir=blur_dir,
+                                    )
+                                    blur_overlays_per_clip[i] = [ov.to_dict() for ov in result.overlays]
+                                except Exception as e:  # noqa: BLE001
+                                    logger.warning(f"blur overlay 生成失敗 ({clip_id}): {e}")
+                    except Exception as e:  # noqa: BLE001
+                        logger.warning(f"blur overlay 全体スキップ: {e}")
+
                 exported_files: list[Path] = []
                 for i, suggestion in enumerate(suggestions, 1):
                     progress_text.write(f"📄 FCPXML生成中... ({i}/{total})")
@@ -1110,6 +1123,7 @@ class TextEditorView:
                         timeline_resolution=timeline_resolution,
                         title_settings=title_settings,
                         ai_se_placements=ai_se_placements,
+                        blur_overlays=blur_overlays_per_clip.get(i),
                     )
                     if success:
                         exported_files.append(fcpxml_path)

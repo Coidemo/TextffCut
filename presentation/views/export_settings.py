@@ -325,37 +325,30 @@ class ExportSettingsView:
                 )
                 self.presenter.set_include_srt(include_srt)
 
-            # auto_blur 利用設定: cache 存在時のみ有効化
+            # 動画内テキスト塗りつぶしオーバーレイ (Apple Silicon Mac のみ)
             try:
-                from use_cases.auto_blur import AutoBlurUseCase as _AutoBlurUseCase
+                from use_cases.auto_blur.blur_overlay_use_case import is_apple_silicon
 
-                _blur_uc = _AutoBlurUseCase()
-                _blur_cached = (
-                    self.view_model.video_path is not None
-                    and _blur_uc.is_cached(self.view_model.video_path)
-                )
+                _blur_supported = is_apple_silicon()
             except Exception:  # noqa: BLE001
-                _blur_cached = False
+                _blur_supported = False
 
-            if _blur_cached:
-                use_blurred_default = st.session_state.get("export_use_blurred_source", True)
-                use_blurred_source = st.checkbox(
-                    "🔒 塗りつぶし版動画をソースとして利用",
-                    value=use_blurred_default,
+            if _blur_supported:
+                blur_default = st.session_state.get("export_use_blurred_source", True)
+                enable_blur_overlay = st.checkbox(
+                    "🔒 動画内テキスト塗りつぶし (V2 オーバーレイ)",
+                    value=blur_default,
                     help=(
-                        "文字起こし時に生成された塗りつぶし版動画を使ってクリップを生成します. "
-                        "OFF にすると元動画 (塗りつぶしなし) が使われます."
+                        "コメント・UI 文字・チャンネルロゴ等を OCR で検出して塗りつぶす PNG を生成し、"
+                        "FCPXML の V2 レーン (動画の直上、frame の下) に配置します. "
+                        "元動画は無加工のままで、DaVinci 上で塗りつぶしの位置・色・有無を編集できます."
                     ),
                     key="export_use_blurred_source",
                 )
-                st.session_state["export_use_blurred_source"] = use_blurred_source
+                st.session_state["export_use_blurred_source"] = enable_blur_overlay
             else:
-                # cache がなければ説明だけ表示
                 st.session_state.pop("export_use_blurred_source", None)
-                st.caption(
-                    "ℹ️ 動画内テキスト自動塗りつぶしを使うには、文字起こし画面で「🔒 動画内テキスト自動塗りつぶし」"
-                    "を有効にして再実行してください."
-                )
+                st.caption("ℹ️ 動画内テキスト塗りつぶしは Apple Silicon Mac 専用です.")
         else:
             # SRT字幕のみの場合：無音削除のみ
             remove_silence = st.checkbox(

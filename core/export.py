@@ -96,6 +96,7 @@ class FCPXMLExporter:
         additional_audio_settings: dict | None = None,
         title_settings: dict | None = None,
         ai_se_placements: list | None = None,
+        blur_overlays: list[dict] | None = None,
     ) -> bool:
         """
         FCPXMLファイルをエクスポート
@@ -133,6 +134,7 @@ class FCPXMLExporter:
                 additional_audio_settings,
                 title_settings,
                 ai_se_placements,
+                blur_overlays,
             )
 
             # ファイルに保存
@@ -169,6 +171,7 @@ class FCPXMLExporter:
         additional_audio_settings: dict | None = None,
         title_settings: dict | None = None,
         ai_se_placements: list | None = None,
+        blur_overlays: list[dict] | None = None,
     ) -> str:
         """FCPXMLコンテンツを構築（DaVinci Resolve完全互換）"""
         # 総時間を計算
@@ -261,6 +264,31 @@ class FCPXMLExporter:
             )
 
             asset_counter += 1
+
+        # 塗りつぶしオーバーレイ PNG のリソースを追加 (auto_blur, V2 lane)
+        # blur_overlays: list[dict] — {"png_path": str, "start_sec": float, "end_sec": float}
+        # PNG は動画解像度フルサイズの透過 PNG (BlurOverlayUseCase が生成) で、
+        # 動画と同じ scale/anchor を適用することでズーム・アンカー追従。
+        blur_overlay_assets: list[tuple[str, str]] = []  # [(png_path, resource_id), ...]
+        seen_blur_paths: dict[str, str] = {}  # png_path -> resource_id
+        if blur_overlays:
+            for ov in blur_overlays:
+                png_path = ov["png_path"]
+                if png_path in seen_blur_paths:
+                    continue
+                resource_id = f"r{asset_counter}"
+                seen_blur_paths[png_path] = resource_id
+                blur_overlay_assets.append((png_path, resource_id))
+                asset_counter += 1
+
+                file_url = Path(png_path).resolve().as_uri()
+                xml_content += (
+                    f'        <asset duration="0/1s" id="{resource_id}" '
+                    f'name="{_xml_attr(Path(png_path).name)}" start="0/1s" hasVideo="1" '
+                    f'format="r0">\n'
+                    f'            <media-rep kind="original-media" src="{_xml_attr(file_url)}"/>\n'
+                    f"        </asset>\n"
+                )
 
         # オーバーレイ画像のリソースを追加
         overlay_resource_ids = {}
@@ -419,6 +447,16 @@ class FCPXMLExporter:
         # インデントを設定（gap要素は使わない）
         indent = "                        "
 
+        # blur がある場合はレーンを +1 シフト (z 順序: 動画 → blur(1) → frame(2) → title(3))
+        lane_offset = 1 if blur_overlays else 0
+
+        # 各 segment の timeline 開始 frame を事前計算 (blur overlay の offset 計算用)
+        seg_timeline_starts: list[int] = []
+        _pos = 0
+        for seg in segments:
+            seg_timeline_starts.append(_pos)
+            _pos += round(seg.duration * timeline_fps)
+
         # クリップを追加
         current_timeline_pos = 0
 
@@ -466,10 +504,54 @@ class FCPXMLExporter:
 
             current_timeline_pos += timeline_duration_frames
 
+        # 塗りつぶし PNG をレーン 1 に追加 (動画の直上、frame の下)
+        # 元動画基準の start_sec/end_sec を、各 segment の source-range と重ね合わせて
+        # timeline 上の offset/duration を計算する。動画と同じ scale/anchor を適用して
+        # ズーム/アンカーに追従させる (フルサイズ PNG = 動画解像度と同じ)。
+        if blur_overlays:
+            # 既に上で計算した scale_str/anchor_str を再利用したいが、ループスコープ外なので再計算
+            blur_scale_str = f"{scale[0]:.6g} {scale[1]:.6g}".replace(".0 ", " ").replace(".0", "")
+            blur_anchor_str = f"{anchor[0]:.6g} {anchor[1]:.6g}".replace(".0 ", " ").replace(".0", "")
+            for ov in blur_overlays:
+                png_path = ov["png_path"]
+                resource_id = seen_blur_paths.get(png_path)
+                if not resource_id:
+                    continue
+                ov_start = float(ov["start_sec"])
+                ov_end = float(ov["end_sec"])
+                if ov_end <= ov_start:
+                    continue
+                png_name = Path(png_path).name
+                # 各 segment で重なる範囲を切り出して video 要素を出力
+                for seg, seg_start_frame in zip(segments, seg_timeline_starts):
+                    overlap_s = max(ov_start, seg.start_time)
+                    overlap_e = min(ov_end, seg.end_time)
+                    if overlap_e <= overlap_s:
+                        continue
+                    timeline_offset_frames = seg_start_frame + round(
+                        (overlap_s - seg.start_time) * timeline_fps
+                    )
+                    timeline_duration_frames = round((overlap_e - overlap_s) * timeline_fps)
+                    if timeline_duration_frames <= 0:
+                        continue
+                    offset_frac = Fraction(timeline_offset_frames, timeline_fps)
+                    duration_frac = Fraction(timeline_duration_frames, timeline_fps)
+                    offset_str = f"{offset_frac.numerator}/{offset_frac.denominator}s"
+                    duration_str = f"{duration_frac.numerator}/{duration_frac.denominator}s"
+                    xml_content += (
+                        f'{indent}<video duration="{duration_str}" lane="1" '
+                        f'name="{_xml_attr(png_name)}" ref="{resource_id}" '
+                        f'start="0/1s" offset="{offset_str}" enabled="1">\n'
+                        f'{indent}    <adjust-conform type="none"/>\n'
+                        f'{indent}    <adjust-transform position="0 0" '
+                        f'scale="{blur_scale_str}" anchor="{blur_anchor_str}"/>\n'
+                        f"{indent}</video>\n"
+                    )
+
         # オーバーレイ画像をspine直下に追加（全クリップの上に重なる）
         if overlay_settings and overlay_resource_ids and "frame" in overlay_resource_ids:
             xml_content += (
-                f'{indent}<video duration="{total_duration_str}" lane="1" '
+                f'{indent}<video duration="{total_duration_str}" lane="{1 + lane_offset}" '
                 f'name="{_xml_attr(Path(overlay_settings["frame_path"]).name)}" ref="{overlay_resource_ids["frame"]}" '
                 f'start="0/1s" offset="0/1s" enabled="1">\n'
                 f'{indent}    <adjust-conform type="fit"/>\n'
@@ -477,11 +559,11 @@ class FCPXMLExporter:
                 f"{indent}</video>\n"
             )
 
-        # タイトル画像をspine直下に追加（レーン2）
+        # タイトル画像をspine直下に追加
         # タイトル画像はフレームと同じフルサイズ透過PNGなので position="0 0" で配置
         if title_resource_id and title_settings:
             xml_content += (
-                f'{indent}<video duration="{total_duration_str}" lane="2" '
+                f'{indent}<video duration="{total_duration_str}" lane="{2 + lane_offset}" '
                 f'name="{_xml_attr(Path(title_settings["title_path"]).name)}" ref="{title_resource_id}" '
                 f'start="0/1s" offset="0/1s" enabled="1">\n'
                 f'{indent}    <adjust-conform type="none"/>\n'
@@ -504,7 +586,7 @@ class FCPXMLExporter:
                     offset_str = f"{round(bgm_offset * timeline_fps)}/{timeline_fps}s"
 
                     xml_content += (
-                        f'{indent}<asset-clip duration="{remaining_duration_str}" lane="3" '
+                        f'{indent}<asset-clip duration="{remaining_duration_str}" lane="{3 + lane_offset}" '
                         f'name="{_xml_attr(Path(bgm_path).name)}" ref="{bgm_resource_id}" '
                         f'start="0/1s" offset="{offset_str}" enabled="1">\n'
                         f'{indent}    <adjust-volume amount="{_safe_volume_db(bgm_volume)}"/>\n'
@@ -518,7 +600,7 @@ class FCPXMLExporter:
                 bgm_duration_str = optimize_fraction(bgm_duration, timeline_fps)
 
                 xml_content += (
-                    f'{indent}<asset-clip duration="{bgm_duration_str}" lane="3" '
+                    f'{indent}<asset-clip duration="{bgm_duration_str}" lane="{3 + lane_offset}" '
                     f'name="{_xml_attr(Path(bgm_path).name)}" ref="{bgm_resource_id}" '
                     f'start="0/1s" offset="0/1s" enabled="1">\n'
                     f'{indent}    <adjust-volume amount="{_safe_volume_db(bgm_volume)}"/>\n'
@@ -542,7 +624,7 @@ class FCPXMLExporter:
                 offset_str = f"{round(current_offset * timeline_fps)}/{timeline_fps}s"
 
                 xml_content += (
-                    f'{indent}<asset-clip duration="{duration_str}" lane="4" '
+                    f'{indent}<asset-clip duration="{duration_str}" lane="{4 + lane_offset}" '
                     f'name="{_xml_attr(Path(audio_path).name)}" ref="{resource_id}" '
                     f'start="0/1s" offset="{offset_str}" enabled="1">\n'
                 )
@@ -570,7 +652,7 @@ class FCPXMLExporter:
                 offset_str = optimize_fraction(placement.timestamp, timeline_fps)
 
                 xml_content += (
-                    f'{indent}<asset-clip duration="{duration_str}" lane="5" '
+                    f'{indent}<asset-clip duration="{duration_str}" lane="{5 + lane_offset}" '
                     f'name="{_xml_attr(Path(se_path).name)}" ref="{resource_id}" '
                     f'start="0/1s" offset="{offset_str}" enabled="1">\n'
                 )
