@@ -111,11 +111,12 @@ def render_subtitle_editor_section(container: Any, videos_root: str = "videos") 
             "選択された動画の字幕がここに表示されます。"
         )
         return
-    expected_dirname = f"{Path(selected_video).stem}_TextffCut"
+    video_stem = Path(selected_video).stem
+    expected_dirname = f"{video_stem}_TextffCut"
     base_dir = next((d for d in dirs if d.name == expected_dirname), None)
     if base_dir is None:
         container.info(
-            f"📝 「{Path(selected_video).stem}」の処理済みフォルダ ({expected_dirname}/) "
+            f"📝 「{video_stem}」の処理済みフォルダ ({expected_dirname}/) "
             "が見つかりません。先に AI 自動切り抜きを実行してください。"
         )
         return
@@ -124,11 +125,14 @@ def render_subtitle_editor_section(container: Any, videos_root: str = "videos") 
     if not srt_files:
         container.info("このフォルダに SRT ファイルが見つかりません。")
         return
+    # 動画切替で stale な index を保持しないよう、key を base_dir 名込みで分離
+    # (`_srt_cache__{base_dir.name}__{stem}` と同じ流儀).
+    srt_idx_key = f"subtitle_editor_srt_idx__{base_dir.name}"
     sel_srt_idx = container.selectbox(
         "クリップ",
         range(len(srt_files)),
         format_func=lambda i: srt_files[i].stem,
-        key="subtitle_editor_srt_idx",
+        key=srt_idx_key,
     )
     srt_path = srt_files[sel_srt_idx]
     clip_id = srt_path.stem
