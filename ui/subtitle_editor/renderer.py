@@ -281,9 +281,10 @@ def render_subtitle_editor_section(container: Any, videos_root: str = "videos") 
         ),
         disabled=not text_plus_enabled,
     )
-    # 値が変わった時だけ disk 書き込み (Streamlit は毎 render 走るため)
-    if int(text_plus_max_fill) != saved_max_fill:
-        settings_manager.set("text_plus_max_fill_frames", int(text_plus_max_fill))
+    # number_input は min/max/value/step が全 int なので int を返す (cast 不要).
+    # 値が変わった時だけ disk 書き込み (Streamlit は毎 render 走るため).
+    if text_plus_max_fill != saved_max_fill:
+        settings_manager.set("text_plus_max_fill_frames", text_plus_max_fill)
 
     if btn_cols[2].button(
         "📺 DaVinciへ送信",
@@ -300,7 +301,7 @@ def render_subtitle_editor_section(container: Any, videos_root: str = "videos") 
                 result = send_clip_to_resolve(
                     fcpxml_path,
                     text_plus=text_plus_enabled,
-                    text_plus_max_fill_frames=int(text_plus_max_fill),
+                    text_plus_max_fill_frames=text_plus_max_fill,
                 )
                 msg_lines = [
                     f"✓ Bin {result.bin_name!r} に {result.timeline_name} を作成",
