@@ -34,7 +34,10 @@ _LINE_SEPARATOR = chr(0x2028)
 # Text+ 変換のデフォルト値
 TEXT_PLUS_DEFAULT_BIN = "TextffCut"
 TEXT_PLUS_DEFAULT_TEMPLATE = "Caption_Default"
-TEXT_PLUS_DEFAULT_MAX_FILL_FRAMES = 10
+# Fill Gaps の上限フレーム数。clip 内のあらゆる長さ gap を埋めたい運用が標準のため、
+# 実用上限の大きな値 (9999 ≒ 5.5 分 @30fps) をデフォルトとする。
+# CLI/GUI から user 指定で上書き可能 (settings_manager で永続化される).
+TEXT_PLUS_DEFAULT_MAX_FILL_FRAMES = 9999
 TEXT_PLUS_CLIP_COLOR = "Green"
 
 
@@ -547,6 +550,7 @@ def send_clip_to_resolve(
     text_plus: bool = False,
     text_plus_bin: str = TEXT_PLUS_DEFAULT_BIN,
     text_plus_template: str = TEXT_PLUS_DEFAULT_TEMPLATE,
+    text_plus_max_fill_frames: int = TEXT_PLUS_DEFAULT_MAX_FILL_FRAMES,
 ) -> SendResult:
     """FCPXML と SRT を Resolve の現在開いているビンに送信する。
 
@@ -560,6 +564,7 @@ def send_clip_to_resolve(
             GUI: 字幕エディタの「Text+ 自動変換」チェックボックス (デフォ ON)。
         text_plus_bin: Text+ テンプレートを格納したビン名
         text_plus_template: Text+ テンプレートクリップ名 (Fusion Title)
+        text_plus_max_fill_frames: Fill Gaps で埋める最大フレーム数 (default: 9999 ≈ 5.5min)
 
     Returns:
         SendResult: 操作結果。Text+ 変換が実行された場合は ``text_plus`` 属性に
@@ -667,6 +672,7 @@ def send_clip_to_resolve(
                 srt_path,
                 bin_name=text_plus_bin,
                 template_name=text_plus_template,
+                max_fill_frames=text_plus_max_fill_frames,
             )
         except ResolveError as e:
             logger.warning(f"Text+ 変換スキップ: {e}")
