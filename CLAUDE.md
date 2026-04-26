@@ -18,8 +18,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## バージョン情報
 
-### v2.2.0 (2026-04-26) — 最新安定版
-- **タグ**: `v2.2.0`
+### v2.3.0 (2026-04-26) — 最新安定版
+- **タグ**: `v2.3.0`
+- **DaVinci Resolve への自動取り込み機能** (PR #134):
+  - `textffcut send` コマンドで FCPXML + SRT を Resolve の現在開いているビンに 1 コマンドで取り込み
+  - timeline 名は `00_MMDD_Clip{NN}` 自動連番、素材用 SE トラック自動 mute
+  - GUI: 字幕エディタの「📺 DaVinciへ送信」ボタン
+- **SRT→Text+ 自動変換機能 (Snap Captions 互換)** (PR #136):
+  - `textffcut send --text-plus` (CLI/GUI ともデフォルト ON) で SRT を Fusion Text+ クリップへ自動変換
+  - 事前準備として Media Pool root に `TextffCut` ビン + `Caption_Default` テンプレ配置時のみ動作 (未配置なら warning + スキップ)
+  - 新規ビデオトラック自動追加 / Green 着色 / U+2028→\n 改行変換 / duration_multiplier 補正 / 端伸ばし
+  - SRT は一時ファイル化して ImportMedia (Resolve の MediaPool 内部位置累積問題を回避)
+  - Text+ 配置は SRT を Python で直接パース (subtitle track の Resolve 仕様による位置ずれを切り離す)
 - **動画内テキスト自動塗りつぶし機能** (PR #135):
   - 命名注意: コード上は `auto_blur` (内部識別子・CLI フラグは互換性維持)、ユーザー向け表現は「塗りつぶし」で統一
   - 実装は `drawbox` による塗りつぶし (gaussian blur ではない). 将来 mosaic / gaussian も engine 切替で追加可能な設計
@@ -28,17 +38,28 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   - **drawbox 方式** で塗りつぶし (gblur より 5x 高速、色滲みなし、bbox 縁から自動色サンプリング)
   - **検出スキップ最適化**: フレーム差分で前回 bbox を再利用 (検出回数 -70%)
   - **フルチャンク並列化**: 4 並列で 64 分動画を 4分16秒で処理
+- **タイトル画像 文字内ループ穴の白アウトライン隙間修正** (PR #137):
+  - 「な」「は」「ぱ」「べ」「使」等の文字内ループ穴で白アウトラインがリング描画され隙間が見える問題を解消
+  - `_fill_mask_holes()` で flood-fill により穴を埋め、面積上限で大穴/小穴を選別
+  - outer_mask は全穴埋めでシルエット全体塗りつぶし、inner_mask は font_size に応じた小穴のみ埋め
+- **word drop 根本修正** (PR #133):
+  - filler-aware word 境界スナップで PR #122-124 の症状治療を改善
+  - SRT 句読点除去ロジック追加
 - **CLI**:
   - `textffcut --auto-blur video.mp4`: Whisper 文字起こしと**並列実行** (Whisper 21s + 塗りつぶし 25s が並走、5min 動画 26.6s で完了)
   - `textffcut clip video.mp4`: cache 自動利用、なければ警告 + 元動画
   - `textffcut clip --no-blurred-source`: 明示的に元動画使用
+  - `textffcut send clip.fcpxml`: DaVinci 取り込み + Text+ 自動変換 (デフォ ON)
+  - `textffcut send clip.fcpxml --no-text-plus`: Text+ 変換無効化
 - **GUI**:
   - 文字起こし画面: 「🔒 動画内テキスト自動塗りつぶし」チェックボックス
   - クリップ生成画面: cache 存在時のみ「塗りつぶし版を利用」チェックボックス表示
+  - 字幕エディタ: 「📺 DaVinciへ送信」ボタン + 「Text+ 自動変換」チェックボックス
 - **キャッシュ**: `{video}_TextffCut/source_blurred.mp4` + params sidecar (params hash + 元動画 mtime/size で検証)
 - **依存追加** (`pyproject.toml`):
   - `ocrmac>=1.0.0` (Apple Vision Framework wrapper)
   - `opencv-python>=4.10.0` (numpy 2 対応版)
+  - `scipy>=1.10.0` (タイトル画像内ループ穴の連結成分判定)
   - numpy `<2.0` 制約撤去 (主要 dep の numpy 2 対応確認済)
 
 ### v2.1.1 (2026-04-23)
@@ -336,4 +357,4 @@ brew install coidemo/textffcut/textffcut
 
 ---
 
-最終更新: 2026-04-26 (PR #136 / #137)
+最終更新: 2026-04-26 (v2.3.0 リリース、PR #133-#137 を含む)
