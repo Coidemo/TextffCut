@@ -1961,3 +1961,241 @@ class TestFillMaskHoles:
         img = Image.new("L", (20, 20), 255)
         result = _fill_mask_holes(img)
         assert list(result.getdata()) == [255] * 400
+
+
+class TestSrtModeSwitching:
+    """Phase A SRT モード分岐ロジックのテスト (PR #141)。
+
+    AI 呼び出しは MagicMock で置き換え、プロンプト選択 + バリデーション分岐 +
+    placeholder 置換が正しく動くことを検証する。
+    """
+
+    @staticmethod
+    def _make_mock_client(designs_response: list[dict]) -> MagicMock:
+        """OpenAI client のモック。指定 designs を JSON で返す。"""
+        client = MagicMock()
+        completion = MagicMock()
+        completion.choices = [MagicMock()]
+        completion.choices[0].message.content = json.dumps({"designs": designs_response})
+        client.chat.completions.create.return_value = completion
+        return client
+
+    @staticmethod
+    def _valid_design(text: str) -> dict:
+        """有効な単一 line デザイン。"""
+        return {
+            "lines": [
+                {
+                    "segments": [
+                        {"text": text, "font_size": 160, "color": "#000000"}
+                    ],
+                    "outer_outline_color": "#FFFFFF",
+                    "outer_outline_width": 10,
+                    "inner_outline_color": "#000000",
+                    "inner_outline_width": 0,
+                }
+            ],
+            "line_spacing": 10,
+            "padding_top": 60,
+        }
+
+    def test_srt_mode_selects_srt_prompt_file(self):
+        """srt_text 指定時、title_image_candidates_from_srt.md のプロンプトが使われる。"""
+        from use_cases.ai.title_image_generator import design_title_layout_candidates
+
+        client = self._make_mock_client([self._valid_design("AI生成タイトル")])
+        design_title_layout_candidates(
+            client=client,
+            title="元タイトル",
+            keywords=[],
+            target_size=(1080, 438),
+            srt_text="字幕内容",
+        )
+        sent_prompt = client.chat.completions.create.call_args.kwargs["messages"][0]["content"]
+        # SRT モード特有のキーワードが含まれていること
+        assert "SRT 字幕 (clip 内容の真実)" in sent_prompt
+        assert "字幕内容" in sent_prompt  # SRT_TEXT 置換確認
+
+    def test_existing_mode_selects_default_prompt_file(self):
+        """srt_text 未指定時は既存の title_image_candidates.md が使われる。"""
+        from use_cases.ai.title_image_generator import design_title_layout_candidates
+
+        client = self._make_mock_client([self._valid_design("元タイトル")])
+        design_title_layout_candidates(
+            client=client,
+            title="元タイトル",
+            keywords=["AI"],
+            target_size=(1080, 438),
+        )
+        sent_prompt = client.chat.completions.create.call_args.kwargs["messages"][0]["content"]
+        # SRT モード特有の文字列が含まれない
+        assert "SRT 字幕 (clip 内容の真実)" not in sent_prompt
+
+    def test_max_line_chars_placeholder_replaced_from_constant(self):
+        """{MAX_LINE_CHARS} placeholder が定数 _TITLE_FORCE_BREAK_THRESHOLD で置換される。"""
+        from use_cases.ai.title_image_generator import (
+            _TITLE_FORCE_BREAK_THRESHOLD,
+            design_title_layout_candidates,
+        )
+
+        client = self._make_mock_client([self._valid_design("テスト")])
+        design_title_layout_candidates(
+            client=client,
+            title="テスト",
+            keywords=[],
+            target_size=(1080, 438),
+            srt_text="字幕",
+        )
+        sent_prompt = client.chat.completions.create.call_args.kwargs["messages"][0]["content"]
+        # 定数値がプロンプトに反映されている
+        assert f"{_TITLE_FORCE_BREAK_THRESHOLD} 文字" in sent_prompt
+        # placeholder が残っていないこと
+        assert "{MAX_LINE_CHARS}" not in sent_prompt
+
+    def test_existing_mode_validates_title_match(self):
+        """既存モード: AI がタイトル文字を変えたらスキップされる。"""
+        from use_cases.ai.title_image_generator import design_title_layout_candidates
+
+        # AI が「異なるタイトル」を返す
+        client = self._make_mock_client([self._valid_design("異なるタイトル")])
+        result = design_title_layout_candidates(
+            client=client,
+            title="元タイトル",
+            keywords=[],
+            target_size=(1080, 438),
+        )
+        # 文字一致しないのでスキップされ、結果は空
+        assert result == []
+
+    def test_srt_mode_allows_free_generation(self):
+        """SRT モード: AI が title と異なる文字列を返してもスキップされない。"""
+        from use_cases.ai.title_image_generator import design_title_layout_candidates
+
+        client = self._make_mock_client([self._valid_design("AI が考えた新タイトル")])
+        result = design_title_layout_candidates(
+            client=client,
+            title="元タイトル",
+            keywords=[],
+            target_size=(1080, 438),
+            srt_text="字幕内容",
+        )
+        # 文字一致チェックなしで採用される
+        assert len(result) == 1
+        text = "".join(s.text for line in result[0].lines for s in line.segments)
+        assert "AI が考えた新タイトル" in text or text == "AI が考えた新タイトル"
+
+    def test_srt_mode_rejects_empty_title(self):
+        """SRT モード: AI が空文字列を返したらスキップされる。"""
+        from use_cases.ai.title_image_generator import design_title_layout_candidates
+
+        client = self._make_mock_client([self._valid_design("")])
+        result = design_title_layout_candidates(
+            client=client,
+            title="元タイトル",
+            keywords=[],
+            target_size=(1080, 438),
+            srt_text="字幕",
+        )
+        assert result == []
+
+
+class TestBatchPromptTemplate:
+    """design_title_layouts_batch() のプロンプト整合性テスト。
+
+    target_size 未指定経路 (= バッチ AI 呼び出し) でも、Phase B/A の 11 文字
+    ルールと placeholder が他経路と整合していることを確認。
+    """
+
+    @staticmethod
+    def _make_mock_client(designs: list[dict]) -> MagicMock:
+        client = MagicMock()
+        completion = MagicMock()
+        completion.choices = [MagicMock()]
+        completion.choices[0].message.content = json.dumps({"designs": designs})
+        client.chat.completions.create.return_value = completion
+        return client
+
+    @staticmethod
+    def _valid_design(text: str) -> dict:
+        return {
+            "lines": [
+                {
+                    "segments": [{"text": text, "font_size": 160, "color": "#000000"}],
+                    "outer_outline_color": "#FFFFFF",
+                    "outer_outline_width": 10,
+                    "inner_outline_color": "#000000",
+                    "inner_outline_width": 0,
+                }
+            ],
+            "line_spacing": 10,
+            "padding_top": 60,
+        }
+
+    def test_batch_template_contains_max_line_chars_rule(self):
+        """バッチプロンプトに「{MAX_LINE_CHARS} 文字超は複数行」ルールが含まれる。"""
+        from use_cases.ai.title_image_generator import (
+            _BATCH_PROMPT_TEMPLATE,
+        )
+
+        # template 自体に placeholder が含まれていること (= 修正前は無かった)
+        assert "{MAX_LINE_CHARS}" in _BATCH_PROMPT_TEMPLATE
+        assert "複数行" in _BATCH_PROMPT_TEMPLATE
+
+    def test_batch_call_replaces_max_line_chars(self):
+        """バッチ呼び出しで {MAX_LINE_CHARS} が定数値で置換される。"""
+        from use_cases.ai.title_image_generator import (
+            _TITLE_FORCE_BREAK_THRESHOLD,
+            design_title_layouts_batch,
+        )
+
+        client = self._make_mock_client(
+            [self._valid_design("タイトルA"), self._valid_design("タイトルB")]
+        )
+        design_title_layouts_batch(
+            client=client,
+            titles=["タイトルA", "タイトルB"],
+            keywords_list=[[], []],
+        )
+        sent_prompt = client.chat.completions.create.call_args.kwargs["messages"][0]["content"]
+        # 定数値がプロンプトに反映されている
+        assert f"{_TITLE_FORCE_BREAK_THRESHOLD} 文字" in sent_prompt
+        # placeholder が残っていないこと
+        assert "{MAX_LINE_CHARS}" not in sent_prompt
+
+    def test_batch_call_validates_title_match(self):
+        """バッチ呼び出しは既存モードと同じく文字一致をチェックする。"""
+        from use_cases.ai.title_image_generator import design_title_layouts_batch
+
+        # 1 件目は一致、2 件目は不一致
+        client = self._make_mock_client(
+            [self._valid_design("正しいタイトル"), self._valid_design("AIが書き換えた")]
+        )
+        results = design_title_layouts_batch(
+            client=client,
+            titles=["正しいタイトル", "元タイトル"],
+            keywords_list=[[], []],
+        )
+        # 1 件目は採用、2 件目は不一致でスキップ → None
+        assert results[0] is not None
+        assert results[1] is None
+
+    def test_batch_call_applies_enforce_line_break(self):
+        """バッチ呼び出しでも _enforce_line_break (Phase B) が適用される。
+
+        AI が 11 文字超を 1 line で返した場合、後処理で複数行に分割される。
+        """
+        from use_cases.ai.title_image_generator import (
+            _TITLE_FORCE_BREAK_THRESHOLD,
+            design_title_layouts_batch,
+        )
+
+        long_title = "あ" * (_TITLE_FORCE_BREAK_THRESHOLD + 5)  # 16 文字 1 行
+        client = self._make_mock_client([self._valid_design(long_title)])
+        results = design_title_layouts_batch(
+            client=client,
+            titles=[long_title],
+            keywords_list=[[]],
+        )
+        assert results[0] is not None
+        # Phase B 適用で複数行に分割されている
+        assert len(results[0].lines) >= 2
