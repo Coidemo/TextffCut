@@ -12,6 +12,11 @@ DaVinci Resolve の現在開いているビンに、TextffCut が生成した FC
 例:
   textffcut send videos/20260210_xxx_TextffCut/fcpxml/02_yyy.fcpxml
   textffcut send path/to/clip.fcpxml --mmdd 0210
+  textffcut send clip.fcpxml --text-plus  # SRT を Text+ クリップに自動変換
+
+--text-plus 利用時の追加事前準備:
+  - Media Pool root に "TextffCut" ビンを作成
+  - その中に "Caption_Default" という Fusion Title (Text+) テンプレートを配置
 """
 
 from __future__ import annotations
@@ -49,6 +54,25 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="連番計算用の月日 (例: 0210)。省略時は動画フォルダ名 YYYYMMDD_xxx_TextffCut から自動抽出",
     )
+    parser.add_argument(
+        "--text-plus",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "SRT 取り込み後に字幕を Fusion Text+ クリップへ自動変換 (default: 有効)。"
+            "Media Pool に TextffCut ビンと Caption_Default テンプレートが無ければ自動スキップ"
+        ),
+    )
+    parser.add_argument(
+        "--text-plus-bin",
+        default="TextffCut",
+        help="Text+ テンプレートを格納したビン名 (default: TextffCut)",
+    )
+    parser.add_argument(
+        "--text-plus-template",
+        default="Caption_Default",
+        help="Text+ テンプレート名 (default: Caption_Default)",
+    )
     return parser
 
 
@@ -63,6 +87,9 @@ def run_send(argv: list[str]) -> None:
             args.fcpxml,
             srt_path=args.srt,
             mmdd=args.mmdd,
+            text_plus=args.text_plus,
+            text_plus_bin=args.text_plus_bin,
+            text_plus_template=args.text_plus_template,
         )
     except ResolveError as e:
         print(f"❌ {e}", file=sys.stderr)
@@ -79,3 +106,15 @@ def run_send(argv: list[str]) -> None:
     if result.se_kept:
         kept = ", ".join(f"A{i}" for i in result.se_kept)
         print(f"  AI 配置 SE 維持: {kept}")
+    if result.text_plus is not None:
+        tp = result.text_plus
+        suffix = " (subtitle 無効化済)" if tp.subtitle_disabled else ""
+        if tp.video_track == 0:
+            print(f"  Text+ 変換: 全件失敗 (空 track は削除){suffix}")
+        else:
+            print(
+                f"  Text+ 変換: V{tp.video_track} に "
+                f"{tp.success}/{tp.success + tp.failed} 件配置{suffix}"
+            )
+    elif args.text_plus:
+        print("  Text+ 変換: スキップ (詳細はログ参照)")

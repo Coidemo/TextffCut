@@ -251,6 +251,17 @@ def render_subtitle_editor_section(container: Any, videos_root: str = "videos") 
     if has_unsaved_edits:
         send_help += "\n⚠ 未保存の編集があります。送信前に '💾 保存' を押してください。"
 
+    text_plus_enabled = container.checkbox(
+        "Text+ 自動変換",
+        value=True,
+        key=f"text_plus_{ta_key}",
+        help=(
+            "字幕を Fusion Text+ クリップに自動変換します (Snap Captions 互換)。\n"
+            "Media Pool root に 'TextffCut' ビンと 'Caption_Default' テンプレートが必要。\n"
+            "見つからない場合は警告のみ出して送信は続行します。"
+        ),
+    )
+
     if btn_cols[2].button(
         "📺 DaVinciへ送信",
         key=f"send_{ta_key}",
@@ -263,7 +274,10 @@ def render_subtitle_editor_section(container: Any, videos_root: str = "videos") 
             try:
                 from infrastructure.davinci_resolve import ResolveError, send_clip_to_resolve
 
-                result = send_clip_to_resolve(fcpxml_path)
+                result = send_clip_to_resolve(
+                    fcpxml_path,
+                    text_plus=text_plus_enabled,
+                )
                 msg_lines = [
                     f"✓ Bin {result.bin_name!r} に {result.timeline_name} を作成",
                     f"  字幕: {'OK' if result.srt_imported else 'スキップ'}",
@@ -271,6 +285,23 @@ def render_subtitle_editor_section(container: Any, videos_root: str = "videos") 
                 if result.se_muted:
                     muted = ", ".join(f"A{i}" for i in result.se_muted)
                     msg_lines.append(f"  素材用 SE ミュート: {muted}")
+                if result.text_plus is not None:
+                    tp = result.text_plus
+                    suffix = " (subtitle 無効化済)" if tp.subtitle_disabled else ""
+                    if tp.video_track == 0:
+                        msg_lines.append(
+                            f"  Text+ 変換: 全件失敗 (空 track は削除){suffix}"
+                        )
+                    else:
+                        msg_lines.append(
+                            f"  Text+ 変換: V{tp.video_track} に "
+                            f"{tp.success}/{tp.success + tp.failed} 件配置{suffix}"
+                        )
+                elif text_plus_enabled:
+                    msg_lines.append(
+                        "  Text+ 変換: スキップ "
+                        "(TextffCut ビン or Caption_Default テンプレート未配置)"
+                    )
                 container.success("\n".join(msg_lines))
             except ResolveError as e:
                 container.error(f"Resolve 送信失敗:\n{e}")
