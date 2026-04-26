@@ -87,7 +87,12 @@ def _handle_save(
 
 
 def render_subtitle_editor_section(container: Any, videos_root: str = "videos") -> None:  # noqa: ANN401
-    """字幕編集 section."""
+    """字幕編集 section.
+
+    動画は画面上部「🎥 動画ファイル選択」で選択済のものを自動使用する.
+    そこで選択された動画に対応する `{stem}_TextffCut/` を session_state から
+    解決して開く. 別動画に切り替えたい場合は上部の selectbox で動画を変更する.
+    """
     import streamlit.components.v1 as components
 
     videos_root_path = Path(videos_root)
@@ -98,24 +103,36 @@ def render_subtitle_editor_section(container: Any, videos_root: str = "videos") 
         container.info(f"{videos_root} に処理済み動画フォルダがまだありません。")
         return
 
-    dir_names = [d.name.removesuffix("_TextffCut") for d in dirs]
-    sel_dir_idx = container.selectbox(
-        "動画フォルダ",
-        range(len(dirs)),
-        format_func=lambda i: dir_names[i],
-        key="subtitle_editor_dir_idx",
-    )
-    base_dir = dirs[sel_dir_idx]
+    # 上部「🎥 動画ファイル選択」で選択済の動画から _TextffCut/ を解決
+    selected_video = st.session_state.get("video_path")
+    if not selected_video:
+        container.info(
+            "📺 上部の「🎥 動画ファイル選択」で動画を選んでください。"
+            "選択された動画の字幕がここに表示されます。"
+        )
+        return
+    video_stem = Path(selected_video).stem
+    expected_dirname = f"{video_stem}_TextffCut"
+    base_dir = next((d for d in dirs if d.name == expected_dirname), None)
+    if base_dir is None:
+        container.info(
+            f"📝 「{video_stem}」の処理済みフォルダ ({expected_dirname}/) "
+            "が見つかりません。先に AI 自動切り抜きを実行してください。"
+        )
+        return
 
     srt_files = _list_srt_files(base_dir)
     if not srt_files:
         container.info("このフォルダに SRT ファイルが見つかりません。")
         return
+    # 動画切替で stale な index を保持しないよう、key を base_dir 名込みで分離
+    # (`_srt_cache__{base_dir.name}__{stem}` と同じ流儀).
+    srt_idx_key = f"subtitle_editor_srt_idx__{base_dir.name}"
     sel_srt_idx = container.selectbox(
         "クリップ",
         range(len(srt_files)),
         format_func=lambda i: srt_files[i].stem,
-        key="subtitle_editor_srt_idx",
+        key=srt_idx_key,
     )
     srt_path = srt_files[sel_srt_idx]
     clip_id = srt_path.stem
