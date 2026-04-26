@@ -198,14 +198,14 @@ Phase 5.7 で clip range 内の最終 SRT を読み込む
 2. **8 文字基準は妥当か?** → 11 文字に変更 (font_size 190 で物理上限相当)
 3. **A の副作用「タイトル文字が元と違う場合」** → AI が大きく書き換えて OK (元タイトル一致制約なし)
 4. **C の縦中央配置の適用範囲** → タイトル範囲指定 (`--title-target-size`) を尊重しつつ縦・横両方適用
-5. **既存 PNG キャッシュ再生成** → どれを再生成するかをユーザーに確認 (CLI フラグ + GUI チェックボックスで都度選択)
+5. **既存 PNG キャッシュ再生成** → 機能化不要。必要時にユーザーが手動で `.title.json` / `.png` を削除して再生成する運用
 
 回答を踏まえた実装方針:
 
 - B の閾値を **11 文字** に統一 (`_split_title()` の既存 10 文字も 11 に揃える)
 - A はバリデーション「`reconstructed != title` で例外」を除外し、AI 自由生成を許可。`ClipSuggestion.title` は参考情報として残すが PNG のタイトル文字は AI 生成版を採用
 - C は縦動画・横動画両方で動作。`target_size` 指定時はその範囲内で中央配置
-- キャッシュ再生成: `textffcut clip --regenerate-titles` フラグ追加 (デフォ False、既存 cache を尊重)。GUI でも同等のチェックボックス。フラグ無指定時は既存挙動 (cache hit でスキップ)
+- キャッシュ無効化はユーザーが手動で行う (`rm <video>_TextffCut/title_images/<clip>.title.json <clip>.png` 等)。CLI フラグや GUI 切り替えは追加しない (= シンプル運用)
 
 ## 8. 関連
 - 提案 PR: (この PR)
