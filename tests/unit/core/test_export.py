@@ -296,4 +296,141 @@ class TestBlurOverlayFCPXML:
         # blur PNG が 2 つの video 要素として出現するはず
         # seg1 の overlap: source [5-10] → timeline [5-10] (5秒)
         # seg2 の overlap: source [20-25] → timeline [10-15] (5秒)
-        assert xml.count(f'lane="1"') == 2
+        assert xml.count('lane="1"') == 2
+
+    def test_blur_overlay_uses_fit_conform(self, mock_video, tmp_path):
+        """blur PNG は <adjust-conform type="fit"/> を使う (video と同じ).
+
+        type="none" だと source ≠ timeline 解像度 (4K source / 縦動画) で
+        アライメントがズレるため、video と同じ "fit" でなければならない.
+        """
+        from config import Config
+        from core.export import ExportSegment, FCPXMLExporter
+
+        segments = [
+            ExportSegment(
+                source_path=str(mock_video["video"]),
+                start_time=0.0,
+                end_time=5.0,
+                timeline_start=0.0,
+            ),
+        ]
+        blur_overlays = [
+            {"png_path": str(mock_video["png"]), "start_sec": 0.0, "end_sec": 5.0},
+        ]
+        out = tmp_path / "out.fcpxml"
+        exporter = FCPXMLExporter(Config())
+        ok = exporter.export(
+            segments=segments,
+            output_path=str(out),
+            blur_overlays=blur_overlays,
+        )
+        assert ok
+        xml = out.read_text()
+        # blur PNG の <video> ブロックを抽出して conform を確認
+        png_name = mock_video["png"].name
+        # name=blur PNG name の <video> 要素 → 直後の <adjust-conform> は "fit"
+        png_block_start = xml.find(f'name="{png_name}"')
+        assert png_block_start > 0, "blur PNG video 要素が見つからない"
+        # <video> の閉じ位置までを切り出して conform 種別を検証
+        png_block_end = xml.find("</video>", png_block_start)
+        block = xml[png_block_start:png_block_end]
+        assert '<adjust-conform type="fit"/>' in block, (
+            f"blur PNG は type='fit' であるべき (video と同じ). 実際の block:\n{block}"
+        )
+        assert '<adjust-conform type="none"/>' not in block
+
+    def test_blur_overlay_outside_segments_not_registered(self, mock_video, tmp_path):
+        """どの segment にも overlap しない blur overlay は asset として登録されない.
+
+        無音削除で消えた範囲の blur overlay などは orphan asset になる前に除外する.
+        """
+        from config import Config
+        from core.export import ExportSegment, FCPXMLExporter
+
+        segments = [
+            ExportSegment(
+                source_path=str(mock_video["video"]),
+                start_time=0.0,
+                end_time=10.0,
+                timeline_start=0.0,
+            ),
+        ]
+        # blur が segment と全く重ならない (50-60s)
+        orphan_png = tmp_path / "orphan.png"
+        orphan_png.write_bytes(b"\x89PNG\r\n")
+        valid_png = mock_video["png"]
+        blur_overlays = [
+            {"png_path": str(orphan_png), "start_sec": 50.0, "end_sec": 60.0},
+            {"png_path": str(valid_png), "start_sec": 2.0, "end_sec": 8.0},
+        ]
+        out = tmp_path / "out.fcpxml"
+        exporter = FCPXMLExporter(Config())
+        ok = exporter.export(
+            segments=segments,
+            output_path=str(out),
+            blur_overlays=blur_overlays,
+        )
+        assert ok
+        xml = out.read_text()
+        # orphan PNG は asset として登録されない
+        assert "orphan.png" not in xml
+        # 有効な PNG は登録されている
+        assert valid_png.name in xml
+        # video 要素は 1 つだけ
+        assert xml.count('lane="1"') == 1
+
+    def test_blur_overlay_with_nonstandard_resolution(self, tmp_path, monkeypatch):
+        """source 解像度 ≠ timeline (例: 4K source on 1080p timeline) でも
+        video と同じ conform="fit" + scale/anchor が適用されるため、
+        blur PNG が timeline 上で video と同じ位置に配置される.
+        """
+        from unittest.mock import MagicMock
+
+        from config import Config
+        from core import export as export_mod
+        from core.export import ExportSegment, FCPXMLExporter
+
+        video_path = tmp_path / "source_4k.mp4"
+        video_path.write_bytes(b"fake")
+        png_path = tmp_path / "blur.png"
+        png_path.write_bytes(b"\x89PNG\r\n")
+
+        # 4K source を mock
+        fake_info = MagicMock()
+        fake_info.duration = 30.0
+        fake_info.fps = 30
+        fake_info.width = 3840
+        fake_info.height = 2160
+        monkeypatch.setattr(export_mod.VideoInfo, "from_file", lambda *a, **kw: fake_info)
+
+        segments = [
+            ExportSegment(
+                source_path=str(video_path),
+                start_time=0.0,
+                end_time=10.0,
+                timeline_start=0.0,
+            ),
+        ]
+        blur_overlays = [
+            {"png_path": str(png_path), "start_sec": 0.0, "end_sec": 10.0},
+        ]
+        out = tmp_path / "out.fcpxml"
+        exporter = FCPXMLExporter(Config())
+        ok = exporter.export(
+            segments=segments,
+            output_path=str(out),
+            scale=(1.2, 1.2),
+            anchor=(0.1, 0.2),
+            blur_overlays=blur_overlays,
+        )
+        assert ok
+        xml = out.read_text()
+        # video asset-clip と blur PNG の両方で同じ scale/anchor + conform="fit"
+        assert xml.count('scale="1.2 1.2"') >= 2
+        assert xml.count('anchor="0.1 0.2"') >= 2
+        # blur PNG ブロック内の conform は "fit"
+        png_block_start = xml.find(f'name="{png_path.name}" ref=')
+        png_block_end = xml.find("</video>", png_block_start)
+        block = xml[png_block_start:png_block_end]
+        assert '<adjust-conform type="fit"/>' in block

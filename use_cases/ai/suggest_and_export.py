@@ -506,6 +506,14 @@ class SuggestAndExportUseCase:
             )
         except Exception as e:
             logger.warning(f"FCPXMLExporter failed ({e}), using simple FCPXML")
+            if blur_overlays:
+                # simple fallback は blur オーバーレイ未対応のため、生成済 PNG が
+                # FCPXML に反映されない. 黙って落とすと UX 低下なので明示する.
+                logger.warning(
+                    f"⚠ blur overlay {len(blur_overlays)} 件が simple FCPXML "
+                    "フォールバックでは反映されません (PNG キャッシュは保持). "
+                    "FCPXMLExporter のエラーを修正することで解決します."
+                )
             return self._export_simple_fcpxml(
                 suggestion,
                 video_path,
