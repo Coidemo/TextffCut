@@ -18,8 +18,24 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## バージョン情報
 
-### v2.3.0 (2026-04-26) — 最新安定版
-- **タグ**: `v2.3.0`
+### v2.4.0 (2026-04-26) — 最新安定版
+- **タグ**: `v2.4.0`
+- **タイトル画像 改行強制 + 縦中央配置** (PR #140 / Phase B + C):
+  - 11 文字超のタイトルが 1 行で文字小さく上端だけ占有する問題を解消
+  - `_TITLE_FORCE_BREAK_THRESHOLD = 11` 文字超を `_enforce_line_break()` で強制分割
+  - target_size 範囲内で `_center_design_in_target()` により縦中央配置 (bbox 測定 → padding_top 動的計算)
+  - 縦動画・横動画両対応
+- **タイトル画像 SRT ベース AI 生成** (PR #141 / Phase A):
+  - タイトル/字幕の内容ズレを構造的に解消 (例: タイトルに「逆差別」が含まれるが SRT に登場しない問題)
+  - AI インプットを Phase 1 の元動画全体話題検出から **clip 範囲の最終 SRT** に切り替え
+  - パイプライン順序: Phase 5.6 (SRT 先行生成、新設) → 5.7 (タイトル画像) → 6 (FCPXML)
+  - SRT モードでは AI 自由生成許可 (元 title からの大幅書き換え可)、ファイル名は元 title 維持
+  - `prompts/title_image_candidates_from_srt.md` 新規 (SRT モード用プロンプト)
+  - プロンプト全 5 ファイルで `{MAX_LINE_CHARS}` placeholder 化 (定数 `_TITLE_FORCE_BREAK_THRESHOLD` から流し込み)
+  - `SuggestAndExportResult.srt_failed_count` 追加で SRT 生成失敗を集計
+
+### v2.3.0 (2026-04-26)
+- **タグ**: `v2.3.0` (PR #133-#137 一括リリース)
 - **DaVinci Resolve への自動取り込み機能** (PR #134):
   - `textffcut send` コマンドで FCPXML + SRT を Resolve の現在開いているビンに 1 コマンドで取り込み
   - timeline 名は `00_MMDD_Clip{NN}` 自動連番、素材用 SE トラック自動 mute
@@ -349,12 +365,19 @@ make pre-commit
 8. **タイトル画像 文字内ループ穴の白アウトライン (PR #137)**: 「な」「は」「ぱ」「べ」「使」等で白アウトラインがリング描画されると穴の周辺に細リングが残って見た目が汚い。`use_cases/ai/title_image_generator.py::_fill_mask_holes()` で flood-fill により穴を埋めて対処。outer_mask は全穴埋めでシルエット全体塗りつぶし、inner_mask は `font_size × 0.06` の二乗以下の小穴のみ埋める (大きいループ穴を埋めると黒インナーが文字細部まで広がって潰れるため)。**境界全周から flood-fill 起点を取る** ことが重要 (1点起動だと複数文字間で stroke 分断された背景が穴と誤認され「ひどい」状態になる)。連結成分判定は `scipy.ndimage.label`。
 9. **タイトル画像 改行強制 + 縦中央配置 (Phase B/C、PR #140)**: AI が 1 行で長すぎるタイトルを返す問題と、画像上端のみ占有する問題を解消。`_TITLE_FORCE_BREAK_THRESHOLD = 11` 文字を超える 1 line は `_enforce_line_break()` で強制分割。target_size 指定時は `_center_design_in_target()` で content_height bbox 測定 → padding_top 動的計算 → 縦中央配置。
 10. **タイトル画像 SRT ベース AI 生成 (Phase A、PR #141)**: タイトル画像の AI インプットを Phase 1 (元動画全体話題検出) の `ClipSuggestion.title + keywords` から **clip 範囲の最終 SRT 字幕** に切り替え、タイトルと字幕の内容ズレを構造的に解消。
-   - **パイプライン順序**: Phase 5.6 (SRT 先行生成、新設) → 5.7 (タイトル画像、SRT パスを AI に渡す) → 5.8 (アンカー検出) → 6 (FCPXML 生成、SRT は Phase 5.6 で書き出し済)
-   - **AI 自由生成許容**: SRT モードでは `reconstructed != title` のバリデーションを緩和。AI が SRT 内容を踏まえてタイトル文字列を再生成 (元 title からの大幅書き換え可)
-   - **ファイル名と PNG 内タイトルの乖離**: ファイル名は元 `suggestion.title` でサニタイズ維持 (= ファイル名規則保護)、PNG 内タイトルは AI 自由生成版。両者が乖離する仕様は意図したもの (clip 内容判別は PNG 視覚確認で行う設計)
-   - **プロンプト**: `prompts/title_image_candidates_from_srt.md` (SRT モード用)、`title_image_candidates.md` (既存モード用) の 2 種類。`design_title_layout_candidates(srt_text=...)` で分岐
-   - **`{MAX_LINE_CHARS}` placeholder**: プロンプト内の文字数制限は `_TITLE_FORCE_BREAK_THRESHOLD` 定数から流し込み (= プロンプトとコード定数の同期維持)
-   - **失敗時 graceful degradation**: SRT 生成失敗 → `SuggestAndExportResult.srt_failed_count` でカウント、対応 clip は title ベースにフォールバック。AI 候補生成失敗 → fallback design (元 title) で render
+    - **パイプライン順序**: Phase 5.6 (SRT 先行生成、新設) → 5.7 (タイトル画像、SRT パスを AI に渡す) → 5.8 (アンカー検出) → 6 (FCPXML 生成、SRT は Phase 5.6 で書き出し済)
+    - **AI 自由生成許容**: SRT モードでは `reconstructed != title` のバリデーションを緩和。AI が SRT 内容を踏まえてタイトル文字列を再生成 (元 title からの大幅書き換え可)
+    - **ファイル名と PNG 内タイトルの乖離**: ファイル名は元 `suggestion.title` でサニタイズ維持 (= ファイル名規則保護)、PNG 内タイトルは AI 自由生成版。両者が乖離する仕様は意図したもの (clip 内容判別は PNG 視覚確認で行う設計)
+    - **プロンプト**: `prompts/title_image_candidates_from_srt.md` (SRT モード用)、`title_image_candidates.md` (既存モード用) の 2 種類。`design_title_layout_candidates(srt_text=...)` で分岐
+    - **`{MAX_LINE_CHARS}` placeholder**: プロンプト内の文字数制限は `_TITLE_FORCE_BREAK_THRESHOLD` 定数から流し込み (= プロンプトとコード定数の同期維持)
+    - **失敗時 graceful degradation**: SRT 生成失敗 → `SuggestAndExportResult.srt_failed_count` でカウント、対応 clip は title ベースにフォールバック。AI 候補生成失敗 → fallback design (元 title) で render
+11. **リリース手順 (本体 + Homebrew tap)**: TextffCut の version up は 2 リポジトリ (本体 + `Coidemo/homebrew-textffcut`) に反映する 8 ステップ手順。詳細手順とつまずきポイントは memory `release_workflow_runbook.md` に記録。要点のみ記載:
+    - **CLAUDE.md と pyproject.toml の version 整合性**: CLAUDE.md は手動更新で pyproject.toml とずれやすい。release 前に両方確認。
+    - **`gh release create` は使えない**: tag push で GitHub Actions が空 Release を自動作成するため `gh release create` は HTTP 422。`gh release edit vX.Y.Z --notes "..."` で notes を後付けする。
+    - **Homebrew tap の `commit.gpgsign=true`**: `Coidemo/homebrew-textffcut` clone 後は `git config --local commit.gpgsign false` を実行しないと commit 失敗 (本体 repo は false 設定済み)。
+    - **`git commit --amend --no-edit` の事故**: 署名失敗で commit が無い状態で amend すると過去 (= 前回リリース) コミットが破壊される。失敗時は `git status` で状況確認してから amend 判断。`git reset --hard origin/main` で復旧可能 (push 前なら)。
+    - **`docs/` は .gitignore で除外**: 新規ドキュメントは `git add -f` で強制追加が必要。
+    - バージョン戦略: 機能追加 → minor up、修正のみ → patch up、複数 PR 一括 → minor up が現実的。
 
 ## 配布
 
@@ -365,4 +388,4 @@ brew install coidemo/textffcut/textffcut
 
 ---
 
-最終更新: 2026-04-26 (v2.3.0 リリース、PR #133-#137 を含む)
+最終更新: 2026-04-26 (v2.4.0 リリース、PR #140/#141 を含む)
