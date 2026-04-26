@@ -402,6 +402,27 @@ class TestConvertSubtitlesToTextPlus:
         )
         assert result.gap_filled == 1  # 50 frame は default 9999 内なので埋める
 
+    def test_fill_gaps_with_zero_is_no_op(self, tmp_path):
+        """max_fill_frames=0 で Fill Gaps が完全に無効化される (CLAUDE.md 注意事項 7)."""
+        srt = _make_srt_file(
+            tmp_path,
+            [
+                (0.0, 1.0, "first"),
+                (35 / 30, 60 / 30, "second"),  # gap=5 frame
+            ],
+        )
+        ctx = _make_setup(timeline_end=200)
+        result = convert_subtitles_to_text_plus(
+            ctx["project"],
+            ctx["timeline"],
+            srt,
+            fill_gaps=True,
+            max_fill_frames=0,
+            extend_edges=False,
+            disable_subtitle_after=False,
+        )
+        assert result.gap_filled == 0  # max=0 なので何も埋まらない
+
     def test_subtitle_disabled_after_success(self, tmp_path):
         srt = _make_srt_file(tmp_path, [(0.0, 1.0, "hi")])
         ctx = _make_setup()
