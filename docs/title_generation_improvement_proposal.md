@@ -1,8 +1,8 @@
 # タイトル画像生成 改善提案書
 
 **作成日**: 2026-04-26
-**ステータス**: Draft
-**ブランチ**: `proposal/title-improvement`
+**ステータス**: Phase B + C マージ済 (PR #140)、Phase A 実装中 (`feature/title-srt-based`)
+**初稿ブランチ**: `proposal/title-improvement` (マージ済)
 
 ## 1. 背景
 

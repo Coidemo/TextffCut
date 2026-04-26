@@ -160,7 +160,31 @@ class SuggestAndExportUseCase:
 
         _phase_times["Phase5 無音削除+速度変更"] = _time.time() - _t3
         _t4 = _time.time()
-        # Phase 5.7: タイトル画像生成（バッチ1回のAI呼び出し）
+
+        # Phase 5.6: SRT 字幕を先行生成 (Phase 5.7 のタイトル画像 AI が
+        # 字幕内容を踏まえてタイトルを生成するため、Phase 6 から前出ししている)
+        srt_paths_list: list[Path | None] = [None] * len(suggestions)
+        if request.generate_srt:
+            from use_cases.ai.srt_subtitle_generator import generate_srt as _gen_srt
+
+            for i, suggestion in enumerate(suggestions):
+                sanitized = sanitize_filename(suggestion.title)
+                srt_path = fcpxml_dir / f"{i+1:02d}_{sanitized}.srt"
+                try:
+                    result = _gen_srt(
+                        suggestion=suggestion,
+                        transcription=request.transcription,
+                        output_path=srt_path,
+                        max_chars_per_line=request.srt_max_chars,
+                        max_lines=request.srt_max_lines,
+                        speed=request.speed,
+                    )
+                    if result:
+                        srt_paths_list[i] = result
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(f"SRT 先行生成失敗 (#{i+1}): {e}")
+
+        # Phase 5.7: タイトル画像生成（バッチ1回のAI呼び出し、Phase A: SRT 渡す）
         title_image_paths: dict[int, Path] = {}
         if request.enable_title_image:
             try:
@@ -185,6 +209,7 @@ class SuggestAndExportUseCase:
                     sanitize_fn=sanitize_filename,
                     target_size=request.title_target_size,
                     offset_y=request.title_offset_y,
+                    srt_paths=srt_paths_list,
                 )
 
             except Exception as e:
@@ -265,19 +290,10 @@ class SuggestAndExportUseCase:
             if success:
                 exported_files.append(fcpxml_path)
 
-            # SRT字幕（速度変更済みタイムスタンプで生成）
-            if request.generate_srt:
-                from use_cases.ai.srt_subtitle_generator import generate_srt
-
-                srt_path = fcpxml_dir / f"{i:02d}_{sanitized}.srt"
-                generate_srt(
-                    suggestion=suggestion,
-                    transcription=request.transcription,
-                    output_path=srt_path,
-                    max_chars_per_line=request.srt_max_chars,
-                    max_lines=request.srt_max_lines,
-                    speed=request.speed,
-                )
+            # SRT 字幕は Phase 5.6 で先行生成済み (Phase A 改善: タイトル画像 AI に
+            # 最終 SRT を渡すため)。ここでは exported_files にパスを記録するのみ。
+            if request.generate_srt and srt_paths_list[i - 1] is not None:
+                exported_files.append(srt_paths_list[i - 1])
 
         _phase_times["Phase6b SE+FCPXML+SRT生成"] = _time.time() - _t6
         _total = _time.time() - _t0

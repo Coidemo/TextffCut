@@ -684,13 +684,22 @@ def design_title_layout_candidates(
     orientation: str = "vertical",
     model: str = "gpt-4.1-mini",
     num_candidates: int = 6,
+    srt_text: str | None = None,
 ) -> list[TitleImageDesign]:
-    """AIに複数のデザイン候補を1回のAPI呼び出しで生成させる (Stage 1)"""
-    prompt_path = Path(__file__).parent.parent.parent / "prompts" / "title_image_candidates.md"
+    """AIに複数のデザイン候補を1回のAPI呼び出しで生成させる (Stage 1)。
+
+    Phase A: srt_text が渡された場合は SRT ベースで AI が自由にタイトル文字列を
+    生成する (= 元 title からの大幅書き換え許容)。バリデーションも緩和。
+    """
+    is_srt_mode = srt_text is not None
+    prompt_filename = (
+        "title_image_candidates_from_srt.md" if is_srt_mode else "title_image_candidates.md"
+    )
+    prompt_path = Path(__file__).parent.parent.parent / "prompts" / prompt_filename
     if prompt_path.exists():
         prompt_template = prompt_path.read_text(encoding="utf-8")
     else:
-        logger.warning("title_image_candidates.md が見つかりません。デフォルトプロンプトで1候補生成に切り替えます。")
+        logger.warning(f"{prompt_filename} が見つかりません。デフォルトプロンプトで1候補生成に切り替えます。")
         prompt_template = _DEFAULT_PROMPT
 
     frame_info = "なし（デフォルトの配色で設計してください）"
@@ -705,6 +714,8 @@ def design_title_layout_candidates(
     prompt = prompt.replace("{TARGET_WIDTH}", str(target_size[0]))
     prompt = prompt.replace("{TARGET_HEIGHT}", str(target_size[1]))
     prompt = prompt.replace("{NUM_CANDIDATES}", str(num_candidates))
+    if is_srt_mode:
+        prompt = prompt.replace("{SRT_TEXT}", srt_text or "")
 
     response = client.chat.completions.create(
         model=model,
@@ -724,13 +735,19 @@ def design_title_layout_candidates(
         try:
             design = _parse_design_json(design_raw)
             design = _snap_segments_to_word_boundaries(design)
-            # バリデーション: 文字一致チェック
             reconstructed = "".join(seg.text for line in design.lines for seg in line.segments)
-            if reconstructed != title:
-                logger.warning(
-                    f"候補#{i+1}: AIがタイトル文字を変更 (期待: {title!r}, 実際: {reconstructed!r})。スキップ。"
-                )
-                continue
+            if not is_srt_mode:
+                # 既存モード: 文字一致チェック
+                if reconstructed != title:
+                    logger.warning(
+                        f"候補#{i+1}: AIがタイトル文字を変更 (期待: {title!r}, 実際: {reconstructed!r})。スキップ。"
+                    )
+                    continue
+            else:
+                # SRT モード: AI 自由生成のため文字一致は不要。空タイトルのみ排除。
+                if not reconstructed.strip():
+                    logger.warning(f"候補#{i+1}: 空タイトルのためスキップ")
+                    continue
             # Phase B: 1 line で閾値超なら強制分割
             design = _enforce_line_break(design)
             results.append(design)
@@ -1650,10 +1667,11 @@ def _generate_with_pipeline(
     frame_colors: list[str] | None,
     orientation: str,
     offset_y: int = 0,
+    srt_text: str | None = None,
 ) -> Path | None:
     """3段階パイプラインでタイトル画像を生成する
 
-    Stage 1: AIで複数候補デザイン生成
+    Stage 1: AIで複数候補デザイン生成 (Phase A: srt_text あれば SRT ベース)
     Stage 2: レンダリング→ターゲットサイズフィルタ
     Stage 3: Vision AIで最適候補選択
     """
@@ -1666,7 +1684,8 @@ def _generate_with_pipeline(
 
     try:
         # Stage 1: AI複数候補生成
-        logger.info(f"Stage 1: {title} — 複数候補生成中...")
+        mode = "SRT ベース" if srt_text else "title ベース"
+        logger.info(f"Stage 1 ({mode}): {title} — 複数候補生成中...")
         candidates = design_title_layout_candidates(
             client=client,
             title=title,
@@ -1675,6 +1694,7 @@ def _generate_with_pipeline(
             frame_colors=frame_colors,
             orientation=orientation,
             model=model,
+            srt_text=srt_text,
         )
         if not candidates:
             logger.warning("Stage 1: 有効な候補が生成されませんでした")
@@ -1899,6 +1919,7 @@ def generate_title_images_batch(
     sanitize_fn: "Callable[[str], str] | None" = None,
     target_size: tuple[int, int] | None = None,
     offset_y: int = 0,
+    srt_paths: "list[Path | None] | None" = None,
 ) -> dict[int, Path]:
     """複数候補のタイトル画像をバッチ生成する。
 
@@ -1906,6 +1927,10 @@ def generate_title_images_batch(
         suggestions: titleとkeywords属性を持つ候補のリスト
         output_dir: 出力ディレクトリ（title_images/）
         sanitize_fn: ファイル名サニタイズ関数（省略時は簡易サニタイズ）
+        srt_paths: 各 suggestion に対応する SRT ファイルパスのリスト
+            (Phase A: 指定時は AI が SRT を読んでタイトルを自由生成)。
+            None or 全要素 None なら従来通り title/keywords ベース。
+            ファイル名はサニタイズ済みの suggestion.title で固定 (= ファイル名規則維持)。
 
     Returns:
         {1: Path, 2: Path, ...} 生成成功した画像のマッピング
@@ -1986,6 +2011,14 @@ def generate_title_images_batch(
                     logger.error(f"タイトル画像描画失敗 (#{i+1}): {e}")
                     return (i + 1, None)
 
+            # Phase A: SRT パスがあれば中身を読んで AI に渡す
+            srt_text: str | None = None
+            if srt_paths is not None and i < len(srt_paths) and srt_paths[i] is not None:
+                try:
+                    srt_text = srt_paths[i].read_text(encoding="utf-8")
+                except OSError as e:
+                    logger.warning(f"SRT 読み込み失敗 (#{i+1}): {e}")
+
             # パイプラインで生成
             try:
                 result = _generate_with_pipeline(
@@ -2000,6 +2033,7 @@ def generate_title_images_batch(
                     frame_colors=frame_colors,
                     orientation=orientation,
                     offset_y=offset_y,
+                    srt_text=srt_text,
                 )
                 if result:
                     return (i + 1, result)
