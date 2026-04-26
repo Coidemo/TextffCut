@@ -2097,3 +2097,105 @@ class TestSrtModeSwitching:
             srt_text="字幕",
         )
         assert result == []
+
+
+class TestBatchPromptTemplate:
+    """design_title_layouts_batch() のプロンプト整合性テスト。
+
+    target_size 未指定経路 (= バッチ AI 呼び出し) でも、Phase B/A の 11 文字
+    ルールと placeholder が他経路と整合していることを確認。
+    """
+
+    @staticmethod
+    def _make_mock_client(designs: list[dict]) -> MagicMock:
+        client = MagicMock()
+        completion = MagicMock()
+        completion.choices = [MagicMock()]
+        completion.choices[0].message.content = json.dumps({"designs": designs})
+        client.chat.completions.create.return_value = completion
+        return client
+
+    @staticmethod
+    def _valid_design(text: str) -> dict:
+        return {
+            "lines": [
+                {
+                    "segments": [{"text": text, "font_size": 160, "color": "#000000"}],
+                    "outer_outline_color": "#FFFFFF",
+                    "outer_outline_width": 10,
+                    "inner_outline_color": "#000000",
+                    "inner_outline_width": 0,
+                }
+            ],
+            "line_spacing": 10,
+            "padding_top": 60,
+        }
+
+    def test_batch_template_contains_max_line_chars_rule(self):
+        """バッチプロンプトに「{MAX_LINE_CHARS} 文字超は複数行」ルールが含まれる。"""
+        from use_cases.ai.title_image_generator import (
+            _BATCH_PROMPT_TEMPLATE,
+        )
+
+        # template 自体に placeholder が含まれていること (= 修正前は無かった)
+        assert "{MAX_LINE_CHARS}" in _BATCH_PROMPT_TEMPLATE
+        assert "複数行" in _BATCH_PROMPT_TEMPLATE
+
+    def test_batch_call_replaces_max_line_chars(self):
+        """バッチ呼び出しで {MAX_LINE_CHARS} が定数値で置換される。"""
+        from use_cases.ai.title_image_generator import (
+            _TITLE_FORCE_BREAK_THRESHOLD,
+            design_title_layouts_batch,
+        )
+
+        client = self._make_mock_client(
+            [self._valid_design("タイトルA"), self._valid_design("タイトルB")]
+        )
+        design_title_layouts_batch(
+            client=client,
+            titles=["タイトルA", "タイトルB"],
+            keywords_list=[[], []],
+        )
+        sent_prompt = client.chat.completions.create.call_args.kwargs["messages"][0]["content"]
+        # 定数値がプロンプトに反映されている
+        assert f"{_TITLE_FORCE_BREAK_THRESHOLD} 文字" in sent_prompt
+        # placeholder が残っていないこと
+        assert "{MAX_LINE_CHARS}" not in sent_prompt
+
+    def test_batch_call_validates_title_match(self):
+        """バッチ呼び出しは既存モードと同じく文字一致をチェックする。"""
+        from use_cases.ai.title_image_generator import design_title_layouts_batch
+
+        # 1 件目は一致、2 件目は不一致
+        client = self._make_mock_client(
+            [self._valid_design("正しいタイトル"), self._valid_design("AIが書き換えた")]
+        )
+        results = design_title_layouts_batch(
+            client=client,
+            titles=["正しいタイトル", "元タイトル"],
+            keywords_list=[[], []],
+        )
+        # 1 件目は採用、2 件目は不一致でスキップ → None
+        assert results[0] is not None
+        assert results[1] is None
+
+    def test_batch_call_applies_enforce_line_break(self):
+        """バッチ呼び出しでも _enforce_line_break (Phase B) が適用される。
+
+        AI が 11 文字超を 1 line で返した場合、後処理で複数行に分割される。
+        """
+        from use_cases.ai.title_image_generator import (
+            _TITLE_FORCE_BREAK_THRESHOLD,
+            design_title_layouts_batch,
+        )
+
+        long_title = "あ" * (_TITLE_FORCE_BREAK_THRESHOLD + 5)  # 16 文字 1 行
+        client = self._make_mock_client([self._valid_design(long_title)])
+        results = design_title_layouts_batch(
+            client=client,
+            titles=[long_title],
+            keywords_list=[[]],
+        )
+        assert results[0] is not None
+        # Phase B 適用で複数行に分割されている
+        assert len(results[0].lines) >= 2

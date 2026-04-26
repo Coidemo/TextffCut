@@ -1813,6 +1813,7 @@ _BATCH_PROMPT_TEMPLATE = """あなたはYouTubeショート動画のタイトル
 ## 最重要ルール
 - 各タイトルの文字は一切変更・省略・言い換えしないこと
 - 全セグメントのtextを結合した結果が元タイトルと完全一致すること
+- **タイトル全文が {MAX_LINE_CHARS} 文字を超える場合は必ず複数行 (lines を 2 個以上) に分割すること**。1 行のままだと font_size が縮小されて非常に見にくくなる
 
 ## タイトル一覧
 {TITLES}
@@ -1869,6 +1870,8 @@ def design_title_layouts_batch(
     prompt = prompt.replace("{FRAME_COLORS}", frame_info)
     prompt = prompt.replace("{ORIENTATION}", orientation)
     prompt = prompt.replace("{JSON_SCHEMA}", _JSON_SCHEMA)
+    prompt = prompt.replace("{MAX_LINE_CHARS}", str(_TITLE_FORCE_BREAK_THRESHOLD))
+    prompt = prompt.replace("{MAX_LINE_CHARS_DOUBLE}", str(_TITLE_FORCE_BREAK_THRESHOLD * 2))
 
     response = client.chat.completions.create(
         model=model,
