@@ -14,7 +14,9 @@ from __future__ import annotations
 import logging
 import os
 import re
+import shutil
 import sys
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -250,6 +252,52 @@ def _normalize_tool_list(tool_list_obj) -> list:
         return [tool_list_obj]
 
 
+@dataclass
+class _SrtEntry:
+    """SRT 1 エントリの内部表現 (frame 単位に変換済み)。"""
+
+    start_frame: int
+    end_frame: int
+    text: str  # \n で改行を表現
+
+
+_SRT_TIMESTAMP_RE = re.compile(
+    r"(\d{2}):(\d{2}):(\d{2})[,.](\d{3})\s*-->\s*"
+    r"(\d{2}):(\d{2}):(\d{2})[,.](\d{3})"
+)
+
+
+def _parse_srt_entries(srt_path: Path, framerate: float) -> list[_SrtEntry]:
+    """SRT ファイルをパースしてエントリ一覧を返す。
+
+    Resolve の AppendToTimeline は subtitle に対して recordFrame を尊重せず
+    動画/音声トラックの末尾に強制 append する仕様のため、subtitle track 経由ではなく
+    SRT ファイルを直接読んで Text+ 配置に使う。
+    """
+    content = srt_path.read_text(encoding="utf-8-sig")
+    blocks = re.split(r"\n\s*\n", content.strip())
+    entries: list[_SrtEntry] = []
+    for block in blocks:
+        lines = block.strip().splitlines()
+        if len(lines) < 3:
+            continue
+        # lines[0] = index, lines[1] = timestamp, lines[2:] = text
+        m = _SRT_TIMESTAMP_RE.search(lines[1])
+        if not m:
+            continue
+        h1, m1, s1, ms1, h2, m2, s2, ms2 = (int(g) for g in m.groups())
+        start_sec = h1 * 3600 + m1 * 60 + s1 + ms1 / 1000
+        end_sec = h2 * 3600 + m2 * 60 + s2 + ms2 / 1000
+        entries.append(
+            _SrtEntry(
+                start_frame=int(round(start_sec * framerate)),
+                end_frame=int(round(end_sec * framerate)),
+                text="\n".join(lines[2:]),
+            )
+        )
+    return entries
+
+
 def _compute_duration_multiplier(
     media_pool, timeline, template_clip, video_track: int, record_frame: int
 ) -> float:
@@ -286,6 +334,7 @@ def _compute_duration_multiplier(
 def convert_subtitles_to_text_plus(
     project,
     timeline,
+    srt_path: Path,
     *,
     bin_name: str = TEXT_PLUS_DEFAULT_BIN,
     template_name: str = TEXT_PLUS_DEFAULT_TEMPLATE,
@@ -295,21 +344,27 @@ def convert_subtitles_to_text_plus(
     extend_edges: bool = True,
     disable_subtitle_after: bool = True,
 ) -> TextPlusResult:
-    """Subtitle トラックの字幕を Fusion Text+ クリップに変換する。
+    """SRT を Fusion Text+ クリップに変換する。
+
+    Resolve の subtitle 取り込みは AppendToTimeline で動画/音声トラック末尾に
+    強制 append される仕様 (recordFrame 無視) のため、subtitle track 経由ではなく
+    **SRT ファイルを直接パース** して Text+ 配置に使う。これにより subtitle 取り込み
+    のずれと Text+ の位置を切り離す。
 
     Args:
         project: Resolve プロジェクト (既に取得済みのもの)
         timeline: 対象タイムライン (current でなくても OK)
+        srt_path: 字幕の真実 (source of truth) として読み込む SRT ファイル
         bin_name: テンプレートを格納したビン名
         template_name: テンプレートクリップ名 (Fusion Title)
-        subtitle_track: 字幕トラック index (default 1)。複数あっても他は見ない
+        subtitle_track: 完了時に無効化する subtitle track index (default 1)
         fill_gaps: 次字幕までの gap を埋める
         max_fill_frames: Fill Gaps で埋める最大フレーム数
         extend_edges: 最初/最後の字幕をタイムライン端まで伸ばす
         disable_subtitle_after: 処理成功時に subtitle track を無効化する
 
     Raises:
-        ResolveError: ビン/テンプレート/字幕トラックが存在しない等
+        ResolveError: ビン/テンプレート/SRT が存在しない・パース失敗等
     """
     media_pool = project.GetMediaPool()
 
@@ -329,26 +384,26 @@ def convert_subtitles_to_text_plus(
             f"名前を '{template_name}' に変更してください。"
         )
 
-    subtitle_count = timeline.GetTrackCount("subtitle")
-    if subtitle_track > subtitle_count:
-        raise ResolveError(
-            f"subtitle track {subtitle_track} がタイムラインにありません "
-            f"(タイムラインの subtitle track 数: {subtitle_count})"
-        )
-    subtitles = timeline.GetItemListInTrack("subtitle", subtitle_track) or []
-    if not subtitles:
-        raise ResolveError(
-            f"subtitle track {subtitle_track} に字幕クリップがありません"
-        )
+    if not srt_path.exists():
+        raise ResolveError(f"SRT ファイルが見つかりません: {srt_path}")
+
+    framerate = float(timeline.GetSetting("timelineFrameRate") or 30.0)
+    entries = _parse_srt_entries(srt_path, framerate)
+    if not entries:
+        raise ResolveError(f"SRT のパースに失敗 (エントリ 0): {srt_path}")
 
     timeline_start = timeline.GetStartFrame()
     timeline_end = timeline.GetEndFrame()  # exclusive
 
     target_video_track = _add_video_track_on_top(timeline)
-    logger.info(f"Text+ 用に video track V{target_video_track} を追加")
+    logger.info(
+        f"Text+ 用に video track V{target_video_track} を追加 "
+        f"(SRT エントリ数={len(entries)})"
+    )
 
     duration_multiplier = _compute_duration_multiplier(
-        media_pool, timeline, template_clip, target_video_track, subtitles[0].GetStart()
+        media_pool, timeline, template_clip, target_video_track,
+        timeline_start + entries[0].start_frame,
     )
     logger.info(f"Text+ duration_multiplier={duration_multiplier:.4f}")
 
@@ -358,15 +413,16 @@ def convert_subtitles_to_text_plus(
     head_extended = 0
     tail_extended = 0
 
-    for idx, sub in enumerate(subtitles, 1):
-        text = (sub.GetName() or "").replace(_LINE_SEPARATOR, "\n")
-        start = sub.GetStart()
-        end = sub.GetEnd()
+    for idx, entry in enumerate(entries, 1):
+        text = entry.text
+        # SRT 内 frame は 0 始まり、タイムライン上は timeline_start 始まり
+        start = timeline_start + entry.start_frame
+        end = timeline_start + entry.end_frame
         duration = end - start
         record_frame = start
 
         if duration <= 0:
-            logger.warning(f"[{idx}/{len(subtitles)}] duration<=0 でスキップ: {text!r}")
+            logger.warning(f"[{idx}/{len(entries)}] duration<=0 でスキップ: {text!r}")
             failed += 1
             continue
 
@@ -379,7 +435,7 @@ def convert_subtitles_to_text_plus(
                 head_extended = head_ext
 
         # 最後の字幕: タイムライン末尾まで伸ばす
-        if extend_edges and idx == len(subtitles):
+        if extend_edges and idx == len(entries):
             tail_ext = timeline_end - end
             if tail_ext > 0:
                 duration += tail_ext
@@ -387,9 +443,9 @@ def convert_subtitles_to_text_plus(
 
         # Fill Gaps: 次字幕までの gap が max_fill_frames 以下なら end を伸ばす
         end_frame = duration - 1
-        if fill_gaps and idx < len(subtitles):
-            next_sub = subtitles[idx]
-            gap = next_sub.GetStart() - end
+        if fill_gaps and idx < len(entries):
+            next_entry = entries[idx]
+            gap = (timeline_start + next_entry.start_frame) - end
             if 0 < gap <= max_fill_frames:
                 end_frame += gap
                 fill_count += 1
@@ -414,7 +470,7 @@ def convert_subtitles_to_text_plus(
             or appended[0].GetName() is None
         ):
             logger.warning(
-                f"[{idx}/{len(subtitles)}] AppendToTimeline 失敗 "
+                f"[{idx}/{len(entries)}] AppendToTimeline 失敗 "
                 f"(track V{target_video_track} が占有されている可能性): {text!r}"
             )
             failed += 1
@@ -425,7 +481,7 @@ def convert_subtitles_to_text_plus(
 
         if new_item.GetFusionCompCount() == 0:
             logger.error(
-                f"[{idx}/{len(subtitles)}] timeline item に Fusion comp が 0 個です。"
+                f"[{idx}/{len(entries)}] timeline item に Fusion comp が 0 個です。"
                 f"テンプレート '{template_name}' が Fusion Title (Text+) ではない可能性"
             )
             failed += 1
@@ -433,13 +489,13 @@ def convert_subtitles_to_text_plus(
 
         comp = new_item.GetFusionCompByIndex(1)
         if comp is None:
-            logger.warning(f"[{idx}/{len(subtitles)}] Fusion comp 取得失敗: {text!r}")
+            logger.warning(f"[{idx}/{len(entries)}] Fusion comp 取得失敗: {text!r}")
             failed += 1
             continue
 
         text_tools = _normalize_tool_list(comp.GetToolList(False, "TextPlus"))
         if not text_tools:
-            logger.warning(f"[{idx}/{len(subtitles)}] Text+ ツールが見つかりません: {text!r}")
+            logger.warning(f"[{idx}/{len(entries)}] Text+ ツールが見つかりません: {text!r}")
             failed += 1
             continue
 
@@ -556,16 +612,37 @@ def send_clip_to_resolve(
 
     # SRT import
     # Resolve 20 には SRT 専用 import API がないため、ImportMedia → AppendToTimeline で代替。
-    # ImportMedia が SRT を subtitle clip として認識するのは heuristic (公式ドキュメント化されていない) 。
+    # ImportMedia が SRT を subtitle clip として認識するのは heuristic (公式ドキュメント化されていない)。
     # 将来バージョンで挙動が変われば要再検証。
+    #
+    # 重要: Resolve は同名 SRT を再 ImportMedia すると Media Pool 内の既存 item を返し、
+    # その item は前回の AppendToTimeline で進んだ「内部位置」を保持する。結果として
+    # 2 回目以降の送信で subtitle が動画末尾に append されてしまう。
+    # → 一時ファイルにユニーク名でコピーして毎回新規 import 扱いにすることで回避する。
     srt_imported = False
     if srt_path is not None:
         project.SetCurrentTimeline(timeline)
-        items = media_pool.ImportMedia([str(srt_path)])
+        try:
+            with tempfile.NamedTemporaryFile(
+                suffix=".srt", prefix=f"{srt_path.stem}_", delete=False
+            ) as tmp:
+                tmp_srt_path = Path(tmp.name)
+            shutil.copy2(srt_path, tmp_srt_path)
+        except OSError as e:
+            logger.warning(f"SRT 一時コピー失敗、元ファイル直接 import: {e}")
+            tmp_srt_path = srt_path
+        items = media_pool.ImportMedia([str(tmp_srt_path)])
         if items:
             if timeline.GetTrackCount("subtitle") == 0:
                 timeline.AddTrack("subtitle")
-            appended = media_pool.AppendToTimeline([items[0]])
+            appended = media_pool.AppendToTimeline(
+                [
+                    {
+                        "mediaPoolItem": items[0],
+                        "recordFrame": timeline.GetStartFrame(),
+                    }
+                ]
+            )
             srt_imported = bool(appended)
             if not srt_imported:
                 logger.warning(f"SRT を timeline に append できませんでした: {srt_path}")
@@ -578,19 +655,23 @@ def send_clip_to_resolve(
     se_muted, se_kept = _detect_and_mute_material_se(timeline)
 
     # Text+ 変換 (任意)
+    # NOTE: Resolve の subtitle 取り込み (AppendToTimeline) は recordFrame を尊重せず
+    # 動画/音声トラック末尾に強制 append される仕様のため、subtitle track 経由ではなく
+    # SRT ファイルを直接パースして配置する。
     text_plus_result: TextPlusResult | None = None
-    if text_plus and srt_imported:
+    if text_plus and srt_path is not None:
         try:
             text_plus_result = convert_subtitles_to_text_plus(
                 project,
                 timeline,
+                srt_path,
                 bin_name=text_plus_bin,
                 template_name=text_plus_template,
             )
         except ResolveError as e:
             logger.warning(f"Text+ 変換スキップ: {e}")
-    elif text_plus and not srt_imported:
-        logger.warning("Text+ 変換スキップ: SRT が import されていません")
+    elif text_plus and srt_path is None:
+        logger.warning("Text+ 変換スキップ: SRT ファイルがありません")
 
     return SendResult(
         timeline_name=new_name,

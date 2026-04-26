@@ -154,12 +154,27 @@ class TestSendResult:
 # --- convert_subtitles_to_text_plus ---
 
 
-def _make_subtitle(text: str, start: int, end: int) -> MagicMock:
-    sub = MagicMock()
-    sub.GetName.return_value = text
-    sub.GetStart.return_value = start
-    sub.GetEnd.return_value = end
-    return sub
+def _make_srt_file(tmp_path: Path, entries: list[tuple[float, float, str]]) -> Path:
+    """テスト用 SRT ファイルを書き出す。entries は (start_sec, end_sec, text) のリスト。"""
+    lines: list[str] = []
+    for i, (start, end, text) in enumerate(entries, 1):
+        s_h, s_rem = divmod(start, 3600)
+        s_m, s_s = divmod(s_rem, 60)
+        s_ms = int(round((s_s - int(s_s)) * 1000))
+        e_h, e_rem = divmod(end, 3600)
+        e_m, e_s = divmod(e_rem, 60)
+        e_ms = int(round((e_s - int(e_s)) * 1000))
+        ts = (
+            f"{int(s_h):02d}:{int(s_m):02d}:{int(s_s):02d},{s_ms:03d} --> "
+            f"{int(e_h):02d}:{int(e_m):02d}:{int(e_s):02d},{e_ms:03d}"
+        )
+        lines.append(str(i))
+        lines.append(ts)
+        lines.append(text)
+        lines.append("")
+    srt = tmp_path / "test.srt"
+    srt.write_text("\n".join(lines), encoding="utf-8")
+    return srt
 
 
 def _make_text_plus_timeline_item(
@@ -182,12 +197,12 @@ def _make_text_plus_timeline_item(
 
 
 def _make_setup(
-    subtitles: list,
     *,
     with_bin: bool = True,
     with_template: bool = True,
     timeline_start: int = 0,
     timeline_end: int = 1000,
+    framerate: float = 30.0,
     test_real_duration: int = 99,
     fail_appends_after: int | None = None,
 ) -> dict:
@@ -217,9 +232,9 @@ def _make_setup(
         root.GetSubFolderList.return_value = []
     media_pool.GetRootFolder.return_value = root
 
-    timeline.GetItemListInTrack.return_value = subtitles
     timeline.GetStartFrame.return_value = timeline_start
     timeline.GetEndFrame.return_value = timeline_end
+    timeline.GetSetting.return_value = framerate
     timeline.SetTrackEnable.return_value = True
     timeline.DeleteClips.return_value = True
 
@@ -263,37 +278,47 @@ def _make_setup(
 
 
 class TestConvertSubtitlesToTextPlus:
-    def test_no_bin_raises(self):
-        ctx = _make_setup([_make_subtitle("hi", 0, 30)], with_bin=False)
+    """convert_subtitles_to_text_plus は SRT ファイルを直接パースする。
+    全テストで tmp_path フィクスチャから一時 SRT を作成して渡す。
+    フレーム計算は framerate=30 を前提 (1秒=30frame)。
+    """
+
+    def test_no_bin_raises(self, tmp_path):
+        srt = _make_srt_file(tmp_path, [(0.0, 1.0, "hi")])
+        ctx = _make_setup(with_bin=False)
         with pytest.raises(ResolveError, match="ビンが見つかりません"):
-            convert_subtitles_to_text_plus(ctx["project"], ctx["timeline"])
+            convert_subtitles_to_text_plus(ctx["project"], ctx["timeline"], srt)
 
-    def test_no_template_raises(self):
-        ctx = _make_setup([_make_subtitle("hi", 0, 30)], with_template=False)
+    def test_no_template_raises(self, tmp_path):
+        srt = _make_srt_file(tmp_path, [(0.0, 1.0, "hi")])
+        ctx = _make_setup(with_template=False)
         with pytest.raises(ResolveError, match="テンプレートが見つかりません"):
-            convert_subtitles_to_text_plus(ctx["project"], ctx["timeline"])
+            convert_subtitles_to_text_plus(ctx["project"], ctx["timeline"], srt)
 
-    def test_no_subtitles_raises(self):
-        ctx = _make_setup([])
-        with pytest.raises(ResolveError, match="字幕クリップがありません"):
-            convert_subtitles_to_text_plus(ctx["project"], ctx["timeline"])
-
-    def test_subtitle_track_out_of_range_raises(self):
-        ctx = _make_setup([_make_subtitle("hi", 0, 30)])
-        with pytest.raises(ResolveError, match="subtitle track 5 がタイムラインにありません"):
+    def test_srt_not_found_raises(self, tmp_path):
+        ctx = _make_setup()
+        with pytest.raises(ResolveError, match="SRT ファイルが見つかりません"):
             convert_subtitles_to_text_plus(
-                ctx["project"], ctx["timeline"], subtitle_track=5
+                ctx["project"], ctx["timeline"], tmp_path / "nonexistent.srt"
             )
 
-    def test_basic_flow_counts(self):
-        subs = [
-            _make_subtitle("first", 10, 50),
-            _make_subtitle("second", 50, 90),
-        ]
-        ctx = _make_setup(subs, timeline_end=100)
+    def test_empty_srt_raises(self, tmp_path):
+        srt = tmp_path / "empty.srt"
+        srt.write_text("", encoding="utf-8")
+        ctx = _make_setup()
+        with pytest.raises(ResolveError, match="SRT のパースに失敗"):
+            convert_subtitles_to_text_plus(ctx["project"], ctx["timeline"], srt)
+
+    def test_basic_flow_counts(self, tmp_path):
+        srt = _make_srt_file(
+            tmp_path,
+            [(0.0, 1.0, "first"), (1.0, 2.0, "second")],
+        )
+        ctx = _make_setup(timeline_end=100)
         result = convert_subtitles_to_text_plus(
             ctx["project"],
             ctx["timeline"],
+            srt,
             extend_edges=False,
             fill_gaps=False,
             disable_subtitle_after=False,
@@ -302,23 +327,25 @@ class TestConvertSubtitlesToTextPlus:
         assert result.success == 2
         assert result.failed == 0
 
-    def test_video_track_added_on_top(self):
-        subs = [_make_subtitle("hi", 0, 30)]
-        ctx = _make_setup(subs)
-        result = convert_subtitles_to_text_plus(ctx["project"], ctx["timeline"])
+    def test_video_track_added_on_top(self, tmp_path):
+        srt = _make_srt_file(tmp_path, [(0.0, 1.0, "hi")])
+        ctx = _make_setup()
+        result = convert_subtitles_to_text_plus(ctx["project"], ctx["timeline"], srt)
         # 既存 video=1 → 追加後 video=2、配置先は V2
         assert ctx["track_counts"]["video"] == 2
         assert result.video_track == 2
 
-    def test_extend_edges(self):
-        subs = [
-            _make_subtitle("first", 10, 50),
-            _make_subtitle("last", 60, 90),
-        ]
-        ctx = _make_setup(subs, timeline_start=0, timeline_end=100)
+    def test_extend_edges(self, tmp_path):
+        # framerate=30: start_sec=0.333 → frame 10、end_sec=3.0 → frame 90
+        srt = _make_srt_file(
+            tmp_path,
+            [(0.333, 1.667, "first"), (2.0, 3.0, "last")],
+        )
+        ctx = _make_setup(timeline_start=0, timeline_end=100)
         result = convert_subtitles_to_text_plus(
             ctx["project"],
             ctx["timeline"],
+            srt,
             extend_edges=True,
             fill_gaps=False,
             disable_subtitle_after=False,
@@ -326,16 +353,21 @@ class TestConvertSubtitlesToTextPlus:
         assert result.head_extended == 10  # 10 - 0
         assert result.tail_extended == 10  # 100 - 90
 
-    def test_fill_gaps_only_within_max_fill(self):
-        subs = [
-            _make_subtitle("first", 0, 30),
-            _make_subtitle("second", 35, 60),  # gap=5 → 埋める
-            _make_subtitle("third", 80, 100),  # gap=20 → 埋めない
-        ]
-        ctx = _make_setup(subs, timeline_end=200)
+    def test_fill_gaps_only_within_max_fill(self, tmp_path):
+        # SRT 内 frame: (0..30), (35..60), (80..100)
+        srt = _make_srt_file(
+            tmp_path,
+            [
+                (0.0, 1.0, "first"),
+                (35 / 30, 60 / 30, "second"),  # 前との gap=5 → 埋める
+                (80 / 30, 100 / 30, "third"),  # 前との gap=20 → 埋めない
+            ],
+        )
+        ctx = _make_setup(timeline_end=200)
         result = convert_subtitles_to_text_plus(
             ctx["project"],
             ctx["timeline"],
+            srt,
             fill_gaps=True,
             max_fill_frames=10,
             extend_edges=False,
@@ -343,62 +375,61 @@ class TestConvertSubtitlesToTextPlus:
         )
         assert result.gap_filled == 1
 
-    def test_subtitle_disabled_after_success(self):
-        subs = [_make_subtitle("hi", 0, 30)]
-        ctx = _make_setup(subs)
+    def test_subtitle_disabled_after_success(self, tmp_path):
+        srt = _make_srt_file(tmp_path, [(0.0, 1.0, "hi")])
+        ctx = _make_setup()
         result = convert_subtitles_to_text_plus(
-            ctx["project"], ctx["timeline"], disable_subtitle_after=True
+            ctx["project"], ctx["timeline"], srt, disable_subtitle_after=True
         )
         assert result.subtitle_disabled is True
         ctx["timeline"].SetTrackEnable.assert_called_with("subtitle", 1, False)
 
-    def test_keep_subtitle_when_flag_false(self):
-        subs = [_make_subtitle("hi", 0, 30)]
-        ctx = _make_setup(subs)
+    def test_keep_subtitle_when_flag_false(self, tmp_path):
+        srt = _make_srt_file(tmp_path, [(0.0, 1.0, "hi")])
+        ctx = _make_setup()
         result = convert_subtitles_to_text_plus(
-            ctx["project"], ctx["timeline"], disable_subtitle_after=False
+            ctx["project"], ctx["timeline"], srt, disable_subtitle_after=False
         )
         assert result.subtitle_disabled is False
         ctx["timeline"].SetTrackEnable.assert_not_called()
 
-    def test_u2028_converted_to_newline(self):
-        u2028 = chr(0x2028)
-        subs = [_make_subtitle(f"前{u2028}後", 0, 30)]
-        ctx = _make_setup(subs)
-        convert_subtitles_to_text_plus(ctx["project"], ctx["timeline"])
-        # SetInput が \n 変換後の文字列で呼ばれる
+    def test_srt_newline_preserved(self, tmp_path):
+        """SRT 内の改行がそのまま StyledText に渡される (Text+ で2行表示用)。"""
+        srt = _make_srt_file(tmp_path, [(0.0, 1.0, "前\n後")])
+        ctx = _make_setup()
+        convert_subtitles_to_text_plus(ctx["project"], ctx["timeline"], srt)
         item = ctx["call_state"]["items"][0]
         item._text_tool.SetInput.assert_called_once_with("StyledText", "前\n後")
 
-    def test_append_failure_counts_as_failed(self):
-        subs = [
-            _make_subtitle("a", 0, 30),
-            _make_subtitle("b", 30, 60),
-        ]
-        # 1回目 (test) は成功、2回目 (1件目本配置) は成功、3回目 (2件目) で失敗
-        ctx = _make_setup(subs, fail_appends_after=2)
+    def test_append_failure_counts_as_failed(self, tmp_path):
+        srt = _make_srt_file(
+            tmp_path,
+            [(0.0, 1.0, "a"), (1.0, 2.0, "b")],
+        )
+        # 1回目 (test) 成功、2回目 (1件目本配置) 成功、3回目 (2件目) で失敗
+        ctx = _make_setup(fail_appends_after=2)
         result = convert_subtitles_to_text_plus(
-            ctx["project"], ctx["timeline"], disable_subtitle_after=False
+            ctx["project"], ctx["timeline"], srt, disable_subtitle_after=False
         )
         assert result.success == 1
         assert result.failed == 1
 
-    def test_duration_multiplier_invalid_falls_back_to_1(self):
+    def test_duration_multiplier_invalid_falls_back_to_1(self, tmp_path):
         """test clip の GetDuration() が 0 の場合、multiplier=1.0 で続行する。"""
-        subs = [_make_subtitle("hi", 0, 30)]
-        ctx = _make_setup(subs, test_real_duration=0)
+        srt = _make_srt_file(tmp_path, [(0.0, 1.0, "hi")])
+        ctx = _make_setup(test_real_duration=0)
         # 例外を出さずに完了することを確認
-        result = convert_subtitles_to_text_plus(ctx["project"], ctx["timeline"])
+        result = convert_subtitles_to_text_plus(ctx["project"], ctx["timeline"], srt)
         assert result.success == 1
 
-    def test_rollback_video_track_when_all_failed(self):
+    def test_rollback_video_track_when_all_failed(self, tmp_path):
         """全件失敗時、追加した空 video track を DeleteTrack で削除する。"""
-        subs = [_make_subtitle("a", 0, 30)]
+        srt = _make_srt_file(tmp_path, [(0.0, 1.0, "a")])
         # fail_appends_after=1: test 配置 (1回目) のみ成功、本配置 (2回目) で失敗
-        ctx = _make_setup(subs, fail_appends_after=1)
+        ctx = _make_setup(fail_appends_after=1)
         ctx["timeline"].DeleteTrack.return_value = True
         result = convert_subtitles_to_text_plus(
-            ctx["project"], ctx["timeline"], disable_subtitle_after=False
+            ctx["project"], ctx["timeline"], srt, disable_subtitle_after=False
         )
         assert result.success == 0
         assert result.failed == 1
@@ -406,33 +437,43 @@ class TestConvertSubtitlesToTextPlus:
         assert result.video_track == 0
         ctx["timeline"].DeleteTrack.assert_called_with("video", 2)
 
-    def test_no_rollback_when_partial_success(self):
+    def test_no_rollback_when_partial_success(self, tmp_path):
         """部分成功時は video track を残す (DeleteTrack 呼ばれない)。"""
-        subs = [
-            _make_subtitle("a", 0, 30),
-            _make_subtitle("b", 30, 60),
-        ]
+        srt = _make_srt_file(
+            tmp_path, [(0.0, 1.0, "a"), (1.0, 2.0, "b")]
+        )
         # test (1) + 本配置1 (2) は成功、本配置2 (3) で失敗
-        ctx = _make_setup(subs, fail_appends_after=2)
+        ctx = _make_setup(fail_appends_after=2)
         result = convert_subtitles_to_text_plus(
-            ctx["project"], ctx["timeline"], disable_subtitle_after=False
+            ctx["project"], ctx["timeline"], srt, disable_subtitle_after=False
         )
         assert result.success == 1
         assert result.failed == 1
         assert result.video_track == 2
         ctx["timeline"].DeleteTrack.assert_not_called()
 
-    def test_rollback_handles_delete_track_failure(self):
+    def test_rollback_handles_delete_track_failure(self, tmp_path):
         """DeleteTrack が False を返しても例外なく続行する。"""
-        subs = [_make_subtitle("a", 0, 30)]
-        ctx = _make_setup(subs, fail_appends_after=1)
+        srt = _make_srt_file(tmp_path, [(0.0, 1.0, "a")])
+        ctx = _make_setup(fail_appends_after=1)
         ctx["timeline"].DeleteTrack.return_value = False
         # 例外なし
         result = convert_subtitles_to_text_plus(
-            ctx["project"], ctx["timeline"], disable_subtitle_after=False
+            ctx["project"], ctx["timeline"], srt, disable_subtitle_after=False
         )
         # 削除失敗のため video_track はそのまま残る
         assert result.video_track == 2
+
+    def test_srt_parser_supports_dot_separator(self, tmp_path):
+        """SRT のミリ秒区切りは "," が標準だが "." (.WebVTT 風) も受け入れる。"""
+        srt = tmp_path / "dot.srt"
+        srt.write_text(
+            "1\n00:00:00.000 --> 00:00:01.000\nhi\n",
+            encoding="utf-8",
+        )
+        ctx = _make_setup()
+        result = convert_subtitles_to_text_plus(ctx["project"], ctx["timeline"], srt)
+        assert result.success == 1
 
 
 if __name__ == "__main__":
