@@ -19,15 +19,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## バージョン情報
 
 ### v2.5.0 (進行中) — 最新
-- **動画内テキスト塗りつぶし: PNG オーバーレイ方式に完全置換** (feature/blur-overlay):
+- **動画内テキスト塗りつぶし: 1 clip = 1 合成 PNG 方式に完全置換** (feature/blur-overlay):
   - 旧 v2.2.0 / v2.3.0 の drawbox 方式 (元動画 73 分すべてを再エンコード → `source_blurred.mp4` 4.2GB) を廃止
-  - 新方式: clip 候補の `time_ranges` 範囲だけ OCR + track 化、track ごとにフルサイズ透過 PNG (1920×1080) を生成
+  - 新方式: clip 候補の `time_ranges` 範囲だけ OCR + track 化、**全 track の bbox を 1 枚の透過 PNG に OR 合成**
   - PNG は FCPXML の **V2 レーン** (動画の直上、frame の下) に asset-clip として配置 — 元動画は無加工
-  - **動画と同じ `<adjust-transform scale anchor>` を blur PNG にも適用** → ズーム・アンカー・縦動画クロップで完全追従
-  - ファイルサイズ: 4.2GB → ~33KB / clip (約 130,000 倍削減)
+  - **clip 全範囲で常時表示** (時間切替なし) — 同じ lane=1 に複数 PNG を時間重複で並べると DaVinci で 1 枚しか描画されないため
+  - **動画と同じ `<adjust-conform type="fit"/>` + `<adjust-transform scale anchor>` を blur PNG にも適用** → ズーム・アンカー・4K source・縦動画クロップで完全追従
+  - ファイルサイズ: 4.2GB → 数十KB / clip (約 100,000 倍削減)
   - 処理時間: 4分16秒 → 数秒〜十数秒 / clip
-  - DaVinci 上で塗りつぶしの位置・色・有無を自由に編集可能 (track 単位の PNG なので)
-  - `time_ranges` を複数 segment 跨ぎで分割するロジックを `core/export.py` に追加 (v2/v3/v4 の lane を blur あり時 +1 シフト)
+  - DaVinci 上で塗りつぶしの位置・色・有無を編集可能 (clip ごとに 1 枚の PNG)
+  - `time_ranges` を複数 segment 跨ぎで分割するロジックを `core/export.py` に追加 (frame/title/BGM の lane を blur あり時 +1 シフト)
+  - sidecar version=2 で旧 v1 (1 track = 1 PNG) キャッシュは自動無効化
 - **削除済み**: `core/text_blur/{ffmpeg.py, chunk_worker.py}` (708 行)、`use_cases/auto_blur/auto_blur_use_case.py` (290 行)、`tests/unit/use_cases/test_auto_blur_use_case.py`
 - **新規**: `use_cases/auto_blur/blur_overlay_use_case.py::BlurOverlayUseCase` (434 行)、`tests/unit/use_cases/test_blur_overlay_use_case.py`
 - **キャッシュ**: `{video}_TextffCut/blur_overlays/{clip_id}.overlays.json` + PNG 群
@@ -374,7 +376,7 @@ make pre-commit
 3. **時間計算**: フレーム単位の丸めによる0.1秒程度の誤差は正常
 4. **FCPXML フレーム丸め (30fps)**: `duration` は `round(seconds × 30)` で frame に量子化される。`round(0.5)=0`（banker's rounding）で `duration="0/1s"` が生成されるとアセット参照が壊れるため、無音削除後の `keep_range` は **最低 1 frame (33ms) の duration を保証** する必要がある。`core/video.py::_rescue_missing_words` の `_RESCUE_PADDING` がこれを担保。
 5. **無音削除の word 救済**: `remove_silence_new` は `transcription_words` 引数を受け取る。GUI (`presentation/views/text_editor.py`) と CLI (`use_cases/ai/suggest_and_export.py`) の両方から `transcription` を伝播する必要がある。伝播が抜けると silence 判定で落とされた short word が SRT から欠落する。
-6. **auto_blur (v2.5.0 PNG オーバーレイ方式)**: Apple Silicon Mac 専用 (`ocrmac`/Apple Vision API 依存)。`use_cases/auto_blur/blur_overlay_use_case.py::is_apple_silicon()` で起動時にチェック、非対応環境では警告のみ出して機能無効化。元動画は再エンコードせず、clip 候補の `time_ranges` だけ OCR + track 化して **track ごとにフルサイズ透過 PNG** を生成、FCPXML の **V2 レーン** (動画の直上、frame の下) に asset-clip として配置する。**動画と同じ `<adjust-transform scale anchor>`** を blur PNG にも適用するため、ズーム・アンカー・縦動画クロップで完全追従する。キャッシュは `{video}_TextffCut/blur_overlays/{clip_id}.overlays.json` + PNG 群 (params hash + 元動画 mtime/size + time_ranges で検証)。`core/export.py::_build_fcpxml` 内で blur ありの場合 frame/title/BGM lane を +1 シフトする (`lane_offset` 変数)。time_ranges を複数 segment 跨ぎで分割するロジックは同関数内のループ。`--no-auto-blur` / GUI checkbox OFF で明示的に無効化可。
+6. **auto_blur (v2.5.0 PNG オーバーレイ方式)**: Apple Silicon Mac 専用 (`ocrmac`/Apple Vision API 依存)。`use_cases/auto_blur/blur_overlay_use_case.py::is_apple_silicon()` で起動時にチェック、非対応環境では警告のみ出して機能無効化。元動画は再エンコードせず、clip 候補の `time_ranges` だけ OCR + track 化して **全 track の bbox を 1 枚の合成 PNG** に OR 合成、FCPXML の **V2 レーン** (動画の直上、frame の下) に asset-clip として配置する。**clip 全範囲で常時表示** (時間切替なし) — 同じ lane=1 に複数 PNG を時間重複で並べると DaVinci で 1 枚しか描画されないため。**動画と同じ `<adjust-conform type="fit"/>` + `<adjust-transform scale anchor>`** を blur PNG にも適用するため、ズーム・アンカー・4K source・縦動画クロップで完全追従する。キャッシュは `{video}_TextffCut/blur_overlays/{clip_id}.overlays.json` + `{clip_id}.png` (params hash + 元動画 mtime/size + time_ranges + sidecar version=2 で検証、旧 v1 = 1 track = 1 PNG キャッシュは自動無効化)。`core/export.py::_build_fcpxml` 内で blur ありの場合 frame/title/BGM lane を +1 シフトする (`lane_offset` 変数)。time_ranges を複数 segment 跨ぎで分割するロジックは同関数内のループ。`--no-auto-blur` / GUI checkbox OFF で明示的に無効化可。
 7. **textffcut send --text-plus (Snap Captions 互換)**: SRT を Fusion Text+ クリップへ自動変換する。**CLI/GUI ともデフォルト ON**。事前準備として Media Pool root に `TextffCut` ビン + `Caption_Default` という Fusion Title (Text+) テンプレートを置いた場合のみ動作し、未配置なら warning + スキップ (preset の `--no-frame` 等と同じ流儀)。実装は `infrastructure/davinci_resolve.py::convert_subtitles_to_text_plus()`。Snap Captions Lua の挙動を独自再実装 (再配布禁止のためコード流用なし)。挙動の要点:
    - 新規ビデオトラックを最上位に追加 → そこへ配置 (既存トラック衝突回避)
    - U+2028 → `\n` 改行変換 (Resolve は SRT 改行を Line Separator で保持)

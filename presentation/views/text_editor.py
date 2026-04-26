@@ -763,6 +763,30 @@ class TextEditorView:
             )
             settings_manager.set("ai_clip_auto_anchor", auto_anchor)
 
+        # 動画内テキスト塗りつぶしオーバーレイ (Apple Silicon Mac のみ)
+        enable_blur_overlay = True
+        try:
+            from use_cases.auto_blur.blur_overlay_use_case import (
+                is_apple_silicon as _is_apple_silicon,
+            )
+
+            _blur_supported = _is_apple_silicon()
+        except Exception:  # noqa: BLE001
+            _blur_supported = False
+        if _blur_supported:
+            saved_blur = settings_manager.get("ai_clip_blur_overlay", True)
+            enable_blur_overlay = st.checkbox(
+                "🔒 動画内テキスト塗りつぶし (V2 オーバーレイ)",
+                value=saved_blur,
+                help=(
+                    "コメント・UI 文字・チャンネルロゴ等を OCR で検出し、塗りつぶす PNG を "
+                    "FCPXML の V2 レーン (動画の直上、frame の下) に配置します. "
+                    "元動画は無加工のまま、DaVinci 上で塗りつぶしの位置・色・有無を編集可."
+                ),
+                key="ai_clip_blur_overlay",
+            )
+            settings_manager.set("ai_clip_blur_overlay", enable_blur_overlay)
+
         # 入力検証
         if int(min_duration) > int(max_duration):
             st.warning("⚠️ 最小秒数が最大秒数より大きくなっています")
@@ -971,9 +995,41 @@ class TextEditorView:
                 if media_config.has_any:
                     progress_text.write(f"🎨 {media_config.summary()}")
 
-                # Phase 3.7: タイトル画像生成（バッチ1回のAI呼び出し）
+                # Phase 3.6: SRT 字幕を先行生成 (Phase A: タイトル画像 AI が SRT 内容を
+                # 踏まえてタイトルを生成するため、Phase 6 から前出ししている。CLI 経路の
+                # suggest_and_export.py の Phase 5.6 と同じ構造。)
                 from use_cases.ai.suggest_and_export import sanitize_filename
 
+                srt_paths_list: list[Path | None] = [None] * total
+                srt_failed_count = 0
+                if generate_srt:
+                    from use_cases.ai.srt_subtitle_generator import generate_srt as _gen_srt
+
+                    progress_text.write(f"📝 SRT 字幕生成中... ({total}件)")
+                    for i, suggestion in enumerate(suggestions):
+                        sanitized = sanitize_filename(suggestion.title)
+                        srt_path = fcpxml_dir / f"{i+1:02d}_{sanitized}.srt"
+                        try:
+                            result = _gen_srt(
+                                suggestion=suggestion,
+                                transcription=actual_result,
+                                output_path=srt_path,
+                                speed=float(speed),
+                            )
+                            if result:
+                                srt_paths_list[i] = result
+                            else:
+                                srt_failed_count += 1
+                        except Exception as e:  # noqa: BLE001
+                            srt_failed_count += 1
+                            logger.warning(f"SRT 先行生成失敗 (#{i+1}): {e}")
+                    if srt_failed_count > 0:
+                        progress_text.write(
+                            f"⚠️ SRT: {total - srt_failed_count}/{total} 件成功 "
+                            f"(失敗 clip はタイトル画像が title ベース fallback)"
+                        )
+
+                # Phase 3.7: タイトル画像生成（バッチ1回のAI呼び出し、Phase A: SRT 渡す）
                 title_image_paths: dict[int, Path] = {}
                 if enable_title_image:
                     from use_cases.ai.title_image_generator import generate_title_images_batch
@@ -1002,6 +1058,7 @@ class TextEditorView:
                         sanitize_fn=sanitize_filename,
                         target_size=title_target_size,
                         offset_y=title_offset_y,
+                        srt_paths=srt_paths_list,
                     )
                     failed_count = total - len(title_image_paths)
                     if failed_count > 0:
@@ -1063,7 +1120,7 @@ class TextEditorView:
 
                 # Phase 3.9: 動画内テキスト塗りつぶしオーバーレイ PNG 生成 (clip 単位)
                 blur_overlays_per_clip: dict[int, list[dict]] = {}
-                _enable_blur_overlay = st.session_state.get("export_use_blurred_source", True)
+                _enable_blur_overlay = st.session_state.get("ai_clip_blur_overlay", True)
                 if _enable_blur_overlay:
                     try:
                         from use_cases.auto_blur.blur_overlay_use_case import (
@@ -1128,16 +1185,9 @@ class TextEditorView:
                     if success:
                         exported_files.append(fcpxml_path)
 
-                    if generate_srt:
-                        from use_cases.ai.srt_subtitle_generator import generate_srt as gen_srt
-
-                        srt_path = fcpxml_dir / f"{i:02d}_{sanitized}.srt"
-                        gen_srt(
-                            suggestion=suggestion,
-                            transcription=actual_result,
-                            output_path=srt_path,
-                            speed=float(speed),
-                        )
+                    # SRT は Phase 3.6 で先行生成済 (Phase A: タイトル画像に渡すため)
+                    if generate_srt and srt_paths_list[i - 1] is not None:
+                        exported_files.append(srt_paths_list[i - 1])
 
                 # キャッシュ保存
                 cache_dir = base_dir / "clip_suggestions"

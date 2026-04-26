@@ -116,10 +116,15 @@ class BlurOverlayUseCase:
     """clip 候補の time_ranges から塗りつぶし PNG を生成する。
 
     キャッシュは clip 単位で `{output_dir}/{clip_id}.overlays.json` に PNG パスと
-    時刻範囲を保存する。同じ time_ranges + params で再呼び出しすると cache hit。
+    時刻範囲を保存する。同じ time_ranges + params + sidecar version で再呼び出し
+    すると cache hit。
     """
 
     SIDECAR_SUFFIX = ".overlays.json"
+    # v1: 1 track = 1 PNG (track ごと別 PNG, 時間範囲で出し分け) — 同時刻に複数 track
+    #     が存在する場合 DaVinci で 1 枚しか描画されないバグがあった
+    # v2: 1 clip = 1 合成 PNG (全 track の bbox を 1 枚に OR 合成、clip 全範囲で常時表示)
+    SIDECAR_VERSION = 2
 
     def __init__(self, params: BlurOverlayParams | None = None) -> None:
         self.params = params or BlurOverlayParams()
@@ -141,6 +146,9 @@ class BlurOverlayUseCase:
         try:
             data = json.loads(sidecar.read_text())
         except (OSError, json.JSONDecodeError):
+            return False
+        # 旧スキーマ (v1: 1 track = 1 PNG) のキャッシュは無効化
+        if data.get("version") != self.SIDECAR_VERSION:
             return False
         if data.get("params") != self.params.to_dict():
             return False
@@ -214,7 +222,6 @@ class BlurOverlayUseCase:
             )
 
         t0 = time.time()
-        all_overlays: list[BlurOverlay] = []
 
         # AI 切り抜き候補の time_ranges は細切れ (~0.5s) になることがあるため、
         # 全体の min/max で 1 つの大きな range として OCR + track 化する。
@@ -232,25 +239,35 @@ class BlurOverlayUseCase:
             params=self.params,
         )
 
-        for track_idx, track in enumerate(tracks):
-            png_filename = f"{clip_id}_t{track_idx:02d}.png"
-            png_path = output_dir / png_filename
-            ux1, uy1, ux2, uy2 = _track_union_bbox(track, self.params.padding)
-            # track の表示時刻 (元動画座標系) = big_start + track-local 時刻
-            track_start = big_start + track.t_start
-            track_end = big_start + track.t_end
-            _render_overlay_png(
+        # **1 clip = 1 合成 PNG 方式 (v2.5.0)**:
+        # 全 track の bbox を 1 枚の PNG に OR 合成して clip 全範囲 [big_start, big_end]
+        # で常時表示する. 同じ lane=1 に複数 PNG を時刻重複で並べると DaVinci 上で
+        # 1 枚しか表示されないため. 時間で出したり消したりはしない.
+        all_overlays: list[BlurOverlay] = []
+        if tracks:
+            png_path = output_dir / f"{clip_id}.png"
+            bboxes_with_colors: list[tuple[int, int, int, int, tuple[int, int, int]]] = []
+            for track in tracks:
+                ux1, uy1, ux2, uy2 = _track_union_bbox(track, self.params.padding)
+                bboxes_with_colors.append((ux1, uy1, ux2, uy2, track.fill_color))
+
+            _render_composite_overlay_png(
                 png_path=png_path,
                 video_path=video_path,
-                union_x1=ux1, union_y1=uy1, union_x2=ux2, union_y2=uy2,
-                fill_color_bgr=track.fill_color,
+                bboxes_with_colors=bboxes_with_colors,
             )
+
+            # 合成 PNG の bbox = 全 track の OR (sidecar 記録用)
+            comp_x1 = min(b[0] for b in bboxes_with_colors)
+            comp_y1 = min(b[1] for b in bboxes_with_colors)
+            comp_x2 = max(b[2] for b in bboxes_with_colors)
+            comp_y2 = max(b[3] for b in bboxes_with_colors)
             all_overlays.append(
                 BlurOverlay(
                     png_path=png_path,
-                    start_sec=track_start,
-                    end_sec=track_end,
-                    union_x1=ux1, union_y1=uy1, union_x2=ux2, union_y2=uy2,
+                    start_sec=big_start,
+                    end_sec=big_end,
+                    union_x1=comp_x1, union_y1=comp_y1, union_x2=comp_x2, union_y2=comp_y2,
                 )
             )
 
@@ -260,12 +277,14 @@ class BlurOverlayUseCase:
         try:
             stat = video_path.stat()
             sidecar_data = {
+                "version": self.SIDECAR_VERSION,
                 "params": self.params.to_dict(),
                 "time_ranges": [list(r) for r in time_ranges],
                 "source_video": str(video_path),
                 "source_size": stat.st_size,
                 "source_mtime": stat.st_mtime,
                 "overlays": [ov.to_dict() for ov in all_overlays],
+                "track_count": len(tracks),
             }
             self.get_sidecar_path(output_dir, clip_id).write_text(
                 json.dumps(sidecar_data, ensure_ascii=False, indent=2)
@@ -274,7 +293,8 @@ class BlurOverlayUseCase:
             logger.warning(f"sidecar 保存失敗: {e}")
 
         logger.info(
-            f"塗りつぶし overlay 生成: {clip_id} ({len(all_overlays)} tracks, {elapsed:.1f}s)"
+            f"塗りつぶし overlay 生成: {clip_id} ({len(tracks)} tracks → "
+            f"{len(all_overlays)} 合成 PNG, {elapsed:.1f}s)"
         )
         return BlurOverlayResult(
             clip_id=clip_id, overlays=all_overlays, cached=False, duration_sec=elapsed
@@ -396,18 +416,18 @@ def _detect_and_track_in_range(
     return tracks
 
 
-def _render_overlay_png(
+def _render_composite_overlay_png(
     png_path: Path,
     video_path: Path,
-    union_x1: int,
-    union_y1: int,
-    union_x2: int,
-    union_y2: int,
-    fill_color_bgr: tuple[int, int, int],
+    bboxes_with_colors: list[tuple[int, int, int, int, tuple[int, int, int]]],
 ) -> None:
-    """動画解像度と同じサイズの透過 PNG を生成し、union bbox エリアを fill_color で塗る。
+    """動画解像度と同じサイズの透過 PNG を生成し、複数 bbox を各々の fill_color で塗る.
 
-    DaVinci で position="0 0" で配置すれば動画と同じ座標で重なる (B2 方式)。
+    各 bbox は (x1, y1, x2, y2, fill_color_bgr) のタプル. 重なりがあれば後の bbox の
+    色で上書きする (現状 track 同士は merge_boxes/IoU で分離済みなので通常重ならない).
+
+    DaVinci 上で配置時は動画と同じ <adjust-conform type="fit"/> + scale/anchor を
+    適用するため、座標変換は呼び出し側で行う.
     """
     import cv2
     import numpy as np
@@ -420,14 +440,14 @@ def _render_overlay_png(
     # RGBA 透過画像 (height, width, 4)
     img = np.zeros((height, width, 4), dtype=np.uint8)
 
-    # union bbox を fill_color で塗る (BGR → RGBA、alpha=255)
-    b, g, r = fill_color_bgr
-    x1 = max(0, union_x1)
-    y1 = max(0, union_y1)
-    x2 = min(width, union_x2)
-    y2 = min(height, union_y2)
-    if x2 > x1 and y2 > y1:
-        img[y1:y2, x1:x2] = [b, g, r, 255]
+    for x1, y1, x2, y2, fill_color_bgr in bboxes_with_colors:
+        b, g, r = fill_color_bgr
+        cx1 = max(0, x1)
+        cy1 = max(0, y1)
+        cx2 = min(width, x2)
+        cy2 = min(height, y2)
+        if cx2 > cx1 and cy2 > cy1:
+            img[cy1:cy2, cx1:cx2] = [b, g, r, 255]
 
     png_path.parent.mkdir(parents=True, exist_ok=True)
     # cv2.imwrite は BGRA 順で書く
