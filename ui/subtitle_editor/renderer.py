@@ -251,6 +251,8 @@ def render_subtitle_editor_section(container: Any, videos_root: str = "videos") 
     if has_unsaved_edits:
         send_help += "\n⚠ 未保存の編集があります。送信前に '💾 保存' を押してください。"
 
+    from utils import settings_manager
+
     text_plus_enabled = container.checkbox(
         "Text+ 自動変換",
         value=True,
@@ -261,6 +263,24 @@ def render_subtitle_editor_section(container: Any, videos_root: str = "videos") 
             "見つからない場合は警告のみ出して送信は続行します。"
         ),
     )
+
+    # Fill Gaps の最大フレーム数 (user 指定可、settings_manager で永続化)
+    saved_max_fill = settings_manager.get("text_plus_max_fill_frames", 9999)
+    text_plus_max_fill = container.number_input(
+        "Fill Gaps 最大フレーム数",
+        min_value=0,
+        max_value=99999,
+        value=int(saved_max_fill),
+        step=1,
+        key=f"text_plus_max_fill_{ta_key}",
+        help=(
+            "字幕間 gap をどこまで埋めるかの上限 (frame 単位、30fps 想定)。"
+            "デフォルト 9999 (≈5.5 分) で実用上ほぼ無制限。"
+            "小さくすると短い gap だけ埋める。0 で Fill Gaps を実質無効化。"
+        ),
+        disabled=not text_plus_enabled,
+    )
+    settings_manager.set("text_plus_max_fill_frames", int(text_plus_max_fill))
 
     if btn_cols[2].button(
         "📺 DaVinciへ送信",
@@ -277,6 +297,7 @@ def render_subtitle_editor_section(container: Any, videos_root: str = "videos") 
                 result = send_clip_to_resolve(
                     fcpxml_path,
                     text_plus=text_plus_enabled,
+                    text_plus_max_fill_frames=int(text_plus_max_fill),
                 )
                 msg_lines = [
                     f"✓ Bin {result.bin_name!r} に {result.timeline_name} を作成",

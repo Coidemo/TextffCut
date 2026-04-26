@@ -375,6 +375,33 @@ class TestConvertSubtitlesToTextPlus:
         )
         assert result.gap_filled == 1
 
+    def test_default_max_fill_frames_is_9999(self):
+        """デフォルト値は実用上ほぼ無制限 (9999 ≈ 5.5 分 @30fps)."""
+        from infrastructure.davinci_resolve import TEXT_PLUS_DEFAULT_MAX_FILL_FRAMES
+
+        assert TEXT_PLUS_DEFAULT_MAX_FILL_FRAMES == 9999
+
+    def test_fill_gaps_with_default_fills_long_gaps(self, tmp_path):
+        """デフォルト max_fill_frames では長い gap (例: 50 frame) も埋める."""
+        srt = _make_srt_file(
+            tmp_path,
+            [
+                (0.0, 1.0, "first"),
+                (80 / 30, 100 / 30, "second"),  # gap=50 frame
+            ],
+        )
+        ctx = _make_setup(timeline_end=200)
+        result = convert_subtitles_to_text_plus(
+            ctx["project"],
+            ctx["timeline"],
+            srt,
+            # max_fill_frames を渡さず default (9999) を使う
+            fill_gaps=True,
+            extend_edges=False,
+            disable_subtitle_after=False,
+        )
+        assert result.gap_filled == 1  # 50 frame は default 9999 内なので埋める
+
     def test_subtitle_disabled_after_success(self, tmp_path):
         srt = _make_srt_file(tmp_path, [(0.0, 1.0, "hi")])
         ctx = _make_setup()

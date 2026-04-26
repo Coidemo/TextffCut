@@ -73,6 +73,15 @@ def _build_parser() -> argparse.ArgumentParser:
         default="Caption_Default",
         help="Text+ テンプレート名 (default: Caption_Default)",
     )
+    parser.add_argument(
+        "--text-plus-max-fill-frames",
+        type=int,
+        default=None,
+        help=(
+            "Fill Gaps で埋める字幕間 gap の最大フレーム数 (default: 9999 ≈ 5.5min @30fps、"
+            "実用上ほぼ無制限). 小さくすると短い gap だけ埋める."
+        ),
+    )
     return parser
 
 
@@ -80,8 +89,17 @@ def run_send(argv: list[str]) -> None:
     parser = _build_parser()
     args = parser.parse_args(argv)
 
-    from infrastructure.davinci_resolve import ResolveError, send_clip_to_resolve
+    from infrastructure.davinci_resolve import (
+        TEXT_PLUS_DEFAULT_MAX_FILL_FRAMES,
+        ResolveError,
+        send_clip_to_resolve,
+    )
 
+    max_fill = (
+        args.text_plus_max_fill_frames
+        if args.text_plus_max_fill_frames is not None
+        else TEXT_PLUS_DEFAULT_MAX_FILL_FRAMES
+    )
     try:
         result = send_clip_to_resolve(
             args.fcpxml,
@@ -90,6 +108,7 @@ def run_send(argv: list[str]) -> None:
             text_plus=args.text_plus,
             text_plus_bin=args.text_plus_bin,
             text_plus_template=args.text_plus_template,
+            text_plus_max_fill_frames=max_fill,
         )
     except ResolveError as e:
         print(f"❌ {e}", file=sys.stderr)
