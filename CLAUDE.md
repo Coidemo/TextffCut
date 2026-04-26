@@ -325,6 +325,7 @@ make pre-commit
    - Fill Gaps: TextffCut SRT は字幕間 gap=0 で連続のため通常は no-op、ユーザー編集後の保険
    - 完了時に subtitle track 1 を無効化 (Text+ と Subtitle の二重表示回避)
    - **API 罠**: `AppendToTimeline()` は配置失敗時も `[None]` を返す (要素ごと `GetName() is None` 判定)。`SetInput("StyledText", text)` の戻り値は False を返すが副作用は効いている (戻り値チェック禁止)。
+8. **タイトル画像 文字内ループ穴の白アウトライン (PR #137)**: 「な」「は」「ぱ」「べ」「使」等で白アウトラインがリング描画されると穴の周辺に細リングが残って見た目が汚い。`use_cases/ai/title_image_generator.py::_fill_mask_holes()` で flood-fill により穴を埋めて対処。outer_mask は全穴埋めでシルエット全体塗りつぶし、inner_mask は `font_size × 0.06` の二乗以下の小穴のみ埋める (大きいループ穴を埋めると黒インナーが文字細部まで広がって潰れるため)。**境界全周から flood-fill 起点を取る** ことが重要 (1点起動だと複数文字間で stroke 分断された背景が穴と誤認され「ひどい」状態になる)。連結成分判定は `scipy.ndimage.label`。
 
 ## 配布
 
@@ -335,4 +336,4 @@ brew install coidemo/textffcut/textffcut
 
 ---
 
-最終更新: 2026-04-26
+最終更新: 2026-04-26 (PR #136 / #137)

@@ -159,6 +159,15 @@ _SHADOW_BLUR_RADIUS = 8
 _SHADOW_OFFSET_X = 4
 _SHADOW_OFFSET_Y = 4
 
+# 文字内ループ穴の inner_mask 穴埋め用閾値
+# (font_size * RATIO)² 以下の穴のみ inner で塗る (黒インナー対象)。
+# - RATIO=0.06 で「使」の中の小さな閉じ領域は埋まる (~130px² @ font 190)
+# - 「き」の横棒間隙間 (~150-300px²) は埋まらず、文字細部が維持される
+# - 「な」「は」のループ穴 (~3000+px²) は埋まらず、中央が outer の白で見える
+_INNER_HOLE_AREA_RATIO = 0.06
+# 極小フォント時の最小閾値 (px²)
+_INNER_HOLE_AREA_MIN_PX2 = 36
+
 
 def _relative_luminance(hex_color: str) -> float:
     """WCAG 2.0 相対輝度を計算 (0.0=黒, 1.0=白)"""
@@ -1225,15 +1234,13 @@ def _draw_segment(
 
     # 「な」「は」「ぱ」「べ」「使」等の文字内ループ穴を埋める。
     # outer_mask: 全穴を埋めてシルエット全体で白アウトラインを塗りつぶす。
-    # inner_mask: 「使」のような小さい閉じ領域のみ埋める。
-    #   「な」「は」「き」等の大きいループ穴を埋めると黒インナーが文字の細部まで
-    #   広がって潰れてしまうため、面積上限で選別する。
-    #   font_size に対する目安: font_size の 4% ≒ 「使」の中の閉じ領域、
-    #   それ以上の穴は意図的なループ穴として残す。
+    # inner_mask: 小さい閉じ領域のみ埋める (大きいループ穴を埋めると黒インナーが
+    #   文字の細部まで広がって潰れるため、面積上限で選別する)。
     outer_mask_solid = _fill_mask_holes(outer_mask)
-    # font_size を基準に閾値を決定 (font_size=190 なら ~130px²)
-    # 0.06 = 「使」の右側にある小さな閉じ領域は埋め、「き」の横棒間隙間は埋めない値
-    inner_hole_threshold = max(36, int((font.size * 0.06) ** 2))
+    inner_hole_threshold = max(
+        _INNER_HOLE_AREA_MIN_PX2,
+        int((font.size * _INNER_HOLE_AREA_RATIO) ** 2),
+    )
     inner_mask_solid = _fill_mask_holes(inner_mask, max_hole_area=inner_hole_threshold)
 
     # --- リングマスク（差分） ---
@@ -1241,12 +1248,14 @@ def _draw_segment(
 
     # --- 描画 ---
     # ドロップシャドウ（外側マスクをぼかしてオフセット描画）
-    # outer_outline_width=0 でもテキスト形状のシャドウを描画する（意図的）
+    # outer_outline_width=0 でもテキスト形状のシャドウを描画する（意図的）。
+    # 穴埋め済み outer_mask_solid を使うことで、ループ穴のある文字でも
+    # シャドウがソリッドシルエットでぼかされ、視覚的に自然になる。
     if "shadow" in layers:
         # パディング: blur半径の2倍でカーネル拡散を十分収容
         pad = _SHADOW_BLUR_RADIUS * 2
         padded_mask = Image.new("L", (rw + pad * 2, rh + pad * 2), 0)
-        padded_mask.paste(outer_mask, (pad, pad))
+        padded_mask.paste(outer_mask_solid, (pad, pad))
         blurred = padded_mask.filter(ImageFilter.GaussianBlur(radius=_SHADOW_BLUR_RADIUS))
         shadow_rgba = _hex_to_rgb(_SHADOW_COLOR) + (_SHADOW_OPACITY,)
         shadow_layer = Image.new("RGBA", blurred.size, shadow_rgba)
@@ -1310,17 +1319,22 @@ def _fill_mask_holes(mask: Image.Image, max_hole_area: int | None = None) -> Ima
 
     work = mask.copy()
     w, h = work.size
+    # 境界 4 辺で 0 のピクセル位置を numpy で一括取得 → flood-fill 起点に。
+    # Pillow の getpixel は Python ループだと遅いため。
     sample_step = 2
-    for x in range(0, w, sample_step):
-        if work.getpixel((x, 0)) == 0:
-            ImageDraw.floodfill(work, (x, 0), 255)
-        if work.getpixel((x, h - 1)) == 0:
-            ImageDraw.floodfill(work, (x, h - 1), 255)
-    for y in range(0, h, sample_step):
-        if work.getpixel((0, y)) == 0:
-            ImageDraw.floodfill(work, (0, y), 255)
-        if work.getpixel((w - 1, y)) == 0:
-            ImageDraw.floodfill(work, (w - 1, y), 255)
+    arr = np.array(work)
+    for x in np.where(arr[0, :] == 0)[0][::sample_step]:
+        if work.getpixel((int(x), 0)) == 0:  # flood-fill 後の状態を再確認
+            ImageDraw.floodfill(work, (int(x), 0), 255)
+    for x in np.where(arr[-1, :] == 0)[0][::sample_step]:
+        if work.getpixel((int(x), h - 1)) == 0:
+            ImageDraw.floodfill(work, (int(x), h - 1), 255)
+    for y in np.where(arr[:, 0] == 0)[0][::sample_step]:
+        if work.getpixel((0, int(y))) == 0:
+            ImageDraw.floodfill(work, (0, int(y)), 255)
+    for y in np.where(arr[:, -1] == 0)[0][::sample_step]:
+        if work.getpixel((w - 1, int(y))) == 0:
+            ImageDraw.floodfill(work, (w - 1, int(y)), 255)
     holes = ImageChops.invert(work)
 
     if max_hole_area is None:

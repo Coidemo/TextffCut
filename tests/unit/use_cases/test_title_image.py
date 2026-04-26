@@ -1868,3 +1868,96 @@ class TestDropShadow:
         """shadowレイヤーのみでもピクセルが描画されること"""
         bbox_shadow_only = self._render_with_layers(tmp_path, "shadow_only", {"shadow"})
         assert bbox_shadow_only is not None
+
+
+class TestFillMaskHoles:
+    """_fill_mask_holes() の挙動テスト。
+
+    文字内ループ穴埋めロジック (タイトル画像「な」「は」「使」等の白アウトライン
+    隙間解消) の正確性を検証する。
+    """
+
+    def test_no_holes_returns_unchanged(self):
+        """穴のない単純背景マスクで内容が変化しないこと。"""
+        from use_cases.ai.title_image_generator import _fill_mask_holes
+
+        img = Image.new("L", (40, 40), 0)
+        result = _fill_mask_holes(img)
+        # 全 0 のまま
+        assert list(result.getdata()) == [0] * 1600
+
+    def test_single_hole_filled_when_no_max(self):
+        """max_hole_area=None なら穴が埋まること。"""
+        from use_cases.ai.title_image_generator import _fill_mask_holes
+
+        img = Image.new("L", (40, 40), 0)
+        d = ImageDraw.Draw(img)
+        d.rectangle([5, 5, 35, 35], outline=255, width=2)  # 中央に 1 つの穴
+        result = _fill_mask_holes(img)
+        # 元 mask で 0 だった穴中央 (例: (20, 20)) が 255 に変わる
+        assert result.getpixel((20, 20)) == 255
+        # 外背景 (0, 0) は 0 のまま
+        assert result.getpixel((0, 0)) == 0
+
+    def test_max_area_filters_large_holes(self):
+        """max_hole_area で大穴が除外され、小穴のみ埋まること。"""
+        from use_cases.ai.title_image_generator import _fill_mask_holes
+
+        # 大穴 (中央) と、その内側の小穴 (もう 1 段の閉じ領域) を作る
+        img = Image.new("L", (60, 60), 0)
+        d = ImageDraw.Draw(img)
+        # 外側「文字」リング (大穴を作る境界)
+        d.rectangle([10, 10, 50, 50], outline=255, width=2)
+        # 内側「文字」リング (小穴を作る境界、~9px²)
+        d.rectangle([22, 22, 28, 28], outline=255, width=1)
+        # 小穴 (~25px²) は埋め、大穴 (リング内空間 ~900px²) は埋めない閾値
+        result = _fill_mask_holes(img, max_hole_area=100)
+        # 小穴中央 (25, 25) は 255 になる
+        assert result.getpixel((25, 25)) == 255
+        # 大穴の領域 (例: (15, 15)) は元のまま 0
+        assert result.getpixel((15, 15)) == 0
+
+    def test_max_area_zero_fills_nothing(self):
+        """max_hole_area=0 ならどの穴も埋まらない。"""
+        from use_cases.ai.title_image_generator import _fill_mask_holes
+
+        img = Image.new("L", (40, 40), 0)
+        d = ImageDraw.Draw(img)
+        d.rectangle([5, 5, 35, 35], outline=255, width=2)
+        result = _fill_mask_holes(img, max_hole_area=0)
+        # 穴中央は 0 のまま
+        assert result.getpixel((20, 20)) == 0
+
+    def test_disconnected_outer_background_not_filled(self):
+        """複数の文字ストロークで分断された外背景が「穴」と誤認されないこと。
+
+        これがないと「ひどい」状態 (文字周囲が白い長方形になる) が再発する。
+        境界全周から flood-fill する設計の根幹をテスト。
+        """
+        from use_cases.ai.title_image_generator import _fill_mask_holes
+
+        # 中央縦ストロークで左右の背景を分断
+        img = Image.new("L", (40, 40), 0)
+        d = ImageDraw.Draw(img)
+        d.rectangle([18, 0, 22, 39], fill=255)
+        result = _fill_mask_holes(img)
+        # 左側背景 (5, 20) は 0 のまま (= 穴と誤認されない)
+        assert result.getpixel((5, 20)) == 0
+        # 右側背景 (35, 20) も 0 のまま
+        assert result.getpixel((35, 20)) == 0
+
+    def test_full_background_remains_zero(self):
+        """全 0 画像 (穴も文字もない) は変化しない。"""
+        from use_cases.ai.title_image_generator import _fill_mask_holes
+
+        img = Image.new("L", (20, 20), 0)
+        result = _fill_mask_holes(img)
+        assert list(result.getdata()) == [0] * 400
+
+    def test_full_foreground_remains_filled(self):
+        """全 255 画像 (穴がない、すべて文字) は変化しない。"""
+        from use_cases.ai.title_image_generator import _fill_mask_holes
+
+        img = Image.new("L", (20, 20), 255)
+        result = _fill_mask_holes(img)
+        assert list(result.getdata()) == [255] * 400
