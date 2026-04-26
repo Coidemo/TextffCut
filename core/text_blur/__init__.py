@@ -1,11 +1,12 @@
-"""動画内テキスト自動ぼかし機能のコアモジュール.
+"""動画内テキスト塗りつぶし機能のコアモジュール.
 
 公開 API:
-- OcrmacDetector / TextDetector: テキスト bbox 検出器
+- OcrmacDetector: Apple Vision API ベースのテキスト bbox 検出器
 - Box / merge_boxes / sample_edge_color: bbox ユーティリティ
 - Track / build_tracks: track 構築
-- ffmpeg.* : filter_complex 構築 + 実行ヘルパー
-- chunk_worker.process_full_chunk: フルチャンク並列ワーカー
+
+V2.5.0 で drawbox 方式 (filter_complex を組んで再エンコード) を廃止し、
+PNG オーバーレイ方式 (use_cases.auto_blur.blur_overlay_use_case) に統合された。
 """
 
 from core.text_blur.detector import (

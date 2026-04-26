@@ -153,12 +153,13 @@ def build_suggest_parser() -> argparse.ArgumentParser:
         help="被写体位置からアンカーを自動検出（--vertical時のみ有効）",
     )
     parser.add_argument(
-        "--no-blurred-source",
+        "--no-auto-blur",
         action="store_true",
         default=False,
         help=(
-            "auto_blur で生成済みの source_blurred.mp4 が存在しても無視し、元動画を使用. "
-            "デフォルトでは存在すれば自動的に塗りつぶし版を使用."
+            "動画内テキスト塗りつぶしオーバーレイ PNG の生成をスキップ. "
+            "デフォルトでは clip 候補の time_ranges を OCR + track 化し、"
+            "全 track の bbox を 1 枚の合成 PNG に OR 合成して FCPXML の V2 レーンに配置する."
         ),
     )
     parser.add_argument(
@@ -380,23 +381,6 @@ def _process_single_video(
     if media_preview.has_any:
         console.print(f"  🎨 {media_preview.summary()}")
 
-    # auto_blur cache 確認 (--no-blurred-source 指定無しで cache 無しなら警告)
-    if not args.no_blurred_source:
-        try:
-            from use_cases.auto_blur import AutoBlurUseCase as _AutoBlurUC
-
-            _blur_uc = _AutoBlurUC()
-            if not _blur_uc.is_cached(video_path.resolve()):
-                console.print(
-                    "[yellow]⚠ 塗りつぶし版動画 (source_blurred.mp4) のキャッシュがありません。"
-                    "元動画でクリップ生成します。[/]\n"
-                    "[dim]   事前に塗りつぶしを生成するには: "
-                    f"textffcut --auto-blur {video_path.name}[/]"
-                )
-        except Exception:  # noqa: BLE001
-            # auto_blur モジュールが import 失敗する環境 (ocrmac 未インストール等) は静かにスキップ
-            pass
-
     # タイトル画像ターゲットサイズのパース
     title_target_size = None
     if not args.no_title_image:
@@ -433,7 +417,7 @@ def _process_single_video(
         title_target_size=title_target_size,
         title_offset_y=args.title_offset_y,
         auto_anchor=args.auto_anchor,
-        use_blurred_source=not args.no_blurred_source,
+        enable_blur_overlay=not args.no_auto_blur,
     )
 
     result = use_case.execute(request)

@@ -179,17 +179,6 @@ def build_parser() -> argparse.ArgumentParser:
         default=False,
         help="進捗出力を抑制する（デフォルト: 表示あり）",
     )
-    parser.add_argument(
-        "--auto-blur",
-        action="store_true",
-        default=False,
-        help=(
-            "動画内テキスト (コメント・UI文字・ロゴ等) を自動検出して周囲色で塗りつぶし. "
-            "文字起こしと並列で実行され、塗りつぶし版動画は次回クリップ生成時に自動利用される. "
-            "(Apple Silicon Mac 専用 / フラグ名は互換性維持のため auto-blur)"
-        ),
-    )
-
     return parser
 
 
@@ -479,48 +468,6 @@ def main() -> None:
     def on_progress(progress):
         display.update(progress)
 
-    # ── auto-blur: Whisper と並列に動画内テキスト塗りつぶしを実行 ──
-    blur_executor = None
-    blur_futures: list = []
-    if args.auto_blur:
-        from use_cases.auto_blur.auto_blur_use_case import is_apple_silicon
-
-        if not is_apple_silicon():
-            print(
-                "[auto-blur] ⚠ Apple Silicon Mac 専用機能です (ocrmac/Vision API 依存)。"
-                "--auto-blur オプションを無視して文字起こしのみ実行します。"
-                "(機能名: 動画内テキスト自動塗りつぶし)",
-                file=sys.stderr,
-            )
-            args.auto_blur = False  # フラグを無効化して以下の分岐をスキップ
-
-    if args.auto_blur:
-        from concurrent.futures import ThreadPoolExecutor
-
-        from use_cases.auto_blur import AutoBlurParams, AutoBlurUseCase
-
-        blur_params = AutoBlurParams()
-        blur_use_case = AutoBlurUseCase(blur_params)
-
-        # cache hit でない動画だけ blur 起動 (cache hit ならクリップ時に使われる)
-        videos_to_blur = [
-            p for p in video_paths_raw if not blur_use_case.is_cached(p)
-        ]
-        if videos_to_blur:
-            if not args.quiet:
-                print(
-                    f"[auto-blur] {len(videos_to_blur)} 件の動画を文字起こしと並列で塗りつぶし処理"
-                )
-            # 1 動画ずつ順番に処理 (1 動画内で full-chunks 並列するので外側並列は 1)
-            blur_executor = ThreadPoolExecutor(max_workers=1)
-            for video_path in videos_to_blur:
-                blur_futures.append(
-                    blur_executor.submit(blur_use_case.execute, video_path)
-                )
-        else:
-            if not args.quiet:
-                print("[auto-blur] 全動画の cache hit、blur 処理スキップ")
-
     # Path → FilePath の変換（二重変換を避けるため直接 FilePath に渡す）
     request = BatchTranscribeRequest(
         video_paths=[FilePath(str(p)) for p in video_paths_raw],
@@ -535,25 +482,6 @@ def main() -> None:
 
     result = use_case(request)
     display.finish(result)
-
-    # ── auto-blur 完了待ち ──
-    if blur_executor is not None:
-        if not args.quiet:
-            print("[auto-blur] 塗りつぶし処理の完了を待機中...")
-        for fut in blur_futures:
-            try:
-                blur_result = fut.result()
-                if not args.quiet:
-                    if blur_result.cached:
-                        print(f"[auto-blur] cache hit: {blur_result.blurred_path}")
-                    else:
-                        print(
-                            f"[auto-blur] 完了: {blur_result.blurred_path} "
-                            f"({blur_result.duration_sec:.1f}s)"
-                        )
-            except Exception as e:
-                print(f"[auto-blur] エラー: {e}", file=sys.stderr)
-        blur_executor.shutdown()
 
     # 終了コード: 全成功=0、一部失敗=1、全件失敗=2
     if result.failed == 0:

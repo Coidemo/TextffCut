@@ -51,7 +51,7 @@ class SuggestAndExportRequest:
     title_target_size: tuple[int, int] | None = None  # タイトル画像ターゲットサイズ (width, height)
     title_offset_y: int = 0  # タイトル表示位置の垂直オフセット（px、正=下方向）
     auto_anchor: bool = False  # 被写体位置からアンカーを自動検出（vertical時のみ有効）
-    use_blurred_source: bool = True  # auto_blur で生成済みの source_blurred.mp4 があれば優先使用
+    enable_blur_overlay: bool = True  # 動画内テキスト塗りつぶし PNG オーバーレイ生成 (FCPXML V2 lane)
 
 
 @dataclass
@@ -104,18 +104,6 @@ class SuggestAndExportUseCase:
 
         # Phase 5.5: 速度変更
         actual_video_path = request.video_path
-        used_blur_source = False  # auto_blur 塗りつぶし版を採用したかの明示フラグ
-
-        # auto_blur cache 検出: source_blurred.mp4 が存在 + use_blurred_source=True で適用
-        if request.use_blurred_source:
-            from use_cases.auto_blur import AutoBlurUseCase
-
-            _blur_uc = AutoBlurUseCase()
-            if _blur_uc.is_cached(request.video_path):
-                blurred_path, _ = _blur_uc.get_cache_paths(request.video_path)
-                actual_video_path = blurred_path
-                used_blur_source = True
-                logger.info(f"auto_blur cache hit、塗りつぶし版動画を使用: {blurred_path}")
 
         if request.speed != 1.0:
             from config import Config
@@ -124,9 +112,7 @@ class SuggestAndExportUseCase:
             speed = round(request.speed, 2)
             speed_label = f"{round(speed, 1)}x"
             vp = VideoProcessor(Config())
-            # auto_blur cache 利用時はファイル名に _blurred を付ける
-            suffix = "_blurred" if used_blur_source else ""
-            speed_path = base_dir / f"source_{speed_label}{suffix}.mp4"
+            speed_path = base_dir / f"source_{speed_label}.mp4"
             vp.create_speed_changed_video(str(actual_video_path), str(speed_path), speed)
             actual_video_path = speed_path
             logger.info(f"速度変更済み動画を使用: {speed_path}")
@@ -262,6 +248,47 @@ class SuggestAndExportUseCase:
                 logger.warning("アンカー自動検出スキップ: %s", e)
 
         _phase_times["Phase5.7 タイトル画像"] = _time.time() - _t4
+        _t_blur = _time.time()
+
+        # Phase 5.9: 動画内テキスト塗りつぶしオーバーレイ PNG 生成 (clip 単位)
+        # 各 suggestion の time_ranges 範囲のみを OCR + track 化して PNG を出力。
+        # FCPXML 出力時に V2 レーンに重ねる (動画と同じ scale/anchor を適用)。
+        blur_overlays_per_clip: dict[int, list[dict]] = {}
+        if request.enable_blur_overlay:
+            try:
+                from use_cases.auto_blur.blur_overlay_use_case import (
+                    BlurOverlayUseCase,
+                    is_apple_silicon,
+                )
+
+                if is_apple_silicon():
+                    blur_uc = BlurOverlayUseCase()
+                    blur_dir = base_dir / "blur_overlays"
+                    for i, suggestion in enumerate(suggestions, 1):
+                        sanitized = sanitize_filename(suggestion.title)
+                        clip_id = f"{i:02d}_{sanitized}"
+                        try:
+                            result = blur_uc.execute(
+                                video_path=actual_video_path,
+                                clip_id=clip_id,
+                                time_ranges=suggestion.time_ranges,
+                                output_dir=blur_dir,
+                            )
+                            blur_overlays_per_clip[i] = [ov.to_dict() for ov in result.overlays]
+                            # v2 では result.overlays は 0 件 (track なし) または 1 件 (合成 PNG)
+                            n_pngs = len(result.overlays)
+                            logger.info(
+                                f"blur overlay [{clip_id}]: {n_pngs} 合成 PNG "
+                                f"({'cached' if result.cached else f'{result.duration_sec:.1f}s'})"
+                            )
+                        except Exception as e:  # noqa: BLE001
+                            logger.warning(f"blur overlay 生成失敗 ({clip_id}): {e}")
+                else:
+                    logger.info("Apple Silicon Mac 以外のため blur overlay 生成をスキップ")
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"blur overlay 全体スキップ: {e}")
+
+        _phase_times["Phase5.9 塗りつぶし overlay 生成"] = _time.time() - _t_blur
         _t6 = _time.time()
         # Phase 6: AI SE配置 + FCPXML + SRT生成
         exported_files: list[Path] = []
@@ -297,6 +324,7 @@ class SuggestAndExportUseCase:
                 timeline_resolution=request.timeline_resolution,
                 title_settings=title_settings,
                 ai_se_placements=ai_se_placements,
+                blur_overlays=blur_overlays_per_clip.get(i),
             )
             if success:
                 exported_files.append(fcpxml_path)
@@ -441,6 +469,7 @@ class SuggestAndExportUseCase:
         timeline_resolution: str = "horizontal",
         title_settings: dict | None = None,
         ai_se_placements: list | None = None,
+        blur_overlays: list[dict] | None = None,
     ) -> bool:
         if not suggestion.time_ranges:
             return False
@@ -475,9 +504,18 @@ class SuggestAndExportUseCase:
                 additional_audio_settings=media_config.additional_audio_settings if media_config else None,
                 title_settings=title_settings,
                 ai_se_placements=ai_se_placements,
+                blur_overlays=blur_overlays,
             )
         except Exception as e:
             logger.warning(f"FCPXMLExporter failed ({e}), using simple FCPXML")
+            if blur_overlays:
+                # simple fallback は blur オーバーレイ未対応のため、生成済 PNG が
+                # FCPXML に反映されない. 黙って落とすと UX 低下なので明示する.
+                logger.warning(
+                    f"⚠ blur overlay {len(blur_overlays)} 件が simple FCPXML "
+                    "フォールバックでは反映されません (PNG キャッシュは保持). "
+                    "FCPXMLExporter のエラーを修正することで解決します."
+                )
             return self._export_simple_fcpxml(
                 suggestion,
                 video_path,
