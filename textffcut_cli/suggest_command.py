@@ -158,8 +158,8 @@ def build_suggest_parser() -> argparse.ArgumentParser:
         default=False,
         help=(
             "動画内テキスト塗りつぶしオーバーレイ PNG の生成をスキップ. "
-            "デフォルトでは clip 候補の time_ranges を OCR + track 化して "
-            "track ごとに塗りつぶし PNG を生成し、FCPXML の V2 レーンに配置する."
+            "デフォルトでは clip 候補の time_ranges を OCR + track 化し、"
+            "全 track の bbox を 1 枚の合成 PNG に OR 合成して FCPXML の V2 レーンに配置する."
         ),
     )
     parser.add_argument(

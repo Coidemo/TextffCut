@@ -275,8 +275,10 @@ class SuggestAndExportUseCase:
                                 output_dir=blur_dir,
                             )
                             blur_overlays_per_clip[i] = [ov.to_dict() for ov in result.overlays]
+                            # v2 では result.overlays は 0 件 (track なし) または 1 件 (合成 PNG)
+                            n_pngs = len(result.overlays)
                             logger.info(
-                                f"blur overlay [{clip_id}]: {len(result.overlays)} tracks "
+                                f"blur overlay [{clip_id}]: {n_pngs} 合成 PNG "
                                 f"({'cached' if result.cached else f'{result.duration_sec:.1f}s'})"
                             )
                         except Exception as e:  # noqa: BLE001

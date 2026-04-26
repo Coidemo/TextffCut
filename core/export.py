@@ -459,9 +459,11 @@ class FCPXMLExporter:
         # インデントを設定（gap要素は使わない）
         indent = "                        "
 
-        # blur がある場合はレーンを +1 シフト (z 順序:
+        # blur が実際に asset 登録された場合のみレーンを +1 シフト (z 順序:
         #   動画 → blur(1) → frame(2) → title(3) → BGM(4) → extra audio(5) → SE(6))
-        lane_offset = 1 if blur_overlays else 0
+        # 注: blur_overlays が渡されても、全 overlay が segment と overlap せず orphan
+        # filter で落ちた場合は seen_blur_paths が空。その時は lane_offset=0 で通常通り.
+        lane_offset = 1 if seen_blur_paths else 0
 
         # 各 segment の timeline 開始 frame を事前計算 (blur overlay の offset 計算用)
         seg_timeline_starts: list[int] = []

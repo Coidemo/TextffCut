@@ -325,30 +325,9 @@ class ExportSettingsView:
                 )
                 self.presenter.set_include_srt(include_srt)
 
-            # 動画内テキスト塗りつぶしオーバーレイ (Apple Silicon Mac のみ)
-            try:
-                from use_cases.auto_blur.blur_overlay_use_case import is_apple_silicon
-
-                _blur_supported = is_apple_silicon()
-            except Exception:  # noqa: BLE001
-                _blur_supported = False
-
-            if _blur_supported:
-                blur_default = st.session_state.get("export_use_blurred_source", True)
-                enable_blur_overlay = st.checkbox(
-                    "🔒 動画内テキスト塗りつぶし (V2 オーバーレイ)",
-                    value=blur_default,
-                    help=(
-                        "コメント・UI 文字・チャンネルロゴ等を OCR で検出して塗りつぶす PNG を生成し、"
-                        "FCPXML の V2 レーン (動画の直上、frame の下) に配置します. "
-                        "元動画は無加工のままで、DaVinci 上で塗りつぶしの位置・色・有無を編集できます."
-                    ),
-                    key="export_use_blurred_source",
-                )
-                st.session_state["export_use_blurred_source"] = enable_blur_overlay
-            else:
-                st.session_state.pop("export_use_blurred_source", None)
-                st.caption("ℹ️ 動画内テキスト塗りつぶしは Apple Silicon Mac 専用です.")
+            # NOTE: 動画内テキスト塗りつぶし (auto_blur) の checkbox は AI 自動切り抜き
+            # 画面 (text_editor.py) の `ai_clip_blur_overlay` 側に集約済. ここに同名
+            # checkbox を置くと session_state key が分裂し UX 混乱の元になるため削除.
         else:
             # SRT字幕のみの場合：無音削除のみ
             remove_silence = st.checkbox(

@@ -1,20 +1,22 @@
-"""動画内テキスト塗りつぶし: オーバーレイ PNG 生成方式 (Phase 2)。
+"""動画内テキスト塗りつぶし: 1 clip = 1 合成 PNG オーバーレイ方式 (v2.5.0)。
 
 旧 AutoBlurUseCase は元動画 73 分すべてを再エンコードして source_blurred.mp4 を生成
 していたが、ファイルサイズが元の 12 倍 (4.2GB) になる問題があった。
 
 本 use case は元動画を一切再エンコードせず、clip 候補の time_ranges だけ OCR + track
-して、track ごとに塗りつぶし PNG を生成する。FCPXML 出力時に asset-clip として
-動画 (V1) の直上 (V2) に重ねることで、視覚的には同じ塗りつぶしを実現する。
+して、**全 track の bbox を 1 枚の合成 PNG に OR 合成** する。FCPXML 出力時に asset-clip
+として動画 (V1) の直上 (V2) に重ねることで、視覚的には同じ塗りつぶしを実現する。
 
 メリット:
-- ファイルサイズ削減 (4.2GB → 数 MB の PNG 群)
+- ファイルサイズ削減 (4.2GB → 数十 KB / clip)
 - OCR 範囲削減 (73 分 → 切り抜き候補 15 件 × 30-60 秒のみ)
-- DaVinci 上で塗りつぶしを移動・削除・色変更できる (編集者の自由度向上)
+- DaVinci 上で塗りつぶしを移動・削除・色変更できる
 - 元動画は無加工
 
-制約 (A 方式):
-- track ごとに 1 枚の固定位置 PNG (= track 内全 bbox の OR 結合エリアで塗る)
+制約 (1 PNG 方式):
+- clip 全範囲で常時表示 (時間切替なし) — 同じ lane=1 に複数 PNG を時間重複で
+  並べると DaVinci で 1 枚しか描画されないため
+- 各 bbox は周囲色サンプリングで個別の色で塗る (左下テキストと右上 UI で別色 OK)
 - 流れるテロップなど位置が大きく動く UI には追従不可
   (配信動画のコメント欄/UI など固定位置 UI が主用途)
 
@@ -26,6 +28,7 @@
         time_ranges=[(10.0, 40.0), (60.0, 90.0)],
         output_dir=Path("./blur_overlays"),
     )
+    # result.overlays は 0 件 (track なし) または 1 件 (合成 PNG)
     for ov in result.overlays:
         print(f"  {ov.png_path.name}: {ov.start_sec:.1f}-{ov.end_sec:.1f}s")
 """
@@ -72,14 +75,15 @@ class BlurOverlayParams:
 
 @dataclass
 class BlurOverlay:
-    """1 つの track に対応する塗りつぶしオーバーレイ。
+    """1 clip 分の合成塗りつぶしオーバーレイ (v2 = 1 clip = 1 PNG)。
 
     Attributes:
-        png_path: フルサイズ透過 PNG (動画解像度と同じ、union bbox エリアのみ塗りつぶし)。
-            DaVinci で position="0 0" で配置すれば動画と同じ座標で重なる。
-        start_sec: 元動画上の表示開始時刻
-        end_sec: 元動画上の表示終了時刻
-        union_x1, union_y1, union_x2, union_y2: 元動画座標系の union bbox (記録用)
+        png_path: フルサイズ透過 PNG (動画解像度と同じ、複数 bbox を各々の色で OR 合成)。
+            動画と同じ <adjust-conform type="fit"/> + scale/anchor を適用して配置する.
+        start_sec: 元動画上の表示開始時刻 (= clip 候補の time_ranges 最小値)
+        end_sec: 元動画上の表示終了時刻 (= clip 候補の time_ranges 最大値)
+        union_x1, union_y1, union_x2, union_y2: 全 track の bbox を OR した外接矩形
+            (記録/デバッグ用、PNG 描画では各 bbox を個別に塗っている)
     """
 
     png_path: Path
