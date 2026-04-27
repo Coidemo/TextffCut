@@ -1240,6 +1240,13 @@ font_size 190 で 1080px 幅に収まる物理上限が ~11 文字程度。
 それを超える長さで 1 行にすると font が縮小されて見にくくなるため強制改行。
 """
 
+_TITLE_SNAP_DISTANCE_RATIO = 0.3
+"""GiNZA 単語境界 snap で許容する中間点からの距離 (タイトル全長に対する比率)。
+
+これを超える距離の snap は極端アンバランス (例 2/14 字) を生むため均等分割
+に fallback する。0.3 = 最悪でも約 70/30 程度の偏りで抑える設定。
+"""
+
 
 def _split_title(title: str, max_lines: int = 3) -> list[str]:
     """タイトルを自然な位置で分割"""
@@ -1283,10 +1290,9 @@ def _split_title(title: str, max_lines: int = 3) -> list[str]:
     if word_bounds and n_lines >= 2:
         candidates = sorted(b for b in set(word_bounds) if 0 < b < len(title))
         if candidates:
-            # 中間点から len(title) * 0.3 を超えて離れた snap は極端アンバランスを
-            # 生むため均等分割に fallback (例: word_bounds=[3,14] for 16 字なら
-            # snap せず 8/8 字に均等分割。最悪でも 70/30 程度の偏りで抑える)
-            max_distance = max(1, int(len(title) * 0.3))
+            # 中間点から離れすぎた snap は極端アンバランスを生むため均等分割に
+            # fallback (例: word_bounds=[3,14] for 16 字なら snap せず 8/8 字)
+            max_distance = max(1, int(len(title) * _TITLE_SNAP_DISTANCE_RATIO))
             ideals = [len(title) * (k + 1) // n_lines for k in range(n_lines - 1)]
             chosen_set: set[int] = set()
             chosen: list[int] = []

@@ -192,6 +192,44 @@ class TestSnapLinesToWordBoundaries:
         # 同じ design がそのまま返ってくる (needs_snap=False で短絡)
         assert result is design
 
+    def test_preserves_segment_styles_after_snap(self):
+        """snap 後も各 segment の色・サイズ・gradient・weight が保持されること。
+
+        AI が複数色 segment で返した行を snap で再構築する際、元 segment の
+        スタイル情報がコピーされず欠落するとデザインが破綻するため検証。
+        """
+        # 「親の不仲によるス | トレスへの対処法」を 2 色 + 2 行で AI が返した想定
+        # 期待: snap で「親の不仲による | ストレスへの対処法」に再構築されても
+        # 「親の不仲」(red, size 100) と「によるス」(blue, size 80) の色情報が
+        # 維持される
+        line1 = TitleLine(
+            segments=[
+                TitleTextSegment(text="親の不仲", font_size=100, color="#FF0000", weight="Bd"),
+                TitleTextSegment(text="によるス", font_size=80, color="#0000FF", weight="Rg"),
+            ]
+        )
+        line2 = TitleLine(
+            segments=[TitleTextSegment(text="トレスへの対処法", font_size=80, color="#00FF00")]
+        )
+        design = TitleImageDesign(lines=[line1, line2])
+        result = _snap_lines_to_word_boundaries(design)
+
+        # 全文の合計テキストが保たれる
+        all_text = "".join(seg.text for line in result.lines for seg in line.segments)
+        assert all_text == "親の不仲によるストレスへの対処法"
+
+        # 各 segment の色がいずれか保持されている (snap で文字位置がシフト
+        # しても、各文字の元の色は維持される)
+        all_colors = {seg.color for line in result.lines for seg in line.segments}
+        assert "#FF0000" in all_colors  # 親の不仲 の赤
+        assert "#0000FF" in all_colors  # によるス の青
+        assert "#00FF00" in all_colors  # トレスへの対処法 の緑
+
+        # font_size も同様に保持
+        all_sizes = {seg.font_size for line in result.lines for seg in line.segments}
+        assert 100 in all_sizes
+        assert 80 in all_sizes
+
 
 class TestEnforceLineBreakEndToEnd:
     def test_long_single_line_split_no_word_break(self):
