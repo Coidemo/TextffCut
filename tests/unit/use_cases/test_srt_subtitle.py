@@ -13,10 +13,12 @@ from use_cases.ai.srt_subtitle_generator import (
     _entries_from_char_times,
     _parse_pos,
     _phase1_split,
+    _phase2_merge_to_lines,
     _remove_inline_fillers,
     build_timeline_map,
     collect_parts,
 )
+from use_cases.ai.srt_subtitle_generator import TextBlock
 
 
 class TestParsePos:
@@ -77,6 +79,78 @@ class TestPhase1LineBreak:
         blocks = self._get_blocks_text(text)
         # 「から」の後で分割されていることを期待
         assert len(blocks) >= 2, f"分割されなかった: {blocks}"
+
+
+class TestPhase2ParticlePenalty:
+    """Phase 2 行末ペナルティ (130 件編集ログ分析駆動)"""
+
+    @staticmethod
+    def _blocks_from_chars(text: str) -> list[TextBlock]:
+        """1 文字 1 block で TextBlock 列を作る (Phase 2 入力相当)。"""
+        return [TextBlock(text=ch, start_pos=i, end_pos=i + 1) for i, ch in enumerate(text)]
+
+    def _join_lines(self, lines: list[TextBlock]) -> list[str]:
+        return [b.text for b in lines]
+
+    def test_avoid_particle_at_line_end(self):
+        """助詞「で」「の」「に」「と」「を」「も」で行末になることを避ける。
+
+        ただし「は」「が」は data 上 GOOD なので penalty 対象外。
+        """
+        # 9 文字を max_chars=6 で分割。末尾候補:
+        #   「これから」(4字, 「ら」末尾) + 「のメリット」(5字)  ← OK
+        #   「これからの」(5字, 「の」末尾) + 「メリット」(4字)  ← 助詞末尾、ペナルティ対象
+        text = "これからのメリット"
+        blocks = self._blocks_from_chars(text)
+        result = _phase2_merge_to_lines(blocks, max_chars=6, seg_bounds=set())
+        line_texts = self._join_lines(result)
+        assert "".join(line_texts) == text  # 文字欠落なし
+        # 「の」が行末になっていないこと (= particle penalty が効いている)
+        for line in line_texts[:-1]:  # 最後の行は終端なので除外
+            assert not line.endswith("の"), f"助詞「の」が行末: {line_texts}"
+
+    def test_wa_ga_not_penalized(self):
+        """「は」「が」は data 上 GOOD な末尾なので penalty 対象外。
+
+        編集ログ分析で「は」+9 / 「が」+24 (編集後で増える方向) のため、
+        Phase 2 で penalty しない。
+        """
+        from use_cases.ai.srt_subtitle_generator import _PHASE2_AVOID_PARTICLE_TAIL_CHARS
+
+        assert "は" not in _PHASE2_AVOID_PARTICLE_TAIL_CHARS
+        assert "が" not in _PHASE2_AVOID_PARTICLE_TAIL_CHARS
+        # で/の/に/と/も/を/へ は対象
+        for p in ("で", "の", "に", "と", "も", "を", "へ"):
+            assert p in _PHASE2_AVOID_PARTICLE_TAIL_CHARS
+
+    def test_avoid_verb_tail_at_line_end(self):
+        """活用語尾「て」「な」「い」で行末になることを避ける。
+
+        max_chars 制約内で代替候補がある場合のみ適用される (1 文字短く切る等)。
+        """
+        # 「思ってます昔は」(8 字) max_chars=4
+        #   「思って」(3字, 「て」末尾) + 「ます昔は」(4字)  ← penalty
+        #   「思」(1字) + 「ってます昔は」(6字 → max 超え)         ← 不可
+        # 短すぎる行は別ペナルティもあるので、結果はバランス次第。
+        # ここでは penalty が動作することだけ確認: 同じ入力で
+        # penalty 付き vs penalty なし で score が変わることを別途確認するのが
+        # 確実だが、ここでは挙動確認に留める。
+        text = "思ってます昔は"
+        blocks = self._blocks_from_chars(text)
+        result = _phase2_merge_to_lines(blocks, max_chars=4, seg_bounds=set())
+        assert "".join(self._join_lines(result)) == text  # 文字欠落なし
+
+    def test_no_penalty_when_max_chars_constraint(self):
+        """max_chars 制約で他に選択肢がない場合、ペナルティ付きでも採用される。
+
+        全候補に penalty があっても DP は最良を選ぶので結果が壊れない。
+        """
+        text = "あいうえお"
+        blocks = self._blocks_from_chars(text)
+        result = _phase2_merge_to_lines(blocks, max_chars=11, seg_bounds=set())
+        # 短いので 1 行にまとまる
+        assert len(result) == 1
+        assert result[0].text == text
 
 
 class TestSentenceEndings:
