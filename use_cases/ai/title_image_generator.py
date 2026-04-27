@@ -509,7 +509,11 @@ def _center_design_in_target(
     centered.padding_top = max(0, design.padding_top + delta)
     logger.info(
         "縦中央配置: padding_top %d → %d (target_h=%d, content_h=%d, delta=%+d)",
-        design.padding_top, centered.padding_top, target_height, content_h, delta,
+        design.padding_top,
+        centered.padding_top,
+        target_height,
+        content_h,
+        delta,
     )
     return centered
 
@@ -589,6 +593,7 @@ def design_title_layout(
     # Phase B: 1 line で _TITLE_FORCE_BREAK_THRESHOLD 超のタイトルは強制分割。
     # AI がプロンプトを守らず単一行で返したケースの保険。
     design = _enforce_line_break(design)
+    design = _snap_lines_to_word_boundaries(design)
 
     return design
 
@@ -628,7 +633,116 @@ def _enforce_line_break(design: TitleImageDesign) -> TitleImageDesign:
         )
     logger.info(
         "AI returned 1-line for %d-char title (>%d); force-split into %d lines",
-        len(text), _TITLE_FORCE_BREAK_THRESHOLD, len(new_lines),
+        len(text),
+        _TITLE_FORCE_BREAK_THRESHOLD,
+        len(new_lines),
+    )
+    return TitleImageDesign(
+        lines=new_lines,
+        line_spacing=design.line_spacing,
+        padding_top=design.padding_top,
+    )
+
+
+def _snap_lines_to_word_boundaries(design: TitleImageDesign) -> TitleImageDesign:
+    """行分割境界を GiNZA 単語境界にスナップする。
+
+    AI が返した複数行や ``_enforce_line_break`` の機械的分割が、単語の途中で
+    切れているケース（例: 「親の不仲によるス / トレスへの対処法」で
+    「ストレス」を分断）を解消する。GiNZA 未インストール時は no-op。
+    """
+    if len(design.lines) <= 1:
+        return design
+
+    try:
+        from core.japanese_line_break import JapaneseLineBreakRules
+    except ImportError:
+        return design
+
+    full_text = "".join(seg.text for line in design.lines for seg in line.segments)
+    word_bounds = JapaneseLineBreakRules.get_word_boundaries(full_text)
+    if not word_bounds:
+        return design
+
+    valid_bounds = {0} | set(word_bounds)
+
+    line_boundaries: list[int] = []
+    pos = 0
+    for line in design.lines:
+        pos += sum(len(seg.text) for seg in line.segments)
+        line_boundaries.append(pos)
+
+    needs_snap = False
+    snapped: list[int] = []
+    for b in line_boundaries[:-1]:
+        if b in valid_bounds:
+            snapped.append(b)
+        else:
+            needs_snap = True
+            nearest = min(valid_bounds, key=lambda v: abs(v - b))
+            if nearest == 0:
+                # 0 にスナップすると空行になるので次に近い境界を採用
+                fallback = sorted(v for v in valid_bounds if v > 0)
+                nearest = fallback[0] if fallback else b
+            snapped.append(nearest)
+    snapped.append(len(full_text))
+
+    if not needs_snap:
+        return design
+
+    # 全セグメントをフラット化してスタイルを保持しつつ再構築
+    flat_segments: list[tuple[int, int, TitleTextSegment, int]] = []
+    char_pos = 0
+    for line_idx, line in enumerate(design.lines):
+        for seg in line.segments:
+            seg_end = char_pos + len(seg.text)
+            flat_segments.append((char_pos, seg_end, seg, line_idx))
+            char_pos = seg_end
+
+    new_lines: list[TitleLine] = []
+    prev_line_bound = 0
+    for line_bound in snapped:
+        if line_bound <= prev_line_bound:
+            continue
+        new_segments: list[TitleTextSegment] = []
+        owning_line_idx = 0
+        for seg_start, seg_end, seg, line_idx in flat_segments:
+            overlap_start = max(seg_start, prev_line_bound)
+            overlap_end = min(seg_end, line_bound)
+            if overlap_start >= overlap_end:
+                continue
+            owning_line_idx = line_idx  # 行スタイル継承用 (最後に重なった元 line を採用)
+            new_segments.append(
+                TitleTextSegment(
+                    text=full_text[overlap_start:overlap_end],
+                    font_size=seg.font_size,
+                    color=seg.color,
+                    gradient=seg.gradient,
+                    weight=seg.weight,
+                )
+            )
+        if not new_segments:
+            continue
+        base_line = design.lines[min(owning_line_idx, len(design.lines) - 1)]
+        new_lines.append(
+            TitleLine(
+                segments=new_segments,
+                outer_outline_color=base_line.outer_outline_color,
+                outer_outline_width=base_line.outer_outline_width,
+                inner_outline_color=base_line.inner_outline_color,
+                inner_outline_width=base_line.inner_outline_width,
+            )
+        )
+        prev_line_bound = line_bound
+
+    if not new_lines:
+        return design
+
+    logger.info(
+        "snap line boundaries: %s -> %s (text=%r)",
+        line_boundaries,
+        snapped,
+        full_text,
     )
     return TitleImageDesign(
         lines=new_lines,
@@ -694,9 +808,7 @@ def design_title_layout_candidates(
     生成する (= 元 title からの大幅書き換え許容)。バリデーションも緩和。
     """
     is_srt_mode = srt_text is not None
-    prompt_filename = (
-        "title_image_candidates_from_srt.md" if is_srt_mode else "title_image_candidates.md"
-    )
+    prompt_filename = "title_image_candidates_from_srt.md" if is_srt_mode else "title_image_candidates.md"
     prompt_path = Path(__file__).parent.parent.parent / "prompts" / prompt_filename
     if prompt_path.exists():
         prompt_template = prompt_path.read_text(encoding="utf-8")
@@ -754,6 +866,7 @@ def design_title_layout_candidates(
                     continue
             # Phase B: 1 line で閾値超なら強制分割
             design = _enforce_line_break(design)
+            design = _snap_lines_to_word_boundaries(design)
             results.append(design)
         except Exception as e:
             logger.warning(f"候補#{i+1}: パース失敗: {e}")
@@ -1139,7 +1252,7 @@ def _split_title(title: str, max_lines: int = 3) -> list[str]:
     if len(title) <= _TITLE_FORCE_BREAK_THRESHOLD:
         return [title]
 
-    # 句読点・括弧・助詞で分割を試みる
+    # 句読点・括弧で分割を試みる
     split_points = []
     for i, ch in enumerate(title):
         if ch in "、。！？」』）】":
@@ -1148,29 +1261,62 @@ def _split_title(title: str, max_lines: int = 3) -> list[str]:
             if i > 0:
                 split_points.append(i)
 
-    if not split_points:
-        # 均等分割（最後のパートに残り全文字を含める）
-        n_lines = min(max_lines, max(1, (len(title) + 9) // 10))
-        chunk = len(title) // n_lines
-        parts = [title[i : i + chunk] for i in range(0, len(title), chunk)]
-        if len(parts) > n_lines:
-            parts[n_lines - 1] += "".join(parts[n_lines:])
-            parts = parts[:n_lines]
-        return parts
+    if split_points:
+        # 句読点ベースの分割
+        parts = []
+        prev = 0
+        for sp in split_points:
+            if sp > prev:
+                parts.append(title[prev:sp])
+                prev = sp
+            if len(parts) >= max_lines - 1:
+                break
+        if prev < len(title):
+            parts.append(title[prev:])
+        return parts[:max_lines]
 
-    # 分割点で分ける
-    parts = []
-    prev = 0
-    for sp in split_points:
-        if sp > prev:
-            parts.append(title[prev:sp])
-            prev = sp
-        if len(parts) >= max_lines - 1:
-            break
-    if prev < len(title):
-        parts.append(title[prev:])
+    # 句読点なし: GiNZA 単語境界で分割を試みる (中間点に最も近い境界を選ぶ)。
+    # 「親の不仲によるストレスへの対処法」のような長文で「ス|トレス」という
+    # 単語分断を避けるための処理。GiNZA 不可時は均等分割に fallback。
+    n_lines = min(max_lines, max(1, (len(title) + 9) // 10))
+    try:
+        from core.japanese_line_break import JapaneseLineBreakRules
 
-    return parts[:max_lines]
+        word_bounds = JapaneseLineBreakRules.get_word_boundaries(title)
+    except ImportError:
+        word_bounds = []
+
+    if word_bounds and n_lines >= 2:
+        candidates = sorted(b for b in set(word_bounds) if 0 < b < len(title))
+        if candidates:
+            ideals = [len(title) * (k + 1) // n_lines for k in range(n_lines - 1)]
+            chosen: list[int] = []
+            for ideal in ideals:
+                remaining = [b for b in candidates if b not in chosen]
+                if not remaining:
+                    break
+                nearest = min(remaining, key=lambda b: abs(b - ideal))
+                chosen.append(nearest)
+            chosen.sort()
+            if chosen:
+                parts: list[str] = []
+                prev = 0
+                for cp in chosen:
+                    if cp > prev:
+                        parts.append(title[prev:cp])
+                        prev = cp
+                if prev < len(title):
+                    parts.append(title[prev:])
+                if len(parts) >= 2:
+                    return parts
+
+    # 均等分割（最後のパートに残り全文字を含める）
+    chunk = len(title) // n_lines
+    parts = [title[i : i + chunk] for i in range(0, len(title), chunk)]
+    if len(parts) > n_lines:
+        parts[n_lines - 1] += "".join(parts[n_lines:])
+        parts = parts[:n_lines]
+    return parts
 
 
 # ---------------------------------------------------------------------------
@@ -1638,9 +1784,7 @@ def generate_title_image(
     if target_size:
         design = _ensure_fit_height(design, target_size[1], width, height, font_dir, offset_y)
         # Phase C: target_size 範囲内で縦中央配置
-        design = _center_design_in_target(
-            design, target_size[1], width, height, font_dir, offset_y
-        )
+        design = _center_design_in_target(design, target_size[1], width, height, font_dir, offset_y)
 
     # 描画
     try:
@@ -1902,6 +2046,7 @@ def design_title_layouts_batch(
             else:
                 # Phase B: 1 line で閾値超なら強制分割
                 design = _enforce_line_break(design)
+                design = _snap_lines_to_word_boundaries(design)
                 results.append(design)
         except Exception as e:
             logger.warning(f"バッチデザインパース失敗 (#{i+1}): {e}")

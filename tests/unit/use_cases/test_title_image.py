@@ -24,6 +24,8 @@ from use_cases.ai.title_image_generator import (
     _save_design_cache,
     _scale_outline,
     _shrink_particles,
+    _enforce_line_break,
+    _snap_lines_to_word_boundaries,
     _split_title,
     create_fallback_design,
     design_title_layout,
@@ -122,6 +124,71 @@ class TestSplitTitle:
     def test_max_lines(self):
         result = _split_title("とても長いタイトルの文字列を分割するテスト", max_lines=2)
         assert len(result) <= 2
+
+    def test_word_boundary_snap_no_punctuation(self):
+        """句読点なし長文を GiNZA 単語境界で分割し、単語が分断されないこと。
+
+        現象再現: 「親の不仲によるストレスへの対処法」(16字) を均等分割すると
+        「親の不仲によるス / トレスへの対処法」となり「ストレス」が分断される。
+        新ロジックで GiNZA 境界にスナップされ、ストレスを温存することを期待。
+        """
+        title = "親の不仲によるストレスへの対処法"
+        result = _split_title(title, max_lines=2)
+        assert "".join(result) == title  # 文字欠落なし
+        assert len(result) == 2
+        # 「ストレス」がどの行にも完全な形で含まれること = 分断されてない
+        assert any("ストレス" in part for part in result), f"ストレスが分断されました: {result}"
+
+
+class TestSnapLinesToWordBoundaries:
+    def _line(self, text: str) -> TitleLine:
+        return TitleLine(segments=[TitleTextSegment(text=text)])
+
+    def test_single_line_noop(self):
+        design = TitleImageDesign(lines=[self._line("親の不仲によるストレス")])
+        result = _snap_lines_to_word_boundaries(design)
+        assert result is design  # 1 行は変更なし
+
+    def test_snap_word_break(self):
+        """中途半端な分割を単語境界にスナップする。"""
+        design = TitleImageDesign(lines=[self._line("親の不仲によるス"), self._line("トレスへの対処法")])
+        result = _snap_lines_to_word_boundaries(design)
+        recombined = "".join(seg.text for line in result.lines for seg in line.segments)
+        assert recombined == "親の不仲によるストレスへの対処法"
+        # 「ストレス」が分断されていないこと
+        for line in result.lines:
+            line_text = "".join(seg.text for seg in line.segments)
+            # 行頭・行末で「ス」「ト」「レ」が単独に切れていないこと
+            assert (
+                not line_text.endswith("ス")
+                or "ストレス" in line_text
+                or "ストレスへの対処法" in line_text
+                or line_text == "親の不仲による"
+            )
+
+    def test_already_at_word_boundary_noop(self):
+        """既に単語境界に乗ってる場合は変更しない。"""
+        design = TitleImageDesign(lines=[self._line("親の不仲による"), self._line("ストレスへの対処法")])
+        result = _snap_lines_to_word_boundaries(design)
+        # 同じ design がそのまま返ってくる (needs_snap=False で短絡)
+        assert result is design
+
+
+class TestEnforceLineBreakEndToEnd:
+    def test_long_single_line_split_no_word_break(self):
+        """1 行で 11字超の長文を強制分割した結果、単語が分断されないこと。"""
+        title = "親の不仲によるストレスへの対処法"
+        design = TitleImageDesign(lines=[TitleLine(segments=[TitleTextSegment(text=title)])])
+        broken = _enforce_line_break(design)
+        snapped = _snap_lines_to_word_boundaries(broken)
+        assert len(snapped.lines) >= 2
+        recombined = "".join(seg.text for line in snapped.lines for seg in line.segments)
+        assert recombined == title
+        for line in snapped.lines:
+            line_text = "".join(seg.text for seg in line.segments)
+            assert "ストレス" not in line_text or line_text.find("ストレス") + 4 <= len(
+                line_text
+            ), f"ストレスが分断: {[''.join(s.text for s in l.segments) for l in snapped.lines]}"
 
 
 class TestParseDesignJson:
@@ -1986,9 +2053,7 @@ class TestSrtModeSwitching:
         return {
             "lines": [
                 {
-                    "segments": [
-                        {"text": text, "font_size": 160, "color": "#000000"}
-                    ],
+                    "segments": [{"text": text, "font_size": 160, "color": "#000000"}],
                     "outer_outline_color": "#FFFFFF",
                     "outer_outline_width": 10,
                     "inner_outline_color": "#000000",
@@ -2148,9 +2213,7 @@ class TestBatchPromptTemplate:
             design_title_layouts_batch,
         )
 
-        client = self._make_mock_client(
-            [self._valid_design("タイトルA"), self._valid_design("タイトルB")]
-        )
+        client = self._make_mock_client([self._valid_design("タイトルA"), self._valid_design("タイトルB")])
         design_title_layouts_batch(
             client=client,
             titles=["タイトルA", "タイトルB"],
@@ -2167,9 +2230,7 @@ class TestBatchPromptTemplate:
         from use_cases.ai.title_image_generator import design_title_layouts_batch
 
         # 1 件目は一致、2 件目は不一致
-        client = self._make_mock_client(
-            [self._valid_design("正しいタイトル"), self._valid_design("AIが書き換えた")]
-        )
+        client = self._make_mock_client([self._valid_design("正しいタイトル"), self._valid_design("AIが書き換えた")])
         results = design_title_layouts_batch(
             client=client,
             titles=["正しいタイトル", "元タイトル"],
