@@ -704,6 +704,21 @@ def _phase1_split(full_text: str, seg_bounds: set[int], max_chars: int = DEFAULT
 # Phase 2: 隣接ブロックをDPで結合して11文字以下の1行に
 # =============================================
 
+# 130 件のユーザー編集ログ分析 (2026-04-27) で抽出した、行末で避けたい助詞。
+# 改行直前 (= 1 行目末尾) で生成側が編集側より有意に多かった (single-char):
+#   で(-39) の(-33) に(-26) と(-25) も(-12) を(-11) へ(微)
+# 「は」「が」は逆に編集後で増える (+9 / +24) ため対象外 (主格・話題標識
+# として文の自然な切れ目になる)。「では」「には」「とは」「のは」など
+# 「は」終わりの複合形も同じ理由で対象外。
+_PHASE2_AVOID_PARTICLE_TAIL_CHARS = frozenset({"で", "の", "に", "と", "も", "を", "へ"})
+_LINE_END_PARTICLE_PENALTY = 3.0
+
+# 同分析で entry 末尾でも好まれなかった活用語尾。動詞・形容詞の活用途中で
+# entry が切れる現象を抑制:
+#   て(-19) な(-31) い(-19)
+_LINE_END_VERB_TAIL_PENALTY = 2.0
+_VERB_TAIL_PENALTY_CHARS = frozenset({"て", "な", "い"})
+
 
 def _phase2_merge_to_lines(
     blocks: list[TextBlock],
@@ -752,6 +767,16 @@ def _phase2_merge_to_lines(
                 score += 3
             if crosses:
                 score -= 10
+            # データ駆動: 助詞行末 / 活用語尾末尾はユーザー編集で
+            # 避けられる傾向。ペナルティで他候補を優先するが、長さボーナス
+            # (+5/+8) より小さい値にして「他に選択肢がない時は許容」する。
+            # は/が は対象外 (data: 編集後で増える、主格・話題標識として
+            # 自然な区切りになるため)。
+            last_char = combined_text[-1] if combined_text else ""
+            if last_char in _PHASE2_AVOID_PARTICLE_TAIL_CHARS:
+                score -= _LINE_END_PARTICLE_PENALTY
+            elif last_char in _VERB_TAIL_PENALTY_CHARS:
+                score -= _LINE_END_VERB_TAIL_PENALTY
 
             next_i = j + 1
             if next_i not in dp or score > dp[next_i][0]:
