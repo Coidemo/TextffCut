@@ -364,8 +364,28 @@ def render_subtitle_editor_section(container: Any, videos_root: str = "videos") 
                 try:
                     from infrastructure.davinci_resolve import (
                         ResolveError,
+                        preview_send_target,
                         send_clip_to_resolve,
                     )
+
+                    # race 防止: ユーザー確認の間に Resolve 側で bin/timeline が
+                    # 変わってないか再検証 (preview 表示時 vs 実 import 時の差分)
+                    fresh = preview_send_target(
+                        fcpxml_path, text_plus=pdata["text_plus"]
+                    )
+                    if (
+                        fresh.bin_name != preview.bin_name
+                        or fresh.timeline_name != preview.timeline_name
+                    ):
+                        container.error(
+                            f"⚠ Resolve 側の状態が変わりました\n"
+                            f"  bin: {preview.bin_name} → {fresh.bin_name}\n"
+                            f"  timeline 名: {preview.timeline_name} → {fresh.timeline_name}\n"
+                            f"中止しました。再度「📺 DaVinciへ送信」を押してプレビューしてください。"
+                        )
+                        del st.session_state[preview_state_key]
+                        st.rerun()
+                        return
 
                     result = send_clip_to_resolve(
                         fcpxml_path,

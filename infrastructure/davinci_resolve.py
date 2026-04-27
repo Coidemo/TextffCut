@@ -602,7 +602,8 @@ def _check_text_plus_template(
                         return True
                 return False
         return False
-    except Exception:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001  (Resolve API は何でも投げ得るので blind catch、debug 用に記録)
+        logger.debug(f"Text+ テンプレチェック失敗 (preview のため fallback で続行): {e}")
         return False
 
 

@@ -24,6 +24,10 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from infrastructure.davinci_resolve import SendPreview
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -94,7 +98,7 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _print_preview(preview) -> None:  # noqa: ANN001 (内部 helper、型は SendPreview)
+def _print_preview(preview: "SendPreview") -> None:
     print("━" * 56)
     print(f"  📁 取り込み先 bin:  {preview.bin_name}")
     print(f"  🎬 timeline 名:     {preview.timeline_name}")

@@ -524,6 +524,26 @@ class TestConvertSubtitlesToTextPlus:
         assert result.success == 1
 
 
+@pytest.fixture
+def fcpxml_in_textffcut_dir(tmp_path):
+    """20260427_test_TextffCut/fcpxml/01_test.fcpxml を作成して返す。"""
+    clip_dir = tmp_path / "20260427_test_TextffCut" / "fcpxml"
+    clip_dir.mkdir(parents=True)
+    p = clip_dir / "01_test.fcpxml"
+    p.write_text("<fcpxml/>", encoding="utf-8")
+    return p
+
+
+@pytest.fixture
+def fcpxml_in_invalid_dir(tmp_path):
+    """MMDD 抽出不可なディレクトリ名で FCPXML を作成。"""
+    clip_dir = tmp_path / "noformat_TextffCut" / "fcpxml"
+    clip_dir.mkdir(parents=True)
+    p = clip_dir / "01_test.fcpxml"
+    p.write_text("<fcpxml/>", encoding="utf-8")
+    return p
+
+
 class TestPreviewSendTarget:
     """preview_send_target() の単体テスト (Resolve は MagicMock で置換)"""
 
@@ -572,14 +592,8 @@ class TestPreviewSendTarget:
         monkeypatch.setattr(mod, "connect_resolve", lambda: resolve)
         return project
 
-    def test_basic_preview(self, monkeypatch, tmp_path):
+    def test_basic_preview(self, monkeypatch, fcpxml_in_textffcut_dir):
         from infrastructure.davinci_resolve import preview_send_target
-
-        # FCPXML を作成 (実ファイル必要)
-        clip_dir = tmp_path / "20260427_test_TextffCut" / "fcpxml"
-        clip_dir.mkdir(parents=True)
-        fcpxml = clip_dir / "01_test.fcpxml"
-        fcpxml.write_text("<fcpxml/>", encoding="utf-8")
 
         self._patch_resolve(
             monkeypatch,
@@ -587,91 +601,65 @@ class TestPreviewSendTarget:
             existing_clips=["00_0427_Clip01", "00_0427_Clip02"],
         )
 
-        preview = preview_send_target(fcpxml)
+        preview = preview_send_target(fcpxml_in_textffcut_dir)
         assert preview.bin_name == "0427"
         assert preview.timeline_name == "00_0427_Clip03"  # max+1
         assert preview.project_name == "TestProject"
-        assert preview.fcpxml_path == fcpxml.resolve()
+        assert preview.fcpxml_path == fcpxml_in_textffcut_dir.resolve()
         assert preview.srt_path is None  # SRT 未配置
 
-    def test_srt_detected(self, monkeypatch, tmp_path):
+    def test_srt_detected(self, monkeypatch, fcpxml_in_textffcut_dir):
         from infrastructure.davinci_resolve import preview_send_target
 
-        clip_dir = tmp_path / "20260427_test_TextffCut" / "fcpxml"
-        clip_dir.mkdir(parents=True)
-        fcpxml = clip_dir / "01_test.fcpxml"
-        fcpxml.write_text("<fcpxml/>", encoding="utf-8")
-        srt = clip_dir / "01_test.srt"
+        srt = fcpxml_in_textffcut_dir.with_suffix(".srt")
         srt.write_text("1\n00:00:00,000 --> 00:00:01,000\nhi\n", encoding="utf-8")
 
         self._patch_resolve(monkeypatch)
-        preview = preview_send_target(fcpxml)
+        preview = preview_send_target(fcpxml_in_textffcut_dir)
         assert preview.srt_path == srt.resolve()
         assert all("SRT" not in w for w in preview.warnings)
 
-    def test_text_plus_warning_when_template_missing(self, monkeypatch, tmp_path):
+    def test_text_plus_warning_when_template_missing(
+        self, monkeypatch, fcpxml_in_textffcut_dir
+    ):
         from infrastructure.davinci_resolve import preview_send_target
 
-        clip_dir = tmp_path / "20260427_test_TextffCut" / "fcpxml"
-        clip_dir.mkdir(parents=True)
-        fcpxml = clip_dir / "01_test.fcpxml"
-        fcpxml.write_text("<fcpxml/>", encoding="utf-8")
-
         self._patch_resolve(monkeypatch, template_present=False)
-        preview = preview_send_target(fcpxml, text_plus=True)
+        preview = preview_send_target(fcpxml_in_textffcut_dir, text_plus=True)
         assert not preview.text_plus_template_present
         assert any("Text+" in w for w in preview.warnings)
 
-    def test_text_plus_no_warning_when_template_present(self, monkeypatch, tmp_path):
+    def test_text_plus_no_warning_when_template_present(
+        self, monkeypatch, fcpxml_in_textffcut_dir
+    ):
         from infrastructure.davinci_resolve import preview_send_target
 
-        clip_dir = tmp_path / "20260427_test_TextffCut" / "fcpxml"
-        clip_dir.mkdir(parents=True)
-        fcpxml = clip_dir / "01_test.fcpxml"
-        fcpxml.write_text("<fcpxml/>", encoding="utf-8")
-
         self._patch_resolve(monkeypatch, template_present=True)
-        preview = preview_send_target(fcpxml, text_plus=True)
+        preview = preview_send_target(fcpxml_in_textffcut_dir, text_plus=True)
         assert preview.text_plus_template_present
         assert all("Text+" not in w for w in preview.warnings)
 
-    def test_no_project_raises(self, monkeypatch, tmp_path):
+    def test_no_project_raises(self, monkeypatch, fcpxml_in_textffcut_dir):
         from infrastructure.davinci_resolve import ResolveError, preview_send_target
-
-        clip_dir = tmp_path / "20260427_test_TextffCut" / "fcpxml"
-        clip_dir.mkdir(parents=True)
-        fcpxml = clip_dir / "01_test.fcpxml"
-        fcpxml.write_text("<fcpxml/>", encoding="utf-8")
 
         self._patch_resolve(monkeypatch, no_project=True)
         with pytest.raises(ResolveError, match="プロジェクト"):
-            preview_send_target(fcpxml)
+            preview_send_target(fcpxml_in_textffcut_dir)
 
-    def test_no_current_folder_raises(self, monkeypatch, tmp_path):
+    def test_no_current_folder_raises(self, monkeypatch, fcpxml_in_textffcut_dir):
         from infrastructure.davinci_resolve import ResolveError, preview_send_target
-
-        clip_dir = tmp_path / "20260427_test_TextffCut" / "fcpxml"
-        clip_dir.mkdir(parents=True)
-        fcpxml = clip_dir / "01_test.fcpxml"
-        fcpxml.write_text("<fcpxml/>", encoding="utf-8")
 
         self._patch_resolve(monkeypatch, no_current=True)
         with pytest.raises(ResolveError, match="current folder"):
-            preview_send_target(fcpxml)
+            preview_send_target(fcpxml_in_textffcut_dir)
 
-    def test_invalid_mmdd_raises(self, monkeypatch, tmp_path):
+    def test_invalid_mmdd_raises(self, monkeypatch, fcpxml_in_invalid_dir):
         """ディレクトリ名から MMDD 抽出できない場合は ResolveError"""
         from infrastructure.davinci_resolve import ResolveError, preview_send_target
 
-        # YYYYMMDD_xxx_TextffCut 形式でない
-        clip_dir = tmp_path / "noformat_TextffCut" / "fcpxml"
-        clip_dir.mkdir(parents=True)
-        fcpxml = clip_dir / "01_test.fcpxml"
-        fcpxml.write_text("<fcpxml/>", encoding="utf-8")
-
         self._patch_resolve(monkeypatch)
         with pytest.raises(ResolveError, match="MMDD"):
-            preview_send_target(fcpxml)
+            preview_send_target(fcpxml_in_invalid_dir)
 
 
 if __name__ == "__main__":
