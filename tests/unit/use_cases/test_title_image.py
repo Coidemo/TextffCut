@@ -27,6 +27,8 @@ from use_cases.ai.title_image_generator import (
     _shrink_particles,
     _snap_lines_to_word_boundaries,
     _split_title,
+    _strip_punctuation_from_design,
+    _strip_title_punctuation,
     create_fallback_design,
     design_title_layout,
     design_title_layout_candidates,
@@ -229,6 +231,58 @@ class TestSnapLinesToWordBoundaries:
         all_sizes = {seg.font_size for line in result.lines for seg in line.segments}
         assert 100 in all_sizes
         assert 80 in all_sizes
+
+
+class TestStripTitlePunctuation:
+    def test_strip_japanese_punctuation(self):
+        assert _strip_title_punctuation("これは、テスト。") == "これはテスト"
+        assert _strip_title_punctuation("本当！？") == "本当"
+        assert _strip_title_punctuation("AIの真実，それは．") == "AIの真実それは"
+
+    def test_strip_halfwidth_punctuation(self):
+        assert _strip_title_punctuation("Hello, world.") == "Hello world"
+        assert _strip_title_punctuation("Why?") == "Why"
+
+    def test_no_punctuation_unchanged(self):
+        assert _strip_title_punctuation("親の不仲によるストレス") == "親の不仲によるストレス"
+
+    def test_brackets_preserved(self):
+        # 括弧は強調装飾として残す
+        assert _strip_title_punctuation("「衝撃」の真実") == "「衝撃」の真実"
+
+
+class TestStripPunctuationFromDesign:
+    def _line(self, text: str) -> TitleLine:
+        return TitleLine(segments=[TitleTextSegment(text=text)])
+
+    def test_strip_from_segments(self):
+        design = TitleImageDesign(lines=[self._line("これは、"), self._line("テスト。")])
+        result = _strip_punctuation_from_design(design)
+        all_text = "".join(seg.text for line in result.lines for seg in line.segments)
+        assert all_text == "これはテスト"
+
+    def test_punctuation_only_segment_removed(self):
+        """句読点のみの segment は削除されること。"""
+        line = TitleLine(
+            segments=[
+                TitleTextSegment(text="本当", color="#FF0000"),
+                TitleTextSegment(text="！？", color="#0000FF"),  # 句読点のみ
+                TitleTextSegment(text="です", color="#00FF00"),
+            ]
+        )
+        design = TitleImageDesign(lines=[line])
+        result = _strip_punctuation_from_design(design)
+        assert len(result.lines) == 1
+        assert len(result.lines[0].segments) == 2
+        all_text = "".join(seg.text for seg in result.lines[0].segments)
+        assert all_text == "本当です"
+
+    def test_all_empty_returns_original(self):
+        """全て句読点になった場合は元 design を返す (安全側)。"""
+        design = TitleImageDesign(lines=[self._line("、。!?")])
+        result = _strip_punctuation_from_design(design)
+        # 全消えで元 design がそのまま返る
+        assert result is design
 
 
 class TestEnforceLineBreakEndToEnd:
