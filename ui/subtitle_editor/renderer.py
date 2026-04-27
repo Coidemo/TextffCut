@@ -303,6 +303,10 @@ def render_subtitle_editor_section(container: Any, videos_root: str = "videos") 
     if text_plus_max_fill != saved_max_fill:
         settings_manager.set("text_plus_max_fill_frames", text_plus_max_fill)
 
+    # 2 段階送信: Step 1 (preview) → Step 2 (confirm execute)
+    # session_state でプレビュー情報を保持。clip_id 込み key で他 clip と分離
+    preview_state_key = f"send_preview_{ta_key}"
+
     if btn_cols[2].button(
         "📺 DaVinciへ送信",
         key=f"send_{ta_key}",
@@ -312,45 +316,99 @@ def render_subtitle_editor_section(container: Any, videos_root: str = "videos") 
         if has_unsaved_edits:
             container.warning("⚠ 未保存の編集があります。先に '💾 保存' を押してから送信してください。")
         else:
+            # Step 1: Resolve から取り込み先情報を取得 (実 import はしない)
             try:
-                from infrastructure.davinci_resolve import ResolveError, send_clip_to_resolve
+                from infrastructure.davinci_resolve import (
+                    ResolveError,
+                    preview_send_target,
+                )
 
-                result = send_clip_to_resolve(
+                preview = preview_send_target(
                     fcpxml_path,
                     text_plus=text_plus_enabled,
-                    text_plus_max_fill_frames=text_plus_max_fill,
                 )
-                msg_lines = [
-                    f"✓ Bin {result.bin_name!r} に {result.timeline_name} を作成",
-                    f"  字幕: {'OK' if result.srt_imported else 'スキップ'}",
-                ]
-                if result.se_muted:
-                    muted = ", ".join(f"A{i}" for i in result.se_muted)
-                    msg_lines.append(f"  素材用 SE ミュート: {muted}")
-                if result.text_plus is not None:
-                    tp = result.text_plus
-                    suffix = " (subtitle 無効化済)" if tp.subtitle_disabled else ""
-                    if tp.video_track == 0:
-                        msg_lines.append(
-                            f"  Text+ 変換: 全件失敗 (空 track は削除){suffix}"
-                        )
-                    else:
-                        msg_lines.append(
-                            f"  Text+ 変換: V{tp.video_track} に "
-                            f"{tp.success}/{tp.success + tp.failed} 件配置{suffix}"
-                        )
-                elif text_plus_enabled:
-                    msg_lines.append(
-                        "  Text+ 変換: スキップ "
-                        "(TextffCut ビン or Caption_Default テンプレート未配置)"
-                    )
-                container.success("\n".join(msg_lines))
+                st.session_state[preview_state_key] = {
+                    "preview": preview,
+                    "text_plus": text_plus_enabled,
+                    "max_fill": text_plus_max_fill,
+                }
             except ResolveError as e:
-                container.error(f"Resolve 送信失敗:\n{e}")
-                logger.warning(f"DaVinci 送信失敗: {e}")
+                container.error(f"Resolve 接続失敗:\n{e}")
+                logger.warning(f"Resolve preview 失敗: {e}")
             except Exception as e:
                 container.error(f"予期しないエラー: {e}")
-                logger.exception("DaVinci 送信エラー")
+                logger.exception("Resolve preview エラー")
+
+    # Step 2: プレビュー表示 + 確認ボタン
+    if preview_state_key in st.session_state:
+        pdata = st.session_state[preview_state_key]
+        preview = pdata["preview"]
+        with container.container(border=True):
+            container.markdown("### 📋 送信プレビュー")
+            container.markdown(
+                f"- **取り込み先 bin:** `{preview.bin_name}`\n"
+                f"- **timeline 名:** `{preview.timeline_name}`\n"
+                f"- **project:** `{preview.project_name}`\n"
+                f"- **FCPXML:** `{preview.fcpxml_path.name}`\n"
+                f"- **SRT:** `{preview.srt_path.name if preview.srt_path else '(なし)'}`"
+            )
+            for w in preview.warnings:
+                container.warning(f"⚠ {w}")
+
+            confirm_cols = container.columns([1, 1])
+            if confirm_cols[0].button(
+                "✅ 確認して送信",
+                key=f"confirm_send_{ta_key}",
+                type="primary",
+            ):
+                try:
+                    from infrastructure.davinci_resolve import (
+                        ResolveError,
+                        send_clip_to_resolve,
+                    )
+
+                    result = send_clip_to_resolve(
+                        fcpxml_path,
+                        text_plus=pdata["text_plus"],
+                        text_plus_max_fill_frames=pdata["max_fill"],
+                    )
+                    msg_lines = [
+                        f"✓ Bin {result.bin_name!r} に {result.timeline_name} を作成",
+                        f"  字幕: {'OK' if result.srt_imported else 'スキップ'}",
+                    ]
+                    if result.se_muted:
+                        muted = ", ".join(f"A{i}" for i in result.se_muted)
+                        msg_lines.append(f"  素材用 SE ミュート: {muted}")
+                    if result.text_plus is not None:
+                        tp = result.text_plus
+                        suffix = " (subtitle 無効化済)" if tp.subtitle_disabled else ""
+                        if tp.video_track == 0:
+                            msg_lines.append(
+                                f"  Text+ 変換: 全件失敗 (空 track は削除){suffix}"
+                            )
+                        else:
+                            msg_lines.append(
+                                f"  Text+ 変換: V{tp.video_track} に "
+                                f"{tp.success}/{tp.success + tp.failed} 件配置{suffix}"
+                            )
+                    elif pdata["text_plus"]:
+                        msg_lines.append(
+                            "  Text+ 変換: スキップ "
+                            "(TextffCut ビン or Caption_Default テンプレート未配置)"
+                        )
+                    container.success("\n".join(msg_lines))
+                except ResolveError as e:
+                    container.error(f"Resolve 送信失敗:\n{e}")
+                    logger.warning(f"DaVinci 送信失敗: {e}")
+                except Exception as e:
+                    container.error(f"予期しないエラー: {e}")
+                    logger.exception("DaVinci 送信エラー")
+                finally:
+                    # 成功・失敗どちらでもプレビュー状態を消す
+                    del st.session_state[preview_state_key]
+            if confirm_cols[1].button("❌ キャンセル", key=f"cancel_send_{ta_key}"):
+                del st.session_state[preview_state_key]
+                st.rerun()
 
     # 過去の編集ログ概要
     logs = load_edit_log(base_dir)

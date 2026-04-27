@@ -103,6 +103,30 @@ class SendResult:
     text_plus: TextPlusResult | None = None
 
 
+@dataclass
+class SendPreview:
+    """送信前に取得する確認情報。実際の import は行わない。
+
+    Attributes:
+        project_name: 現在開かれているプロジェクト名
+        bin_name: 取り込み先となる現在の bin 名
+        timeline_name: 自動採番される新 timeline 名 (例: "00_0211_Clip01")
+        fcpxml_path: 送信予定の FCPXML パス
+        srt_path: 紐付く SRT (見つからなければ None)
+        text_plus_template_present: Text+ 変換用テンプレ (TextffCut bin +
+            Caption_Default) が Resolve 側に存在するか
+        warnings: ユーザーに見せる事前警告 (テンプレ未配置、bin 異常等)
+    """
+
+    project_name: str
+    bin_name: str
+    timeline_name: str
+    fcpxml_path: Path
+    srt_path: Path | None
+    text_plus_template_present: bool
+    warnings: list[str] = field(default_factory=list)
+
+
 class ResolveError(Exception):
     """Resolve 接続/操作エラー。"""
 
@@ -542,6 +566,105 @@ def convert_subtitles_to_text_plus(
     )
 
 
+def _resolve_srt_path(fcpxml_path: Path, srt_path: Path | None) -> Path | None:
+    """SRT パスを解決する (None なら同名 .srt を探す)。存在しなければ None。"""
+    candidate = srt_path if srt_path is not None else fcpxml_path.with_suffix(".srt")
+    return candidate.resolve() if candidate.exists() else None
+
+
+def _resolve_mmdd(fcpxml_path: Path, mmdd: str | None) -> str:
+    """MMDD を解決する。fmt 違反なら ResolveError。"""
+    if mmdd is None:
+        mmdd = _extract_mmdd_from_path(fcpxml_path)
+    if not mmdd or not re.match(r"^\d{4}$", mmdd):
+        raise ResolveError(
+            f"MMDD を抽出できません。動画ディレクトリ名が `YYYYMMDD_xxx_TextffCut` 形式か確認してください "
+            f"(path={fcpxml_path})"
+        )
+    return mmdd
+
+
+def _check_text_plus_template(
+    project,
+    bin_name: str,
+    template_name: str,
+) -> bool:
+    """Text+ 用テンプレ (指定 bin + Caption_Default) が存在するかチェック。"""
+    try:
+        media_pool = project.GetMediaPool()
+        root = media_pool.GetRootFolder()
+        if root is None:
+            return False
+        for sub in root.GetSubFolderList() or []:
+            if sub.GetName() == bin_name:
+                for clip in sub.GetClipList() or []:
+                    if clip.GetName() == template_name:
+                        return True
+                return False
+        return False
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def preview_send_target(
+    fcpxml_path: Path,
+    *,
+    srt_path: Path | None = None,
+    mmdd: str | None = None,
+    text_plus: bool = False,
+    text_plus_bin: str = TEXT_PLUS_DEFAULT_BIN,
+    text_plus_template: str = TEXT_PLUS_DEFAULT_TEMPLATE,
+) -> SendPreview:
+    """送信先 bin / 採番 timeline 名 / 警告を計算する (実際の import はしない)。
+
+    GUI / CLI で「送信前に何が起きるか」をユーザーに確認させるための情報取得。
+    Resolve への接続自体は必要 (現在の bin 名を取るため)。
+    """
+    fcpxml_path = fcpxml_path.resolve()
+    if not fcpxml_path.exists():
+        raise ResolveError(f"FCPXML が見つかりません: {fcpxml_path}")
+
+    resolved_srt = _resolve_srt_path(fcpxml_path, srt_path)
+    mmdd_resolved = _resolve_mmdd(fcpxml_path, mmdd)
+
+    resolve = connect_resolve()
+    project = resolve.GetProjectManager().GetCurrentProject()
+    if project is None:
+        raise ResolveError("Resolve でプロジェクトが開かれていません")
+    media_pool = project.GetMediaPool()
+    current = media_pool.GetCurrentFolder()
+    if current is None:
+        raise ResolveError("Media Pool の current folder が取得できません")
+
+    bin_name = current.GetName()
+    next_seq = _compute_next_seq(current, mmdd_resolved)
+    timeline_name = f"00_{mmdd_resolved}_Clip{next_seq:02d}"
+
+    warnings: list[str] = []
+    template_present = False
+    if text_plus:
+        template_present = _check_text_plus_template(
+            project, text_plus_bin, text_plus_template
+        )
+        if not template_present:
+            warnings.append(
+                f"Text+ 変換用テンプレ未配置 ({text_plus_bin}/{text_plus_template}) "
+                f"→ 送信は続行、Text+ 変換のみスキップ"
+            )
+    if resolved_srt is None:
+        warnings.append(f"SRT が見つかりません ({fcpxml_path.with_suffix('.srt').name})")
+
+    return SendPreview(
+        project_name=project.GetName(),
+        bin_name=bin_name,
+        timeline_name=timeline_name,
+        fcpxml_path=fcpxml_path,
+        srt_path=resolved_srt,
+        text_plus_template_present=template_present,
+        warnings=warnings,
+    )
+
+
 def send_clip_to_resolve(
     fcpxml_path: Path,
     *,
@@ -574,17 +697,8 @@ def send_clip_to_resolve(
     if not fcpxml_path.exists():
         raise ResolveError(f"FCPXML が見つかりません: {fcpxml_path}")
 
-    if srt_path is None:
-        srt_path = fcpxml_path.with_suffix(".srt")
-    srt_path = srt_path.resolve() if srt_path.exists() else None
-
-    if mmdd is None:
-        mmdd = _extract_mmdd_from_path(fcpxml_path)
-    if not mmdd or not re.match(r"^\d{4}$", mmdd):
-        raise ResolveError(
-            f"MMDD を抽出できません。動画ディレクトリ名が `YYYYMMDD_xxx_TextffCut` 形式か確認してください "
-            f"(path={fcpxml_path})"
-        )
+    srt_path = _resolve_srt_path(fcpxml_path, srt_path)
+    mmdd = _resolve_mmdd(fcpxml_path, mmdd)
 
     resolve = connect_resolve()
     project = resolve.GetProjectManager().GetCurrentProject()

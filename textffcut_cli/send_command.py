@@ -84,14 +84,66 @@ def _build_parser() -> argparse.ArgumentParser:
             "実用上ほぼ無制限). 小さくすると短い gap だけ埋める. 0 で Fill Gaps 無効化."
         ),
     )
+    parser.add_argument(
+        "-y",
+        "--yes",
+        action="store_true",
+        default=False,
+        help="プレビュー確認をスキップして即座に送信 (batch script 用)",
+    )
     return parser
+
+
+def _print_preview(preview) -> None:  # noqa: ANN001 (内部 helper、型は SendPreview)
+    print("━" * 56)
+    print(f"  📁 取り込み先 bin:  {preview.bin_name}")
+    print(f"  🎬 timeline 名:     {preview.timeline_name}")
+    print(f"  📺 project:        {preview.project_name}")
+    print(f"  📄 FCPXML:         {preview.fcpxml_path.name}")
+    print(f"  📝 SRT:            " + (preview.srt_path.name if preview.srt_path else "(なし)"))
+    if preview.warnings:
+        print()
+        for w in preview.warnings:
+            print(f"  ⚠ {w}")
+    print("━" * 56)
 
 
 def run_send(argv: list[str]) -> None:
     parser = _build_parser()
     args = parser.parse_args(argv)
 
-    from infrastructure.davinci_resolve import ResolveError, send_clip_to_resolve
+    from infrastructure.davinci_resolve import (
+        ResolveError,
+        preview_send_target,
+        send_clip_to_resolve,
+    )
+
+    # プレビュー取得 (実 import はしない、Resolve 接続だけ)
+    try:
+        preview = preview_send_target(
+            args.fcpxml,
+            srt_path=args.srt,
+            mmdd=args.mmdd,
+            text_plus=args.text_plus,
+            text_plus_bin=args.text_plus_bin,
+            text_plus_template=args.text_plus_template,
+        )
+    except ResolveError as e:
+        print(f"❌ {e}", file=sys.stderr)
+        sys.exit(1)
+
+    _print_preview(preview)
+
+    # 確認 prompt (--yes でスキップ)
+    if not args.yes:
+        try:
+            answer = input("取り込みますか? [Y/n]: ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print("\n中止しました")
+            sys.exit(130)
+        if answer in ("n", "no"):
+            print("中止しました")
+            sys.exit(0)
 
     try:
         result = send_clip_to_resolve(

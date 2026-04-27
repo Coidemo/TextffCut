@@ -34,3 +34,15 @@ class TestSendCommandArgparse:
         parser = _build_parser()
         args = parser.parse_args(["clip.fcpxml", "--text-plus-max-fill-frames", "1234"])
         assert isinstance(args.text_plus_max_fill_frames, int)
+
+    def test_yes_flag_default_false(self):
+        """--yes デフォルトは False (= 確認 prompt あり)。"""
+        parser = _build_parser()
+        args = parser.parse_args(["clip.fcpxml"])
+        assert args.yes is False
+
+    def test_yes_flag_short_and_long(self):
+        """-y と --yes が等価に動作する。"""
+        parser = _build_parser()
+        assert parser.parse_args(["clip.fcpxml", "-y"]).yes is True
+        assert parser.parse_args(["clip.fcpxml", "--yes"]).yes is True
