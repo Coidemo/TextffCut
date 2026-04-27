@@ -11,6 +11,7 @@ import base64
 import json
 import logging
 import os
+import re
 import tempfile
 from collections import Counter
 from collections.abc import Callable
@@ -577,12 +578,15 @@ def design_title_layout(
     raw = json.loads(content)
     design = _parse_design_json(raw)
     design = _snap_segments_to_word_boundaries(design)
+    # 句読点除去 (AI が指示に反して混入させた場合の保険)
+    design = _strip_punctuation_from_design(design)
 
-    # バリデーション: AIが文字を書き換えていないか確認
+    # バリデーション: AIが文字を書き換えていないか確認 (句読点除去後で比較)
     reconstructed = "".join(seg.text for line in design.lines for seg in line.segments)
-    if reconstructed != title:
+    expected = _strip_title_punctuation(title)
+    if reconstructed != expected:
         logger.warning(
-            f"AIがタイトル文字を変更しました (期待: {title!r}, 実際: {reconstructed!r})。フォールバック使用。"
+            f"AIがタイトル文字を変更しました (期待: {expected!r}, 実際: {reconstructed!r})。フォールバック使用。"
         )
         raise ValueError("AIがタイトル文字を変更しました")
 
@@ -845,12 +849,15 @@ def design_title_layout_candidates(
         try:
             design = _parse_design_json(design_raw)
             design = _snap_segments_to_word_boundaries(design)
+            # 句読点除去 (AI が指示に反して混入させた場合の保険)
+            design = _strip_punctuation_from_design(design)
             reconstructed = "".join(seg.text for line in design.lines for seg in line.segments)
             if not is_srt_mode:
-                # 既存モード: 文字一致チェック
-                if reconstructed != title:
+                # 既存モード: 文字一致チェック (句読点除去後で比較)
+                expected = _strip_title_punctuation(title)
+                if reconstructed != expected:
                     logger.warning(
-                        f"候補#{i+1}: AIがタイトル文字を変更 (期待: {title!r}, 実際: {reconstructed!r})。スキップ。"
+                        f"候補#{i+1}: AIがタイトル文字を変更 (期待: {expected!r}, 実際: {reconstructed!r})。スキップ。"
                     )
                     continue
             else:
@@ -1192,6 +1199,7 @@ def _scale_outline(base_width: int, font_size: int, ref_size: int = 90) -> int:
 
 def create_fallback_design(title: str) -> TitleImageDesign:
     """AIなしでデフォルトデザインを作成する（強調処理付き）"""
+    title = _strip_title_punctuation(title)
     parts = _split_title(title)
 
     # 最も長い行を見つけて強調する
@@ -1246,6 +1254,61 @@ _TITLE_SNAP_DISTANCE_RATIO = 0.3
 これを超える距離の snap は極端アンバランス (例 2/14 字) を生むため均等分割
 に fallback する。0.3 = 最悪でも約 70/30 程度の偏りで抑える設定。
 """
+
+_TITLE_PUNCTUATION_PATTERN = re.compile(r"[、。，．]+")
+"""タイトル画像から除去する句読点パターン (読点・句点のみ)。
+
+句読点は読みづらさと余白の不自然さを生むため一律除去する。
+- 対象: 、 (読点) / 。 (句点) / ， ． (全角カンマ・ピリオド = 句読点の代替表記)
+- 対象外: ! ? ！ ？ (約物、インパクト演出に有用) / 「」『』 (強調装飾) /
+  半角 , . (英単語や数値で使われる、例: GPT-4.1)
+"""
+
+
+def _strip_title_punctuation(text: str) -> str:
+    """タイトル文字列から句読点を除去する。"""
+    return _TITLE_PUNCTUATION_PATTERN.sub("", text)
+
+
+def _strip_punctuation_from_design(design: TitleImageDesign) -> TitleImageDesign:
+    """design 内の各 segment.text から句読点を除去する。
+
+    句読点だけのセグメント / 行は完全に削除する。除去結果が全空になる場合は
+    元 design をそのまま返す (安全側)。
+    """
+    new_lines: list[TitleLine] = []
+    for line in design.lines:
+        new_segments: list[TitleTextSegment] = []
+        for seg in line.segments:
+            stripped = _strip_title_punctuation(seg.text)
+            if not stripped:
+                continue
+            new_segments.append(
+                TitleTextSegment(
+                    text=stripped,
+                    font_size=seg.font_size,
+                    color=seg.color,
+                    gradient=seg.gradient,
+                    weight=seg.weight,
+                )
+            )
+        if new_segments:
+            new_lines.append(
+                TitleLine(
+                    segments=new_segments,
+                    outer_outline_color=line.outer_outline_color,
+                    outer_outline_width=line.outer_outline_width,
+                    inner_outline_color=line.inner_outline_color,
+                    inner_outline_width=line.inner_outline_width,
+                )
+            )
+    if not new_lines:
+        return design
+    return TitleImageDesign(
+        lines=new_lines,
+        line_spacing=design.line_spacing,
+        padding_top=design.padding_top,
+    )
 
 
 def _split_title(title: str, max_lines: int = 3) -> list[str]:
@@ -2050,10 +2113,13 @@ def design_title_layouts_batch(
         try:
             design = _parse_design_json(designs_raw[i])
             design = _snap_segments_to_word_boundaries(design)
-            # バリデーション
+            # 句読点除去 (AI が指示に反して混入させた場合の保険)
+            design = _strip_punctuation_from_design(design)
+            # バリデーション (句読点除去後で比較)
             reconstructed = "".join(seg.text for line in design.lines for seg in line.segments)
-            if reconstructed != title:
-                logger.warning(f"AIがタイトル文字を変更 (#{i+1}): {title!r} -> {reconstructed!r}")
+            expected = _strip_title_punctuation(title)
+            if reconstructed != expected:
+                logger.warning(f"AIがタイトル文字を変更 (#{i+1}): {expected!r} -> {reconstructed!r}")
                 results.append(None)
             else:
                 # Phase B: 1 line で閾値超なら強制分割
