@@ -236,12 +236,18 @@ class TestSnapLinesToWordBoundaries:
 class TestStripTitlePunctuation:
     def test_strip_japanese_punctuation(self):
         assert _strip_title_punctuation("これは、テスト。") == "これはテスト"
-        assert _strip_title_punctuation("本当！？") == "本当"
         assert _strip_title_punctuation("AIの真実，それは．") == "AIの真実それは"
 
-    def test_strip_halfwidth_punctuation(self):
-        assert _strip_title_punctuation("Hello, world.") == "Hello world"
-        assert _strip_title_punctuation("Why?") == "Why"
+    def test_exclamation_question_preserved(self):
+        """!? は句読点ではない (約物)。インパクト演出に有用なので残す。"""
+        assert _strip_title_punctuation("本当！？") == "本当！？"
+        assert _strip_title_punctuation("Why?") == "Why?"
+        assert _strip_title_punctuation("絶対!") == "絶対!"
+
+    def test_halfwidth_comma_period_preserved(self):
+        """半角 , . は英単語や数値で使われる (例 GPT-4.1) ため残す。"""
+        assert _strip_title_punctuation("GPT-4.1") == "GPT-4.1"
+        assert _strip_title_punctuation("Hello, world") == "Hello, world"
 
     def test_no_punctuation_unchanged(self):
         assert _strip_title_punctuation("親の不仲によるストレス") == "親の不仲によるストレス"
@@ -266,7 +272,7 @@ class TestStripPunctuationFromDesign:
         line = TitleLine(
             segments=[
                 TitleTextSegment(text="本当", color="#FF0000"),
-                TitleTextSegment(text="！？", color="#0000FF"),  # 句読点のみ
+                TitleTextSegment(text="、。", color="#0000FF"),  # 句読点のみ
                 TitleTextSegment(text="です", color="#00FF00"),
             ]
         )
@@ -279,7 +285,7 @@ class TestStripPunctuationFromDesign:
 
     def test_all_empty_returns_original(self):
         """全て句読点になった場合は元 design を返す (安全側)。"""
-        design = TitleImageDesign(lines=[self._line("、。!?")])
+        design = TitleImageDesign(lines=[self._line("、。，．")])
         result = _strip_punctuation_from_design(design)
         # 全消えで元 design がそのまま返る
         assert result is design
