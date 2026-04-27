@@ -13,6 +13,7 @@ from use_cases.ai.title_image_generator import (
     TitleLine,
     TitleTextSegment,
     _contrast_ratio,
+    _enforce_line_break,
     _ensure_contrast,
     _ensure_fit_height,
     _force_outline_style,
@@ -24,7 +25,6 @@ from use_cases.ai.title_image_generator import (
     _save_design_cache,
     _scale_outline,
     _shrink_particles,
-    _enforce_line_break,
     _snap_lines_to_word_boundaries,
     _split_title,
     create_fallback_design,
@@ -139,6 +139,28 @@ class TestSplitTitle:
         # 「ストレス」がどの行にも完全な形で含まれること = 分断されてない
         assert any("ストレス" in part for part in result), f"ストレスが分断されました: {result}"
 
+    def test_extreme_word_bounds_falls_back_to_equal_split(self, monkeypatch):
+        """中間点から離れすぎた snap 候補は均等分割に fallback すること。
+
+        word_bounds が極端に偏ってる場合 (例: [3, 14] for 16字) に snap すると
+        「親の」(2字) / 「不仲によるストレスへの対処法」(14字) のように極端
+        アンバランスを生むため、距離 guard で fallback する。
+        """
+        from core.japanese_line_break import JapaneseLineBreakRules
+
+        title = "親の不仲によるストレスへの対処法"  # 16 字
+        # 中間点 8 から離れた境界しか返さない mock
+        monkeypatch.setattr(
+            JapaneseLineBreakRules,
+            "get_word_boundaries",
+            classmethod(lambda cls, text: [3, 14]),
+        )
+        result = _split_title(title, max_lines=2)
+        assert "".join(result) == title  # 文字欠落なし
+        assert len(result) == 2
+        # snap せず均等分割 (8 字ずつ) になる
+        assert len(result[0]) == 8 and len(result[1]) == 8
+
 
 class TestSnapLinesToWordBoundaries:
     def _line(self, text: str) -> TitleLine:
@@ -151,20 +173,17 @@ class TestSnapLinesToWordBoundaries:
 
     def test_snap_word_break(self):
         """中途半端な分割を単語境界にスナップする。"""
-        design = TitleImageDesign(lines=[self._line("親の不仲によるス"), self._line("トレスへの対処法")])
+        design = TitleImageDesign(
+            lines=[self._line("親の不仲によるス"), self._line("トレスへの対処法")]
+        )
         result = _snap_lines_to_word_boundaries(design)
         recombined = "".join(seg.text for line in result.lines for seg in line.segments)
         assert recombined == "親の不仲によるストレスへの対処法"
-        # 「ストレス」が分断されていないこと
-        for line in result.lines:
-            line_text = "".join(seg.text for seg in line.segments)
-            # 行頭・行末で「ス」「ト」「レ」が単独に切れていないこと
-            assert (
-                not line_text.endswith("ス")
-                or "ストレス" in line_text
-                or "ストレスへの対処法" in line_text
-                or line_text == "親の不仲による"
-            )
+        # 全文に「ストレス」を含む以上、いずれか 1 行に完全な形で含まれること
+        line_texts = ["".join(seg.text for seg in line.segments) for line in result.lines]
+        assert any("ストレス" in t for t in line_texts), (
+            f"ストレスが行を跨いで分断されました: {line_texts}"
+        )
 
     def test_already_at_word_boundary_noop(self):
         """既に単語境界に乗ってる場合は変更しない。"""
@@ -184,11 +203,11 @@ class TestEnforceLineBreakEndToEnd:
         assert len(snapped.lines) >= 2
         recombined = "".join(seg.text for line in snapped.lines for seg in line.segments)
         assert recombined == title
-        for line in snapped.lines:
-            line_text = "".join(seg.text for seg in line.segments)
-            assert "ストレス" not in line_text or line_text.find("ストレス") + 4 <= len(
-                line_text
-            ), f"ストレスが分断: {[''.join(s.text for s in l.segments) for l in snapped.lines]}"
+        # 「ストレス」が含まれている以上、いずれか 1 行に完全な形で存在すること
+        line_texts = ["".join(seg.text for seg in line.segments) for line in snapped.lines]
+        assert any("ストレス" in t for t in line_texts), (
+            f"ストレスが行を跨いで分断: {line_texts}"
+        )
 
 
 class TestParseDesignJson:

@@ -509,11 +509,7 @@ def _center_design_in_target(
     centered.padding_top = max(0, design.padding_top + delta)
     logger.info(
         "縦中央配置: padding_top %d → %d (target_h=%d, content_h=%d, delta=%+d)",
-        design.padding_top,
-        centered.padding_top,
-        target_height,
-        content_h,
-        delta,
+        design.padding_top, centered.padding_top, target_height, content_h, delta,
     )
     return centered
 
@@ -633,9 +629,7 @@ def _enforce_line_break(design: TitleImageDesign) -> TitleImageDesign:
         )
     logger.info(
         "AI returned 1-line for %d-char title (>%d); force-split into %d lines",
-        len(text),
-        _TITLE_FORCE_BREAK_THRESHOLD,
-        len(new_lines),
+        len(text), _TITLE_FORCE_BREAK_THRESHOLD, len(new_lines),
     )
     return TitleImageDesign(
         lines=new_lines,
@@ -740,9 +734,7 @@ def _snap_lines_to_word_boundaries(design: TitleImageDesign) -> TitleImageDesign
 
     logger.info(
         "snap line boundaries: %s -> %s (text=%r)",
-        line_boundaries,
-        snapped,
-        full_text,
+        line_boundaries, snapped, full_text,
     )
     return TitleImageDesign(
         lines=new_lines,
@@ -808,7 +800,9 @@ def design_title_layout_candidates(
     生成する (= 元 title からの大幅書き換え許容)。バリデーションも緩和。
     """
     is_srt_mode = srt_text is not None
-    prompt_filename = "title_image_candidates_from_srt.md" if is_srt_mode else "title_image_candidates.md"
+    prompt_filename = (
+        "title_image_candidates_from_srt.md" if is_srt_mode else "title_image_candidates.md"
+    )
     prompt_path = Path(__file__).parent.parent.parent / "prompts" / prompt_filename
     if prompt_path.exists():
         prompt_template = prompt_path.read_text(encoding="utf-8")
@@ -1289,14 +1283,24 @@ def _split_title(title: str, max_lines: int = 3) -> list[str]:
     if word_bounds and n_lines >= 2:
         candidates = sorted(b for b in set(word_bounds) if 0 < b < len(title))
         if candidates:
+            # 中間点から len(title) * 0.3 を超えて離れた snap は極端アンバランスを
+            # 生むため均等分割に fallback (例: word_bounds=[3,14] for 16 字なら
+            # snap せず 8/8 字に均等分割。最悪でも 70/30 程度の偏りで抑える)
+            max_distance = max(1, int(len(title) * 0.3))
             ideals = [len(title) * (k + 1) // n_lines for k in range(n_lines - 1)]
+            chosen_set: set[int] = set()
             chosen: list[int] = []
             for ideal in ideals:
-                remaining = [b for b in candidates if b not in chosen]
+                remaining = [b for b in candidates if b not in chosen_set]
                 if not remaining:
                     break
                 nearest = min(remaining, key=lambda b: abs(b - ideal))
+                if abs(nearest - ideal) > max_distance:
+                    chosen.clear()
+                    chosen_set.clear()
+                    break
                 chosen.append(nearest)
+                chosen_set.add(nearest)
             chosen.sort()
             if chosen:
                 parts: list[str] = []
@@ -1784,7 +1788,9 @@ def generate_title_image(
     if target_size:
         design = _ensure_fit_height(design, target_size[1], width, height, font_dir, offset_y)
         # Phase C: target_size 範囲内で縦中央配置
-        design = _center_design_in_target(design, target_size[1], width, height, font_dir, offset_y)
+        design = _center_design_in_target(
+            design, target_size[1], width, height, font_dir, offset_y
+        )
 
     # 描画
     try:
