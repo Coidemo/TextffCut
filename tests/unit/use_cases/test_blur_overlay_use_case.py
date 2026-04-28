@@ -156,9 +156,11 @@ class TestBlurOverlayUseCaseCache:
 class TestBlurOverlaySidecarVersion:
     """SIDECAR_VERSION 定数の存在と整合性確認."""
 
-    def test_version_is_v2(self):
-        """v2 = 1 clip = 1 合成 PNG 方式. 旧 v1 は無効化される必要がある."""
-        assert BlurOverlayUseCase.SIDECAR_VERSION == 2
+    def test_version_is_v3(self):
+        """v3 = PNG ファイル名を {clip_id}_blur.png に変更 (title PNG 衝突回避).
+        旧 v1, v2 キャッシュは無効化される必要がある.
+        """
+        assert BlurOverlayUseCase.SIDECAR_VERSION == 3
 
 
 class TestRenderCompositeOverlayPng:

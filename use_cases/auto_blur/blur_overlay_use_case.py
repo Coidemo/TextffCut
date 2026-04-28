@@ -128,7 +128,9 @@ class BlurOverlayUseCase:
     # v1: 1 track = 1 PNG (track ごと別 PNG, 時間範囲で出し分け) — 同時刻に複数 track
     #     が存在する場合 DaVinci で 1 枚しか描画されないバグがあった
     # v2: 1 clip = 1 合成 PNG (全 track の bbox を 1 枚に OR 合成、clip 全範囲で常時表示)
-    SIDECAR_VERSION = 2
+    SIDECAR_VERSION = 3  # v3: PNG ファイル名を {clip_id}_blur.png に変更
+    # (旧 v1=track 1 PNG, v2={clip_id}.png, v3={clip_id}_blur.png — title PNG との
+    # name 衝突を avoid)
 
     def __init__(self, params: BlurOverlayParams | None = None) -> None:
         self.params = params or BlurOverlayParams()
@@ -249,7 +251,9 @@ class BlurOverlayUseCase:
         # 1 枚しか表示されないため. 時間で出したり消したりはしない.
         all_overlays: list[BlurOverlay] = []
         if tracks:
-            png_path = output_dir / f"{clip_id}.png"
+            # title_images/{clip_id}.png と同名にならないよう "_blur" suffix を付ける
+            # (DaVinci の <asset name="..."> 衝突回避、PR #151)
+            png_path = output_dir / f"{clip_id}_blur.png"
             bboxes_with_colors: list[tuple[int, int, int, int, tuple[int, int, int]]] = []
             for track in tracks:
                 ux1, uy1, ux2, uy2 = _track_union_bbox(track, self.params.padding)

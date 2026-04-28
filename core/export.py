@@ -294,6 +294,9 @@ class FCPXMLExporter:
                 asset_counter += 1
 
                 file_url = Path(png_path).resolve().as_uri()
+                # blur PNG は upstream (BlurOverlayUseCase v3) で
+                # "{clip_id}_blur.png" 命名で出力されるため、title_images/{clip_id}.png
+                # と name 属性が衝突しない (DaVinci の同名 asset 取りこぼし回避)
                 xml_content += (
                     f'        <asset duration="0/1s" id="{resource_id}" '
                     f'name="{_xml_attr(Path(png_path).name)}" start="0/1s" hasVideo="1" '
