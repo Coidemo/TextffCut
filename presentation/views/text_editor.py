@@ -869,13 +869,47 @@ class TextEditorView:
 
         if not isinstance(actual_result, DomainTranscriptionResult):
             # レガシー形式からドメインエンティティに変換
+            # words/chars も保持する（無音削除の word 救済 (_rescue_missing_words)
+            # が GUI 経路でも効くように）。元の dict のまま渡せば
+            # TranscriptionSegment.from_legacy_format が中で正規化する。
             segments = []
             if hasattr(actual_result, "segments"):
                 for seg in actual_result.segments:
                     if isinstance(seg, dict):
                         segments.append(seg)
                     else:
-                        segments.append({"text": seg.text, "start": seg.start, "end": seg.end})
+                        seg_dict: dict = {"text": seg.text, "start": seg.start, "end": seg.end}
+                        seg_words = getattr(seg, "words", None)
+                        if seg_words:
+                            seg_dict["words"] = [
+                                (
+                                    w
+                                    if isinstance(w, dict)
+                                    else {
+                                        "word": getattr(w, "word", ""),
+                                        "start": getattr(w, "start", 0.0),
+                                        "end": getattr(w, "end", 0.0),
+                                        "confidence": getattr(w, "confidence", None),
+                                    }
+                                )
+                                for w in seg_words
+                            ]
+                        seg_chars = getattr(seg, "chars", None)
+                        if seg_chars:
+                            seg_dict["chars"] = [
+                                (
+                                    c
+                                    if isinstance(c, dict)
+                                    else {
+                                        "char": getattr(c, "char", ""),
+                                        "start": getattr(c, "start", 0.0),
+                                        "end": getattr(c, "end", 0.0),
+                                        "confidence": getattr(c, "confidence", None),
+                                    }
+                                )
+                                for c in seg_chars
+                            ]
+                        segments.append(seg_dict)
             actual_result = DomainTranscriptionResult(
                 id=f"gui_{Path(video_path).stem}",
                 video_id=video_path,
@@ -897,7 +931,6 @@ class TextEditorView:
                 SuggestAndExportRequest,
                 SuggestAndExportUseCase,
             )
-            from use_cases.ai.generate_clip_suggestions import GenerateClipSuggestionsUseCase
 
             # CLI同等の品質モデル設定（gpt-4.1-mini使用時はgpt-4.1に自動アップグレード）
             ai_model = "gpt-4.1-mini"
@@ -923,295 +956,52 @@ class TextEditorView:
             with st.status("AI自動切り抜きを実行中...", expanded=True) as status:
                 progress_text = st.empty()
 
-                # Phase 1: 話題検出
-                progress_text.write("🔍 話題を検出中...")
-                gen_use_case = GenerateClipSuggestionsUseCase(gateway)
-                suggestions = gen_use_case.execute(
+                def _progress_reporter(_pct: float, message: str) -> None:
+                    progress_text.write(message)
+
+                request = SuggestAndExportRequest(
+                    video_path=video_path_obj,
                     transcription=actual_result,
+                    ai_model=ai_model,
                     num_candidates=num_candidates,
                     min_duration=min_duration,
                     max_duration=max_duration,
-                )
-                detection = gen_use_case.last_detection_result
-                total = len(suggestions)
-
-                if total == 0:
-                    status.update(label="⚠️ 切り抜き候補が見つかりませんでした", state="error", expanded=False)
-                    return
-
-                progress_text.write(f"✅ {total}件の話題を検出")
-
-                # Phase 2: 無音削除
-                if remove_silence:
-                    video_name = video_path_obj.stem
-                    base_dir = video_path_obj.parent / f"{video_name}_TextffCut"
-                    for i, suggestion in enumerate(suggestions):
-                        progress_text.write(f"🔇 無音削除中... ({i + 1}/{total})")
-                        use_case._apply_silence_removal(
-                            suggestion, video_path_obj, base_dir, transcription=actual_result
-                        )
-
-                # Phase 3.5: 速度変更
-                actual_video_path = video_path_obj
-
-                if speed != 1.0:
-                    from config import Config
-                    from core.video import VideoProcessor
-
-                    speed_label = f"{round(speed, 1)}x"
-                    progress_text.write(f"⚡ {speed_label}速度変更中...")
-                    video_name = video_path_obj.stem
-                    base_dir = video_path_obj.parent / f"{video_name}_TextffCut"
-                    vp = VideoProcessor(Config())
-                    speed_path = base_dir / f"source_{speed_label}.mp4"
-                    vp.create_speed_changed_video(str(actual_video_path), str(speed_path), round(speed, 2))
-                    actual_video_path = speed_path
-
-                    # 全候補のtime_rangesを速度に合わせて調整（FFmpegと同じ丸め値を使用）
-                    actual_speed = round(speed, 2)
-                    for suggestion in suggestions:
-                        suggestion.time_ranges = [
-                            (s / actual_speed, e / actual_speed) for s, e in suggestion.time_ranges
-                        ]
-                        suggestion.total_duration = sum(e - s for s, e in suggestion.time_ranges)
-                    progress_text.write(f"✅ {speed_label}速度変更完了")
-
-                video_name = video_path_obj.stem
-                base_dir = video_path_obj.parent / f"{video_name}_TextffCut"
-
-                # Phase 4: FCPXML + SRT 生成
-                fcpxml_dir = base_dir / "fcpxml"
-                fcpxml_dir.mkdir(parents=True, exist_ok=True)
-
-                # メディア素材検出（タイトル画像のframe色抽出でも再利用）
-                from utils.media_asset_detector import detect_media_assets as _detect
-
-                media_config = _detect(
-                    video_path_obj,
+                    remove_silence=remove_silence,
+                    generate_srt=generate_srt,
+                    preset_dir=video_path_obj.parent / "preset",
                     enable_frame=enable_frame,
                     enable_bgm=enable_bgm,
                     enable_se=enable_se,
-                )
-                if media_config.has_any:
-                    progress_text.write(f"🎨 {media_config.summary()}")
-
-                # Phase 3.6: SRT 字幕を先行生成 (Phase A: タイトル画像 AI が SRT 内容を
-                # 踏まえてタイトルを生成するため、Phase 6 から前出ししている。CLI 経路の
-                # suggest_and_export.py の Phase 5.6 と同じ構造。)
-                from use_cases.ai.suggest_and_export import sanitize_filename
-
-                srt_paths_list: list[Path | None] = [None] * total
-                srt_failed_count = 0
-                if generate_srt:
-                    from use_cases.ai.srt_subtitle_generator import generate_srt as _gen_srt
-
-                    progress_text.write(f"📝 SRT 字幕生成中... ({total}件)")
-                    for i, suggestion in enumerate(suggestions):
-                        sanitized = sanitize_filename(suggestion.title)
-                        srt_path = fcpxml_dir / f"{i+1:02d}_{sanitized}.srt"
-                        try:
-                            result = _gen_srt(
-                                suggestion=suggestion,
-                                transcription=actual_result,
-                                output_path=srt_path,
-                                speed=float(speed),
-                            )
-                            if result:
-                                srt_paths_list[i] = result
-                            else:
-                                srt_failed_count += 1
-                        except Exception as e:  # noqa: BLE001
-                            srt_failed_count += 1
-                            logger.warning(f"SRT 先行生成失敗 (#{i+1}): {e}")
-                    if srt_failed_count > 0:
-                        progress_text.write(
-                            f"⚠️ SRT: {total - srt_failed_count}/{total} 件成功 "
-                            f"(失敗 clip はタイトル画像が title ベース fallback)"
-                        )
-
-                # Phase 3.7: タイトル画像生成（バッチ1回のAI呼び出し、Phase A: SRT 渡す）
-                title_image_paths: dict[int, Path] = {}
-                if enable_title_image:
-                    from use_cases.ai.title_image_generator import generate_title_images_batch
-
-                    titles_dir = base_dir / "title_images"
-
-                    frame_path_for_title = None
-                    if media_config.overlay_settings:
-                        fp = media_config.overlay_settings.get("frame_path")
-                        if fp:
-                            frame_path_for_title = Path(fp)
-
-                    font_dir = video_path_obj.parent / "preset" / "fonts"
-                    if not font_dir.exists():
-                        font_dir = None
-
-                    progress_text.write(f"🖼 タイトル画像生成中... ({total}件)")
-                    title_image_paths = generate_title_images_batch(
-                        suggestions=suggestions,
-                        output_dir=titles_dir,
-                        orientation=timeline_resolution,
-                        client=gateway.client,
-                        model=gateway.model,
-                        font_dir=font_dir,
-                        frame_path=frame_path_for_title,
-                        sanitize_fn=sanitize_filename,
-                        target_size=title_target_size,
-                        offset_y=title_offset_y,
-                        srt_paths=srt_paths_list,
-                    )
-                    failed_count = total - len(title_image_paths)
-                    if failed_count > 0:
-                        progress_text.write(f"⚠️ タイトル画像: {len(title_image_paths)}枚成功、{failed_count}枚失敗")
-                    else:
-                        progress_text.write(f"✅ タイトル画像: {len(title_image_paths)}枚生成完了")
-
-                # Phase 3.8: アンカー自動検出
-                actual_anchor = anchor
-                logger.info(
-                    "アンカー自動検出条件: auto_anchor=%s, timeline=%s, anchor=%s",
-                    auto_anchor,
-                    timeline_resolution,
-                    anchor,
-                )
-                if auto_anchor and timeline_resolution == "vertical" and anchor == (0.0, 0.0):
-                    try:
-                        from use_cases.ai.auto_anchor_detector import detect_anchor as _detect_anchor, anchor_to_fcpxml
-
-                        progress_text.write("📍 アンカー位置を自動検出中...")
-                        # 最初の候補の中間時刻をフレーム抽出点に使用
-                        _frame_t = 5.0
-                        if suggestions and suggestions[0].time_ranges:
-                            _first_range = suggestions[0].time_ranges[0]
-                            _frame_t = (_first_range[0] + _first_range[1]) / 2
-                        anchor_result = _detect_anchor(
-                            video_path=video_path_obj,
-                            client=gateway.client,
-                            frame_time=_frame_t,
-                        )
-                        logger.info(
-                            "アンカー検出結果: frame_t=%.1fs, AI=(%.3f, %.3f), desc=%s",
-                            _frame_t,
-                            anchor_result.anchor_x,
-                            anchor_result.anchor_y,
-                            anchor_result.description,
-                        )
-                        from core.video import VideoInfo
-
-                        try:
-                            vi = VideoInfo.from_file(str(video_path_obj))
-                            src_w, src_h = vi.width, vi.height
-                        except Exception:
-                            logger.warning("VideoInfo取得失敗、デフォルト1920x1080を使用")
-                            src_w, src_h = 1920, 1080
-                        actual_anchor = anchor_to_fcpxml(
-                            anchor_result.anchor_x,
-                            anchor_result.anchor_y,
-                            src_w,
-                            src_h,
-                            scale,
-                        )
-                        progress_text.write(
-                            f"✅ アンカー検出: ({actual_anchor[0]:.1f}, {actual_anchor[1]:.1f}) — {anchor_result.description}"
-                        )
-                    except Exception as e:
-                        logger.error("アンカー自動検出エラー: %s", e, exc_info=True)
-                        progress_text.write(f"⚠️ アンカー自動検出スキップ: {e}")
-
-                # Phase 3.9: 動画内テキスト塗りつぶしオーバーレイ PNG 生成 (clip 単位)
-                blur_overlays_per_clip: dict[int, list[dict]] = {}
-                _enable_blur_overlay = st.session_state.get("ai_clip_blur_overlay", True)
-                if _enable_blur_overlay:
-                    try:
-                        from use_cases.auto_blur.blur_overlay_use_case import (
-                            BlurOverlayUseCase,
-                            is_apple_silicon,
-                        )
-
-                        if is_apple_silicon():
-                            blur_uc = BlurOverlayUseCase()
-                            blur_dir = base_dir / "blur_overlays"
-                            for i, suggestion in enumerate(suggestions, 1):
-                                sanitized = sanitize_filename(suggestion.title)
-                                clip_id = f"{i:02d}_{sanitized}"
-                                progress_text.write(f"🔒 塗りつぶし overlay 生成中... ({i}/{total})")
-                                try:
-                                    result = blur_uc.execute(
-                                        video_path=actual_video_path,
-                                        clip_id=clip_id,
-                                        time_ranges=suggestion.time_ranges,
-                                        output_dir=blur_dir,
-                                    )
-                                    blur_overlays_per_clip[i] = [ov.to_dict() for ov in result.overlays]
-                                except Exception as e:  # noqa: BLE001
-                                    logger.warning(f"blur overlay 生成失敗 ({clip_id}): {e}")
-                    except Exception as e:  # noqa: BLE001
-                        logger.warning(f"blur overlay 全体スキップ: {e}")
-
-                exported_files: list[Path] = []
-                for i, suggestion in enumerate(suggestions, 1):
-                    progress_text.write(f"📄 FCPXML生成中... ({i}/{total})")
-                    sanitized = sanitize_filename(suggestion.title)
-
-                    # AI SE配置を計算（SEファイルがある場合）
-                    ai_se_placements = None
-                    if enable_se and media_config and media_config.additional_audio_settings:
-                        progress_text.write(f"🔊 AI SE配置中... ({i}/{total})")
-                        ai_se_placements = use_case._compute_ai_se_placements(
-                            suggestion=suggestion,
-                            transcription=actual_result,
-                            media_config=media_config,
-                            ai_model=gateway.model,
-                            speed=float(speed),
-                        )
-
-                    title_path = title_image_paths.get(i)
-                    title_settings = None
-                    if title_path:
-                        title_settings = {"title_path": str(title_path)}
-                    fcpxml_path = fcpxml_dir / f"{i:02d}_{sanitized}.fcpxml"
-                    success = use_case._export_fcpxml(
-                        suggestion,
-                        actual_video_path,
-                        fcpxml_path,
-                        media_config,
-                        scale=scale,
-                        anchor=actual_anchor,
-                        timeline_resolution=timeline_resolution,
-                        title_settings=title_settings,
-                        ai_se_placements=ai_se_placements,
-                        blur_overlays=blur_overlays_per_clip.get(i),
-                    )
-                    if success:
-                        exported_files.append(fcpxml_path)
-
-                    # SRT は Phase 3.6 で先行生成済 (Phase A: タイトル画像に渡すため)
-                    if generate_srt and srt_paths_list[i - 1] is not None:
-                        exported_files.append(srt_paths_list[i - 1])
-
-                # キャッシュ保存
-                cache_dir = base_dir / "clip_suggestions"
-                cache_dir.mkdir(parents=True, exist_ok=True)
-                use_case._save_cache(
-                    suggestions,
-                    detection,
-                    cache_dir / f"{detection.model_used}.json",
                     speed=float(speed),
+                    scale=scale,
+                    anchor=anchor,
+                    timeline_resolution=timeline_resolution,
+                    enable_title_image=enable_title_image,
+                    title_target_size=title_target_size,
+                    title_offset_y=title_offset_y,
+                    auto_anchor=auto_anchor,
+                    enable_blur_overlay=st.session_state.get("ai_clip_blur_overlay", True),
+                    progress_reporter=_progress_reporter,
                 )
+                exec_result = use_case.execute(request)
+
+                if not exec_result.suggestions:
+                    status.update(label="⚠️ 切り抜き候補が見つかりませんでした", state="error", expanded=False)
+                    return
+
+                total = len(exec_result.suggestions)
+                if exec_result.srt_failed_count > 0:
+                    progress_text.write(
+                        f"⚠️ SRT: {total - exec_result.srt_failed_count}/{total} 件成功 "
+                        "(失敗 clip はタイトル画像が title ベース fallback)"
+                    )
 
                 status.update(label=f"✅ {total}件の切り抜きを生成完了", state="complete", expanded=False)
 
             # 結果をセッションに保存
-            cost_jpy = detection.estimated_cost_usd * 150
             st.session_state["ai_clip_result"] = {
-                "suggestions": [
-                    {
-                        "title": s.title,
-                        "duration": s.total_duration,
-                    }
-                    for s in suggestions
-                ],
-                "output_dir": str(fcpxml_dir),
+                "suggestions": [{"title": s.title, "duration": s.total_duration} for s in exec_result.suggestions],
+                "output_dir": str(exec_result.output_dir),
             }
             st.rerun()
 
