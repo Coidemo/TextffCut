@@ -62,7 +62,7 @@ def build_gateway(
     """
     overrides: dict[str, str] = {}
     if quality_model and quality_model != ai_model:
-        overrides = {method: quality_model for method in QUALITY_OVERRIDE_METHODS}
+        overrides = dict.fromkeys(QUALITY_OVERRIDE_METHODS, quality_model)
     return OpenAIClipSuggestionGateway(
         api_key=api_key, model=ai_model, model_overrides=overrides
     )
