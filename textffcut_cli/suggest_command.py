@@ -56,10 +56,13 @@ def build_suggest_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--quality-model",
-        default=None,
+        default="gpt-4.1",
         choices=["gpt-4.1-mini", "gpt-4.1"],
         metavar="QUALITY_MODEL",
-        help="品質評価用AIモデル（デフォルト: gpt-4.1に自動アップグレード）",
+        help=(
+            "品質評価用 AI モデル（デフォルト: gpt-4.1）。"
+            "ai-model と同じ値なら override 無効（全 sub-step が ai-model）。"
+        ),
     )
     parser.add_argument(
         "--num",
@@ -330,40 +333,20 @@ def _process_single_video(
     console.print(f"\n[bold]🤖 AI切り抜き候補を生成中...[/]")
     speed_info = f" | 速度: {args.speed}x" if args.speed != 1.0 else ""
 
-    # 品質評価モデルの決定
-    quality_model = args.quality_model
-    if quality_model is None and args.ai_model == "gpt-4.1-mini":
-        quality_model = "gpt-4.1"  # デフォルト自動アップグレード
-
-    # model_overrides構築（全判定系メソッドに適用）
-    model_overrides = {}
-    if quality_model and quality_model != args.ai_model:
-        for method in [
-            "detect_topics",
-            "evaluate_clip_quality",
-            "trim_clips",
-            "select_best_clip",
-            "judge_segment_relevance",
-            "refine_topic_boundary",
-            "find_core_and_conclusion",
-        ]:
-            model_overrides[method] = quality_model
-
-    quality_info = f" | 品質評価: {quality_model}" if model_overrides else ""
+    # gateway 構築 (build_gateway helper で GUI/CLI 統一、issue #153)
+    quality_info = f" | 品質評価: {args.quality_model}" if args.quality_model != args.ai_model else ""
     console.print(f"  モデル: {args.ai_model}{quality_info} | 候補数: {args.num}{speed_info}")
 
-    from infrastructure.external.gateways.openai_clip_suggestion_gateway import (
-        OpenAIClipSuggestionGateway,
-    )
+    from infrastructure.external.gateways.openai_clip_suggestion_gateway import build_gateway
     from use_cases.ai.suggest_and_export import (
         SuggestAndExportRequest,
         SuggestAndExportUseCase,
     )
 
-    gateway = OpenAIClipSuggestionGateway(
+    gateway = build_gateway(
         api_key=api_key,
-        model=args.ai_model,
-        model_overrides=model_overrides,
+        ai_model=args.ai_model,
+        quality_model=args.quality_model,
     )
     use_case = SuggestAndExportUseCase(gateway=gateway)
 
@@ -397,6 +380,7 @@ def _process_single_video(
         video_path=video_path.resolve(),
         transcription=transcription,
         ai_model=args.ai_model,
+        quality_model=args.quality_model,
         num_candidates=args.num,
         min_duration=args.min_duration,
         max_duration=args.max_duration,

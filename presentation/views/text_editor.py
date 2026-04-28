@@ -925,30 +925,20 @@ class TextEditorView:
 
         try:
             from infrastructure.external.gateways.openai_clip_suggestion_gateway import (
-                OpenAIClipSuggestionGateway,
+                build_gateway,
             )
             from use_cases.ai.suggest_and_export import (
                 SuggestAndExportRequest,
                 SuggestAndExportUseCase,
             )
 
-            # CLI同等の品質モデル設定（gpt-4.1-mini使用時はgpt-4.1に自動アップグレード）
+            # CLI と統一された gateway 構築 (issue #153 対策)。
+            # ai_model=mini で sub-step だけ gpt-4.1 にアップグレードする
+            # 既存の挙動は build_gateway + Request.quality_model のデフォルトで再現される。
             ai_model = "gpt-4.1-mini"
             quality_model = "gpt-4.1"
-            model_overrides = {}
-            if quality_model != ai_model:
-                for method in [
-                    "detect_topics",
-                    "evaluate_clip_quality",
-                    "trim_clips",
-                    "select_best_clip",
-                    "judge_segment_relevance",
-                    "refine_topic_boundary",
-                    "find_core_and_conclusion",
-                ]:
-                    model_overrides[method] = quality_model
-            gateway = OpenAIClipSuggestionGateway(
-                api_key=api_key, model="gpt-4.1-mini", model_overrides=model_overrides
+            gateway = build_gateway(
+                api_key=api_key, ai_model=ai_model, quality_model=quality_model
             )
 
             use_case = SuggestAndExportUseCase(gateway=gateway)
@@ -963,6 +953,7 @@ class TextEditorView:
                     video_path=video_path_obj,
                     transcription=actual_result,
                     ai_model=ai_model,
+                    quality_model=quality_model,
                     num_candidates=num_candidates,
                     min_duration=min_duration,
                     max_duration=max_duration,

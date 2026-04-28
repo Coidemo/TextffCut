@@ -31,6 +31,43 @@ MODEL_PRICING = {
     "gpt-4.1": {"input": 2.00, "output": 8.00},
 }
 
+# 品質に直結する sub-step メソッド一覧。
+# `--quality-model` を `--ai-model` と別に指定すると、ここに列挙された method
+# だけ高品質モデルで実行する (cost と quality のバランス調整用)。
+# 一覧外の method (= タイトル画像生成、SE 配置等) は ai_model のまま。
+QUALITY_OVERRIDE_METHODS = (
+    "detect_topics",
+    "evaluate_clip_quality",
+    "trim_clips",
+    "select_best_clip",
+    "judge_segment_relevance",
+    "refine_topic_boundary",
+    "find_core_and_conclusion",
+)
+
+
+def build_gateway(
+    api_key: str,
+    ai_model: str = "gpt-4.1-mini",
+    quality_model: str | None = None,
+) -> "OpenAIClipSuggestionGateway":
+    """SuggestAndExportRequest 互換の引数から gateway を構築する。
+
+    `quality_model` が `ai_model` と異なる (かつ None でない) 場合、
+    `QUALITY_OVERRIDE_METHODS` で列挙された method だけ `quality_model`
+    で実行されるよう `model_overrides` を組み立てる。
+
+    GUI と CLI の両方からこの helper を呼ぶことで、gateway 構築ロジックの
+    drift を防止する (issue #153 対策)。
+    """
+    overrides: dict[str, str] = {}
+    if quality_model and quality_model != ai_model:
+        overrides = dict.fromkeys(QUALITY_OVERRIDE_METHODS, quality_model)
+    return OpenAIClipSuggestionGateway(
+        api_key=api_key, model=ai_model, model_overrides=overrides
+    )
+
+
 DEFAULT_PROMPT_PATH = Path(__file__).parent.parent.parent.parent / "prompts" / "clip_suggestions_v2.md"
 
 
