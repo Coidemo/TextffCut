@@ -102,13 +102,28 @@ class SuggestAndExportUseCase:
         detection = use_case.last_detection_result
         _phase_times["Phase1-3 話題検出+候補生成+AI選定"] = _time.time() - _t0
         total = len(suggestions)
-        _report(0.30, f"✅ {total}件の話題を検出")
 
         # 出力ディレクトリ
         video_name = request.video_path.stem
         base_dir = request.video_path.parent / f"{video_name}_TextffCut"
         fcpxml_dir = base_dir / "fcpxml"
         fcpxml_dir.mkdir(parents=True, exist_ok=True)
+
+        # 候補 0 件: 後段 Phase (空 cache 保存 / 空 list で AI 呼び出し / 不要な
+        # メディア検出) を一切スキップして早期 return
+        if total == 0:
+            _report(1.0, "⚠️ 切り抜き候補が見つかりませんでした")
+            logger.warning("候補 0 件: 後段 Phase をスキップ")
+            return SuggestAndExportResult(
+                suggestions=[],
+                exported_files=[],
+                output_dir=fcpxml_dir,
+                detection_processing_time=detection.processing_time,
+                detection_cost_usd=detection.estimated_cost_usd,
+                srt_failed_count=0,
+            )
+
+        _report(0.30, f"✅ {total}件の話題を検出")
 
         _t3 = _time.time()
         # Phase 5: 無音削除（最終候補にのみ適用）
@@ -161,7 +176,10 @@ class SuggestAndExportUseCase:
             enable_se=request.enable_se,
         )
         if media_config.has_any:
-            logger.info(media_config.summary())
+            summary = media_config.summary()
+            logger.info(summary)
+            # GUI で素材検出結果を見える化 (preset_dir 解決ミス等の sanity check)
+            _report(0.50, f"🎨 {summary}")
 
         _phase_times["Phase5 無音削除+速度変更"] = _time.time() - _t3
         _t4 = _time.time()
@@ -228,6 +246,14 @@ class SuggestAndExportUseCase:
                     offset_y=request.title_offset_y,
                     srt_paths=srt_paths_list,
                 )
+                # 部分失敗の可視化 (例: AI rate limit で N/total 件成功)
+                title_failed = total - len(title_image_paths)
+                if title_failed > 0:
+                    _report(
+                        0.68,
+                        f"⚠️ タイトル画像: {len(title_image_paths)}/{total} 成功 ({title_failed} 件失敗)",
+                    )
+                    logger.warning(f"タイトル画像 partial failure: {title_failed}/{total}")
 
             except Exception as e:
                 logger.warning(f"タイトル画像生成をスキップ: {e}")
@@ -265,6 +291,10 @@ class SuggestAndExportUseCase:
                     request.scale,
                 )
                 logger.info("アンカー自動検出: %s — %s", actual_anchor, result.description)
+                _report(
+                    0.78,
+                    f"✅ アンカー検出: ({actual_anchor[0]:.1f}, {actual_anchor[1]:.1f}) — {result.description}",
+                )
             except Exception as e:
                 logger.warning("アンカー自動検出スキップ: %s", e)
 
@@ -316,12 +346,14 @@ class SuggestAndExportUseCase:
         exported_files: list[Path] = []
         for i, suggestion in enumerate(suggestions, 1):
             sanitized = sanitize_filename(suggestion.title)
-            _report(0.90, f"📄 FCPXML 生成中... ({i}/{total})")
+            # 進捗を 0.85〜0.99 のレンジに per-clip でマップ (collision 回避 + 進む見え方)
+            clip_progress = 0.85 + 0.14 * (i / total) if total else 0.85
+            _report(clip_progress, f"📄 FCPXML 生成中... ({i}/{total})")
 
             # AI SE配置を計算（SEファイルがある場合）
             ai_se_placements = None
             if request.enable_se and media_config and media_config.additional_audio_settings:
-                _report(0.90, f"🔊 AI SE配置中... ({i}/{total})")
+                _report(clip_progress, f"🔊 AI SE配置中... ({i}/{total})")
                 ai_se_placements = self._compute_ai_se_placements(
                     suggestion=suggestion,
                     transcription=request.transcription,

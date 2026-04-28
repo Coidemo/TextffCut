@@ -968,8 +968,8 @@ class TextEditorView:
                     max_duration=max_duration,
                     remove_silence=remove_silence,
                     generate_srt=generate_srt,
-                    # preset_dir=None で use_case の _resolve_preset_dir に
-                    # 委譲 (videos/ と並列の preset/ を自動解決)
+                    # preset_dir=None で utils.media_asset_detector._resolve_preset_dir
+                    # に委譲 (videos/ と並列の preset/ を自動解決)
                     preset_dir=None,
                     enable_frame=enable_frame,
                     enable_bgm=enable_bgm,

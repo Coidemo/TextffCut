@@ -176,6 +176,33 @@ def test_progress_reporter_optional(stub_gateway, tmp_path):
     assert result.suggestions == []
 
 
+def test_progress_reporter_pct_monotonic(stub_gateway, tmp_path):
+    """progress_reporter の pct が単調非減少であること (UI バー後付け時の互換性)。
+
+    後で誰かが `_report(0.30, ...)` を `_report(0.50, ...)` の後に
+    misorder すると気付ける regression test。
+    """
+    use_case = SuggestAndExportUseCase(gateway=stub_gateway)
+    reporter = MagicMock()
+    request = _build_request(tmp_path, progress_reporter=reporter)
+
+    patches = _patch_pipeline_internals(use_case, suggestions=[])
+    for p in patches:
+        p.start()
+    try:
+        use_case.execute(request)
+    finally:
+        for p in patches:
+            p.stop()
+
+    pcts = [call.args[0] for call in reporter.call_args_list]
+    # 単調非減少 (途中の per-clip ループで同じ pct を繰り返すのは許容)
+    for i in range(len(pcts) - 1):
+        assert pcts[i] <= pcts[i + 1], (
+            f"pct が逆行: index {i} ({pcts[i]}) → {i+1} ({pcts[i+1]}) / 全列={pcts}"
+        )
+
+
 def test_progress_reporter_exception_swallowed(stub_gateway, tmp_path, caplog):
     """progress_reporter が raise しても本処理は継続する。"""
     use_case = SuggestAndExportUseCase(gateway=stub_gateway)
