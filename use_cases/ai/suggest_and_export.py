@@ -32,6 +32,10 @@ class SuggestAndExportRequest:
     video_path: Path
     transcription: TranscriptionResult
     ai_model: str = "gpt-4.1-mini"
+    # 品質重視 sub-step (detect_topics 等、QUALITY_OVERRIDE_METHODS 参照) を
+    # 別モデルに切り替える設定。デフォは gpt-4.1 で、CLI/GUI 両方が同じ品質に
+    # なるよう揃えてある (issue #153)。`None` または ai_model と同じ値なら override 無効。
+    quality_model: str | None = "gpt-4.1"
     num_candidates: int = 5
     min_duration: int = 30
     max_duration: int = 60
