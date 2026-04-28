@@ -15,6 +15,7 @@ import json
 import logging
 import re
 import unicodedata
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -52,6 +53,9 @@ class SuggestAndExportRequest:
     title_offset_y: int = 0  # タイトル表示位置の垂直オフセット（px、正=下方向）
     auto_anchor: bool = False  # 被写体位置からアンカーを自動検出（vertical時のみ有効）
     enable_blur_overlay: bool = True  # 動画内テキスト塗りつぶし PNG オーバーレイ生成 (FCPXML V2 lane)
+    # GUI/CLI 共通の進捗 callback。シグネチャは (progress 0.0-1.0, message) で
+    # core/video.py::remove_silence_new 等と同型。callback 内例外は本処理を止めない。
+    progress_reporter: Callable[[float, str], None] | None = None
 
 
 @dataclass
@@ -75,7 +79,17 @@ class SuggestAndExportUseCase:
         _phase_times: dict[str, float] = {}
         _t0 = _time.time()
 
+        def _report(pct: float, message: str) -> None:
+            """progress_reporter を安全に呼ぶ (callback 内例外は本処理を止めない)。"""
+            if request.progress_reporter is None:
+                return
+            try:
+                request.progress_reporter(pct, message)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(f"progress_reporter callback で例外: {exc}")
+
         # Phase 1-3: AI話題検出 → 力任せ候補生成 → AI選定
+        _report(0.0, "🔍 話題を検出中...")
         use_case = GenerateClipSuggestionsUseCase(self.gateway)
         suggestions = use_case.execute(
             transcription=request.transcription,
@@ -87,6 +101,7 @@ class SuggestAndExportUseCase:
 
         detection = use_case.last_detection_result
         _phase_times["Phase1-3 話題検出+候補生成+AI選定"] = _time.time() - _t0
+        total = len(suggestions)
 
         # 出力ディレクトリ
         video_name = request.video_path.stem
@@ -94,10 +109,27 @@ class SuggestAndExportUseCase:
         fcpxml_dir = base_dir / "fcpxml"
         fcpxml_dir.mkdir(parents=True, exist_ok=True)
 
+        # 候補 0 件: 後段 Phase (空 cache 保存 / 空 list で AI 呼び出し / 不要な
+        # メディア検出) を一切スキップして早期 return
+        if total == 0:
+            _report(1.0, "⚠️ 切り抜き候補が見つかりませんでした")
+            logger.warning("候補 0 件: 後段 Phase をスキップ")
+            return SuggestAndExportResult(
+                suggestions=[],
+                exported_files=[],
+                output_dir=fcpxml_dir,
+                detection_processing_time=detection.processing_time,
+                detection_cost_usd=detection.estimated_cost_usd,
+                srt_failed_count=0,
+            )
+
+        _report(0.30, f"✅ {total}件の話題を検出")
+
         _t3 = _time.time()
         # Phase 5: 無音削除（最終候補にのみ適用）
         if request.remove_silence:
-            for suggestion in suggestions:
+            for i, suggestion in enumerate(suggestions):
+                _report(0.35, f"🔇 無音削除中... ({i + 1}/{total})")
                 self._apply_silence_removal(
                     suggestion, request.video_path, base_dir, transcription=request.transcription
                 )
@@ -111,6 +143,7 @@ class SuggestAndExportUseCase:
 
             speed = round(request.speed, 2)
             speed_label = f"{round(speed, 1)}x"
+            _report(0.45, f"⚡ {speed_label}速度変更中...")
             vp = VideoProcessor(Config())
             speed_path = base_dir / f"source_{speed_label}.mp4"
             vp.create_speed_changed_video(str(actual_video_path), str(speed_path), speed)
@@ -143,7 +176,10 @@ class SuggestAndExportUseCase:
             enable_se=request.enable_se,
         )
         if media_config.has_any:
-            logger.info(media_config.summary())
+            summary = media_config.summary()
+            logger.info(summary)
+            # GUI で素材検出結果を見える化 (preset_dir 解決ミス等の sanity check)
+            _report(0.50, f"🎨 {summary}")
 
         _phase_times["Phase5 無音削除+速度変更"] = _time.time() - _t3
         _t4 = _time.time()
@@ -155,6 +191,7 @@ class SuggestAndExportUseCase:
         if request.generate_srt:
             from use_cases.ai.srt_subtitle_generator import generate_srt as _gen_srt
 
+            _report(0.55, f"📝 SRT 字幕生成中... ({total}件)")
             for i, suggestion in enumerate(suggestions):
                 sanitized = sanitize_filename(suggestion.title)
                 srt_path = fcpxml_dir / f"{i+1:02d}_{sanitized}.srt"
@@ -184,6 +221,7 @@ class SuggestAndExportUseCase:
         # Phase 5.7: タイトル画像生成（バッチ1回のAI呼び出し、Phase A: SRT 渡す）
         title_image_paths: dict[int, Path] = {}
         if request.enable_title_image:
+            _report(0.65, f"🖼 タイトル画像生成中... ({total}件)")
             try:
                 from use_cases.ai.title_image_generator import generate_title_images_batch
 
@@ -208,6 +246,14 @@ class SuggestAndExportUseCase:
                     offset_y=request.title_offset_y,
                     srt_paths=srt_paths_list,
                 )
+                # 部分失敗の可視化 (例: AI rate limit で N/total 件成功)
+                title_failed = total - len(title_image_paths)
+                if title_failed > 0:
+                    _report(
+                        0.68,
+                        f"⚠️ タイトル画像: {len(title_image_paths)}/{total} 成功 ({title_failed} 件失敗)",
+                    )
+                    logger.warning(f"タイトル画像 partial failure: {title_failed}/{total}")
 
             except Exception as e:
                 logger.warning(f"タイトル画像生成をスキップ: {e}")
@@ -215,6 +261,7 @@ class SuggestAndExportUseCase:
         # Phase 5.8: アンカー自動検出（vertical + 手動指定なし + auto_anchor有効時）
         actual_anchor = request.anchor
         if request.auto_anchor and request.timeline_resolution == "vertical" and request.anchor == (0.0, 0.0):
+            _report(0.75, "📍 アンカー検出中...")
             try:
                 from use_cases.ai.auto_anchor_detector import detect_anchor, anchor_to_fcpxml
 
@@ -244,6 +291,10 @@ class SuggestAndExportUseCase:
                     request.scale,
                 )
                 logger.info("アンカー自動検出: %s — %s", actual_anchor, result.description)
+                _report(
+                    0.78,
+                    f"✅ アンカー検出: ({actual_anchor[0]:.1f}, {actual_anchor[1]:.1f}) — {result.description}",
+                )
             except Exception as e:
                 logger.warning("アンカー自動検出スキップ: %s", e)
 
@@ -267,6 +318,7 @@ class SuggestAndExportUseCase:
                     for i, suggestion in enumerate(suggestions, 1):
                         sanitized = sanitize_filename(suggestion.title)
                         clip_id = f"{i:02d}_{sanitized}"
+                        _report(0.80, f"🔒 塗りつぶし overlay 生成中... ({i}/{total})")
                         try:
                             result = blur_uc.execute(
                                 video_path=actual_video_path,
@@ -294,10 +346,14 @@ class SuggestAndExportUseCase:
         exported_files: list[Path] = []
         for i, suggestion in enumerate(suggestions, 1):
             sanitized = sanitize_filename(suggestion.title)
+            # 進捗を 0.85〜0.99 のレンジに per-clip でマップ (collision 回避 + 進む見え方)
+            clip_progress = 0.85 + 0.14 * (i / total) if total else 0.85
+            _report(clip_progress, f"📄 FCPXML 生成中... ({i}/{total})")
 
             # AI SE配置を計算（SEファイルがある場合）
             ai_se_placements = None
             if request.enable_se and media_config and media_config.additional_audio_settings:
+                _report(clip_progress, f"🔊 AI SE配置中... ({i}/{total})")
                 ai_se_placements = self._compute_ai_se_placements(
                     suggestion=suggestion,
                     transcription=request.transcription,
@@ -341,6 +397,8 @@ class SuggestAndExportUseCase:
             pct = elapsed / _total * 100 if _total > 0 else 0
             logger.info(f"  {phase}: {elapsed:.1f}s ({pct:.0f}%)")
         logger.info(f"  合計: {_total:.1f}s")
+
+        _report(1.0, f"✅ {total}件の切り抜きを生成完了")
 
         return SuggestAndExportResult(
             suggestions=suggestions,

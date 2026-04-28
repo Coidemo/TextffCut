@@ -408,7 +408,11 @@ make pre-commit
     - **プロンプト**: `prompts/title_image_candidates_from_srt.md` (SRT モード用)、`title_image_candidates.md` (既存モード用) の 2 種類。`design_title_layout_candidates(srt_text=...)` で分岐
     - **`{MAX_LINE_CHARS}` placeholder**: プロンプト内の文字数制限は `_TITLE_FORCE_BREAK_THRESHOLD` 定数から流し込み (= プロンプトとコード定数の同期維持)
     - **失敗時 graceful degradation**: SRT 生成失敗 → `SuggestAndExportResult.srt_failed_count` でカウント、対応 clip は title ベースにフォールバック。AI 候補生成失敗 → fallback design (元 title) で render
-11. **リリース手順 (本体 + Homebrew tap)**: TextffCut の version up は 2 リポジトリ (本体 + `Coidemo/homebrew-textffcut`) に反映する 8 ステップ手順。詳細手順とつまずきポイントは memory `release_workflow_runbook.md` に記録。要点のみ記載:
+11. **GUI と CLI は use_case.execute() 1 本に統合 (PR refactor/integrate-gui-cli-pipeline)**: AI 自動切り抜きパイプライン (Phase 1〜FCPXML 出力) は `use_cases/ai/suggest_and_export.py::SuggestAndExportUseCase.execute` のみが**唯一の真実**。GUI (`presentation/views/text_editor.py::_execute_ai_clip`) は `SuggestAndExportRequest` を組んで `use_case.execute(request)` を呼ぶだけ。Phase 間の進捗表示は `request.progress_reporter: Callable[[float, str], None]` で受け取る (streamlit の `progress_text.write` を closure で渡す)。
+    - **過去の問題**: GUI が inline で同じパイプラインを書き写して ~280 行重複 → PR #122-124 (word 救済) で CLI 直しても GUI に伝播し忘れる事故、Phase 番号 drift (CLI: 5/5.5/5.6 vs GUI: 2/3.5/3.6)、SRT params 脱落、preset_dir ハードコード、transcription 変換で words/chars 脱落 (silent silence-removal failure の遠因)。すべて統合で解消。
+    - **callback 失敗の握りつぶし**: progress_reporter 内の例外は本処理を止めない (use_case 内で `try/except` + `logger.warning`)。streamlit context error 等で本処理が落ちないため。
+    - **drift しないルール**: 新しい Phase / 新しい param を追加するときは `SuggestAndExportRequest` と `execute()` の中だけに足す。GUI の `_execute_ai_clip` は Request を組み立てる以外のロジックを持たないこと。
+12. **リリース手順 (本体 + Homebrew tap)**: TextffCut の version up は 2 リポジトリ (本体 + `Coidemo/homebrew-textffcut`) に反映する 8 ステップ手順。詳細手順とつまずきポイントは memory `release_workflow_runbook.md` に記録。要点のみ記載:
     - **CLAUDE.md と pyproject.toml の version 整合性**: CLAUDE.md は手動更新で pyproject.toml とずれやすい。release 前に両方確認。
     - **`gh release create` は使えない**: tag push で GitHub Actions が空 Release を自動作成するため `gh release create` は HTTP 422。`gh release edit vX.Y.Z --notes "..."` で notes を後付けする。
     - **Homebrew tap の `commit.gpgsign=true`**: `Coidemo/homebrew-textffcut` clone 後は `git config --local commit.gpgsign false` を実行しないと commit 失敗 (本体 repo は false 設定済み)。
