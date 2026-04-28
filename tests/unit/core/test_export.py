@@ -340,6 +340,63 @@ class TestBlurOverlayFCPXML:
         )
         assert '<adjust-conform type="none"/>' not in block
 
+    def test_blur_png_and_title_png_distinct_names(self, tmp_path, monkeypatch):
+        """blur PNG と title PNG は異なるファイル名で出力されること
+        (DaVinci の <asset name="..."> 衝突回避)。
+
+        BlurOverlayUseCase v3 で blur PNG のファイル名は "_blur" suffix が付くため、
+        title_images/01_xxx.png と blur_overlays/01_xxx_blur.png で区別される。
+        """
+        from unittest.mock import MagicMock
+
+        from config import Config
+        from core import export as export_mod
+        from core.export import ExportSegment, FCPXMLExporter
+
+        video_path = tmp_path / "source.mp4"
+        video_path.write_bytes(b"fake")
+
+        # 実運用の命名: blur 側は "_blur" suffix 付き
+        blur_png = tmp_path / "blur_overlays" / "01_test_blur.png"
+        blur_png.parent.mkdir(parents=True)
+        blur_png.write_bytes(b"\x89PNG\r\n")
+        # title 側は無加工
+        title_png = tmp_path / "title_images" / "01_test.png"
+        title_png.parent.mkdir(parents=True)
+        title_png.write_bytes(b"\x89PNG\r\n")
+
+        fake_info = MagicMock()
+        fake_info.duration = 60.0
+        fake_info.fps = 30
+        fake_info.width = 1920
+        fake_info.height = 1080
+        monkeypatch.setattr(export_mod.VideoInfo, "from_file", lambda *a, **kw: fake_info)
+
+        segments = [
+            ExportSegment(source_path=str(video_path), start_time=0.0, end_time=5.0, timeline_start=0.0),
+        ]
+        out = tmp_path / "out.fcpxml"
+        exporter = FCPXMLExporter(Config())
+        ok = exporter.export(
+            segments=segments,
+            output_path=str(out),
+            blur_overlays=[{"png_path": str(blur_png), "start_sec": 0.0, "end_sec": 5.0}],
+            title_settings={"title_path": str(title_png)},
+        )
+        assert ok
+        xml = out.read_text()
+
+        # 両者の asset name が衝突しない
+        import re
+        from collections import Counter
+
+        png_asset_names = re.findall(r'<asset [^>]*name="([^"]+\.png)"', xml)
+        name_counts = Counter(png_asset_names)
+        for name, cnt in name_counts.items():
+            assert cnt == 1, f"PNG asset name '{name}' が {cnt} 回出現 (DaVinci で衝突)"
+        assert "01_test_blur.png" in name_counts
+        assert "01_test.png" in name_counts
+
     def test_blur_overlay_outside_segments_not_registered(self, mock_video, tmp_path):
         """どの segment にも overlap しない blur overlay は asset として登録されない.
 
